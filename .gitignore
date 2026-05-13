@@ -1,0 +1,19 @@
+dcu/*
+__history/
+*.identcache
+*.local
+.claude/
+*.dcu
+*.xml
+*.exe
+
+# exe/ contem o OBS bundled (gigante) + build output. Ignora tudo,
+# mas mantem NoOBS.exe (build pronto pra quem nao quer compilar) e
+# WebView2Loader.dll (dependencia necessaria pra rodar).
+exe/*
+!exe/bin/
+exe/bin/*
+!exe/bin/64bit/
+exe/bin/64bit/*
+!exe/bin/64bit/WebView2Loader.dll
+!exe/bin/64bit/NoOBS.exe

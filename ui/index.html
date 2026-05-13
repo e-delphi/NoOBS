@@ -1,0 +1,3203 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoOBS</title>
+<style>
+  /* === Tema dark (default) === */
+  :root {
+    --bg:        #0a0a0c;
+    --panel:     #131316;
+    --panel-2:   #1a1a1e;
+    --panel-3:   #202024;
+    --border:    #26262b;
+    --border-2:  #36363c;
+    --text:      #e4e4e7;
+    --text-2:    #a1a1aa;
+    --text-3:    #71717a;
+    --accent:    #3b82f6;
+    --accent-2:  #60a5fa;
+    --accent-bg: rgba(59, 130, 246, 0.10);
+    --accent-bd: rgba(59, 130, 246, 0.20);
+    --danger:    #dc2626;
+    --danger-2:  #ef4444;
+    --success:   #10b981;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --thumb-bg:  linear-gradient(135deg, #1f1f23 0%, #0f0f12 100%);
+    --thumb-fg:  rgba(255, 255, 255, 0.3);
+  }
+  /* === Tema light === */
+  [data-theme="light"] {
+    --bg:        #f4f4f5;
+    --panel:     #ffffff;
+    --panel-2:   #fafafa;
+    --panel-3:   #f4f4f5;
+    --border:    #e4e4e7;
+    --border-2:  #d4d4d8;
+    --text:      #18181b;
+    --text-2:    #52525b;
+    --text-3:    #71717a;
+    --accent:    #2563eb;
+    --accent-2:  #3b82f6;
+    --accent-bg: rgba(37, 99, 235, 0.07);
+    --accent-bd: rgba(37, 99, 235, 0.18);
+    --danger:    #dc2626;
+    --danger-2:  #ef4444;
+    --success:   #059669;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --thumb-bg:  linear-gradient(135deg, #e4e4e7 0%, #d4d4d8 100%);
+    --thumb-fg:  rgba(0, 0, 0, 0.22);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.4;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    padding: 3px;
+    transition: background 0.25s, color 0.2s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Permite selecao em campos editaveis */
+  input, textarea, [contenteditable="true"], .editing {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  /* Margem externa fica vermelha durante a gravacao */
+  body.recording {
+    background: var(--danger-2);
+  }
+
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border-radius: 5px;
+    overflow: hidden;
+    transition: box-shadow 0.25s;
+  }
+
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  /* Icon button (acoes do header de gravacoes) */
+  .icon-btn {
+    width: 30px; height: 30px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--text-2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+  }
+  .icon-btn:hover { background: var(--panel-2); color: var(--text); }
+
+  /* Mostra o sol quando esta no dark (clicar troca pra light); lua no light. */
+  .theme-icon { display: none; }
+  [data-theme="dark"]  .theme-sun  { display: block; }
+  [data-theme="light"] .theme-moon { display: block; }
+
+  /* === Main === */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(360px, 400px) 1fr;
+    min-height: 0;
+  }
+
+  /* === Sources === */
+  .sources {
+    position: relative;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px 12px;
+    background: var(--panel);
+  }
+
+  /* Big record button at top */
+  .record-block {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 18px;
+  }
+  .record-btn {
+    width: 100%;
+    height: 42px;
+    border: 1px solid rgba(0,0,0,0.15);
+    border-radius: 8px;
+    background: #b1322f;
+    color: rgba(255,255,255,0.95);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: background 0.15s, transform 0.1s;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      0 1px 2px rgba(0,0,0,0.25);
+  }
+  .record-btn:hover {
+    background: #c43a37;
+  }
+  .record-btn:active { transform: translateY(1px); }
+  .record-btn .icon {
+    width: 11px; height: 11px;
+    background: rgba(255,255,255,0.9);
+    border-radius: 50%;
+    transition: border-radius 0.15s;
+  }
+  .record-btn.recording {
+    background: #2a2a2e;
+    border-color: rgba(255,255,255,0.04);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.05),
+      0 1px 2px rgba(0,0,0,0.3);
+  }
+  .record-btn.recording:hover { background: #34343a; }
+  .record-btn.recording .icon { border-radius: 2px; }
+  /* Light theme: dark text variant of recording state */
+  [data-theme="light"] .record-btn.recording {
+    background: #27272a;
+    color: white;
+  }
+
+  .rec-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 9px;
+    height: 16px;
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .rec-status .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+    flex-shrink: 0;
+  }
+  .rec-status.recording {
+    color: var(--danger-2);
+    font-weight: 600;
+  }
+  .rec-status.recording .dot {
+    background: var(--danger-2);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .rec-status .text {
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  /* Section */
+  .section { margin-bottom: 18px; }
+  .section:last-child { margin-bottom: 0; }
+  .section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px;
+    margin-bottom: 6px;
+  }
+  .section-title h3 {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+  }
+  .section-title .count {
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  /* ===== Display layout (monitores + webcams visuais) ===== */
+  .display-layout {
+    position: relative;
+    width: 100%;
+    height: 250px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+  }
+  /* Bloco "Telas" no topo do painel de gravacoes (dentro do
+     .recordings que ja tem padding lateral de 22px). */
+  .displays-block {
+    padding-top: 14px;
+    margin-bottom: 6px;
+  }
+  .displays-block .section-title {
+    margin: 0 0 8px;
+    padding: 0;
+  }
+  /* Titulo "Telas" + meta (resolucao total) no mesmo padrao do
+     "Gravacoes  N arquivos · X GB" da seccao de gravacoes. */
+  .displays-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+  .displays-block .section-title h3 {
+    font-size: 16px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .displays-title .meta {
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  body.recording .display-layout { pointer-events: none; opacity: 0.6; }
+  .display-rect {
+    position: absolute;
+    border: 1.5px solid var(--border-2);
+    border-radius: 4px;
+    background: var(--thumb-bg);
+    color: var(--text-3);
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s, opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* <img> de preview dentro do rect — preenche tudo, mantem aspect. */
+  .display-rect .display-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+  .display-rect[data-enabled="true"] {
+    border-color: var(--success);
+    box-shadow: 0 0 0 1px var(--success);
+  }
+  .display-rect[data-enabled="false"] { opacity: 0.5; }
+  .display-rect:hover { opacity: 1; }
+  .display-rect .display-label {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    background: rgba(0,0,0,0.6);
+    color: rgba(255,255,255,0.92);
+    border-radius: 3px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* Tipo webcam: cor de fundo distinta + icone */
+  .display-rect[data-type="webcam"] {
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f2240 100%);
+  }
+  .display-rect[data-type="webcam"] .display-cam-icon {
+    width: 28px;
+    height: 28px;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+  /* Check no canto superior direito do rect — mesmo estilo do .rec-check. */
+  .display-check {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255,255,255,0.75);
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    transition: background 0.12s, border-color 0.12s;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+  }
+  .display-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .display-rect[data-enabled="true"] .display-check {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .display-rect[data-enabled="true"] .display-check svg { stroke: white; }
+
+  .source-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+  }
+  .source-item:hover { background: var(--panel-2); }
+  [data-theme="light"] .source-item:hover { background: var(--panel-3); }
+
+  /* Durante gravacao: bloqueia interacao com sources e dim o visual.
+     Hover/click ficam inertes; toggles ficam congelados no estado atual. */
+  body.recording .source-item {
+    pointer-events: none;
+    opacity: 0.5;
+    transition: opacity 0.25s;
+  }
+
+  /* Toggle switch (iOS-style) */
+  .toggle {
+    width: 32px;
+    height: 18px;
+    background: var(--border-2);
+    border-radius: 9px;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.35),
+      0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  }
+  .source-item.selected .toggle { background: var(--success); }
+  .source-item.selected .toggle::after { transform: translateX(14px); }
+
+  .source-meta { flex: 1; min-width: 0; position: relative; }
+  .source-meter {
+    position: relative;
+    height: 3px;
+    margin-top: 4px;
+    background: var(--panel-3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .source-meter-fill {
+    position: absolute;
+    inset: 0 100% 0 0;
+    background: linear-gradient(to right,
+      var(--success) 0%, var(--success) 70%, #facc15 85%, var(--danger-2) 100%);
+    transition: right 90ms linear;
+  }
+  /* Source desativada: meter quase invisivel */
+  .source-item:not(.selected) .source-meter-fill { opacity: 0.25; }
+  .source-thumb {
+    width: 110px;
+    height: 62px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--panel-3);
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+  }
+  .source-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .source-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .source-info {
+    font-size: 10.5px;
+    color: var(--text-3);
+    margin-top: 1px;
+  }
+
+  /* === Recordings === */
+  .recordings {
+    overflow-y: auto;
+    padding: 0 22px 18px;
+  }
+  .recordings-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* flex-wrap permite que `.recordings-actions` (search + icon
+       buttons) caia pra uma 2.a linha quando a largura do painel nao
+       acomoda tudo na mesma linha — sem isso o input empurra os
+       textos e fica overlapping. */
+    flex-wrap: wrap;
+    row-gap: 10px;
+    /* Margem negativa horizontal pra cobrir o padding lateral do
+       .recordings (22px) — sem isso os 22px de cada lado ficam
+       transparentes durante o scroll e os cards aparecem por tras.
+       margin-bottom=0: sem gap entre header e primeiro divisor de
+       data, pra a altura sticky bater com a rest. */
+    margin: 0 -22px 0;
+    padding: 14px 22px;
+    background: var(--bg);
+    /* sem border-bottom: o separador eh o border-bottom do
+       .rec-group-title que vem logo abaixo. Com border aqui, em rest
+       sobra 1px entre header e titulo que desaparece em sticky
+       (o titulo cobre o border) — quebra a igualdade visual. */
+  }
+  .recordings-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    /* flex-basis: 200px = encolhe ate 200px na mesma linha; abaixo
+       disso wrappa pra cima do .recordings-actions. */
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .recordings-title h2 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .recordings-title .meta { font-size: 11px; color: var(--text-3); }
+  /* Grupo "input de busca + botoes de acao" — wrappa pra 2.a linha
+     quando nao cabe junto do titulo na mesma linha. */
+  .recordings-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .search {
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+    width: 220px;
+    transition: all 0.12s;
+  }
+  .search:focus {
+    outline: none;
+    border-color: var(--success);
+    background: var(--panel-2);
+  }
+  .search::placeholder { color: var(--text-3); }
+
+  .recording-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .rec-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    /* Sticky logo abaixo do .recordings-header (~58px). Estende
+       lateralmente com margem negativa pra cobrir o padding do
+       .recordings (22px) — sem isso os cards aparecem nas laterais
+       quando o titulo gruda. */
+    position: sticky;
+    top: 58px;
+    z-index: 20;
+    margin: 0 -22px 8px;
+    padding: 6px 22px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  /* Checkbox quadrado do grupo (seleciona/desseleciona o periodo).
+     Mesma estetica do .rec-check pra consistencia. */
+  .rec-group-check {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid var(--border-2);
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .rec-group-check:hover { border-color: var(--success); }
+  .rec-group-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .rec-group-check[data-state="all"] {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .rec-group-check[data-state="all"] svg { stroke: white; }
+  /* Indeterminate: tracinho horizontal branco em vez do check. */
+  .rec-group-check[data-state="some"] {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .rec-group-check[data-state="some"]::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 2px;
+    background: white;
+    border-radius: 1px;
+  }
+  .rec-group-check[data-state="some"] svg { stroke: transparent; }
+  .rec-group-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  .rec-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .rec-card:hover {
+    border-color: var(--border-2);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .rec-card .thumb {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: var(--thumb-bg);
+    color: var(--thumb-fg);
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  /* Checkbox quadrado (com check SVG) no canto superior DIREITO da
+     thumb. Escondido por padrao, aparece em hover do card OU sempre
+     quando algum card ja esta selecionado (modo selecao). */
+  .rec-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255,255,255,0.75);
+    background: rgba(0,0,0,0.55);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, border-color 0.12s;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+  }
+  .rec-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .rec-card:hover .rec-check,
+  body.rec-select-mode .rec-check { opacity: 1; }
+  .rec-card[data-selected="true"] .rec-check {
+    background: var(--success);
+    border-color: var(--success);
+    opacity: 1;
+  }
+  .rec-card[data-selected="true"] .rec-check svg { stroke: white; }
+  .rec-card[data-selected="true"] {
+    box-shadow: 0 0 0 2px var(--success);
+  }
+  .rec-card .thumb-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .rec-card .duration {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    background: rgba(0,0,0,0.85);
+    color: rgba(255,255,255,0.95);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(255,255,255,0.06);
+    font-weight: 500;
+  }
+  .rec-card .body { padding: 8px 10px 10px; }
+  .rec-card .when {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 4px;
+    margin: -2px -4px;
+    padding: 2px 4px;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .rec-card .when.editing {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    background: var(--panel-2);
+    box-shadow: 0 0 0 1.5px var(--success);
+    cursor: text;
+    outline: none;
+  }
+  .rec-card .size {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Context menu (right-click) */
+  .ctx-menu {
+    position: fixed;
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    z-index: 1000;
+    min-width: 150px;
+    user-select: none;
+  }
+  .ctx-item {
+    padding: 7px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .ctx-item:hover { background: var(--panel-3); }
+  .ctx-item.danger { color: var(--danger-2); }
+  .ctx-item.danger:hover { background: var(--danger); color: white; }
+  .ctx-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+  /* ===== Loading overlay (apenas sobre a sidebar de sources) ===== */
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 18px;
+    border-radius: inherit;
+    transition: opacity 280ms ease, visibility 280ms ease;
+  }
+  .loading-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .loading-spinner {
+    width: 42px;
+    height: 42px;
+    position: relative;
+  }
+  .loading-spinner::before,
+  .loading-spinner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid transparent;
+  }
+  .loading-spinner::before {
+    border-top-color: var(--success);
+    border-right-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+  .loading-spinner::after {
+    border: 3px solid var(--border);
+    opacity: 0.4;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .loading-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.5px;
+  }
+  .loading-brand .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 12px var(--success);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; transform: scale(0.85); }
+    50%      { opacity: 1;   transform: scale(1.1); }
+  }
+  .loading-text {
+    font-size: 13px;
+    color: var(--text-2);
+    letter-spacing: 0.3px;
+  }
+  .loading-dots::after {
+    content: '';
+    display: inline-block;
+    width: 1.2em;
+    text-align: left;
+    animation: dots 1.4s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0%   { content: ''; }
+    25%  { content: '.'; }
+    50%  { content: '..'; }
+    75%  { content: '...'; }
+  }
+
+  /* ===== Player modal ===== */
+  .player-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 12px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 200ms ease, visibility 200ms ease;
+  }
+  .player-overlay.visible { opacity: 1; visibility: visible; }
+  .player {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .player-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.4);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .player-title {
+    flex: 1;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-close {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: background 150ms ease;
+  }
+  .player-close:hover { background: rgba(255,255,255,0.1); }
+
+  .player-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    background: #000;
+  }
+  .player-stage {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  .player-stage.zoomed { cursor: grab; }
+  .player-stage.zoomed.dragging { cursor: grabbing; }
+  .player-stage video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    transform-origin: 0 0;
+    transition: none;
+    will-change: transform;
+  }
+  .player-zoom-badge {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+  .player-stage.zoomed .player-zoom-badge { opacity: 1; }
+
+  .player-loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: #fff;
+    font-size: 13px;
+    background: rgba(0,0,0,0.5);
+  }
+  .player-loading.visible { display: flex; }
+  .player-loading .spin {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+
+  /* Painel lateral de informacoes do video */
+  .player-info-panel {
+    width: 0;
+    overflow: hidden;
+    background: rgba(15,15,15,0.96);
+    border-left: 1px solid rgba(255,255,255,0.06);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    transition: width 220ms ease;
+    flex-shrink: 0;
+  }
+  .player-info-panel.open { width: 320px; }
+  .player-info-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .player-info-close {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    font-size: 18px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms, color 120ms;
+  }
+  .player-info-close:hover {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+  }
+  .player-info-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    font-size: 12px;
+    width: 320px;
+    box-sizing: border-box;
+  }
+  .player-info-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 40px 0;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+  }
+  .player-info-loading .spin {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255,255,255,0.15);
+    border-top-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+  .player-info-section {
+    margin-bottom: 18px;
+  }
+  .player-info-section:last-child { margin-bottom: 0; }
+  .player-info-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .player-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 0;
+    line-height: 1.4;
+  }
+  .player-info-key {
+    color: rgba(255,255,255,0.55);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .player-info-val {
+    color: rgba(255,255,255,0.92);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+  }
+  .player-info-track {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .player-info-track-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--success);
+    margin-bottom: 4px;
+  }
+  .player-info-btn { color: rgba(255,255,255,0.85); }
+  .player-info-btn.active {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+  }
+
+  .player-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+  }
+  .player-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 150ms ease;
+  }
+  .player-btn:hover { background: rgba(255,255,255,0.12); }
+  .player-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+  .player-time {
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+    font-variant-numeric: tabular-nums;
+    min-width: 90px;
+    text-align: center;
+  }
+
+  .player-seek {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0%, var(--success) var(--p, 0%),
+      rgba(255,255,255,0.15) var(--p, 0%), rgba(255,255,255,0.15) 100%);
+    outline: none;
+    cursor: pointer;
+  }
+  .player-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    cursor: pointer;
+    box-shadow: 0 0 0 0 rgba(16,185,129,0);
+    transition: box-shadow 150ms ease;
+  }
+  .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(16,185,129,0.2);
+  }
+
+  .player-volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .player-volume {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.85) var(--vp, 100%),
+      rgba(255,255,255,0.15) var(--vp, 100%), rgba(255,255,255,0.15) 100%);
+    cursor: pointer;
+  }
+  .player-volume::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  /* ===== Settings modal ===== */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 8500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease, visibility 180ms ease;
+  }
+  .settings-overlay.visible { opacity: 1; visibility: visible; }
+  .settings-modal {
+    width: 100%;
+    max-width: 520px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .settings-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+  }
+  .settings-body { padding: 18px; }
+  .settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .settings-field label {
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .settings-input-row {
+    display: flex;
+    gap: 8px;
+  }
+  .settings-input {
+    flex: 1;
+    padding: 8px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 150ms ease;
+  }
+  .settings-input:focus { border-color: var(--success); }
+  .settings-btn {
+    padding: 8px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .settings-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .settings-btn.primary {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+  }
+  .settings-btn.primary:hover { filter: brightness(1.1); }
+  .settings-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    background: var(--panel-2);
+  }
+
+  /* ===== Confirm modal ===== */
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 160ms ease, visibility 160ms ease;
+  }
+  .confirm-overlay.visible { opacity: 1; visibility: visible; }
+  .confirm-modal {
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+    transform: scale(0.96);
+    transition: transform 160ms ease;
+  }
+  .confirm-overlay.visible .confirm-modal { transform: scale(1); }
+  .confirm-body {
+    padding: 22px 22px 8px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .confirm-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger-2);
+  }
+  .confirm-icon svg { width: 22px; height: 22px; fill: currentColor; }
+  .confirm-text { flex: 1; min-width: 0; }
+  .confirm-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .confirm-msg {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .confirm-footer {
+    padding: 14px 22px 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .confirm-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .confirm-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .confirm-btn.danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  .confirm-btn.danger:hover { filter: brightness(1.1); }
+
+  /* ===== Banner persistente (na sidebar) ===== */
+  .banner {
+    background: #facc15;
+    color: #1c1917;
+    border: 1px solid #ca8a04;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner .banner-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  /* ===== Toast notifications ===== */
+  .toast-stack {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 8800;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    min-width: 280px;
+    max-width: 380px;
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    color: var(--text);
+    font-size: 13px;
+    opacity: 0;
+    transform: translateY(-12px);
+    transition: opacity 200ms ease, transform 200ms ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.warn {
+    background: #facc15;
+    border-color: #ca8a04;
+    color: #1c1917;
+  }
+  .toast.warn .toast-msg { color: #44403c; }
+  .toast .toast-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .toast .toast-msg {
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- ===== Toast stack ===== -->
+<div class="toast-stack" id="toastStack"></div>
+
+<!-- ===== Confirm modal (generico) ===== -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-modal">
+    <div class="confirm-body">
+      <div class="confirm-icon" id="confirmIcon">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3V6zm3 3h12l-1 12H7L6 9zm5-7h2v2h-2V2zm-3 1h8v1H8V3z"/></svg>
+      </div>
+      <div class="confirm-text">
+        <div class="confirm-title" id="confirmTitle">Confirmar</div>
+        <div class="confirm-msg" id="confirmMsg">Tem certeza?</div>
+      </div>
+    </div>
+    <div class="confirm-footer">
+      <button class="confirm-btn" id="confirmCancel">Cancelar</button>
+      <button class="confirm-btn danger" id="confirmOk">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Settings modal ===== -->
+<div class="settings-overlay" id="settingsOverlay">
+  <div class="settings-modal">
+    <div class="settings-header">
+      <h3>Configurações</h3>
+      <button class="player-close" onclick="Settings.close()" title="Fechar">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-field">
+        <label>Pasta de saída das gravações</label>
+        <div class="settings-input-row">
+          <input type="text" class="settings-input" id="settingsRecDir" placeholder="C:\Users\...\Videos">
+          <button class="settings-btn" onclick="Settings.pickFolder()">Procurar...</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button class="settings-btn" onclick="Settings.close()">Cancelar</button>
+      <button class="settings-btn primary" onclick="Settings.save()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Player modal ===== -->
+<div class="player-overlay" id="playerOverlay">
+  <div class="player">
+    <div class="player-header">
+      <div class="player-title" id="playerTitle">—</div>
+      <button class="player-close" id="playerClose" title="Fechar (Esc)">×</button>
+    </div>
+    <div class="player-body">
+      <div class="player-stage" id="playerStage">
+        <video id="playerVideo" preload="auto" playsinline></video>
+        <div class="player-zoom-badge" id="playerZoomBadge">100%</div>
+        <div class="player-loading" id="playerLoading">
+          <div class="spin"></div>
+          <div id="playerLoadingText">Preparando vídeo...</div>
+        </div>
+      </div>
+      <aside class="player-info-panel" id="playerInfoPanel" aria-hidden="true">
+        <div class="player-info-header">
+          <span>Informações do vídeo</span>
+          <button class="player-info-close" id="playerInfoClose" title="Fechar">×</button>
+        </div>
+        <div class="player-info-body" id="playerInfoBody">
+          <div class="player-info-loading">
+            <div class="spin"></div>
+            <span>Analisando arquivo...</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+    <div class="player-controls">
+      <button class="player-btn" id="playerPlay" title="Play/Pause (Espaço)">
+        <svg viewBox="0 0 24 24" id="playerPlayIcon"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <span class="player-time" id="playerTime">00:00 / 00:00</span>
+      <input type="range" class="player-seek" id="playerSeek" min="0" max="1000" value="0">
+      <div class="player-volume-wrap">
+        <button class="player-btn" id="playerMute" title="Mudo (M)">
+          <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
+        </button>
+        <input type="range" class="player-volume" id="playerVolume" min="0" max="100" value="100">
+      </div>
+      <button class="player-btn player-info-btn" id="playerInfo" title="Informações do vídeo">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- ===== Main ===== -->
+  <div class="main">
+
+    <!-- ===== Sources ===== -->
+    <aside class="sources">
+
+      <!-- Loading overlay (cobre apenas a sidebar) -->
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loadingText"><span>Carregando recursos</span><span class="loading-dots"></span></div>
+      </div>
+
+      <!-- Banner pendente (hot-plug de audio durante gravacao) -->
+      <div class="banner" id="audioRefreshBanner">
+        <div class="banner-title">Dispositivo de áudio mudou</div>
+        <div>A lista será atualizada assim que você parar a gravação.</div>
+      </div>
+
+      <!-- Banner pendente (mudanca de display durante gravacao) -->
+      <div class="banner" id="monitorRefreshBanner">
+        <div class="banner-title">Configuração de monitor mudou</div>
+        <div>A lista será atualizada assim que você parar a gravação.</div>
+      </div>
+
+      <!-- Botão de gravar -->
+      <div class="record-block">
+        <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
+          <span class="icon"></span>
+          <span id="recordLabel">Iniciar gravação</span>
+        </button>
+        <div class="rec-status" id="recStatus">
+          <span class="dot"></span>
+          <span class="text" id="recStatusText">00:00:00</span>
+        </div>
+      </div>
+
+      <div class="section" data-kind="mic">
+        <div class="section-title">
+          <h3>Microfones</h3>
+          <span class="count" id="micCount">— / —</span>
+        </div>
+        <div id="micList"></div>
+      </div>
+
+      <div class="section" data-kind="speaker">
+        <div class="section-title">
+          <h3>Alto-falantes</h3>
+          <span class="count" id="spkCount">— / —</span>
+        </div>
+        <div id="spkList"></div>
+      </div>
+
+    </aside>
+
+    <!-- ===== Recordings ===== -->
+    <section class="recordings">
+      <div class="section displays-block" data-kind="monitor">
+        <div class="section-title">
+          <div class="displays-title">
+            <h3>Telas</h3>
+            <span class="meta" id="monMeta"></span>
+          </div>
+          <span class="count" id="monCount">— / —</span>
+        </div>
+        <div id="displayLayout" class="display-layout"></div>
+      </div>
+
+      <div class="recordings-header">
+        <div class="recordings-title">
+          <h2>Gravações</h2>
+          <span class="meta" id="recMeta">—</span>
+        </div>
+        <div class="recordings-actions">
+        <input type="text" class="search" id="searchInput"
+               placeholder="Buscar...">
+        <button class="icon-btn" id="openDirBtn" onclick="Bridge.send('open_record_dir')" title="Abrir pasta de gravações">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" onclick="Settings.open()" title="Configurações">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Alternar tema">
+          <svg class="theme-icon theme-sun" width="15" height="15" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+          <svg class="theme-icon theme-moon" width="15" height="15" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
+        </div>
+      </div>
+
+      <div class="empty-state" id="emptyState" style="display:none">
+        Nenhuma gravação encontrada.
+      </div>
+
+      <div class="recording-grid" id="recGrid"></div>
+    </section>
+
+  </div>
+
+</div>
+
+<!-- Context menu de gravacao (top-level, fora de .app) -->
+<div class="ctx-menu" id="ctxMenu" style="display:none">
+  <div class="ctx-item danger" data-action="delete">Excluir</div>
+</div>
+
+<script>
+// =====================================================================
+// Bridge — comunicacao com o host Delphi (OBSBridge.pas)
+// =====================================================================
+const Bridge = {
+  send(type, payload = {}) {
+    try {
+      window.chrome.webview.postMessage(JSON.stringify({ type, ...payload }));
+    } catch (e) {
+      console.warn('Bridge.send falhou:', e);
+    }
+  },
+  init() {
+    if (!window.chrome || !window.chrome.webview) {
+      console.warn('chrome.webview nao disponivel — modo standalone.');
+      return;
+    }
+    window.chrome.webview.addEventListener('message', (e) => {
+      const data = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+      if (!data || !data.type) return;
+      const handler = Bridge.handlers[data.type];
+      if (handler) handler(data);
+      else console.log('Bridge: tipo nao tratado:', data.type, data);
+    });
+    Bridge.send('ready');
+  },
+  handlers: {
+    init(data) {
+      Displays.monitors = data.monitors || [];
+      Displays.webcams  = data.webcams  || [];
+      Displays.render();
+      renderSources('mic', 'micList', 'micCount', data.mics);
+      renderSources('spk', 'spkList', 'spkCount', data.speakers);
+      renderRecordings(data.recordings);
+      if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
+      hideLoading();
+    },
+    init_pending(data) { showLoading(data && data.message); },
+    theme(data) { applyTheme(data.theme); },
+    recordings_loaded(data) {
+      renderRecordings(data.recordings);
+      if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
+    },
+    settings(data) { Settings.applySettings(data); },
+    record_dir_picked(data) { Settings.setPickedPath(data.path); },
+    monitor_thumbs(data) { updateMonitorThumbs(data.items); },
+    audio_meters(data) { updateAudioMeters(data.items); },
+    audio_device_changed(data) {
+      const banner = document.getElementById('audioRefreshBanner');
+      if (banner) banner.classList.toggle('show', !!data.pending);
+    },
+    audio_sources_refreshed(data) {
+      renderSources('mic', 'micList', 'micCount', data.mics);
+      renderSources('spk', 'spkList', 'spkCount', data.speakers);
+      const banner = document.getElementById('audioRefreshBanner');
+      if (banner) banner.classList.remove('show');
+      Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+    },
+    monitor_changed(data) {
+      const banner = document.getElementById('monitorRefreshBanner');
+      if (banner) banner.classList.toggle('show', !!data.pending);
+    },
+    refresh_busy(data) {
+      if (data.busy) {
+        const msg = data.what === 'monitors' ? 'Atualizando monitores'
+                  : data.what === 'audio'    ? 'Atualizando dispositivos de áudio'
+                  : data.what === 'starting' ? 'Iniciando gravação'
+                  : 'Atualizando';
+        showLoading(msg);
+      } else {
+        hideLoading();
+      }
+    },
+    monitors_refreshed(data) {
+      Displays.monitors = data.monitors || [];
+      Displays.render();
+      const banner = document.getElementById('monitorRefreshBanner');
+      if (banner) banner.classList.remove('show');
+      Toast.show('Monitores atualizados', '', { warn: true, ttl: 3000 });
+    },
+    recording_meta(data) { updateRecordingMeta(data); },
+    play_pending(data) { Player.showPending(data.id); },
+    play_url(data) { Player.play(data.url, data.name, data.mode, data.id); },
+    video_info(data) { Player.renderInfo(data); },
+    recording_state(data) { applyRecordingState(data.active, data.elapsed); },
+    recording_added(data) { addRecordingCard(data.item); },
+    recording_renamed(data) { renameRecordingCard(data.oldId, data.newId, data.newName); },
+    recording_removed(data) { removeRecordingCard(data.id); },
+    error(data) {
+      console.error('Bridge error:', data.message);
+      // Toast nao-bloqueante. loadingText nao serve porque o loading
+      // some logo apos o erro (recording_state=false volta o estado
+      // normal) e a mensagem desaparece com ele.
+      Toast.show('Erro', data.message || 'Erro desconhecido',
+                 { warn: true, ttl: 8000 });
+    }
+  }
+};
+
+// =====================================================================
+// Render: sources (monitor / mic / speaker)
+// =====================================================================
+function updateRecordingMeta(data) {
+  if (!data || !data.id) return;
+  const card = document.querySelector(`#recGrid .rec-card[data-id="${CSS.escape(data.id)}"]`);
+  if (!card) return;
+  const thumb = card.querySelector('.thumb');
+  if (!thumb) return;
+
+  // Thumb: substitui o placeholder "▶" por <img>. textContent=''
+  // apagaria o .rec-check / .duration; entao removemos so o placeholder.
+  if (data.thumb) {
+    let img = thumb.querySelector('img');
+    if (!img) {
+      const ph = thumb.querySelector('.thumb-placeholder');
+      if (ph) ph.remove();
+      img = document.createElement('img');
+      img.alt = '';
+      img.className = 'thumb-img';
+      thumb.insertBefore(img, thumb.firstChild);
+    }
+    if (img.src !== data.thumb) img.src = data.thumb;
+  }
+
+  // Duracao: cria/atualiza badge.
+  if (data.duration && data.duration > 0) {
+    let dur = thumb.querySelector('.duration');
+    if (!dur) {
+      dur = document.createElement('span');
+      dur.className = 'duration';
+      thumb.appendChild(dur);
+    }
+    dur.textContent = formatDuration(data.duration);
+  }
+}
+
+function updateAudioMeters(items) {
+  if (!items) return;
+  // OBS manda level linear 0..1. Converte pra dB e mapeia 0..100%
+  // numa curva amigavel (-60dB silencio, 0dB topo).
+  items.forEach(it => {
+    const card = document.querySelector(`.source-item[data-id="${CSS.escape(it.id)}"]`);
+    if (!card) return;
+    const fill = card.querySelector('.source-meter-fill');
+    if (!fill) return;
+    let v = it.level || 0;
+    if (v <= 0) v = 0;
+    else {
+      const db = 20 * Math.log10(v);
+      // -60dB -> 0%, 0dB -> 100%
+      v = Math.max(0, Math.min(1, (db + 60) / 60));
+    }
+    fill.style.right = ((1 - v) * 100) + '%';
+  });
+}
+
+function updateMonitorThumbs(items) {
+  if (!items || !items.length) return;
+  Displays.updateThumbs(items);
+}
+
+// =====================================================================
+// Render: Displays (monitores + webcams num layout visual proporcional)
+// =====================================================================
+const Displays = {
+  monitors: [],
+  webcams:  [],
+  _observer: null,
+
+  init() {
+    const root = document.getElementById('displayLayout');
+    if (!root || this._observer || typeof ResizeObserver === 'undefined') return;
+    // Re-renderiza quando o container muda de tamanho (maximizar,
+    // resize de janela, mudanca de aside). Sem isso os rects ficam
+    // calculados no tamanho antigo e desalinhados.
+    let raf = 0;
+    this._observer = new ResizeObserver(() => {
+      // rAF coalesce — evita render em rajada durante o drag de resize.
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => { raf = 0; this.render(); });
+    });
+    this._observer.observe(root);
+  },
+
+  render() {
+    const root = document.getElementById('displayLayout');
+    if (!root) return;
+    root.innerHTML = '';
+
+    const monW = (m) => Number(m.width)  || 0;
+    const monH = (m) => Number(m.height) || 0;
+    const monX = (m) => Number(m.x) || 0;
+    const monY = (m) => Number(m.y) || 0;
+
+    if (this.monitors.length === 0 && this.webcams.length === 0) {
+      this._updateCount();
+      return;
+    }
+
+    // 1. Bounding dos monitores em coordenadas do desktop.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    this.monitors.forEach(m => {
+      const x = monX(m), y = monY(m), w = monW(m), h = monH(m);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x + w > maxX) maxX = x + w;
+      if (y + h > maxY) maxY = y + h;
+    });
+    if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
+
+    // 2. Posiciona webcams a direita do bounding dos monitores, em y=0,
+    //    empilhadas horizontalmente. Reflete o que BuildRecordingScene
+    //    faz com elas no canvas final.
+    const camRects = [];
+    let camX = maxX;
+    this.webcams.forEach(c => {
+      const w = Number(c.width)  || 1280;
+      const h = Number(c.height) || 720;
+      camRects.push({ cam: c, x: camX, y: 0, w, h });
+      camX += w;
+    });
+    if (camRects.length > 0) {
+      if (camX > maxX) maxX = camX;
+      // y=0 ja esta dentro de [minY, maxY]; altura da cam pode
+      // ultrapassar maxY se monitores fossem menores — improvavel,
+      // mas trata por seguranca.
+      camRects.forEach(r => { if (r.y + r.h > maxY) maxY = r.y + r.h; });
+    }
+
+    const totalW = Math.max(1, maxX - minX);
+    const totalH = Math.max(1, maxY - minY);
+    const boxW = root.clientWidth  || 360;
+    const boxH = root.clientHeight || 200;
+    const pad = 8; // margem interna pra rects nao colarem na borda
+    const availW = boxW - pad * 2;
+    const availH = boxH - pad * 2;
+    // Escala uniforme pra manter aspect ratio e caber dentro.
+    const scale = Math.min(availW / totalW, availH / totalH);
+    // Centraliza o conteudo no box.
+    const offsetX = pad + (availW - totalW * scale) / 2;
+    const offsetY = pad + (availH - totalH * scale) / 2;
+
+    // 3. Cria rect pra cada monitor.
+    this.monitors.forEach(m => {
+      const rect = document.createElement('div');
+      rect.className = 'display-rect';
+      rect.dataset.type = 'monitor';
+      rect.dataset.id = m.id;
+      rect.dataset.kind = 'monitor';
+      rect.dataset.enabled = m.enabled ? 'true' : 'false';
+      rect.style.left   = (offsetX + (monX(m) - minX) * scale) + 'px';
+      rect.style.top    = (offsetY + (monY(m) - minY) * scale) + 'px';
+      rect.style.width  = (monW(m) * scale) + 'px';
+      rect.style.height = (monH(m) * scale) + 'px';
+      // <img> filho — preview ao vivo. updateThumbs so troca o src.
+      const img = document.createElement('img');
+      img.className = 'display-thumb';
+      img.alt = '';
+      if (m.thumb) img.src = m.thumb;
+      rect.appendChild(img);
+      const label = document.createElement('div');
+      label.className = 'display-label';
+      label.textContent = m.name || 'Monitor';
+      rect.appendChild(label);
+      this._appendCheck(rect);
+      rect.onclick = () => this._toggle(rect, m, 'monitor');
+      root.appendChild(rect);
+    });
+
+    // 4. Cria rect pra cada webcam.
+    camRects.forEach(r => {
+      const c = r.cam;
+      const rect = document.createElement('div');
+      rect.className = 'display-rect';
+      rect.dataset.type = 'webcam';
+      rect.dataset.id = c.id;
+      rect.dataset.kind = 'webcam';
+      rect.dataset.enabled = c.enabled ? 'true' : 'false';
+      rect.style.left   = (offsetX + (r.x - minX) * scale) + 'px';
+      rect.style.top    = (offsetY + (r.y - minY) * scale) + 'px';
+      rect.style.width  = (r.w * scale) + 'px';
+      rect.style.height = (r.h * scale) + 'px';
+      // Icone de camera no centro.
+      const icon = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      icon.setAttribute('class', 'display-cam-icon');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('fill', 'none');
+      icon.setAttribute('stroke', 'rgba(255,255,255,0.85)');
+      icon.setAttribute('stroke-width', '2');
+      icon.setAttribute('stroke-linecap', 'round');
+      icon.setAttribute('stroke-linejoin', 'round');
+      icon.innerHTML =
+        '<path d="M23 7l-7 5 7 5V7z"/>' +
+        '<rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>';
+      rect.appendChild(icon);
+      const label = document.createElement('div');
+      label.className = 'display-label';
+      label.textContent = c.name || 'Webcam';
+      label.style.position = 'absolute';
+      label.style.bottom = '4px';
+      label.style.left = '4px';
+      rect.appendChild(label);
+      this._appendCheck(rect);
+      rect.onclick = () => this._toggle(rect, c, 'webcam');
+      root.appendChild(rect);
+    });
+
+    this._updateCount();
+  },
+
+  // Atualiza so o background-image dos rects de monitor existentes —
+  // chamado pelo timer do backend a cada 1s pra mostrar preview ao
+  // vivo sem reconstruir o DOM (que causaria flicker).
+  updateThumbs(items) {
+    const root = document.getElementById('displayLayout');
+    if (!root) return;
+    const byId = {};
+    root.querySelectorAll('.display-rect').forEach(r => {
+      byId[r.dataset.id] = r;
+    });
+    items.forEach(it => {
+      const m = this.monitors.find(x => x.id === it.id);
+      if (m && it.thumb) m.thumb = it.thumb;
+      const rect = byId[it.id];
+      if (!rect || !it.thumb) return;
+      let img = rect.querySelector('img.display-thumb');
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'display-thumb';
+        img.alt = '';
+        // <img> primeiro na ordem do DOM pra ficar atras de label/check.
+        rect.insertBefore(img, rect.firstChild);
+      }
+      if (img.src !== it.thumb) img.src = it.thumb;
+    });
+  },
+
+  _appendCheck(rect) {
+    const check = document.createElement('div');
+    check.className = 'display-check';
+    check.innerHTML = CHECK_SVG;
+    rect.appendChild(check);
+  },
+
+  _toggle(rect, item, kind) {
+    const newEnabled = rect.dataset.enabled !== 'true';
+    rect.dataset.enabled = newEnabled ? 'true' : 'false';
+    item.enabled = newEnabled;
+    Bridge.send('toggle_source', {
+      kind: kind,
+      id: item.id,
+      enabled: newEnabled
+    });
+    this._updateCount();
+  },
+
+  _updateCount() {
+    const total = this.monitors.length + this.webcams.length;
+    const sel = this.monitors.filter(m => m.enabled).length
+              + this.webcams.filter(c => c.enabled).length;
+    const el = document.getElementById('monCount');
+    if (el) el.textContent = `${sel} / ${total}`;
+
+    // Resolucao total = bounding dos itens habilitados (mesma logica
+    // do BuildRecordingScene/canvas). Layout side-by-side: largura =
+    // soma das larguras, altura = max das alturas. Mostra "—" se nada
+    // selecionado.
+    const meta = document.getElementById('monMeta');
+    if (meta) {
+      let w = 0, h = 0;
+      this.monitors.forEach(m => {
+        if (!m.enabled) return;
+        w += Number(m.width)  || 0;
+        const mh = Number(m.height) || 0;
+        if (mh > h) h = mh;
+      });
+      this.webcams.forEach(c => {
+        if (!c.enabled) return;
+        w += Number(c.width)  || 0;
+        const ch = Number(c.height) || 0;
+        if (ch > h) h = ch;
+      });
+      meta.textContent = (w > 0 && h > 0) ? `${w}×${h}` : '';
+    }
+  }
+};
+
+function renderSources(kindShort, listId, countId, items) {
+  const list = document.getElementById(listId);
+  list.innerHTML = '';
+  const arr = items || [];
+  arr.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'source-item' + (item.enabled ? ' selected' : '');
+    div.dataset.id = item.id;
+    div.dataset.kind = kindShort === 'mon' ? 'monitor'
+                     : kindShort === 'mic' ? 'mic'
+                     : kindShort === 'cam' ? 'webcam' : 'speaker';
+    div.onclick = () => onToggleSource(div);
+
+    if (item.thumb) {
+      const thumb = document.createElement('div');
+      thumb.className = 'source-thumb';
+      const img = document.createElement('img');
+      img.src = item.thumb;
+      img.alt = '';
+      thumb.appendChild(img);
+      div.appendChild(thumb);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'source-meta';
+    const name = document.createElement('div');
+    name.className = 'source-name';
+    name.textContent = item.name || item.id;
+    meta.appendChild(name);
+    if (item.info) {
+      const info = document.createElement('div');
+      info.className = 'source-info';
+      info.textContent = item.info;
+      meta.appendChild(info);
+    }
+    if (kindShort === 'mic' || kindShort === 'spk') {
+      const meter = document.createElement('div');
+      meter.className = 'source-meter';
+      const fill = document.createElement('div');
+      fill.className = 'source-meter-fill';
+      meter.appendChild(fill);
+      meta.appendChild(meter);
+    }
+
+    const tg = document.createElement('div');
+    tg.className = 'toggle';
+
+    div.appendChild(meta);
+    div.appendChild(tg);
+    list.appendChild(div);
+  });
+  updateCount(listId, countId);
+}
+
+function onToggleSource(el) {
+  el.classList.toggle('selected');
+  const enabled = el.classList.contains('selected');
+  Bridge.send('toggle_source', {
+    kind: el.dataset.kind,
+    id: el.dataset.id,
+    enabled
+  });
+  const section = el.closest('.section');
+  const countEl = section.querySelector('.count');
+  if (countEl) {
+    const total = section.querySelectorAll('.source-item').length;
+    const sel = section.querySelectorAll('.source-item.selected').length;
+    countEl.textContent = `${sel} / ${total}`;
+  }
+}
+
+function updateCount(listId, countId) {
+  const list = document.getElementById(listId);
+  const total = list.querySelectorAll('.source-item').length;
+  const sel = list.querySelectorAll('.source-item.selected').length;
+  document.getElementById(countId).textContent = `${sel} / ${total}`;
+}
+
+// =====================================================================
+// Render: recordings
+// =====================================================================
+function formatDuration(sec) {
+  if (!sec || sec <= 0) return '';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function formatWhen(isoOrText) {
+  if (!isoOrText) return '';
+  const d = new Date(isoOrText);
+  if (isNaN(d.getTime())) return isoOrText;
+  const today = new Date();
+  const yest  = new Date(); yest.setDate(today.getDate() - 1);
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  const hhmm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (sameDay(d, today)) return `Hoje, ${hhmm}`;
+  if (sameDay(d, yest))  return `Ontem, ${hhmm}`;
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth() + 1).padStart(2,'0');
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}, ${hhmm}`;
+}
+
+function formatFullDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ` +
+         `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// =====================================================================
+// Selecao multipla de gravacoes
+// =====================================================================
+// SVG do check (viewBox 16, posicao do "v" geometricamente centralizada).
+const CHECK_SVG =
+  '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+  '<polyline points="3.5,8.5 6.8,11.8 12.5,5.5"/>' +
+  '</svg>';
+
+const RecSelection = {
+  ids: new Set(),
+  has(id) { return this.ids.has(id); },
+  toggle(id) {
+    if (this.ids.has(id)) this.ids.delete(id);
+    else this.ids.add(id);
+    this._syncCard(id);
+    this._syncGroups();
+    this._syncMode();
+  },
+  setMany(ids, selected) {
+    ids.forEach(id => {
+      if (selected) this.ids.add(id); else this.ids.delete(id);
+      this._syncCard(id);
+    });
+    this._syncGroups();
+    this._syncMode();
+  },
+  clear() {
+    const old = Array.from(this.ids);
+    this.ids.clear();
+    old.forEach(id => this._syncCard(id));
+    this._syncGroups();
+    this._syncMode();
+  },
+  size() { return this.ids.size; },
+  all() { return Array.from(this.ids); },
+  _syncCard(id) {
+    const card = document.querySelector(
+      `#recGrid .rec-card[data-id="${cssEscape(id)}"]`);
+    if (!card) return;
+    if (this.ids.has(id)) card.dataset.selected = 'true';
+    else delete card.dataset.selected;
+  },
+  _syncGroups() {
+    document.querySelectorAll('#recGrid .rec-group').forEach(g => {
+      const cards = g.querySelectorAll('.rec-card');
+      let selectedCount = 0;
+      cards.forEach(c => { if (c.dataset.selected === 'true') selectedCount++; });
+      const check = g.querySelector('.rec-group-check');
+      if (!check) return;
+      if (selectedCount === 0) check.dataset.state = 'none';
+      else if (selectedCount === cards.length) check.dataset.state = 'all';
+      else check.dataset.state = 'some';
+    });
+  },
+  _syncMode() {
+    document.body.classList.toggle('rec-select-mode', this.ids.size > 0);
+  }
+};
+
+function buildRecCard(item) {
+  const card = document.createElement('div');
+  card.className = 'rec-card';
+  card.dataset.id = item.id;
+  if (item.size) card.dataset.size = item.size;
+  const fullDate = formatFullDate(item.date);
+  if (fullDate) card.title = fullDate;
+  card.onclick = (e) => {
+    // Click no checkbox: toggle de selecao, nao abre o video.
+    if (e.target.closest('.rec-check')) {
+      e.stopPropagation();
+      RecSelection.toggle(card.dataset.id);
+      return;
+    }
+    // Click no nome (.when) e reservado pra dblclick = edit. Single-click
+    // ali nao deve abrir o video. Click em qualquer outra parte do card
+    // (thumb, body, size) abre normalmente.
+    if (e.target.classList && e.target.classList.contains('when')) return;
+    if (e.target.classList && e.target.classList.contains('editing')) return;
+    // Em modo selecao, click no card tambem alterna a selecao
+    // (evita ter que mirar na bolinha de 20px).
+    if (RecSelection.size() > 0) {
+      RecSelection.toggle(card.dataset.id);
+      return;
+    }
+    Bridge.send('play_recording', { id: card.dataset.id });
+  };
+  card.oncontextmenu = (e) => {
+    e.preventDefault();
+    showCtxMenu(e.clientX, e.clientY, card.dataset.id);
+  };
+
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  // Checkbox de selecao no canto superior direito.
+  const check = document.createElement('div');
+  check.className = 'rec-check';
+  check.title = 'Selecionar';
+  check.innerHTML = CHECK_SVG;
+  thumb.appendChild(check);
+  if (item.thumb) {
+    const img = document.createElement('img');
+    img.className = 'thumb-img';
+    img.src = item.thumb;
+    img.alt = '';
+    thumb.appendChild(img);
+  } else {
+    // Placeholder via child node — textContent apaga o .rec-check ja adicionado.
+    const ph = document.createElement('span');
+    ph.className = 'thumb-placeholder';
+    ph.textContent = '▶';
+    thumb.appendChild(ph);
+  }
+  if (item.duration && item.duration > 0) {
+    const dur = document.createElement('span');
+    dur.className = 'duration';
+    dur.textContent = formatDuration(item.duration);
+    thumb.appendChild(dur);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'body';
+
+  const when = document.createElement('div');
+  when.className = 'when';
+  when.textContent = item.name || formatWhen(item.date);
+  when.ondblclick = (ev) => editName(ev, when, card.dataset.id);
+
+  const size = document.createElement('div');
+  size.className = 'size';
+  size.textContent = item.sizeText || '';
+
+  body.appendChild(when);
+  body.appendChild(size);
+  card.appendChild(thumb);
+  card.appendChild(body);
+  return card;
+}
+
+// Define a qual periodo uma data pertence.
+const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+function periodKey(date) {
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return { key: 'zzz-unknown', label: 'Sem data', order: 0 };
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const y = new Date(d); y.setHours(0,0,0,0);
+  const diff = (today - y) / 86400000; // dias
+  if (diff <= 0) return { key: '00-hoje',     label: 'Hoje',         order: 0 };
+  if (diff < 2)  return { key: '01-ontem',    label: 'Ontem',        order: 1 };
+  if (diff < 7)  return { key: '02-semana',   label: 'Esta semana',  order: 2 };
+  // Agrupa por mês/ano. Order = 1000000 - (Y*100 + M) pra desc.
+  const ym = d.getFullYear() * 100 + d.getMonth();
+  return {
+    key:   `99-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+    label: `${MONTHS_PT[d.getMonth()]} ${d.getFullYear()}`,
+    order: 1000000 - ym
+  };
+}
+
+function renderRecordings(items) {
+  const grid = document.getElementById('recGrid');
+  grid.innerHTML = '';
+  const arr = (items || []).slice();
+  arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  // Agrupa preservando ordem (arr ja vem mais novo -> mais antigo).
+  const groups = []; // [{ key, label, order, items: [] }]
+  const byKey = new Map();
+  arr.forEach(item => {
+    const p = periodKey(item.date);
+    let g = byKey.get(p.key);
+    if (!g) {
+      g = { ...p, items: [] };
+      byKey.set(p.key, g);
+      groups.push(g);
+    }
+    g.items.push(item);
+  });
+  groups.sort((a, b) => a.order - b.order);
+
+  groups.forEach(g => {
+    const wrap = document.createElement('div');
+    wrap.className = 'rec-group';
+    wrap.dataset.groupKey = g.key;
+    const h = buildGroupTitle(g.label);
+    const inner = document.createElement('div');
+    inner.className = 'rec-group-grid';
+    g.items.forEach(item => inner.appendChild(buildRecCard(item)));
+    wrap.appendChild(h);
+    wrap.appendChild(inner);
+    grid.appendChild(wrap);
+  });
+  // Re-sincroniza estado visual da selecao apos re-render.
+  RecSelection._syncGroups();
+  RecSelection._syncMode();
+
+  updateRecMeta(arr);
+}
+
+// Cria o <h3> do grupo com o titulo a esquerda e a bolinha de
+// "selecionar todos do periodo" a direita.
+function buildGroupTitle(label) {
+  const h = document.createElement('h3');
+  h.className = 'rec-group-title';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const check = document.createElement('div');
+  check.className = 'rec-group-check';
+  check.title = 'Selecionar todos do período';
+  check.dataset.state = 'none';
+  check.innerHTML = CHECK_SVG;
+  check.onclick = (e) => {
+    e.stopPropagation();
+    const group = check.closest('.rec-group');
+    if (!group) return;
+    const cards = group.querySelectorAll('.rec-card');
+    const ids = Array.from(cards).map(c => c.dataset.id);
+    // Se todos ja selecionados, des-seleciona; senao seleciona todos.
+    const allSelected = check.dataset.state === 'all';
+    RecSelection.setMany(ids, !allSelected);
+  };
+  h.appendChild(span);
+  h.appendChild(check);
+  return h;
+}
+
+function addRecordingCard(item) {
+  const grid = document.getElementById('recGrid');
+  const p = periodKey(item.date);
+  let group = grid.querySelector(`.rec-group[data-group-key="${p.key}"]`);
+  if (!group) {
+    // Cria grupo "Hoje" no topo.
+    group = document.createElement('div');
+    group.className = 'rec-group';
+    group.dataset.groupKey = p.key;
+    const h = buildGroupTitle(p.label);
+    const inner = document.createElement('div');
+    inner.className = 'rec-group-grid';
+    group.appendChild(h);
+    group.appendChild(inner);
+    grid.insertBefore(group, grid.firstChild);
+  }
+  const inner = group.querySelector('.rec-group-grid');
+  const card = buildRecCard(item);
+  inner.insertBefore(card, inner.firstChild);
+  recalcRecMetaFromDom();
+  RecSelection._syncGroups();
+}
+
+function renameRecordingCard(oldId, newId, newName) {
+  const card = document.querySelector(`.rec-card[data-id="${cssEscape(oldId)}"]`);
+  if (!card) return;
+  card.dataset.id = newId;
+  const when = card.querySelector('.when');
+  if (when) when.textContent = newName;
+}
+
+function removeRecordingCard(id) {
+  const card = document.querySelector(`.rec-card[data-id="${cssEscape(id)}"]`);
+  if (card) {
+    const group = card.closest('.rec-group');
+    card.remove();
+    if (group && !group.querySelector('.rec-card')) group.remove();
+  }
+  // Tira do set de selecao (silencioso — UI ja sumiu).
+  if (RecSelection.ids.delete(id)) {
+    RecSelection._syncGroups();
+    RecSelection._syncMode();
+  }
+  recalcRecMetaFromDom();
+}
+
+function updateRecMeta(arr) {
+  const meta = document.getElementById('recMeta');
+  if (!meta) return;
+  const n = arr && arr.length ? arr.length : 0;
+  let total = 0;
+  if (Array.isArray(arr)) arr.forEach(it => { if (it && it.size) total += it.size; });
+  let txt = `${n} ${n === 1 ? 'arquivo' : 'arquivos'}`;
+  if (total > 0) txt += ` · ${formatBytes(total)}`;
+  meta.textContent = txt;
+}
+
+function recalcRecMetaFromDom() {
+  const cards = document.querySelectorAll('#recGrid .rec-card');
+  let total = 0;
+  cards.forEach(c => { total += parseInt(c.dataset.size || '0', 10) || 0; });
+  const meta = document.getElementById('recMeta');
+  if (!meta) return;
+  let txt = `${cards.length} ${cards.length === 1 ? 'arquivo' : 'arquivos'}`;
+  if (total > 0) txt += ` · ${formatBytes(total)}`;
+  meta.textContent = txt;
+}
+
+function formatBytes(b) {
+  const KB = 1024, MB = KB * 1024, GB = MB * 1024;
+  if (b >= GB) return (b / GB).toFixed(1) + ' GB';
+  if (b >= MB) return Math.round(b / MB) + ' MB';
+  if (b >= KB) return Math.round(b / KB) + ' KB';
+  return b + ' B';
+}
+
+function formatBitrate(bps) {
+  if (!bps || bps <= 0) return '—';
+  if (bps >= 1000000) return (bps / 1000000).toFixed(2) + ' Mbps';
+  if (bps >= 1000)    return Math.round(bps / 1000) + ' kbps';
+  return bps + ' bps';
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function infoRow(key, val) {
+  return '<div class="player-info-row">' +
+    '<span class="player-info-key">' + escapeHtml(key) + '</span>' +
+    '<span class="player-info-val">' + val + '</span></div>';
+}
+
+function cssEscape(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+// =====================================================================
+// Editor de nome (rename de gravacao)
+// =====================================================================
+function editName(event, el, id) {
+  event.stopPropagation();
+  if (el.classList.contains('editing')) return;
+  const original = el.textContent;
+  el.classList.add('editing');
+  el.contentEditable = 'true';
+  el.focus();
+
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  const finish = (commit) => {
+    el.removeEventListener('blur', onBlur);
+    el.removeEventListener('keydown', onKey);
+    el.contentEditable = 'false';
+    el.classList.remove('editing');
+    if (!commit) { el.textContent = original; return; }
+    const newName = el.textContent.replace(/[\r\n]+/g, ' ').trim();
+    if (newName === '' || newName === original) {
+      el.textContent = original;
+      return;
+    }
+    el.textContent = newName;
+    Bridge.send('rename_recording', { id, newName });
+  };
+  const onBlur = () => finish(true);
+  const onKey = (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+  };
+  el.addEventListener('blur', onBlur);
+  el.addEventListener('keydown', onKey);
+}
+
+// =====================================================================
+// Gravacao (start/stop)
+// =====================================================================
+function toggleRecord() {
+  const isRecording = document.body.classList.contains('recording');
+  Bridge.send(isRecording ? 'record_stop' : 'record_start');
+}
+
+// =====================================================================
+// Loading overlay
+// =====================================================================
+function showLoading(message) {
+  const ov = document.getElementById('loadingOverlay');
+  const tx = document.getElementById('loadingText');
+  if (tx) {
+    tx.innerHTML = '<span></span><span class="loading-dots"></span>';
+    tx.firstChild.textContent = message || 'Carregando recursos';
+  }
+  if (ov) ov.classList.remove('hidden');
+}
+function hideLoading() {
+  const ov = document.getElementById('loadingOverlay');
+  if (ov) ov.classList.add('hidden');
+}
+
+// =====================================================================
+// Toast (notificacao nao-bloqueante)
+// =====================================================================
+const Toast = {
+  show(title, msg, opts) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) return;
+    const el = document.createElement('div');
+    el.className = 'toast' + (opts && opts.warn ? ' warn' : '');
+    if (title) {
+      const t = document.createElement('div');
+      t.className = 'toast-title';
+      t.textContent = title;
+      el.appendChild(t);
+    }
+    if (msg) {
+      const m = document.createElement('div');
+      m.className = 'toast-msg';
+      m.textContent = msg;
+      el.appendChild(m);
+    }
+    stack.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    const ttl = (opts && opts.ttl) || 6000;
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 220);
+    }, ttl);
+  }
+};
+
+// =====================================================================
+// Confirm modal (generico)
+// =====================================================================
+const Confirm = {
+  _onOk: null,
+  init() {
+    document.getElementById('confirmCancel').onclick = () => this.close();
+    document.getElementById('confirmOk').onclick = () => {
+      const cb = this._onOk;
+      this.close();
+      if (cb) cb();
+    };
+    document.getElementById('confirmOverlay').addEventListener('click', (e) => {
+      if (e.target.id === 'confirmOverlay') this.close();
+    });
+    document.addEventListener('keydown', (e) => {
+      const ov = document.getElementById('confirmOverlay');
+      if (!ov.classList.contains('visible')) return;
+      if (e.key === 'Escape') { this.close(); e.preventDefault(); }
+      else if (e.key === 'Enter') {
+        const cb = this._onOk;
+        this.close();
+        if (cb) cb();
+        e.preventDefault();
+      }
+    });
+  },
+  open(opts) {
+    const { title, message, okLabel, cancelLabel, danger, onOk } = opts || {};
+    document.getElementById('confirmTitle').textContent = title || 'Confirmar';
+    document.getElementById('confirmMsg').textContent   = message || '';
+    document.getElementById('confirmOk').textContent    = okLabel || 'Excluir';
+    document.getElementById('confirmCancel').textContent = cancelLabel || 'Cancelar';
+    const ok = document.getElementById('confirmOk');
+    ok.classList.toggle('danger', danger !== false);
+    this._onOk = onOk || null;
+    document.getElementById('confirmOverlay').classList.add('visible');
+  },
+  close() {
+    document.getElementById('confirmOverlay').classList.remove('visible');
+    this._onOk = null;
+  }
+};
+
+// =====================================================================
+// Settings modal
+// =====================================================================
+const Settings = {
+  currentRecDir: '',
+  open() {
+    document.getElementById('settingsRecDir').value = this.currentRecDir || '';
+    document.getElementById('settingsOverlay').classList.add('visible');
+    Bridge.send('get_settings');
+  },
+  close() {
+    document.getElementById('settingsOverlay').classList.remove('visible');
+  },
+  pickFolder() {
+    Bridge.send('pick_record_dir');
+  },
+  save() {
+    const path = document.getElementById('settingsRecDir').value.trim();
+    if (!path) { this.close(); return; }
+    Bridge.send('set_record_dir', { path });
+    this.close();
+  },
+  applySettings(data) {
+    this.currentRecDir = data.recordDir || '';
+    const inp = document.getElementById('settingsRecDir');
+    if (inp) inp.value = this.currentRecDir;
+  },
+  setPickedPath(path) {
+    document.getElementById('settingsRecDir').value = path;
+  }
+};
+
+// =====================================================================
+// Player modal
+// =====================================================================
+const Player = {
+  pendingId: null,
+  currentId: null,
+  currentMode: null,    // 'direct' | 'transcoded'
+  triedTranscode: false,
+  // Estado do zoom/pan
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  dragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+  dragStartPanX: 0,
+  dragStartPanY: 0,
+  init() {
+    const v   = document.getElementById('playerVideo');
+    const ov  = document.getElementById('playerOverlay');
+    const seek = document.getElementById('playerSeek');
+    const vol  = document.getElementById('playerVolume');
+
+    document.getElementById('playerClose').onclick = () => Player.close();
+    ov.addEventListener('click', (e) => { if (e.target === ov) Player.close(); });
+
+    document.getElementById('playerPlay').onclick = () => Player.togglePlay();
+    document.getElementById('playerMute').onclick = () => Player.toggleMute();
+    document.getElementById('playerInfo').onclick = () => Player.toggleInfoPanel();
+    document.getElementById('playerInfoClose').onclick = () => Player.closeInfoPanel();
+
+    v.addEventListener('timeupdate', () => Player.onTimeUpdate());
+    v.addEventListener('loadedmetadata', () => Player.onTimeUpdate());
+    v.addEventListener('play',  () => Player.updatePlayIcon());
+    v.addEventListener('pause', () => Player.updatePlayIcon());
+    v.addEventListener('ended', () => Player.updatePlayIcon());
+    v.addEventListener('volumechange', () => Player.updateVolUi());
+    v.addEventListener('canplay', () => {
+      document.getElementById('playerLoading').classList.remove('visible');
+    });
+    v.addEventListener('error', () => {
+      // Se o arquivo original nao tocou (codec nao suportado pelo
+      // WebView2, tipico HEVC), pede transcode pro Delphi e tenta de
+      // novo. So tenta uma vez por sessao do player.
+      if (Player.currentMode === 'direct' && !Player.triedTranscode &&
+          Player.currentId) {
+        Player.triedTranscode = true;
+        const ld = document.getElementById('playerLoading');
+        const ldt = document.getElementById('playerLoadingText');
+        if (ld) ld.classList.add('visible');
+        if (ldt) ldt.textContent = 'Codec não suportado, convertendo...';
+        Bridge.send('request_transcode', { id: Player.currentId });
+        return;
+      }
+      const t = document.getElementById('playerLoadingText');
+      if (t) t.textContent = 'Erro ao carregar vídeo.';
+      const ld = document.getElementById('playerLoading');
+      if (ld) ld.classList.add('visible');
+    });
+
+    seek.addEventListener('input', () => {
+      if (!isFinite(v.duration)) return;
+      v.currentTime = (seek.value / 1000) * v.duration;
+    });
+    vol.addEventListener('input', () => {
+      v.volume = vol.value / 100;
+      v.muted = v.volume === 0;
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!ov.classList.contains('visible')) return;
+      if (e.key === 'Escape') { Player.close(); e.preventDefault(); }
+      else if (e.key === ' ') { Player.togglePlay(); e.preventDefault(); }
+      else if (e.key === 'm' || e.key === 'M') { Player.toggleMute(); }
+      else if (e.key === '0') { Player.resetZoom(); }
+      else if (e.key === 'ArrowRight') { v.currentTime = Math.min((v.currentTime || 0) + 5, v.duration || 0); }
+      else if (e.key === 'ArrowLeft')  { v.currentTime = Math.max((v.currentTime || 0) - 5, 0); }
+    });
+
+    // Zoom: scroll do mouse no stage (sem ctrl). O bloqueio global de
+    // ctrl+wheel nao afeta isso porque la so prevDefault se ctrlKey.
+    const stage = document.getElementById('playerStage');
+    stage.addEventListener('wheel', (e) => Player.onWheel(e), { passive: false });
+    stage.addEventListener('mousedown', (e) => Player.onDragStart(e));
+    stage.addEventListener('mousemove', (e) => Player.onDragMove(e));
+    stage.addEventListener('mouseup',   ()  => Player.onDragEnd());
+    stage.addEventListener('mouseleave',()  => Player.onDragEnd());
+    stage.addEventListener('dblclick',  ()  => Player.resetZoom());
+  },
+
+  applyTransform() {
+    const v = document.getElementById('playerVideo');
+    if (!v) return;
+    v.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    const stage = document.getElementById('playerStage');
+    const badge = document.getElementById('playerZoomBadge');
+    if (stage) stage.classList.toggle('zoomed', this.zoom > 1.001);
+    if (badge) badge.textContent = Math.round(this.zoom * 100) + '%';
+  },
+
+  clampPan() {
+    // Quando zoom > 1, evita que o video saia totalmente do stage.
+    const stage = document.getElementById('playerStage');
+    if (!stage) return;
+    const r = stage.getBoundingClientRect();
+    const w = r.width  * this.zoom;
+    const h = r.height * this.zoom;
+    // Pan limites: video deve ocupar pelo menos 1/3 do stage de cada lado.
+    const minX = Math.min(0, r.width  - w);
+    const minY = Math.min(0, r.height - h);
+    if (this.panX > 0) this.panX = 0;
+    if (this.panY > 0) this.panY = 0;
+    if (this.panX < minX) this.panX = minX;
+    if (this.panY < minY) this.panY = minY;
+  },
+
+  onWheel(e) {
+    e.preventDefault();
+    const stage = e.currentTarget;
+    const r = stage.getBoundingClientRect();
+    const cx = e.clientX - r.left;
+    const cy = e.clientY - r.top;
+    // Ponto na "coordenada do video" antes do zoom.
+    const vx = (cx - this.panX) / this.zoom;
+    const vy = (cy - this.panY) / this.zoom;
+    // Aplica delta — wheel up = zoom in.
+    const factor = (e.deltaY < 0) ? 1.15 : 1 / 1.15;
+    let z = this.zoom * factor;
+    if (z < 1)   z = 1;
+    if (z > 8)   z = 8;
+    this.zoom = z;
+    // Reposiciona pan pra manter o ponto sob o cursor.
+    this.panX = cx - vx * this.zoom;
+    this.panY = cy - vy * this.zoom;
+    this.clampPan();
+    this.applyTransform();
+  },
+
+  onDragStart(e) {
+    if (this.zoom <= 1.001) return;
+    if (e.button !== 0) return;
+    this.dragging = true;
+    this.dragStartX = e.clientX;
+    this.dragStartY = e.clientY;
+    this.dragStartPanX = this.panX;
+    this.dragStartPanY = this.panY;
+    document.getElementById('playerStage').classList.add('dragging');
+    e.preventDefault();
+  },
+  onDragMove(e) {
+    if (!this.dragging) return;
+    this.panX = this.dragStartPanX + (e.clientX - this.dragStartX);
+    this.panY = this.dragStartPanY + (e.clientY - this.dragStartY);
+    this.clampPan();
+    this.applyTransform();
+  },
+  onDragEnd() {
+    if (!this.dragging) return;
+    this.dragging = false;
+    document.getElementById('playerStage').classList.remove('dragging');
+  },
+
+  resetZoom() {
+    this.zoom = 1; this.panX = 0; this.panY = 0;
+    this.applyTransform();
+  },
+  showPending(id) {
+    this.pendingId = id;
+    const ov = document.getElementById('playerOverlay');
+    const ld = document.getElementById('playerLoading');
+    const ldt = document.getElementById('playerLoadingText');
+    const v = document.getElementById('playerVideo');
+    v.removeAttribute('src'); v.load();
+    document.getElementById('playerTitle').textContent = '...';
+    if (ldt) ldt.textContent = 'Preparando vídeo...';
+    ld.classList.add('visible');
+    ov.classList.add('visible');
+  },
+  play(url, name, mode, id) {
+    const ov = document.getElementById('playerOverlay');
+    if (!ov.classList.contains('visible')) ov.classList.add('visible');
+    const changed = (this.currentId !== id);
+    if (changed) {
+      this.triedTranscode = false;
+      this.infoLoaded = null;
+    }
+    this.currentId = id;
+    this.currentMode = mode || 'direct';
+    this.pendingId = null;
+    // Se o painel de info ja esta aberto e o video mudou, recarrega.
+    if (changed &&
+        document.getElementById('playerInfoPanel').classList.contains('open'))
+      this.requestInfo();
+    const v = document.getElementById('playerVideo');
+    document.getElementById('playerTitle').textContent = name || '';
+    v.src = url;
+    v.load();
+    v.play().catch(() => {});
+    // Sincroniza o icone de volume — o video padrao abre em 1.0 mas
+    // nenhum volumechange dispara automaticamente, entao o icone
+    // ficava preso no SVG default do HTML.
+    this.updateVolUi();
+  },
+  close() {
+    const ov = document.getElementById('playerOverlay');
+    const v = document.getElementById('playerVideo');
+    try { v.pause(); } catch(e) {}
+    v.removeAttribute('src');
+    v.load();
+    ov.classList.remove('visible');
+    this.pendingId = null;
+    this.currentId = null;
+    this.currentMode = null;
+    this.triedTranscode = false;
+    this.closeInfoPanel();
+    this.resetZoom();
+  },
+
+  // -- Painel lateral de informacoes (ffprobe) --
+  infoLoaded: null,    // id do video pra qual ja temos dados
+  infoLoading: false,
+  toggleInfoPanel() {
+    const panel = document.getElementById('playerInfoPanel');
+    const btn = document.getElementById('playerInfo');
+    if (panel.classList.contains('open')) {
+      this.closeInfoPanel();
+      return;
+    }
+    panel.classList.add('open');
+    panel.setAttribute('aria-hidden', 'false');
+    btn.classList.add('active');
+
+    // Se o video atual mudou desde a ultima carga, pede de novo.
+    if (this.currentId && this.infoLoaded !== this.currentId) {
+      this.requestInfo();
+    }
+  },
+  closeInfoPanel() {
+    const panel = document.getElementById('playerInfoPanel');
+    const btn = document.getElementById('playerInfo');
+    panel.classList.remove('open');
+    panel.setAttribute('aria-hidden', 'true');
+    if (btn) btn.classList.remove('active');
+  },
+  requestInfo() {
+    if (!this.currentId) return;
+    if (this.infoLoading) return;
+    this.infoLoading = true;
+    const body = document.getElementById('playerInfoBody');
+    body.innerHTML =
+      '<div class="player-info-loading">' +
+      '<div class="spin"></div><span>Analisando arquivo...</span></div>';
+    Bridge.send('request_video_info', { id: this.currentId });
+  },
+  renderInfo(data) {
+    if (!data || data.id !== this.currentId) return;
+    this.infoLoading = false;
+    this.infoLoaded = data.id;
+    const body = document.getElementById('playerInfoBody');
+
+    const videoStreams = (data.streams || []).filter(s => s.kind === 'video');
+    const audioStreams = (data.streams || []).filter(s => s.kind === 'audio');
+
+    let html = '';
+
+    // Geral
+    html += '<div class="player-info-section">';
+    html += '<div class="player-info-section-title">Arquivo</div>';
+    html += infoRow('Nome', escapeHtml(data.fileName || ''));
+    html += infoRow('Container', escapeHtml(data.format || ''));
+    html += infoRow('Duração', formatDuration(Math.round(data.duration || 0)));
+    html += infoRow('Tamanho', formatBytes(data.size || 0));
+    if (data.bitrate > 0)
+      html += infoRow('Bitrate total', formatBitrate(data.bitrate));
+    html += '</div>';
+
+    // Video
+    if (videoStreams.length > 0) {
+      html += '<div class="player-info-section">';
+      html += '<div class="player-info-section-title">Vídeo</div>';
+      videoStreams.forEach((s, idx) => {
+        if (videoStreams.length > 1)
+          html += '<div class="player-info-track-title">Stream ' +
+                  (idx + 1) + '</div>';
+        html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
+        if (s.width && s.height)
+          html += infoRow('Resolução', s.width + ' × ' + s.height);
+        if (s.bitrate > 0)
+          html += infoRow('Bitrate', formatBitrate(s.bitrate));
+      });
+      html += '</div>';
+    }
+
+    // Audio (multi-track)
+    if (audioStreams.length > 0) {
+      html += '<div class="player-info-section">';
+      html += '<div class="player-info-section-title">Áudio (' +
+              audioStreams.length +
+              (audioStreams.length === 1 ? ' faixa' : ' faixas') + ')</div>';
+      audioStreams.forEach((s, idx) => {
+        html += '<div class="player-info-track">';
+        html += '<div class="player-info-track-title">Faixa ' +
+                (idx + 1) + (idx === 0 ? ' (mix)' : '') + '</div>';
+        html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
+        if (s.channels)
+          html += infoRow('Canais',
+            s.channels === 1 ? 'Mono' :
+            s.channels === 2 ? 'Estéreo' : (s.channels + ' canais'));
+        if (s.sampleRate)
+          html += infoRow('Sample rate',
+            (s.sampleRate / 1000).toFixed(1) + ' kHz');
+        if (s.bitrate > 0)
+          html += infoRow('Bitrate', formatBitrate(s.bitrate));
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    body.innerHTML = html;
+  },
+  togglePlay() {
+    const v = document.getElementById('playerVideo');
+    if (v.paused || v.ended) v.play(); else v.pause();
+  },
+  updatePlayIcon() {
+    const v = document.getElementById('playerVideo');
+    const ic = document.getElementById('playerPlayIcon');
+    if (v.paused || v.ended)
+      ic.innerHTML = '<path d="M8 5v14l11-7z"/>';
+    else
+      ic.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  },
+  toggleMute() {
+    const v = document.getElementById('playerVideo');
+    v.muted = !v.muted;
+  },
+  updateVolUi() {
+    const v = document.getElementById('playerVideo');
+    const vol = document.getElementById('playerVolume');
+    const ic = document.getElementById('playerVolIcon');
+    const pct = v.muted ? 0 : Math.round(v.volume * 100);
+    vol.value = pct;
+    vol.style.setProperty('--vp', pct + '%');
+    if (v.muted || v.volume === 0)
+      ic.innerHTML = '<path d="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.92 8.92 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+    else if (v.volume < 0.5)
+      ic.innerHTML = '<path d="M7 9v6h4l5 5V4l-5 5H7zm9.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12z"/>';
+    else
+      ic.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/>';
+  },
+  onTimeUpdate() {
+    const v = document.getElementById('playerVideo');
+    const seek = document.getElementById('playerSeek');
+    const tm = document.getElementById('playerTime');
+    const cur = v.currentTime || 0;
+    const dur = isFinite(v.duration) ? v.duration : 0;
+    const p = dur > 0 ? (cur / dur) * 1000 : 0;
+    seek.value = p;
+    seek.style.setProperty('--p', (dur > 0 ? (cur / dur) * 100 : 0) + '%');
+    tm.textContent = fmtTime(cur) + ' / ' + fmtTime(dur);
+  }
+};
+function fmtTime(s) {
+  s = Math.max(0, Math.floor(s || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  const pad = (n) => n.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
+}
+
+function applyRecordingState(active, elapsedSec) {
+  const btn = document.getElementById('recordBtn');
+  const label = document.getElementById('recordLabel');
+  const recStatus = document.getElementById('recStatus');
+  const recStatusText = document.getElementById('recStatusText');
+  const fmt = formatDuration(elapsedSec || 0);
+
+  if (active) {
+    btn.classList.add('recording');
+    label.textContent = 'Parar gravação';
+    recStatus.classList.add('recording');
+    document.body.classList.add('recording');
+    recStatusText.textContent = (fmt && fmt.length === 5 ? '00:' + fmt : (fmt || '00:00:00'));
+  } else {
+    btn.classList.remove('recording');
+    label.textContent = 'Iniciar gravação';
+    recStatus.classList.remove('recording');
+    document.body.classList.remove('recording');
+    recStatusText.textContent = '00:00:00';
+  }
+}
+
+// =====================================================================
+// Busca
+// =====================================================================
+function onSearch() {
+  const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  const cards = document.querySelectorAll('#recGrid .rec-card');
+  let visible = 0;
+  cards.forEach(card => {
+    const text = card.textContent.toLowerCase();
+    const match = q === '' || text.includes(q);
+    card.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  // Esconde grupos cujos cards estao todos filtrados.
+  document.querySelectorAll('#recGrid .rec-group').forEach(g => {
+    const hasVisible = !!g.querySelector('.rec-card:not([style*="display: none"])');
+    g.style.display = hasVisible ? '' : 'none';
+  });
+  document.getElementById('emptyState').style.display =
+    (visible === 0 && q !== '') ? 'block' : 'none';
+  document.getElementById('recGrid').style.display =
+    (visible === 0 && q !== '') ? 'none' : '';
+}
+
+// =====================================================================
+// Tema
+// =====================================================================
+function notifyTitlebarTheme(theme) {
+  // Canal "dark"/"light" simples lido pelo OBSUI pra colorir a
+  // barra de titulo do Windows (DwmSetWindowAttribute).
+  try { window.chrome.webview.postMessage(theme); } catch (e) {}
+}
+function toggleTheme() {
+  const root = document.documentElement;
+  const cur = root.getAttribute('data-theme') || 'dark';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  notifyTitlebarTheme(next);
+  Bridge.send('set_theme', { theme: next });
+}
+function applyTheme(theme) {
+  if (theme !== 'dark' && theme !== 'light') return;
+  document.documentElement.setAttribute('data-theme', theme);
+  notifyTitlebarTheme(theme);
+}
+
+// =====================================================================
+// Context menu (right-click em rec-card)
+// =====================================================================
+function showCtxMenu(clientX, clientY, recordingId) {
+  const menu = document.getElementById('ctxMenu');
+  menu.dataset.target = recordingId;
+  // Se ha selecao multipla e o card clicado faz parte dela, o menu
+  // opera sobre TODOS os selecionados. Caso contrario, opera so no
+  // card clicado (e mantemos a selecao intacta).
+  const selectedAll = RecSelection.all();
+  const useSelection = selectedAll.length > 1 &&
+                       RecSelection.has(recordingId);
+  menu.dataset.bulk = useSelection ? '1' : '0';
+  const deleteItem = menu.querySelector('[data-action="delete"]');
+  if (deleteItem) {
+    deleteItem.textContent = useSelection
+      ? `Excluir ${selectedAll.length} selecionadas`
+      : 'Excluir';
+  }
+  menu.style.display = 'block';
+  // Posiciona — clamp para nao escapar da janela.
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  const maxX = window.innerWidth  - w - 4;
+  const maxY = window.innerHeight - h - 4;
+  menu.style.left = Math.min(clientX, maxX) + 'px';
+  menu.style.top  = Math.min(clientY, maxY) + 'px';
+}
+function hideCtxMenu() {
+  const menu = document.getElementById('ctxMenu');
+  menu.style.display = 'none';
+  menu.dataset.target = '';
+}
+function initCtxMenu() {
+  const menu = document.getElementById('ctxMenu');
+  // Acao: excluir
+  menu.querySelector('[data-action="delete"]').addEventListener('click', () => {
+    const id = menu.dataset.target;
+    const bulk = menu.dataset.bulk === '1';
+    hideCtxMenu();
+    if (bulk) {
+      const ids = RecSelection.all();
+      if (ids.length === 0) return;
+      Confirm.open({
+        title: 'Excluir gravações',
+        message: `Mover ${ids.length} gravações para a Lixeira do Windows?`,
+        okLabel: 'Excluir',
+        onOk: () => {
+          // Optimistic UI: tira TODOS os cards do DOM agora, e recalcula
+          // o resumo uma vez so. Sem isso o backend confirma um delete
+          // de cada vez (~30-80ms entre eles) e a UI faz um reflow por
+          // confirmacao — efeito visual feio de cards "piscando" pra
+          // fora um a um. Os pushes 'recording_removed' que chegam
+          // depois sao no-op (card ja nao existe).
+          ids.forEach(rid => {
+            const card = document.querySelector(
+              `#recGrid .rec-card[data-id="${cssEscape(rid)}"]`);
+            if (!card) return;
+            const group = card.closest('.rec-group');
+            card.remove();
+            if (group && !group.querySelector('.rec-card')) group.remove();
+          });
+          RecSelection.clear();
+          recalcRecMetaFromDom();
+          ids.forEach(rid => Bridge.send('delete_recording', { id: rid }));
+        }
+      });
+      return;
+    }
+    if (!id) return;
+    const card = document.querySelector(`#recGrid .rec-card[data-id="${CSS.escape(id)}"]`);
+    const name = card ? (card.querySelector('.when')?.textContent || id) : id;
+    Confirm.open({
+      title: 'Excluir gravação',
+      message: `Mover "${name}" para a Lixeira do Windows?`,
+      okLabel: 'Excluir',
+      onOk: () => Bridge.send('delete_recording', { id })
+    });
+  });
+  // Fecha em click fora
+  document.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.ctx-menu')) hideCtxMenu();
+  });
+  // Fecha em Esc
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideCtxMenu();
+  });
+  // Fecha em scroll/resize pra nao ficar flutuando
+  window.addEventListener('resize', hideCtxMenu);
+  document.addEventListener('scroll', hideCtxMenu, true);
+}
+
+// =====================================================================
+// Boot
+// =====================================================================
+// Suprime o menu padrao do browser em toda a UI. Apenas cards de
+// gravacao tem context menu proprio (Excluir).
+document.addEventListener('contextmenu', (e) => {
+  if (!e.target.closest('.rec-card')) e.preventDefault();
+});
+
+// Bloqueia zoom do browser — Ctrl+scroll, Ctrl + / -, Ctrl 0.
+window.addEventListener('wheel', (e) => {
+  if (e.ctrlKey) e.preventDefault();
+}, { passive: false });
+window.addEventListener('keydown', (e) => {
+  if (!e.ctrlKey) return;
+  const k = e.key;
+  if (k === '+' || k === '-' || k === '=' || k === '0') e.preventDefault();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('searchInput').addEventListener('input', onSearch);
+  initCtxMenu();
+  Confirm.init();
+  Player.init();
+  Displays.init();
+  Bridge.init();
+});
+</script>
+
+</body>
+</html>

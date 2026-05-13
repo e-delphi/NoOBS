@@ -1,5 +1,7 @@
 # NoOBS
 
+![NoOBS](app.png)
+
 Gravador de tela em Delphi usando **libobs (obs.dll) diretamente in-process**.
 Interface web em WebView2.
 

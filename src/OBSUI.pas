@@ -29,6 +29,10 @@ procedure Run;
 // Usado pelo OBSBridge para empurrar atualizacoes de estado.
 procedure PostJSON(const AJsonStr: string);
 
+// Toggle fullscreen da janela host (borderless, ocupa tela inteira).
+// Preserva style + bounds originais pra restaurar no toggle de volta.
+procedure ToggleFullscreen;
+
 // Handle da janela principal — exposto pra OBSBridge poder usar
 // SetTimer/KillTimer ancorados nela.
 function MainWindowHandle: HWND;
@@ -52,6 +56,7 @@ uses
   Winapi.ActiveX,
   Winapi.WebView2,
   Winapi.DwmApi,
+  Winapi.MultiMon,
   System.Classes,
   System.Math,
   System.SysUtils,
@@ -366,6 +371,68 @@ end;
 function MainWindowHandle: HWND;
 begin
   Result := MainWindow;
+end;
+
+var
+  FsActive: Boolean = False;
+  FsSavedStyle: NativeInt = 0;
+  FsSavedExStyle: NativeInt = 0;
+  FsSavedRect: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+  FsSavedMaximized: Boolean = False;
+
+procedure ToggleFullscreen;
+var
+  Mon: HMONITOR;
+  MonInfo: TMonitorInfo;
+  WP: TWindowPlacement;
+begin
+  if MainWindow = 0 then Exit;
+
+  if not FsActive then
+  begin
+    // Salva estado atual.
+    FsSavedStyle   := GetWindowLongPtr(MainWindow, GWL_STYLE);
+    FsSavedExStyle := GetWindowLongPtr(MainWindow, GWL_EXSTYLE);
+    WP.length := SizeOf(WP);
+    GetWindowPlacement(MainWindow, @WP);
+    FsSavedMaximized := (WP.showCmd = SW_MAXIMIZE);
+    GetWindowRect(MainWindow, FsSavedRect);
+    if FsSavedMaximized then
+      ShowWindow(MainWindow, SW_RESTORE);
+
+    // Remove bordas + title bar + system menu. Mantem o WS_VISIBLE.
+    SetWindowLongPtr(MainWindow, GWL_STYLE,
+      FsSavedStyle and not (WS_CAPTION or WS_THICKFRAME or WS_MINIMIZEBOX or
+                             WS_MAXIMIZEBOX or WS_SYSMENU));
+    SetWindowLongPtr(MainWindow, GWL_EXSTYLE,
+      FsSavedExStyle and not (WS_EX_DLGMODALFRAME or WS_EX_WINDOWEDGE or
+                              WS_EX_CLIENTEDGE or WS_EX_STATICEDGE));
+
+    // Cobrir o monitor onde a janela esta (multi-monitor friendly).
+    Mon := MonitorFromWindow(MainWindow, MONITOR_DEFAULTTONEAREST);
+    MonInfo.cbSize := SizeOf(MonInfo);
+    GetMonitorInfo(Mon, @MonInfo);
+    SetWindowPos(MainWindow, HWND_TOP,
+      MonInfo.rcMonitor.Left, MonInfo.rcMonitor.Top,
+      MonInfo.rcMonitor.Right  - MonInfo.rcMonitor.Left,
+      MonInfo.rcMonitor.Bottom - MonInfo.rcMonitor.Top,
+      SWP_NOOWNERZORDER or SWP_FRAMECHANGED or SWP_SHOWWINDOW);
+    FsActive := True;
+  end
+  else
+  begin
+    // Restaura.
+    SetWindowLongPtr(MainWindow, GWL_STYLE,   FsSavedStyle);
+    SetWindowLongPtr(MainWindow, GWL_EXSTYLE, FsSavedExStyle);
+    SetWindowPos(MainWindow, 0,
+      FsSavedRect.Left, FsSavedRect.Top,
+      FsSavedRect.Right  - FsSavedRect.Left,
+      FsSavedRect.Bottom - FsSavedRect.Top,
+      SWP_NOZORDER or SWP_NOOWNERZORDER or SWP_FRAMECHANGED or SWP_SHOWWINDOW);
+    if FsSavedMaximized then
+      ShowWindow(MainWindow, SW_MAXIMIZE);
+    FsActive := False;
+  end;
 end;
 
 // =====================================================================

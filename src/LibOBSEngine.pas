@@ -559,7 +559,7 @@ begin
   end;
   Cams := EnumerateWebcams;
   for i := 0 to High(Cams) do
-    if SameText(GetConfigStr('enabled.NoOBS Webcam - ' + Cams[i].Name, 'false'), 'true') then
+    if GetSourceBool('webcams', Cams[i].Name, False) then
     begin
       BoundingW := BoundingW + Cams[i].Width;
       if Cams[i].Height > BoundingH then BoundingH := Cams[i].Height;
@@ -662,9 +662,7 @@ begin
   Log('-- Webcams --');
   for i := 0 to High(Cams) do
   begin
-    if not SameText(
-      GetConfigStr('enabled.NoOBS Webcam - ' + Cams[i].Name, 'false'),
-      'true') then Continue;
+    if not GetSourceBool('webcams', Cams[i].Name, False) then Continue;
 
     SourceName := ToAnsi('NoOBS Webcam - ' + Cams[i].Name);
     Settings := MakeSettings;
@@ -762,8 +760,7 @@ begin
     TrackBitmask := 1 or Cardinal(1 shl (MicTracks[j] - 1));
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := not SameText(
-      GetConfigStr('enabled.' + string(AudioName), 'true'), 'false');
+    Enabled := GetSourceBool('mics', Mics[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);
@@ -785,8 +782,7 @@ begin
     TrackBitmask := 1 or Cardinal(1 shl (OutTracks[j] - 1));
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := not SameText(
-      GetConfigStr('enabled.' + string(AudioName), 'true'), 'false');
+    Enabled := GetSourceBool('speakers', Outputs[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);

@@ -27,6 +27,7 @@ uses
   OBSLog in 'src\OBSLog.pas',
   OBSPlayer in 'src\OBSPlayer.pas',
   OBSProbe in 'src\OBSProbe.pas',
+  OBSRecordWatch in 'src\OBSRecordWatch.pas',
   OBSScene in 'src\OBSScene.pas',
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',

@@ -852,7 +852,6 @@
     display: flex;
     align-items: stretch;
     justify-content: stretch;
-    padding: 12px;
     opacity: 0;
     visibility: hidden;
     transition: opacity 200ms ease, visibility 200ms ease;
@@ -863,20 +862,52 @@
     flex: 1;
     width: 100%;
     background: #000;
-    border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     display: flex;
     flex-direction: column;
     min-height: 0;
   }
+  /* Fullscreen: nada de especial precisa mudar — overlay e player ja
+     ocupam tela toda. Mantemos o data-fs no body so pra outros codigos
+     (ex: idle timer detectar edge zones). */
+
+  /* Tema claro: letterbox e overlay ficam brancos em vez de preto.
+     Floating header/controls continuam com gradiente escuro
+     (legibilidade sobre qualquer video). */
+  [data-theme="light"] .player-overlay {
+    background: rgba(255,255,255,0.85);
+  }
+  [data-theme="light"] .player,
+  [data-theme="light"] .player-body,
+  [data-theme="light"] .player-stage,
+  [data-theme="light"] .player-stage video {
+    background: #fff;
+  }
+  /* Auto-hide header + controles apos 2s de inatividade do mouse
+     (so quando playing — pausado mantem visivel pro usuario interagir). */
+  .player.idle { cursor: none; }
+  .player.idle .player-header,
+  .player.idle .player-controls {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .player-header,
+  .player-controls {
+    transition: opacity 220ms ease;
+  }
+  /* Header e controles flutuam SOBRE o video (estilo YouTube). O body
+     ocupa o player inteiro, e header/controles sao absolute com
+     gradiente pra contraste com fundos claros. */
   .player-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    background: rgba(0,0,0,0.4);
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding: 12px 16px 18px;
+    background: linear-gradient(to bottom,
+      rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
   }
   .player-title {
     flex: 1;
@@ -888,26 +919,32 @@
     white-space: nowrap;
   }
   .player-close {
-    background: transparent;
-    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.4);
+    border: none;
     color: #fff;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    font-size: 20px;
+    line-height: 1;
     transition: background 150ms ease;
   }
-  .player-close:hover { background: rgba(255,255,255,0.1); }
+  .player-close:hover { background: rgba(0,0,0,0.7); }
+  .player-title {
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
 
   .player-body {
     flex: 1;
     display: flex;
     min-height: 0;
     background: #000;
+    /* Body ocupa o player inteiro — header/controles ficam absolute por cima. */
+    position: relative;
   }
   .player-stage {
     position: relative;
@@ -967,7 +1004,10 @@
     animation: spin 900ms linear infinite;
   }
 
-  /* Painel lateral de informacoes do video */
+  /* Painel lateral de informacoes do video.
+     padding top/bottom = altura do header e controles flutuantes
+     (~56/60px) pra que o conteudo nao fique obscurecido. O fundo
+     do painel se estende edge-to-edge dentro dessa janela visivel. */
   .player-info-panel {
     width: 0;
     overflow: hidden;
@@ -978,6 +1018,9 @@
     flex-direction: column;
     transition: width 220ms ease;
     flex-shrink: 0;
+    padding-top: 56px;
+    padding-bottom: 60px;
+    box-sizing: border-box;
   }
   .player-info-panel.open { width: 320px; }
   .player-info-header {
@@ -1088,12 +1131,58 @@
     color: var(--success);
   }
 
+  /* ===== Tema CLARO do painel de info =====
+     Floating header/controls sobre o video continuam escuros (gradiente
+     funciona em qualquer video). Apenas o painel lateral muda — fica
+     com fundo claro pra integrar com o app em tema claro. */
+  [data-theme="light"] .player-info-panel {
+    background: rgba(255,255,255,0.97);
+    border-left: 1px solid rgba(0,0,0,0.08);
+    color: #1f2937;
+  }
+  [data-theme="light"] .player-info-header {
+    color: rgba(0,0,0,0.7);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-info-close {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-close:hover {
+    background: rgba(0,0,0,0.06);
+    color: #000;
+  }
+  [data-theme="light"] .player-info-loading {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-loading .spin {
+    border-color: rgba(0,0,0,0.12);
+    border-top-color: var(--success);
+  }
+  [data-theme="light"] .player-info-section-title {
+    color: rgba(0,0,0,0.45);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-info-key {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-val {
+    color: rgba(0,0,0,0.88);
+  }
+  [data-theme="light"] .player-info-track {
+    background: rgba(0,0,0,0.03);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
   .player-controls {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    background: rgba(0,0,0,0.5);
+    padding: 18px 16px 14px;
+    background: linear-gradient(to top,
+      rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
     color: #fff;
   }
   .player-btn {
@@ -1381,9 +1470,11 @@
   }
   .toast {
     pointer-events: auto;
-    min-width: 280px;
+    /* Sem min-width fixo: toast se ajusta ao conteudo. Toasts curtos
+       (ex: "Dispositivos atualizados") ficam compactos, e longos
+       crescem ate max-width. */
     max-width: 380px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     background: var(--panel);
     border: 1px solid var(--border-2);
     border-radius: 8px;
@@ -1508,6 +1599,11 @@
       </div>
       <button class="player-btn player-info-btn" id="playerInfo" title="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
+      </button>
+      <button class="player-btn" id="playerFs" title="Tela cheia (F / duplo clique)">
+        <svg viewBox="0 0 24 24" id="playerFsIcon">
+          <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+        </svg>
       </button>
     </div>
   </div>
@@ -2206,6 +2302,10 @@ function buildRecCard(item) {
   const card = document.createElement('div');
   card.className = 'rec-card';
   card.dataset.id = item.id;
+  // Restaura estado visual de selecao apos rebuild (renderRecordings
+  // limpa o grid e refaz tudo — sem isso card selecionado perde o
+  // highlight quando o file watcher dispara um refresh).
+  if (RecSelection.has(item.id)) card.dataset.selected = 'true';
   if (item.size) card.dataset.size = item.size;
   const fullDate = formatFullDate(item.date);
   if (fullDate) card.title = fullDate;
@@ -2336,11 +2436,30 @@ function renderRecordings(items) {
     wrap.appendChild(inner);
     grid.appendChild(wrap);
   });
+  // Limpa selecoes orfas (ids que nao tem mais card correspondente —
+  // ex: arquivo deletado externamente, watcher trouxe lista nova).
+  pruneOrphanSelections();
   // Re-sincroniza estado visual da selecao apos re-render.
   RecSelection._syncGroups();
   RecSelection._syncMode();
 
   updateRecMeta(arr);
+}
+
+function pruneOrphanSelections() {
+  // Remove do RecSelection ids que nao tem card correspondente no DOM.
+  // Sem isso, RecSelection.size() permanece > 0 apos rebuild que sumiu
+  // com o card — clicks em outros cards entram em "modo selecao" em
+  // vez de tocar o video.
+  if (RecSelection.ids.size === 0) return;
+  const orphans = [];
+  RecSelection.ids.forEach(id => {
+    if (!document.querySelector(
+      `#recGrid .rec-card[data-id="${cssEscape(id)}"]`))
+      orphans.push(id);
+  });
+  if (orphans.length === 0) return;
+  orphans.forEach(id => RecSelection.ids.delete(id));
 }
 
 // Cria o <h3> do grupo com o titulo a esquerda e a bolinha de
@@ -2672,12 +2791,13 @@ const Player = {
     document.getElementById('playerMute').onclick = () => Player.toggleMute();
     document.getElementById('playerInfo').onclick = () => Player.toggleInfoPanel();
     document.getElementById('playerInfoClose').onclick = () => Player.closeInfoPanel();
+    document.getElementById('playerFs').onclick = () => Player.toggleFullscreen();
 
     v.addEventListener('timeupdate', () => Player.onTimeUpdate());
     v.addEventListener('loadedmetadata', () => Player.onTimeUpdate());
-    v.addEventListener('play',  () => Player.updatePlayIcon());
-    v.addEventListener('pause', () => Player.updatePlayIcon());
-    v.addEventListener('ended', () => Player.updatePlayIcon());
+    v.addEventListener('play',  () => { Player.updatePlayIcon(); Player.startTimeRaf(); });
+    v.addEventListener('pause', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); });
+    v.addEventListener('ended', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); });
     v.addEventListener('volumechange', () => Player.updateVolUi());
     v.addEventListener('canplay', () => {
       document.getElementById('playerLoading').classList.remove('visible');
@@ -2713,9 +2833,19 @@ const Player = {
 
     document.addEventListener('keydown', (e) => {
       if (!ov.classList.contains('visible')) return;
-      if (e.key === 'Escape') { Player.close(); e.preventDefault(); }
+      if (e.key === 'Escape') {
+        // ESC em fullscreen: sai do fullscreen, nao fecha o player.
+        if (document.body.dataset.fs === '1') {
+          Player.toggleFullscreen();
+          e.preventDefault();
+          return;
+        }
+        Player.close();
+        e.preventDefault();
+      }
       else if (e.key === ' ') { Player.togglePlay(); e.preventDefault(); }
       else if (e.key === 'm' || e.key === 'M') { Player.toggleMute(); }
+      else if (e.key === 'f' || e.key === 'F') { Player.toggleFullscreen(); }
       else if (e.key === '0') { Player.resetZoom(); }
       else if (e.key === 'ArrowRight') { v.currentTime = Math.min((v.currentTime || 0) + 5, v.duration || 0); }
       else if (e.key === 'ArrowLeft')  { v.currentTime = Math.max((v.currentTime || 0) - 5, 0); }
@@ -2729,7 +2859,101 @@ const Player = {
     stage.addEventListener('mousemove', (e) => Player.onDragMove(e));
     stage.addEventListener('mouseup',   ()  => Player.onDragEnd());
     stage.addEventListener('mouseleave',()  => Player.onDragEnd());
-    stage.addEventListener('dblclick',  ()  => Player.resetZoom());
+    // Click no video = play/pause; dblclick = fullscreen.
+    // Defer de 250ms no click pra dar tempo do dblclick chegar e
+    // cancelar (sem isso, dblclick pausaria e despausaria o video).
+    stage.addEventListener('click', (e) => Player.onStageClick(e));
+    stage.addEventListener('dblclick', () => {
+      if (Player.clickTimer) {
+        clearTimeout(Player.clickTimer);
+        Player.clickTimer = null;
+      }
+      Player.toggleFullscreen();
+    });
+
+    // Auto-hide de header + controles apos 2s sem mover o mouse.
+    // Em fullscreen + cursor proximo as bordas (top/left/right) o
+    // delay cai pra 1s — esconde rapido quando user "parqueia" o
+    // mouse na lateral.
+    const player = document.querySelector('.player');
+    if (player) {
+      player.addEventListener('mousemove', (e) => Player.markActive(e));
+      player.addEventListener('mouseleave', () => Player.scheduleIdle(200));
+    }
+    // Pausar/dar play tambem reseta o estado (em pause, mostra sempre).
+    v.addEventListener('play',  () => Player.markActive());
+    v.addEventListener('pause', () => Player.markActive());
+  },
+
+  // --- Auto-hide de controles ---
+  idleTimer: null,
+  EDGE_MARGIN_PX: 40,  // distancia das bordas que conta como "edge zone"
+  markActive(evt) {
+    const player = document.querySelector('.player');
+    if (!player) return;
+    player.classList.remove('idle');
+    if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+    const v = document.getElementById('playerVideo');
+    // Pausado mantem visivel — so agenda esconder se esta tocando.
+    if (!v || v.paused || v.ended) return;
+
+    // Em fullscreen, se o cursor esta proximo das bordas (top/left/right),
+    // usa delay curto (1s) — usuario provavelmente "parqueou" o mouse
+    // na lateral e nao quer mais ver controles.
+    let delay = 2000;
+    if (document.body.dataset.fs === '1' && evt) {
+      const r = player.getBoundingClientRect();
+      const m = this.EDGE_MARGIN_PX;
+      const nearTop   = (evt.clientY - r.top)    <= m;
+      const nearLeft  = (evt.clientX - r.left)   <= m;
+      const nearRight = (r.right - evt.clientX)  <= m;
+      if (nearTop || nearLeft || nearRight) delay = 1000;
+    }
+    this.scheduleIdle(delay);
+  },
+  scheduleIdle(ms) {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      const player = document.querySelector('.player');
+      const v = document.getElementById('playerVideo');
+      // Re-checa estado no fire — pode ter pausado no meio do timer.
+      if (player && v && !v.paused && !v.ended) player.classList.add('idle');
+    }, ms);
+  },
+
+  // --- Click no stage: play/pause (defer 250ms pra deixar dblclick passar) ---
+  clickTimer: null,
+  onStageClick(e) {
+    // Se o mouse arrastou (pan quando zoom > 1), nao toggle play/pause.
+    // dragStartX/Y sao registrados no onDragStart.
+    if (this.zoom > 1.001) {
+      const dx = Math.abs(e.clientX - this.dragStartX);
+      const dy = Math.abs(e.clientY - this.dragStartY);
+      if (dx > 5 || dy > 5) return;
+    }
+    if (this.clickTimer) clearTimeout(this.clickTimer);
+    this.clickTimer = setTimeout(() => {
+      this.clickTimer = null;
+      this.togglePlay();
+    }, 250);
+  },
+
+  toggleFullscreen() {
+    // Pede pro Delphi mudar a JANELA HOST pra borderless ocupando a
+    // tela inteira. Fullscreen API do WebView2 so afetaria a area do
+    // WebView dentro da janela, nao a janela em si.
+    Bridge.send('toggle_fullscreen', {});
+    // Mantem CSS local em sync pra responsividade visual (header sem
+    // border-radius, etc.) — alternamos um data-attr no <body>.
+    const entering = document.body.dataset.fs !== '1';
+    document.body.dataset.fs = entering ? '1' : '';
+    // Troca o icone do botao (4 setas pra fora -> pra dentro).
+    const ic = document.getElementById('playerFsIcon');
+    if (ic) {
+      ic.innerHTML = entering
+        ? '<path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>'
+        : '<path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>';
+    }
   },
 
   applyTransform() {
@@ -2858,6 +3082,15 @@ const Player = {
     this.triedTranscode = false;
     this.closeInfoPanel();
     this.resetZoom();
+    // Sai de fullscreen se estiver — fechar player em fullscreen
+    // deixaria a janela borderless toda preta sem onde clicar.
+    if (document.body.dataset.fs === '1') this.toggleFullscreen();
+    // Limpa estado de auto-hide (controles visiveis no proximo open).
+    if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
+    if (this.clickTimer) { clearTimeout(this.clickTimer); this.clickTimer = null; }
+    this.stopTimeRaf();
+    const player = document.querySelector('.player');
+    if (player) player.classList.remove('idle');
   },
 
   // -- Painel lateral de informacoes (ffprobe) --
@@ -3002,6 +3235,25 @@ const Player = {
     seek.value = p;
     seek.style.setProperty('--p', (dur > 0 ? (cur / dur) * 100 : 0) + '%');
     tm.textContent = fmtTime(cur) + ' / ' + fmtTime(dur);
+  },
+
+  // -- Atualizacao da barra de progresso via rAF (60fps).
+  // O evento 'timeupdate' do video so dispara ~4x/segundo, deixando a
+  // barra com aparencia "saltada". rAF interpola direto de
+  // video.currentTime que o browser atualiza internamente em alta freq.
+  rafId: null,
+  startTimeRaf() {
+    if (this.rafId) return;
+    const tick = () => {
+      const v = document.getElementById('playerVideo');
+      if (!v || v.paused || v.ended) { this.rafId = null; return; }
+      this.onTimeUpdate();
+      this.rafId = requestAnimationFrame(tick);
+    };
+    this.rafId = requestAnimationFrame(tick);
+  },
+  stopTimeRaf() {
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
   }
 };
 function fmtTime(s) {
@@ -3154,7 +3406,15 @@ function initCtxMenu() {
       title: 'Excluir gravação',
       message: `Mover "${name}" para a Lixeira do Windows?`,
       okLabel: 'Excluir',
-      onOk: () => Bridge.send('delete_recording', { id })
+      onOk: () => {
+        // Limpa selecao otimisticamente — evita race com o file watcher
+        // que pode rebuildar a lista antes do recording_removed chegar.
+        if (RecSelection.ids.delete(id)) {
+          RecSelection._syncGroups();
+          RecSelection._syncMode();
+        }
+        Bridge.send('delete_recording', { id });
+      }
     });
   });
   // Fecha em click fora

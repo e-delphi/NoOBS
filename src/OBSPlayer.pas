@@ -381,9 +381,14 @@ begin
   begin
     SeekTs := 1;
     if ADurationSec > 10 then SeekTs := ADurationSec div 10;
+    // Escala por altura (240) em vez de largura: card e ~212x122 e usa
+    // object-fit: cover. Pra gravacoes ultra-wide (2 monitores + webcam
+    // = aspect ~16:4), largura fixa 320 dava altura ~77 e o cover dava
+    // upscale feio. Altura 240 garante pixels suficientes pra qualquer
+    // aspect — gravacao 16:9 vira 427x240, ultra-wide ~16:4 vira ~995x240.
     Args := Format(
       '-y -hide_banner -loglevel error -ss %d -i "%s" ' +
-      '-frames:v 1 -vf "scale=320:-1" -q:v 5 "%s"',
+      '-frames:v 1 -vf "scale=-1:240" -q:v 5 "%s"',
       [SeekTs, APath, ThumbFile]);
     RunFFmpegCapture(Args, StdErr, Code);
   end;

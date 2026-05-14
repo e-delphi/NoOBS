@@ -40,13 +40,12 @@ uses
 function FilterEnabledMonitors(const AMons: TOBSMonitorArray): TOBSMonitorArray;
 var
   i: Integer;
-  Key: string;
 begin
   SetLength(Result, 0);
   for i := 0 to High(AMons) do
   begin
-    Key := 'enabled.NoOBS Monitor ' + IntToStr(AMons[i].Index);
-    if SameText(GetConfigStr(Key, 'true'), 'false') then Continue;
+    if not GetSourceBool('monitors', IntToStr(AMons[i].Index), True) then
+      Continue;
     SetLength(Result, Length(Result) + 1);
     Result[High(Result)] := AMons[i];
   end;

@@ -9,7 +9,12 @@ Este CLAUDE.md é a fonte da verdade pra arquitetura, convenções e
 
 ## Princípio fundamental
 
-**libobs inicializa na 1ª gravação e persiste até o app fechar.**
+**libobs inicializa em warmup ~1.5s após app abrir e persiste até
+fechar.** `TIMER_OBS_WARMUP` em `OBSBridge.DoInit` agenda o init com
+delay pra UI renderizar primeiro. Resultado: 1ª gravação é
+instantânea (sem espera de ~300ms pra obs.dll + plugins + D3D11).
+Se warmup falhar, gravação inicializa sob demanda no clique.
+
 Entre gravações, o core libobs fica vivo (plugins carregados, GPU
 inicializada), mas scene/encoders/output são destruídos e recriados
 a cada sessão. A UI funciona inteira via Win32 (monitor preview) e
@@ -93,7 +98,14 @@ App start (DoInit):
     nao depende de WM_TIMER que e suprimido durante modal sizemove)
   • Liga timer: TIMER_AUDIO_METER (100ms)
   • OBSAudioWatch.Start (hot-plug)
-  → libobs NÃO inicializa aqui.
+  • OBSRecordWatch.Start (file watcher na pasta de gravacoes)
+  • Agenda TIMER_OBS_WARMUP (one-shot, 1500ms)
+  → libobs ainda nao inicializou.
+
+1.5s depois (TIMER_OBS_WARMUP):
+  • Engine.EnsureInitialized (obs_startup, modules, video, audio)
+  • ~300ms blocking — UI ja renderizou
+  → libobs pronto, 1a gravacao instantanea.
 
 User toggle de monitor/mic/speaker:
   • SetSourceEnabled(id, enabled) em config.json
@@ -437,7 +449,9 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 - **NÃO esqueça** o BOM em `.pas` novos.
 - **NÃO bloqueie** a main thread por mais de ~1s sem mostrar overlay
   via `PushRefreshBusy(True, ...)` antes.
-- **NÃO inicialize** libobs no startup do app — só na 1ª gravação.
+- **NÃO inicialize** libobs DIRETO no `DoInit` — pode travar o
+  startup do app. Use o `TIMER_OBS_WARMUP` (one-shot ~1.5s depois)
+  pra que a UI renderize antes do init bloquear ~300ms.
 - **NÃO compute** canvas baseado em todos os monitores — só os
   enabled em config.json.
 - **NÃO atribua** HBITMAP manual a `TBitmap.Handle` enquanto o bitmap

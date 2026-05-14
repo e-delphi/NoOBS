@@ -51,6 +51,8 @@ uses
   OBSConfig,
   OBSAudioWatch,
   OBSProbe,
+  OBSRecordWatch,
+  System.SyncObjs,
   LibOBSEngine,
   WinPreview,
   WinAudioMeter,
@@ -71,6 +73,9 @@ const
 
   TIMER_MONITOR_REFRESH = 7004;
   MONITOR_REFRESH_DEBOUNCE_MS = 2500;
+
+  TIMER_OBS_WARMUP      = 7006;
+  OBS_WARMUP_DELAY_MS   = 1500;  // tempo pra UI renderizar antes do init
 
   PFX_MONITOR = 'NoOBS Monitor ';
   PFX_MIC     = 'NoOBS Mic - ';
@@ -96,6 +101,17 @@ var
   Engine: TLibOBSEngine = nil;
   Initialized: Boolean = False;
 
+  // Flag de shutdown lido por TODAS as worker threads (capture, ffprobe,
+  // transcode...). Usa Integer + TInterlocked pra garantir:
+  //   1. Atomicidade (sem tearing — Boolean em x64 ja seria atomico,
+  //      mas Integer + TInterlocked deixa explicito).
+  //   2. Memory barrier — workers veem a mudanca IMEDIATAMENTE, nao
+  //      dependem de cache flush implicito por function call.
+  //   3. Compilador nao pode cachear em registrador (TInterlocked.Add
+  //      com 0 e barreira de leitura forcada).
+  // Acesso via IsShuttingDown / SignalShutdown abaixo.
+  GShuttingDownFlag: Integer = 0;
+
   RecordingActive: Boolean = False;
   RecordingStartTickMs: Cardinal = 0;
   ThumbBusy: Boolean = False;       // evita pile-up se o tick anterior atrasar
@@ -104,6 +120,25 @@ var
   LastRecordingDuration: Integer = 0;
 
   RecordDir: string = '';
+
+// =====================================================================
+// Shutdown signaling — thread-safe
+// =====================================================================
+
+function IsShuttingDown: Boolean;
+begin
+  // TInterlocked.Add(target, 0) le com memory barrier — garante que
+  // workers vejam o valor atual mesmo se o compilador quisesse cachear
+  // em registrador. Equivalente em custo a um MFENCE + load (~1ns).
+  // Nao usa "inline" porque TInterlocked esta no uses do implementation
+  // — Delphi nao consegue inlinar entao gera hint H2445.
+  Result := TInterlocked.Add(GShuttingDownFlag, 0) <> 0;
+end;
+
+procedure SignalShutdown;
+begin
+  TInterlocked.Exchange(GShuttingDownFlag, 1);
+end;
 
 // =====================================================================
 // JSON helpers
@@ -172,21 +207,55 @@ end;
 // Sources sem OBS — Win32/WASAPI direto pra preview phase
 // =====================================================================
 
-function GetSourceEnabled(const AId: string; ADefault: Boolean): Boolean;
-// Estado enabled persistido em config.json sob "enabled.<id>".
-var S: string;
+procedure SplitSourceId(const AId: string; out ACategory, ARawId: string);
+// "NoOBS Monitor 1" -> ('monitors', '1')
+// "NoOBS Mic - X"   -> ('mics', 'X')
+// "NoOBS Out - Y"   -> ('speakers', 'Y')
+// "NoOBS Webcam - Z" -> ('webcams', 'Z')
 begin
-  S := GetConfigStr('enabled.' + AId, '');
-  if S = '' then Exit(ADefault);
-  Result := SameText(S, 'true');
+  if StartsText(PFX_MONITOR, AId) then
+  begin
+    ACategory := 'monitors';
+    ARawId := Copy(AId, Length(PFX_MONITOR) + 1, MaxInt);
+  end
+  else if StartsText(PFX_MIC, AId) then
+  begin
+    ACategory := 'mics';
+    ARawId := Copy(AId, Length(PFX_MIC) + 1, MaxInt);
+  end
+  else if StartsText(PFX_OUT, AId) then
+  begin
+    ACategory := 'speakers';
+    ARawId := Copy(AId, Length(PFX_OUT) + 1, MaxInt);
+  end
+  else if StartsText(PFX_WEBCAM, AId) then
+  begin
+    ACategory := 'webcams';
+    ARawId := Copy(AId, Length(PFX_WEBCAM) + 1, MaxInt);
+  end
+  else
+  begin
+    ACategory := '';
+    ARawId := AId;
+  end;
+end;
+
+function GetSourceEnabled(const AId: string; ADefault: Boolean): Boolean;
+var
+  Cat, Raw: string;
+begin
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit(ADefault);
+  Result := OBSConfig.GetSourceBool(Cat, Raw, ADefault);
 end;
 
 procedure SetSourceEnabled(const AId: string; AEnabled: Boolean);
+var
+  Cat, Raw: string;
 begin
-  if AEnabled then
-    SetConfigStr('enabled.' + AId, 'true')
-  else
-    SetConfigStr('enabled.' + AId, 'false');
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit;
+  OBSConfig.SetSourceBool(Cat, Raw, AEnabled);
 end;
 
 function MonitorIdFromIndex(AIndex: Integer): string;
@@ -353,6 +422,11 @@ begin
   for i := 0 to High(Files) do
   begin
     FilePath := Files[i];
+    // Esconde o arquivo da gravacao em andamento — ele aparece com
+    // tamanho parcial ate o muxer finalizar. PushRecordingAdded ja
+    // adiciona ele na lista quando a gravacao termina.
+    if RecordingActive and (LastRecordingPath <> '') and
+       SameText(FilePath, LastRecordingPath) then Continue;
     FileName := ExtractFileName(FilePath);
     try
       FSize := TFile.GetSize(FilePath);
@@ -523,6 +597,7 @@ procedure ScanSingleRecordingMeta(const APath: string);
 var
   PathCopy: string;
 begin
+  if IsShuttingDown then Exit;
   if not FFmpegAvailable then Exit;
   PathCopy := APath;
   TThread.CreateAnonymousThread(
@@ -531,9 +606,11 @@ begin
       Dur: Integer;
       ThumbUrl: string;
     begin
+      if IsShuttingDown then Exit;
       Dur := 0;
       ThumbUrl := '';
       try EnsureRecordingMeta(PathCopy, Dur, ThumbUrl); except end;
+      if IsShuttingDown then Exit;
       if (Dur > 0) or (ThumbUrl <> '') then
         TThread.Queue(nil,
           procedure
@@ -606,11 +683,15 @@ begin
     var
       j: Integer;
     begin
+      if IsShuttingDown then Exit;
       try CleanupLegacyCache; except end;
       // GC primeiro pra liberar espaco antes de gerar caches novos.
       try GarbageCollectCache(LivePaths); except end;
       for j := 0 to High(Files) do
+      begin
+        if IsShuttingDown then Exit;
         ProcessSingleMetaSync(Files[j]);
+      end;
     end).Start;
 end;
 
@@ -659,7 +740,7 @@ begin
       Sleep(Step);
       Inc(Slept, Step);
     end;
-    if Terminated then Break;
+    if Terminated or IsShuttingDown then Break;
 
     try PushMonitorThumbs; except end;
   end;
@@ -674,7 +755,7 @@ procedure PushMonitorThumbs;
 var
   Mons: TMonitorInfoArray;
 begin
-  if ThumbBusy then Exit;
+  if IsShuttingDown or ThumbBusy then Exit;
   ThumbBusy := True;
   Mons := EnumerateMonitors; // rapido — so EnumDisplayMonitors
 
@@ -689,9 +770,20 @@ begin
         SetLength(LocalArr, Length(Mons));
         for i := 0 to High(Mons) do
         begin
+          if IsShuttingDown then
+          begin
+            ThumbBusy := False;
+            Exit;
+          end;
           Id := MonitorIdFromIndex(Mons[i].Index);
           Thumb := CaptureMonitorAsDataUrl(Mons[i], 320, 180);
           LocalArr[i] := TPair<string, string>.Create(Id, Thumb);
+        end;
+
+        if IsShuttingDown then
+        begin
+          ThumbBusy := False;
+          Exit;
         end;
 
         TThread.Queue(nil,
@@ -985,6 +1077,15 @@ end;
 
 // HandleOBSEvent, WriteBootstrapBeforeLaunch removidos — sem websocket.
 
+procedure OnRecordDirChanged;
+// Callback do OBSRecordWatch quando o Windows detecta arquivo
+// adicionado/excluido/renomeado na pasta de gravacoes. Re-lista e
+// dispara scan de meta pra gerar thumbs dos arquivos novos.
+begin
+  PushRecordings;
+  ScanRecordingsMeta;
+end;
+
 procedure DoInit;
 // Phase 3: OBS NAO e iniciado aqui. So sobe quando o usuario clica
 // em "Iniciar Gravacao". Init pega monitores via Win32 e audio via
@@ -1026,6 +1127,15 @@ begin
 
   // Hot-plug de audio (continua funcionando sem OBS).
   try OBSAudioWatch.Start(OnDeviceChange); except end;
+
+  // Watcher da pasta de gravacoes — refresh automatico quando o user
+  // adiciona/exclui arquivo via Explorer ou outro app.
+  try OBSRecordWatch.Start(RecordDir, OnRecordDirChanged); except end;
+
+  // Warmup do libobs: agenda init com delay pra que a UI renderize
+  // primeiro. Sem isso, a 1a gravacao espera ~300ms enquanto obs.dll
+  // carrega + plugins + D3D11 device. Com warmup, ela e instantanea.
+  SetTimer(MainWindowHandle, TIMER_OBS_WARMUP, OBS_WARMUP_DELAY_MS, nil);
 
   Initialized := True;
   Log('DoInit: pronto (sem OBS — sobe na hora da gravacao).');
@@ -1264,6 +1374,7 @@ begin
     var
       Url, ErrMsg: string;
     begin
+      if IsShuttingDown then Exit;
       Url := '';
       ErrMsg := '';
       try
@@ -1271,6 +1382,7 @@ begin
       except
         on E: Exception do ErrMsg := E.Message;
       end;
+      if IsShuttingDown then Exit;
       TThread.Queue(nil,
         procedure
         begin
@@ -1309,8 +1421,10 @@ begin
       Streams: TJSONArray;
       S: TStreamInfo;
     begin
+      if IsShuttingDown then Exit;
       Ok := False;
       try Ok := Probe(APath, Report); except end;
+      if IsShuttingDown then Exit;
       if not Ok then
       begin
         TThread.Queue(nil, procedure begin
@@ -1451,6 +1565,9 @@ begin
   Log('Pasta de gravacao alterada para: %s', [APath]);
   PushSettings;
   PushRecordings;  // re-lista do novo dir
+  ScanRecordingsMeta;
+  // Re-aponta o watcher pra nova pasta.
+  try OBSRecordWatch.UpdateDir(APath); except end;
 end;
 
 procedure HandleDeleteRecording(const APath: string);
@@ -1531,7 +1648,9 @@ begin
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then
-      HandleSetTheme(GetStrField(Obj, 'theme'));
+      HandleSetTheme(GetStrField(Obj, 'theme'))
+    else if MsgType = 'toggle_fullscreen' then
+      OBSUI.ToggleFullscreen;
   finally
     Obj.Free;
   end;
@@ -1561,28 +1680,71 @@ begin
   else if ATimerId = TIMER_AUDIO_METER then
   begin
     PushAudioMetersFromWin;
+  end
+  else if ATimerId = TIMER_OBS_WARMUP then
+  begin
+    // One-shot — desliga antes de chamar (init bloqueia main thread
+    // por ~300ms, evita disparar de novo se algo enroscar).
+    KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
+    if (Engine = nil) and (not RecordingActive) then
+    begin
+      try
+        Engine := TLibOBSEngine.Create;
+        Engine.EnsureInitialized;
+        Log('libobs: warmup pronto — proxima gravacao sera instantanea.');
+      except
+        on E: Exception do
+        begin
+          Log('libobs: warmup falhou (gravacao vai inicializar sob demanda): %s',
+            [E.Message]);
+          if Engine <> nil then FreeAndNil(Engine);
+        end;
+      end;
+    end;
   end;
 end;
 
 procedure Shutdown;
+var
+  Wait: DWORD;
 begin
+  Log('Shutdown: inicio');
+  // Sinaliza pra todos os workers (capture, ffprobe, transcode...)
+  // abortarem cedo. Atomico + memory barrier via TInterlocked — todos
+  // os workers veem a mudanca imediatamente, sem race nem cache stale.
+  SignalShutdown;
   if MainWindowHandle <> 0 then
   begin
     KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
     KillTimer(MainWindowHandle, TIMER_AUDIO_METER);
+    KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
   end;
+  Log('Shutdown: timers off');
 
   if ThumbThread <> nil then
   begin
     ThumbThread.Terminate;
-    ThumbThread.WaitFor;
-    FreeAndNil(ThumbThread);
+    // Sleep granular de 100ms, no maximo 2s de espera total.
+    Wait := WaitForSingleObject(ThumbThread.Handle, 2000);
+    if Wait = WAIT_TIMEOUT then
+    begin
+      Log('Shutdown: ThumbThread nao parou em 2s — abandonando.');
+      ThumbThread := nil;
+    end
+    else
+      FreeAndNil(ThumbThread);
   end;
+  Log('Shutdown: ThumbThread ok');
+
+  try OBSRecordWatch.Stop; except end;
+  Log('Shutdown: RecordWatch ok');
 
   try OBSAudioWatch.Stop; except end;
+  Log('Shutdown: AudioWatch ok');
   try StopPlayerServer; except end;
+  Log('Shutdown: PlayerServer ok');
 
   if Engine <> nil then
   begin
@@ -1591,8 +1753,10 @@ begin
     try Engine.Teardown; except end;
     FreeAndNil(Engine);
   end;
+  Log('Shutdown: Engine ok');
 
   Initialized := False;
+  Log('Shutdown: fim');
 end;
 
 initialization

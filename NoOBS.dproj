@@ -177,6 +177,7 @@
         <DCCReference Include="src\OBSLog.pas"/>
         <DCCReference Include="src\OBSPlayer.pas"/>
         <DCCReference Include="src\OBSProbe.pas"/>
+        <DCCReference Include="src\OBSRecordWatch.pas"/>
         <DCCReference Include="src\OBSScene.pas"/>
         <DCCReference Include="src\OBSUI.pas"/>
         <DCCReference Include="src\WinAudioMeter.pas"/>

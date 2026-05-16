@@ -2,9 +2,9 @@
   LibOBS - bindings Delphi para a API C do libobs (obs.dll).
 
   Declaracoes de tipos opacos, structs, enums e funcoes exportadas
-  pelo obs.dll. Usa delayed loading para que a DLL so seja carregada
-  na primeira chamada, apos o PATH ja ter sido configurado por
-  OBSProbe.AppendObsBinToPath.
+  pelo obs.dll. Usa delayed loading — a DLL so e carregada na 1a
+  chamada. Windows resolve a partir do diretorio do .exe (DLL search
+  order padrao desde Win7), entao basta obs.dll estar ao lado.
 
   Calling convention: cdecl (padrao do libobs no Windows).
   Target: Win64 apenas.

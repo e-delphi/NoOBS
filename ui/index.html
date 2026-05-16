@@ -125,6 +125,10 @@
     overflow-y: auto;
     padding: 14px 12px;
     background: var(--panel);
+    /* Flex column pra que a .track-legend possa usar margin-top:auto
+       e ser empurrada pro rodape quando o conteudo cabe na viewport. */
+    display: flex;
+    flex-direction: column;
   }
 
   /* Big record button at top */
@@ -398,6 +402,66 @@
   .source-item[data-track="5"] { --track-color: #a855f7; } /* roxo */
   .source-item[data-track="6"] { --track-color: #ef4444; } /* vermelho */
 
+  /* Legenda das cores de faixa — mostra so cores presentes nos
+     dispositivos visiveis. Atualizada toda vez que a lista de devices
+     muda (renderSources -> refreshTrackColors -> buildTrackLegend).
+
+     Fica no rodape da sidebar:
+       - margin-top:auto empurra pro fundo quando o conteudo cabe
+       - position:sticky bottom:0 mantem visivel ao rolar
+       - background opaco evita transparencia quando scrolla por tras */
+  .track-legend {
+    margin-top: auto;
+    position: sticky;
+    bottom: 0;
+    background: var(--panel);
+    padding: 14px 0 4px;
+    border-top: 1px solid var(--border);
+  }
+  .track-legend[hidden] { display: none; }
+  .track-legend-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+    padding: 0 6px;
+    margin-bottom: 8px;
+  }
+  .track-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.3;
+  }
+  .track-legend-color {
+    display: inline-block;
+    width: 3px;
+    height: 14px;
+    background: var(--track-color, var(--border));
+    flex-shrink: 0;
+  }
+  .track-legend-item[data-track="2"] { --track-color: #3b82f6; }
+  .track-legend-item[data-track="3"] { --track-color: #10b981; }
+  .track-legend-item[data-track="4"] { --track-color: #f59e0b; }
+  .track-legend-item[data-track="5"] { --track-color: #a855f7; }
+  .track-legend-item[data-track="6"] { --track-color: #ef4444; }
+  .track-legend-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .track-legend-track {
+    font-weight: 600;
+    color: var(--text-2);
+    margin-right: 4px;
+  }
+
   /* Durante gravacao: bloqueia interacao com sources e dim o visual.
      Hover/click ficam inertes; toggles ficam congelados no estado atual. */
   body.recording .source-item {
@@ -434,20 +498,39 @@
   .source-item.selected .toggle::after { transform: translateX(14px); }
 
   .source-meta { flex: 1; min-width: 0; position: relative; }
+  /* Meter de audio: 7px de altura, dividida em duas barras de 3px com
+     gap de 1px no meio. data-channels="2" -> L+R; "1" -> R escondida e
+     L ocupa tudo. Atualizado por updateAudioMeters() conforme audio_meters. */
   .source-meter {
     position: relative;
-    height: 3px;
+    height: 7px;
     margin-top: 4px;
-    background: var(--panel-3);
+    background: transparent;
     border-radius: 2px;
     overflow: hidden;
   }
+  .source-meter-track {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    background: var(--panel-3);
+    border-radius: 1.5px;
+    overflow: hidden;
+  }
+  .source-meter-track[data-ch="l"] { top: 0; }
+  .source-meter-track[data-ch="r"] { bottom: 0; }
   .source-meter-fill {
     position: absolute;
     inset: 0 100% 0 0;
     background: linear-gradient(to right,
       var(--success) 0%, var(--success) 70%, #facc15 85%, var(--danger-2) 100%);
     transition: right 90ms linear;
+  }
+  /* Mono: esconde a track R, expande L pra ocupar tudo. */
+  .source-meter[data-channels="1"] .source-meter-track[data-ch="r"] { display: none; }
+  .source-meter[data-channels="1"] .source-meter-track[data-ch="l"] {
+    top: 0; bottom: 0;
+    height: auto;
   }
   /* Source desativada: meter quase invisivel */
   .source-item:not(.selected) .source-meter-fill { opacity: 0.25; }
@@ -1777,6 +1860,11 @@
         <div id="spkList"></div>
       </div>
 
+      <!-- Legenda dinamica: mostra so cores das faixas usadas pelos
+           dispositivos atualmente listados. Atualizada por
+           buildTrackLegend() apos cada renderSources/refreshTrackColors. -->
+      <div class="track-legend" id="trackLegend" hidden></div>
+
     </aside>
 
     <!-- ===== Recordings ===== -->
@@ -1988,23 +2076,33 @@ function updateRecordingMeta(data) {
   }
 }
 
+// Converte amplitude linear 0..1 pra largura 0..1 numa curva dB-friendly.
+// -60dB vira 0%, 0dB vira 100% (clamp). Silencio absoluto = 0.
+function ampToBar(v) {
+  if (!v || v <= 0) return 0;
+  const db = 20 * Math.log10(v);
+  return Math.max(0, Math.min(1, (db + 60) / 60));
+}
+
 function updateAudioMeters(items) {
   if (!items) return;
-  // OBS manda level linear 0..1. Converte pra dB e mapeia 0..100%
-  // numa curva amigavel (-60dB silencio, 0dB topo).
   items.forEach(it => {
     const card = document.querySelector(`.source-item[data-id="${CSS.escape(it.id)}"]`);
     if (!card) return;
-    const fill = card.querySelector('.source-meter-fill');
-    if (!fill) return;
-    let v = it.level || 0;
-    if (v <= 0) v = 0;
-    else {
-      const db = 20 * Math.log10(v);
-      // -60dB -> 0%, 0dB -> 100%
-      v = Math.max(0, Math.min(1, (db + 60) / 60));
-    }
-    fill.style.right = ((1 - v) * 100) + '%';
+    const meter = card.querySelector('.source-meter');
+    if (!meter) return;
+    const ch = (it.channels && it.channels >= 2) ? 2 : 1;
+    meter.dataset.channels = String(ch);
+
+    const fillL = meter.querySelector('.source-meter-track[data-ch="l"] .source-meter-fill');
+    const fillR = meter.querySelector('.source-meter-track[data-ch="r"] .source-meter-fill');
+
+    // Backend manda left/right separados. Fallback: usa level.
+    const vL = ampToBar(typeof it.left  === 'number' ? it.left  : it.level);
+    const vR = ampToBar(typeof it.right === 'number' ? it.right : it.level);
+
+    if (fillL) fillL.style.right = ((1 - vL) * 100) + '%';
+    if (fillR) fillR.style.right = ((1 - vR) * 100) + '%';
   });
 }
 
@@ -2302,6 +2400,64 @@ function refreshTrackColors() {
       else delete el.dataset.track;
     });
   });
+  buildTrackLegend();
+}
+
+// Monta a legenda das cores no rodape da sidebar. Le data-track dos
+// dispositivos ja renderizados, agrupa por numero de track e mostra
+// so o que tiver presente. Track 1 (mix) nao aparece — devices nunca
+// tem data-track="1" (mix nao colore o bar).
+//
+// Quando varios devices compartilham a mesma track (grouping ativado
+// porque excedeu 5 sources), mostra contagem em vez de listar nomes.
+function buildTrackLegend() {
+  const legend = document.getElementById('trackLegend');
+  if (!legend) return;
+
+  const byTrack = new Map();
+  ['micList', 'spkList'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    const items = list.querySelectorAll('.source-item[data-track]');
+    items.forEach(el => {
+      const t = parseInt(el.dataset.track, 10);
+      if (!t || t < 2) return;
+      const nameEl = el.querySelector('.source-name');
+      const name = nameEl ? (nameEl.textContent || '').trim() : '';
+      if (!name) return;
+      if (!byTrack.has(t)) byTrack.set(t, []);
+      byTrack.get(t).push(name);
+    });
+  });
+
+  const tracks = [...byTrack.keys()].sort((a, b) => a - b);
+  if (tracks.length === 0) {
+    legend.hidden = true;
+    legend.innerHTML = '';
+    return;
+  }
+
+  let html = '<div class="track-legend-title">Faixas de áudio</div>';
+  tracks.forEach(t => {
+    const names = byTrack.get(t);
+    let label;
+    if (names.length === 1) {
+      label = names[0];
+    } else if (names.length === 2) {
+      label = names.join(', ');
+    } else {
+      label = `${names.length} dispositivos agrupados`;
+    }
+    html += '<div class="track-legend-item" data-track="' + t + '" title="' +
+            escapeHtml(names.join(', ')) + '">' +
+            '<span class="track-legend-color"></span>' +
+            '<span class="track-legend-name">' +
+            '<span class="track-legend-track">Faixa ' + t + '</span>' +
+            escapeHtml(label) +
+            '</span></div>';
+  });
+  legend.innerHTML = html;
+  legend.hidden = false;
 }
 
 function renderSources(kindShort, listId, countId, items) {
@@ -2350,11 +2506,26 @@ function renderSources(kindShort, listId, countId, items) {
       meta.appendChild(info);
     }
     if (kindShort === 'mic' || kindShort === 'spk') {
+      // Estrutura L+R sempre — atributo data-channels controla layout:
+      // "1" esconde R e estende L; "2" mostra os dois lado a lado.
+      // updateAudioMeters seta channels conforme o que o WASAPI reporta.
       const meter = document.createElement('div');
       meter.className = 'source-meter';
-      const fill = document.createElement('div');
-      fill.className = 'source-meter-fill';
-      meter.appendChild(fill);
+      meter.dataset.channels = '2';
+      const trackL = document.createElement('div');
+      trackL.className = 'source-meter-track';
+      trackL.dataset.ch = 'l';
+      const fillL = document.createElement('div');
+      fillL.className = 'source-meter-fill';
+      trackL.appendChild(fillL);
+      const trackR = document.createElement('div');
+      trackR.className = 'source-meter-track';
+      trackR.dataset.ch = 'r';
+      const fillR = document.createElement('div');
+      fillR.className = 'source-meter-fill';
+      trackR.appendChild(fillR);
+      meter.appendChild(trackL);
+      meter.appendChild(trackR);
       meta.appendChild(meter);
     }
 

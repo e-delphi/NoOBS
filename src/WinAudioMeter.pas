@@ -23,7 +23,10 @@ type
 
   TAudioLevel = record
     DeviceId: string;
-    PeakLevel: Single;    // 0..1
+    PeakLevel: Single;    // 0..1 — peak total (max dos canais).
+    PeakLeft:  Single;    // 0..1 — canal L (estereo) ou mesmo que PeakLevel se mono.
+    PeakRight: Single;    // 0..1 — canal R (estereo) ou mesmo que PeakLevel se mono.
+    Channels:  Integer;   // 1 = mono, 2+ = estereo (so L/R sao expostos).
   end;
   TAudioLevelArray = TArray<TAudioLevel>;
 
@@ -282,6 +285,9 @@ begin
       DEVICE_STATE_ACTIVE, Coll)) then Continue;
     Cnt := 0;
     Coll.GetCount(Cnt);
+    // Cnt e Cardinal — se for 0 (nenhum device do tipo), Cnt-1
+    // underflowa pra $FFFFFFFF e dispara EIntOverflow.
+    if Cnt = 0 then Continue;
     for i := 0 to Cnt - 1 do
     begin
       if Failed(Coll.Item(i, Dev)) or (Dev = nil) then Continue;
@@ -331,20 +337,59 @@ begin
 end;
 
 function ReadPeakLevels: TAudioLevelArray;
+// Le picos por device. Tenta extrair canais L/R individualmente via
+// GetChannelsPeakValues — funciona pra devices estereo (a maioria dos
+// alto-falantes e a maior parte dos mics USB). Mono fallback usa
+// GetPeakValue e duplica o mesmo valor em L/R.
+const
+  MAX_CH = 8;  // 7.1 e o limite OBS — buffer grande chega.
 var
-  i: Integer;
+  i, j, ChCount: Integer;
   Peak: Single;
+  ChCard: Cardinal;
+  Buf: array[0..MAX_CH - 1] of Single;
+  Lvl: TAudioLevel;
 begin
   if Length(Cache) = 0 then RebuildCache;
   SetLength(Result, 0);
   for i := 0 to High(Cache) do
   begin
     if Cache[i].Meter = nil then Continue;
-    Peak := 0;
-    if Failed(Cache[i].Meter.GetPeakValue(Peak)) then Continue;
+
+    ChCount := 1;
+    ChCard := 0;
+    if Succeeded(Cache[i].Meter.GetMeteringChannelCount(ChCard)) then
+      ChCount := Integer(ChCard);
+    if ChCount < 1 then ChCount := 1;
+    if ChCount > MAX_CH then ChCount := MAX_CH;
+
+    FillChar(Buf, SizeOf(Buf), 0);
+    Lvl.DeviceId := Cache[i].Info.DeviceId;
+    Lvl.Channels := ChCount;
+
+    if (ChCount >= 2) and
+       Succeeded(Cache[i].Meter.GetChannelsPeakValues(ChCount, @Buf[0])) then
+    begin
+      // L/R sao os canais 0 e 1. Peak total = max de todos.
+      Lvl.PeakLeft  := Buf[0];
+      Lvl.PeakRight := Buf[1];
+      Peak := 0;
+      for j := 0 to ChCount - 1 do
+        if Buf[j] > Peak then Peak := Buf[j];
+      Lvl.PeakLevel := Peak;
+    end
+    else
+    begin
+      // Fallback mono: usa GetPeakValue e duplica em L/R.
+      Peak := 0;
+      if Failed(Cache[i].Meter.GetPeakValue(Peak)) then Continue;
+      Lvl.PeakLevel := Peak;
+      Lvl.PeakLeft  := Peak;
+      Lvl.PeakRight := Peak;
+    end;
+
     SetLength(Result, Length(Result) + 1);
-    Result[High(Result)].DeviceId := Cache[i].Info.DeviceId;
-    Result[High(Result)].PeakLevel := Peak;
+    Result[High(Result)] := Lvl;
   end;
 end;
 

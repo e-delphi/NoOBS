@@ -54,6 +54,7 @@ uses
   OBSProbe,
   OBSRecordWatch,
   System.SyncObjs,
+  FFmpegLib,
   LibOBSEngine,
   WinPreview,
   WinAudioMeter,
@@ -97,6 +98,11 @@ type
     procedure RequestBurst(ADurationMs: Cardinal);
     procedure Execute; override;
   end;
+
+const
+  // IDs dos atalhos globais (registrados em DoInit via OBSUI).
+  // Faixa 100..999 reservada — caller pode usar > 1000 livre.
+  HK_RECORD_TOGGLE = 100;
 
 var
   Engine: TLibOBSEngine = nil;
@@ -443,8 +449,8 @@ begin
     Item.AddPair('size',     TJSONNumber.Create(FSize));
     Item.AddPair('sizeText', FormatBytesShort(FSize));
 
-    // Le metadata cacheada (instantaneo). ffmpeg roda em background
-    // depois pra preencher os que faltam.
+    // Le metadata cacheada (instantaneo). Probe/thumb via libavformat
+    // roda em background depois pra preencher os que faltam.
     CachedDur := 0;
     CachedThumb := '';
     GetCachedMeta(FilePath, CachedDur, CachedThumb);
@@ -607,7 +613,7 @@ var
   PathCopy: string;
 begin
   if IsShuttingDown then Exit;
-  if not FFmpegAvailable then Exit;
+  if not FFmpegLibAvailable then Exit;
   PathCopy := APath;
   TThread.CreateAnonymousThread(
     procedure
@@ -618,7 +624,13 @@ begin
       if IsShuttingDown then Exit;
       Dur := 0;
       ThumbUrl := '';
-      try EnsureRecordingMeta(PathCopy, Dur, ThumbUrl); except end;
+      try
+        EnsureRecordingMeta(PathCopy, Dur, ThumbUrl);
+      except
+        on E: Exception do
+          Log('ScanSingleMeta: exception em %s: %s [%s]',
+            [ExtractFileName(PathCopy), E.Message, E.ClassName]);
+      end;
       if IsShuttingDown then Exit;
       if (Dur > 0) or (ThumbUrl <> '') then
         TThread.Queue(nil,
@@ -639,7 +651,13 @@ var
 begin
   Dur := 0;
   ThumbUrl := '';
-  try EnsureRecordingMeta(APath, Dur, ThumbUrl); except end;
+  try
+    EnsureRecordingMeta(APath, Dur, ThumbUrl);
+  except
+    on E: Exception do
+      Log('ProcessSingleMeta: exception em %s: %s [%s]',
+        [ExtractFileName(APath), E.Message, E.ClassName]);
+  end;
   if (Dur > 0) or (ThumbUrl <> '') then
     TThread.Queue(nil,
       procedure
@@ -669,8 +687,8 @@ end;
 
 procedure ScanRecordingsMeta;
 // Em worker thread: pra cada gravacao, garante duracao + thumb
-// (ffmpeg cacheado) e empurra `recording_meta` por arquivo. UI
-// atualiza os cards conforme chegam. Tambem faz GC do cache
+// (libavformat, cacheado) e empurra `recording_meta` por arquivo.
+// UI atualiza os cards conforme chegam. Tambem faz GC do cache
 // removendo arquivos cuja gravacao original ja nao existe.
 var
   Files: TStringDynArray;
@@ -678,7 +696,7 @@ var
   i: Integer;
 begin
   if (RecordDir = '') or (not TDirectory.Exists(RecordDir)) then Exit;
-  if not FFmpegAvailable then Exit;
+  if not FFmpegLibAvailable then Exit;
 
   Files := ListRecordings(RecordDir);
 
@@ -956,12 +974,14 @@ end;
 
 procedure DoRefreshAudio;
 // Re-enumera audio devices via WASAPI e empurra a lista atualizada
-// pra UI. Phase 3: OBS nao esta rodando (so durante gravacao), entao
-// nao mexe em scene items — proxima gravacao usa a lista nova via
-// BuildRecordingScene. Disparado por OBSAudioWatch ao detectar hot-
-// plug (USB connect/disconnect).
-var
-  Init: TJSONObject;
+// pra UI. Disparado por OBSAudioWatch ao detectar hot-plug (USB
+// connect/disconnect).
+//
+// IMPORTANTE: enumeracao WASAPI roda em worker thread porque pode
+// bloquear 60s+ quando o Windows Audio Service esta doente — caso
+// classico: remover o ultimo mic conectado. RefreshAudioDevices +
+// EnumerateAudioDevices ficam no worker; so o BuildAudioFromWin
+// (que ja le do cache) roda no UI thread via TThread.Queue.
 begin
   if RefreshInProgress then
   begin
@@ -970,24 +990,74 @@ begin
   end;
   RefreshInProgress := True;
   PushRefreshBusy(True, 'audio');
-  try
-    try
-      // Invalida cache do WinAudioMeter — proxima EnumerateAudioDevices
-      // re-enumera fresco (pega devices novos, dropa devices removidos).
-      RefreshAudioDevices;
-      Init := TJSONObject.Create;
-      Init.AddPair('type', 'audio_sources_refreshed');
-      Init.AddPair('mics',     BuildAudioFromWin(adkInput));
-      Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
-      PostOwned(Init);
-    except
-      on E: Exception do
-        Log('DoRefreshAudio falhou: %s', [E.Message]);
-    end;
-  finally
-    RefreshInProgress := False;
-    PushRefreshBusy(False, 'audio');
-  end;
+  Log('DoRefreshAudio: disparando worker.');
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Init: TJSONObject;
+      T0, TPhase: UInt64;
+      Devs: TAudioDeviceInfoArray;
+    begin
+      T0 := GetTickCount64;
+      try
+        try
+          if IsShuttingDown then Exit;
+          // CoInitializeEx no worker — IMMDeviceEnumerator precisa.
+          TPhase := GetTickCount64;
+          try InitAudio; except on E: Exception do
+            Log('DoRefreshAudio: InitAudio falhou: %s', [E.Message]); end;
+          Log('DoRefreshAudio: InitAudio em %dms.',
+            [GetTickCount64 - TPhase]);
+          if IsShuttingDown then Exit;
+
+          // Invalida cache do WinAudioMeter — proxima EnumerateAudioDevices
+          // re-enumera fresco (pega devices novos, dropa devices removidos).
+          TPhase := GetTickCount64;
+          RefreshAudioDevices;
+          Log('DoRefreshAudio: RefreshAudioDevices em %dms.',
+            [GetTickCount64 - TPhase]);
+          if IsShuttingDown then Exit;
+
+          // Forca enumeracao agora (no worker, nao no UI) — popula cache.
+          // Esse e o ponto que costuma travar quando o audio service
+          // do Windows esta doente (ex.: removeu o ultimo mic).
+          TPhase := GetTickCount64;
+          Devs := EnumerateAudioDevices;
+          Log('DoRefreshAudio: EnumerateAudioDevices em %dms (%d device(s)).',
+            [GetTickCount64 - TPhase, Length(Devs)]);
+          if IsShuttingDown then Exit;
+
+          TThread.Queue(nil,
+            procedure
+            begin
+              if IsShuttingDown then Exit;
+              try
+                Init := TJSONObject.Create;
+                Init.AddPair('type', 'audio_sources_refreshed');
+                Init.AddPair('mics',     BuildAudioFromWin(adkInput));
+                Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+                PostOwned(Init);
+              except
+                on E: Exception do
+                  Log('DoRefreshAudio (UI): %s', [E.Message]);
+              end;
+            end);
+        except
+          on E: Exception do
+            Log('DoRefreshAudio falhou: %s', [E.Message]);
+        end;
+      finally
+        Log('DoRefreshAudio: worker terminou em %dms.',
+          [GetTickCount64 - T0]);
+        TThread.Queue(nil,
+          procedure
+          begin
+            RefreshInProgress := False;
+            PushRefreshBusy(False, 'audio');
+          end);
+      end;
+    end).Start;
 end;
 
 procedure PushAudioDeviceChanged(APending: Boolean);
@@ -1008,7 +1078,17 @@ procedure OnDeviceChange(AKind: TAudioDeviceChangeKind; const ADeviceId: string)
 // Em vez de throttle (que perde eventos), debounce: a cada evento
 // reagendamos um timer; o refresh so dispara quando para de chegar
 // evento por AUDIO_REFRESH_DEBOUNCE_MS.
+const
+  KIND_NAMES: array[TAudioDeviceChangeKind] of string = (
+    'added', 'removed', 'stateChanged', 'defaultChanged'
+  );
+var
+  ShortId: string;
 begin
+  ShortId := ADeviceId;
+  if Length(ShortId) > 40 then ShortId := Copy(ShortId, 1, 37) + '...';
+  Log('AudioWatch: %s id="%s"', [KIND_NAMES[AKind], ShortId]);
+
   if AKind = adcDefaultChanged then Exit;
   TThread.Queue(nil,
     procedure
@@ -1068,7 +1148,12 @@ begin
     if DeviceName = '' then Continue;
     Item := TJSONObject.Create;
     Item.AddPair('id', Id);
+    // level = peak total (compatibilidade — meter atual usa esse).
     Item.AddPair('level', TJSONNumber.Create(Levels[i].PeakLevel));
+    // L/R individuais — UI renderiza dois barras se canais>=2.
+    Item.AddPair('left',  TJSONNumber.Create(Levels[i].PeakLeft));
+    Item.AddPair('right', TJSONNumber.Create(Levels[i].PeakRight));
+    Item.AddPair('channels', TJSONNumber.Create(Levels[i].Channels));
     Arr.AddElement(Item);
   end;
 
@@ -1182,6 +1267,12 @@ begin
   // carrega + plugins + D3D11 device. Com warmup, ela e instantanea.
   SetTimer(MainWindowHandle, TIMER_OBS_WARMUP, OBS_WARMUP_DELAY_MS, nil);
 
+  // Atalhos globais — Ctrl+Shift+F9 = toggle gravacao. Pode falhar se
+  // outro app ja registrou (ex.: OBS Studio rodando paralelo). Falha
+  // nao e fatal, app sobe normal sem o atalho.
+  RegisterGlobalHotkey(HK_RECORD_TOGGLE,
+    MOD_CONTROL or MOD_SHIFT, VK_F9);
+
   Initialized := True;
   Log('DoInit: pronto (sem OBS — sobe na hora da gravacao).');
 end;
@@ -1212,18 +1303,28 @@ end;
 procedure HandleRecordStart;
 var
   OutputPath: string;
+  T0, TStep: UInt64;
 begin
   if RecordingActive then Exit;
 
+  T0 := GetTickCount64;
+  Log('HandleRecordStart: inicio.');
   PushRefreshBusy(True, 'starting');
   try
+    TStep := GetTickCount64;
     if Engine = nil then
       Engine := TLibOBSEngine.Create;
     Engine.EnsureInitialized;
+    Log('HandleRecordStart: EnsureInitialized em %dms.',
+      [GetTickCount64 - TStep]);
 
     OutputPath := IncludeTrailingPathDelimiter(RecordDir)
       + 'NoOBS_' + FormatDateTime('yyyy-mm-dd_hh-nn-ss', Now) + '.mkv';
+
+    TStep := GetTickCount64;
     Engine.BuildAndStartRecording(OutputPath);
+    Log('HandleRecordStart: BuildAndStartRecording em %dms.',
+      [GetTickCount64 - TStep]);
 
     RecordingActive := True;
     LastRecordingPath := OutputPath;
@@ -1231,15 +1332,32 @@ begin
     RecordingStartTickMs := GetTickCount;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
     PushRecordingState;
+    Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);
   except
     on E: Exception do
     begin
       RecordingActive := False;
       PostError('Falha ao iniciar gravacao: ' + E.Message);
       PushRecordingState;
+      Log('HandleRecordStart: FALHOU apos %dms: %s',
+        [GetTickCount64 - T0, E.Message]);
     end;
   end;
   PushRefreshBusy(False, 'starting');
+end;
+
+procedure HandleRecordStop; forward;
+
+procedure OnHotkey(AHotkeyId: Integer);
+// Callback de WM_HOTKEY chamado por OBSUI.WindowProc. Roda no UI
+// thread (mensagem da janela) — pode chamar Start/Stop direto.
+begin
+  Log('Hotkey: id=%d disparado.', [AHotkeyId]);
+  case AHotkeyId of
+    HK_RECORD_TOGGLE:
+      if RecordingActive then HandleRecordStop
+      else HandleRecordStart;
+  end;
 end;
 
 procedure HandleRecordStop;
@@ -1399,7 +1517,7 @@ end;
 
 procedure HandleRequestTranscode(const APath: string);
 // JS chama isso depois que o player falhou tocando o arquivo original.
-// Roda ffmpeg (worker thread) e devolve URL transcodada.
+// Faz remux via libavformat (worker thread) e devolve URL do MP4.
 begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
@@ -1407,9 +1525,9 @@ begin
     PostError('Arquivo nao encontrado.');
     Exit;
   end;
-  if not FFmpegAvailable then
+  if not FFmpegLibAvailable then
   begin
-    PostError('ffmpeg.exe nao encontrado na pasta do app.');
+    PostError('Biblioteca de media (libavformat) nao disponivel.');
     Exit;
   end;
 
@@ -1441,8 +1559,8 @@ begin
 end;
 
 procedure HandleRequestVideoInfo(const APath: string);
-// ffprobe roda em worker thread (pode levar 100-500ms). UI mostra
-// loading enquanto isso.
+// Probe via libavformat roda em worker thread (10-50ms tipicamente,
+// mas pode picar em arquivos grandes/remotos). UI mostra loading.
 begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
@@ -1450,9 +1568,9 @@ begin
     PostError('Arquivo nao encontrado.');
     Exit;
   end;
-  if not FFprobeAvailable then
+  if not FFmpegLibAvailable then
   begin
-    PostError('ffprobe.exe nao encontrado.');
+    PostError('Biblioteca de media (libavformat) nao disponivel.');
     Exit;
   end;
 
@@ -1473,7 +1591,7 @@ begin
       if not Ok then
       begin
         TThread.Queue(nil, procedure begin
-          PostError('Falha ao inspecionar video com ffprobe.'); end);
+          PostError('Falha ao inspecionar video.'); end);
         Exit;
       end;
 
@@ -1844,6 +1962,7 @@ begin
   begin
     if RefreshInProgress then Exit; // continua agendado, tenta no proximo tick
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
+    Log('TIMER_AUDIO_REFRESH: debounce fired.');
     if not RecordingActive then
       DoRefreshAudio;
   end
@@ -1894,6 +2013,8 @@ begin
   // abortarem cedo. Atomico + memory barrier via TInterlocked — todos
   // os workers veem a mudanca imediatamente, sem race nem cache stale.
   SignalShutdown;
+  // Atalhos globais — libera a combinacao pra outros apps usarem.
+  UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
   if MainWindowHandle <> 0 then
   begin
     KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
@@ -1945,6 +2066,7 @@ initialization
   OBSUI.OnUIMessage       := Dispatch;
   OBSUI.OnUITimer         := OnTimer;
   OBSUI.OnUIDisplayChange := OnDisplayChange;
+  OBSUI.OnUIHotkey        := OnHotkey;
 
 finalization
   Shutdown;

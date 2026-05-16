@@ -19,6 +19,7 @@ program NoOBS;
 {$R *.dres}
 
 uses
+  FFmpegLib in 'src\FFmpegLib.pas',
   LibOBS in 'src\LibOBS.pas',
   LibOBSEngine in 'src\LibOBSEngine.pas',
   OBSAudioWatch in 'src\OBSAudioWatch.pas',
@@ -29,6 +30,7 @@ uses
   OBSProbe in 'src\OBSProbe.pas',
   OBSRecordWatch in 'src\OBSRecordWatch.pas',
   OBSScene in 'src\OBSScene.pas',
+  OBSStartupCheck in 'src\OBSStartupCheck.pas',
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',
   WinPreview in 'src\WinPreview.pas',

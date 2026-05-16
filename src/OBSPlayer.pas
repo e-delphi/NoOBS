@@ -1,24 +1,24 @@
 {
-  OBSPlayer — servidor HTTP local + ffmpeg pra tocar gravacoes
+  OBSPlayer — servidor HTTP local + libavformat pra tocar gravacoes
   dentro do WebView2.
 
   Por que isso existe:
     WebView2 nao toca arquivos locais via file:// por padrao, e MKV
-    com HEVC quase nunca toca direto no Chromium. A solucao e remux
-    pra MP4 (rapido, sem reencode quando o codec ja e compativel) e
-    servir pelo localhost com suporte a Range (essencial pra seek).
+    nao toca direto no Chromium. A solucao e remuxar pra MP4
+    (sem reencode, so troca de container) e servir pelo localhost
+    com suporte a Range (essencial pra seek).
 
   Fluxo:
     1. Startup: HTTP server sobe em 127.0.0.1:porta-livre.
     2. UI pede play -> GetPlayUrl(path):
-       a. Calcula path do cache (<rec-dir>\.cache\<basename>.mp4).
-       b. Se nao existe, roda ffmpeg pra remuxar (-c copy) ou
-          transcodar (HEVC -> H.264) baseado no codec.
+       a. Calcula path do cache (<localappdata>\NoOBS\cache\<hash>.mp4).
+       b. Se nao existe, chama FFmpegLib.RemuxFile (MKV->MP4 in-process).
        c. Devolve "http://127.0.0.1:porta/<token>.mp4".
     3. WebView2 pede o arquivo -> server serve com Range.
 
-  Threading: ffmpeg pode ser pesado se transcodar. Execute em worker
-  thread; UI fica responsiva.
+  Threading: remux/extracao de audio/thumb sao via DLL e in-process,
+  mas ainda demoram dezenas-centenas de ms — chamar de worker thread
+  pra nao travar a UI.
 }
 unit OBSPlayer;
 
@@ -39,12 +39,8 @@ function GetDirectUrl(const APath: string): string;
 // Use de worker thread se chamada vier da main pra evitar travar a UI.
 function GetTranscodedUrl(const APath: string): string;
 
-// Verifica se ffmpeg.exe existe ao lado do NoOBS.exe.
-function FFmpegAvailable: Boolean;
-
 // Garante metadata cacheada (duracao em segundos + thumb JPG) para
-// uma gravacao. Roda ffmpeg se ainda nao tem cache. Devolve True se ok.
-// Use de worker thread.
+// uma gravacao. Usa libavformat. Devolve True se ok. Worker thread.
 function EnsureRecordingMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string): Boolean;
 
@@ -80,7 +76,8 @@ uses
   IdHTTPServer,
   IdGlobal,
   OBSLog,
-  OBSProbe;
+  OBSProbe,
+  FFmpegLib;
 
 type
   // OnCommandGet exige method-of-object. Esta classe e um trampolim.
@@ -117,110 +114,12 @@ begin
   Result := IncludeTrailingPathDelimiter(AppData) + 'NoOBS\cache\';
 end;
 
-function FFmpegPath: string;
-// ffmpeg.exe mora ao lado do NoOBS.exe (mesma pasta bin\64bit do OBS).
-begin
-  Result := ExeDir + 'ffmpeg.exe';
-  if not FileExists(Result) then Result := '';
-end;
+// FFmpegAvailable removida — callers usam FFmpegLib.FFmpegLibAvailable
+// diretamente. Sem fallback pra ffmpeg.exe (nao temos mais).
 
-function FFmpegAvailable: Boolean;
-begin
-  Result := FFmpegPath <> '';
-end;
-
-// =====================================================================
-// ffmpeg helpers
-// =====================================================================
-
-function RunFFmpegCapture(const AArgs: string; out AStdErr: string;
-  out AExitCode: DWORD): Boolean;
-// Roda ffmpeg capturando stderr (onde ele escreve info do arquivo).
-const
-  BUF_SIZE = 4096;
-var
-  Sec: TSecurityAttributes;
-  ReadH, WriteH: THandle;
-  StartInfo: TStartupInfo;
-  ProcInfo: TProcessInformation;
-  CmdLine: string;
-  CmdBuf: array[0..2047] of Char;
-  Buf: array[0..BUF_SIZE - 1] of AnsiChar;
-  BytesRead: DWORD;
-  SS: TStringStream;
-begin
-  Result := False;
-  AStdErr := '';
-  AExitCode := 1;
-
-  Sec.nLength := SizeOf(Sec);
-  Sec.bInheritHandle := True;
-  Sec.lpSecurityDescriptor := nil;
-  if not CreatePipe(ReadH, WriteH, @Sec, 0) then Exit;
-
-  // O lado read nao deve ser herdado.
-  SetHandleInformation(ReadH, HANDLE_FLAG_INHERIT, 0);
-
-  ZeroMemory(@StartInfo, SizeOf(StartInfo));
-  StartInfo.cb := SizeOf(StartInfo);
-  StartInfo.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
-  StartInfo.wShowWindow := SW_HIDE;
-  StartInfo.hStdOutput := WriteH;
-  StartInfo.hStdError  := WriteH;
-  StartInfo.hStdInput  := GetStdHandle(STD_INPUT_HANDLE);
-
-  CmdLine := '"' + FFmpegPath + '" ' + AArgs;
-  StrLCopy(CmdBuf, PChar(CmdLine), High(CmdBuf));
-
-  SS := TStringStream.Create('', TEncoding.UTF8);
-  try
-    if not CreateProcess(nil, CmdBuf, nil, nil, True,
-      CREATE_NO_WINDOW, nil, PChar(ExeDir), StartInfo, ProcInfo) then
-    begin
-      CloseHandle(ReadH);
-      CloseHandle(WriteH);
-      Exit;
-    end;
-    // Fecha o write da nossa parte; do contrario ReadFile bloqueia
-    // sempre que o filho fizer flush.
-    CloseHandle(WriteH);
-
-    while ReadFile(ReadH, Buf, BUF_SIZE, BytesRead, nil) and (BytesRead > 0) do
-      SS.WriteData(@Buf[0], BytesRead);
-
-    WaitForSingleObject(ProcInfo.hProcess, INFINITE);
-    GetExitCodeProcess(ProcInfo.hProcess, AExitCode);
-    CloseHandle(ProcInfo.hProcess);
-    CloseHandle(ProcInfo.hThread);
-    CloseHandle(ReadH);
-
-    AStdErr := SS.DataString;
-    Result := AExitCode = 0;
-  finally
-    SS.Free;
-  end;
-end;
-
-function DetectVideoCodec(const APath: string): string;
-// Le o stderr do ffmpeg -i <file>. Procura "Video: <codec>".
-var
-  StdErr, Lower: string;
-  Code: DWORD;
-  P, Q: Integer;
-begin
-  Result := '';
-  RunFFmpegCapture('-hide_banner -i "' + APath + '"', StdErr, Code);
-  // ffmpeg sai com codigo != 0 quando nao tem output, mas a info ta no stderr.
-  Lower := LowerCase(StdErr);
-  P := Pos('video: ', Lower);
-  if P = 0 then Exit;
-  Inc(P, Length('video: '));
-  Q := P;
-  while (Q <= Length(Lower)) and (Lower[Q] <> ' ') and
-        (Lower[Q] <> ',') do
-    Inc(Q);
-  Result := Copy(Lower, P, Q - P);
-end;
+// RunFFmpegCapture/DetectVideoCodec removidos — migrados pra libav.
+// Probe (OBSProbe) e RemuxFile/ExtractAudioTracks/ExtractFrameJpeg
+// (FFmpegLib) cobrem todos os casos sem fork de processo.
 
 function CacheDirFor(const ASourcePath: string): string;
 begin
@@ -244,18 +143,22 @@ begin
 end;
 
 function EnsureCachedMp4(const APath: string): string;
-// Garante que existe um MP4 jogavel e retorna o path do MP4.
+// Remux MKV -> MP4 via libavformat (sem ffmpeg.exe). Sempre `-c copy`
+// equivalente — apenas troca de container. WebView2/Chromium toca:
+//   - H.264 em MP4: sempre
+//   - HEVC em MP4: precisa de HEVC Video Extensions ou hardware decode.
+// Se HEVC nao tocar, isso e responsabilidade do browser; nao tem como
+// resolver sem fazer transcode (que vamos evitar pelo custo).
 var
-  CacheDir, CacheFile, Codec, Args: string;
-  StdErr: string;
-  Code: DWORD;
+  CacheDir, CacheFile: string;
   SrcSize, CacheSize: Int64;
+  T0: UInt64;
 begin
   Result := '';
   if not FileExists(APath) then Exit;
-  if not FFmpegAvailable then
+  if not FFmpegLibAvailable then
   begin
-    Log('Player: ffmpeg.exe nao encontrado — nao da pra preparar cache.');
+    Log('Player: libavformat indisponivel — nao da pra preparar cache.');
     Exit;
   end;
 
@@ -279,28 +182,14 @@ begin
     try TFile.Delete(CacheFile); except end;
   end;
 
-  Codec := DetectVideoCodec(APath);
-  Log('Player: codec detectado="%s" para %s', [Codec, ExtractFileName(APath)]);
-
-  // Estrategia:
-  //   - h264: remux puro (-c copy). Instantaneo.
-  //   - hevc/h265 ou outro: transcoda video pra H.264, copia audio.
-  // Sempre +faststart (move moov pro inicio) pra streaming e seek imediato.
-  if (Codec = 'h264') or (Codec = 'avc1') then
-    Args := '-y -hide_banner -loglevel error -i "' + APath +
-      '" -c copy -movflags +faststart "' + CacheFile + '"'
-  else
-    Args := '-y -hide_banner -loglevel error -i "' + APath +
-      '" -c:v libx264 -preset veryfast -crf 22 -c:a aac -b:a 192k ' +
-      '-movflags +faststart "' + CacheFile + '"';
-
-  Log('Player: ffmpeg %s', [Args]);
-  if not RunFFmpegCapture(Args, StdErr, Code) then
+  T0 := GetTickCount64;
+  if not RemuxFile(APath, CacheFile) then
   begin
-    Log('Player: ffmpeg falhou (code=%d): %s', [Code, StdErr]);
+    Log('Player: remux falhou para %s', [ExtractFileName(APath)]);
     Exit;
   end;
-
+  Log('Player: remux em %dms -> %s',
+    [GetTickCount64 - T0, ExtractFileName(CacheFile)]);
   Result := CacheFile;
 end;
 
@@ -322,42 +211,25 @@ begin
   Result := Format('http://127.0.0.1:%d/v/%s%s', [ServerPort, Token, AExt]);
 end;
 
-function ParseDurationFromFFmpeg(const AStdErr: string): Integer;
-var
-  P, Q: Integer;
-  Token, HH, MM, SS: string;
-begin
-  Result := 0;
-  P := Pos('Duration:', AStdErr);
-  if P = 0 then Exit;
-  Inc(P, Length('Duration:'));
-  while (P <= Length(AStdErr)) and (AStdErr[P] = ' ') do Inc(P);
-  Q := P;
-  while (Q <= Length(AStdErr)) and (AStdErr[Q] <> ',') and
-        (AStdErr[Q] <> #13) and (AStdErr[Q] <> #10) do Inc(Q);
-  Token := Trim(Copy(AStdErr, P, Q - P));
-  if Length(Token) < 7 then Exit;
-  HH := Copy(Token, 1, 2);
-  MM := Copy(Token, 4, 2);
-  SS := Copy(Token, 7, 2);
-  Result := StrToIntDef(HH, 0) * 3600 +
-            StrToIntDef(MM, 0) * 60 +
-            StrToIntDef(SS, 0);
-end;
+// ParseDurationFromFFmpeg removida — duracao agora vem do Probe()
+// (libavformat), sem precisar parsear stderr.
 
 function EnsureRecordingMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string): Boolean;
+// Duracao + thumbnail via libavformat/libavcodec — sem ffmpeg.exe.
+// Duracao vem do Probe() (ja usa libav). Thumb extraido via
+// ExtractFrameJpeg() (decode + swscale + mjpeg encode).
 var
-  CacheDir, ThumbFile, DurFile, StdErr, Token, Args: string;
-  Code: DWORD;
+  CacheDir, ThumbFile, DurFile, Token: string;
   Lines: TStringList;
   SeekTs: Integer;
+  Report: TProbeReport;
 begin
   Result := False;
   ADurationSec := 0;
   AThumbUrl := '';
   if not FileExists(APath) then Exit;
-  if not FFmpegAvailable then Exit;
+  if not FFmpegLibAvailable then Exit;
 
   CacheDir := CacheDirFor(APath);
   Token := HashName(APath);
@@ -380,26 +252,34 @@ begin
 
   if ADurationSec = 0 then
   begin
-    RunFFmpegCapture('-hide_banner -i "' + APath + '"', StdErr, Code);
-    ADurationSec := ParseDurationFromFFmpeg(StdErr);
+    if Probe(APath, Report) then
+      ADurationSec := Round(Report.Duration);
     if ADurationSec > 0 then
       try TFile.WriteAllText(DurFile, IntToStr(ADurationSec)); except end;
   end;
+
+  // Remove thumb cacheado se ficou vazio/quebrado de uma corrida
+  // anterior — caso contrario FileExists segue True e a gente pula
+  // a geracao, deixando img tag quebrada no UI eternamente.
+  if FileExists(ThumbFile) then
+    try
+      if TFile.GetSize(ThumbFile) < 100 then
+      begin
+        Log('Player: thumb cacheado vazio/curto, regenerando: %s',
+          [ExtractFileName(ThumbFile)]);
+        TFile.Delete(ThumbFile);
+      end;
+    except end;
 
   if not FileExists(ThumbFile) then
   begin
     SeekTs := 1;
     if ADurationSec > 10 then SeekTs := ADurationSec div 10;
-    // Escala por altura (240) em vez de largura: card e ~212x122 e usa
-    // object-fit: cover. Pra gravacoes ultra-wide (2 monitores + webcam
-    // = aspect ~16:4), largura fixa 320 dava altura ~77 e o cover dava
-    // upscale feio. Altura 240 garante pixels suficientes pra qualquer
-    // aspect — gravacao 16:9 vira 427x240, ultra-wide ~16:4 vira ~995x240.
-    Args := Format(
-      '-y -hide_banner -loglevel error -ss %d -i "%s" ' +
-      '-frames:v 1 -vf "scale=-1:240" -q:v 5 "%s"',
-      [SeekTs, APath, ThumbFile]);
-    RunFFmpegCapture(Args, StdErr, Code);
+    // Altura 240 do thumb — card e ~212x122 e usa object-fit:cover.
+    // 16:9 vira 427x240, ultra-wide 16:4 vira ~995x240 (resolucao
+    // suficiente pra qualquer aspect sem upscaling feio).
+    if not ExtractFrameJpeg(APath, ThumbFile, SeekTs, 240) then
+      Log('Player: thumbnail falhou para %s', [ExtractFileName(APath)]);
   end;
 
   if FileExists(ThumbFile) then
@@ -500,19 +380,21 @@ end;
 
 function GetAudioTrackUrls(const APath: string;
   out AUrls: TArray<string>): Boolean;
+// Extrai cada faixa de audio como .m4a (AAC stream copy) via
+// libavformat — sem fork de ffmpeg.exe. Cacheia por hash do path.
 var
   Report: TProbeReport;
-  CacheDir, Token, TrackFile, AllArgs, StdErr: string;
+  CacheDir, Token, TrackFile: string;
+  TrackFiles: TArray<string>;
   AudioStreams: TStreamArray;
   i, TrackCount, NeedExtract: Integer;
-  Code: DWORD;
+  T0: UInt64;
 begin
   Result := False;
   SetLength(AUrls, 0);
   if not FileExists(APath) then Exit;
-  if not FFmpegAvailable then Exit;
+  if not FFmpegLibAvailable then Exit;
 
-  // Probe pra saber quantas audio tracks tem.
   if not Probe(APath, Report) then Exit;
   AudioStreams := Report.AudioStreams;
   TrackCount := Length(AudioStreams);
@@ -522,42 +404,34 @@ begin
   if not DirectoryExists(CacheDir) then ForceDirectories(CacheDir);
   Token := HashName(APath);
 
-  // Conta quantos arquivos precisam ser extraidos (cache miss).
+  // Constroi lista de arquivos esperados + checa cache.
+  SetLength(TrackFiles, TrackCount);
   NeedExtract := 0;
   for i := 0 to TrackCount - 1 do
   begin
-    TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
+    TrackFiles[i] := IncludeTrailingPathDelimiter(CacheDir) +
       Format('%s_a%d.m4a', [Token, i]);
-    if not FileExists(TrackFile) then Inc(NeedExtract);
+    if not FileExists(TrackFiles[i]) then Inc(NeedExtract);
   end;
 
-  // Se algum arquivo falta, extrai TODOS de uma vez (ffmpeg multi-map
-  // e mais rapido que N chamadas separadas).
   if NeedExtract > 0 then
   begin
-    AllArgs := '-y -hide_banner -loglevel error -i "' + APath + '"';
-    for i := 0 to TrackCount - 1 do
-    begin
-      TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
-        Format('%s_a%d.m4a', [Token, i]);
-      AllArgs := AllArgs + Format(' -map 0:a:%d -c copy "%s"',
-        [i, TrackFile]);
-    end;
-    Log('Player: extracting %d audio tracks: %s',
+    T0 := GetTickCount64;
+    Log('Player: extraindo %d audio tracks de %s',
       [TrackCount, ExtractFileName(APath)]);
-    if not RunFFmpegCapture(AllArgs, StdErr, Code) then
+    if not ExtractAudioTracks(APath, TrackFiles) then
     begin
-      Log('Player: extract audio falhou (code=%d): %s', [Code, StdErr]);
+      Log('Player: extract audio falhou.');
       Exit;
     end;
+    Log('Player: extract em %dms.', [GetTickCount64 - T0]);
   end;
 
   // Monta URLs (todas ja registradas no token map via MakeUrl).
   SetLength(AUrls, TrackCount);
   for i := 0 to TrackCount - 1 do
   begin
-    TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
-      Format('%s_a%d.m4a', [Token, i]);
+    TrackFile := TrackFiles[i];
     AUrls[i] := MakeUrl(Format('-a%d', [i]), TrackFile, '.m4a');
   end;
   Result := True;

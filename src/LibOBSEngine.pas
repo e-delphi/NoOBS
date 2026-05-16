@@ -110,14 +110,19 @@ var
 // -----------------------------------------------------------------------
 
 function ToAnsi(const S: string): AnsiString;
+// libobs e FFmpeg convencionam que todas as strings sao UTF-8 — ate
+// em Windows. Conversao explicita evita depender do DefaultSystemCodePage
+// do usuario (1252 quebra acentos; 65001 funcionaria por coincidencia).
 begin
-  Result := AnsiString(S);
+  Result := AnsiString(UTF8Encode(S));
 end;
 
 function FromAnsi(P: PAnsiChar): string;
+// Strings vindas do libobs/FFmpeg sao UTF-8. UTF8ToString decodifica
+// corretamente independente da locale.
 begin
   if P = nil then Result := ''
-  else Result := string(AnsiString(P));
+  else Result := UTF8ToString(P);
 end;
 
 procedure ObsLogHandler(log_level: Integer; msg: PAnsiChar;
@@ -383,6 +388,9 @@ begin
     Prop := obs_properties_get(Props, 'monitor_id');
     if Prop = nil then Exit;
     Count := obs_property_list_item_count(Prop);
+    // Count e NativeUInt — se 0, Count-1 underflowa pra $FFFFFFFF e
+    // dispara EIntOverflow (compiler com {$Q+}).
+    if Count = 0 then Exit;
     for i := 0 to Count - 1 do
     begin
       ItemName := AnsiString(obs_property_list_item_name(Prop, i));
@@ -449,7 +457,7 @@ begin
     if Result[j] = '' then Result[j] := Format('Faixa %d', [j + 1]);
 end;
 
-function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>;
+function EnumerateObsAudioDevicesRaw(const AKind: AnsiString): TArray<TObsAudioDev>;
 var
   Props: obs_properties_t;
   Prop: obs_property_t;
@@ -464,6 +472,9 @@ begin
     Prop := obs_properties_get(Props, 'device_id');
     if Prop = nil then Exit;
     Count := obs_property_list_item_count(Prop);
+    // Count e NativeUInt — se 0 (sem mic conectado, por exemplo),
+    // Count-1 underflowa pra $FFFFFFFF e dispara EIntOverflow.
+    if Count = 0 then Exit;
     for i := 0 to Count - 1 do
     begin
       ItemName := AnsiString(obs_property_list_item_name(Prop, i));
@@ -476,6 +487,58 @@ begin
     end;
   finally
     obs_properties_destroy(Props);
+  end;
+end;
+
+function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>;
+// Wrapper com timeout: obs_get_source_properties('wasapi_*') chama
+// internamente o WASAPI do Windows pra listar devices. Quando o audio
+// service esta doente (ex.: depois de remover o ultimo mic), essa
+// chamada pode travar 60s+. Rodamos em worker e damos 3s — se nao
+// retornar, devolve lista vazia (gravacao continua sem audio).
+// 3s e folga: caso saudavel retorna em <50ms.
+const
+  TIMEOUT_MS = 3000;
+var
+  Worker: TThread;
+  Output: TArray<TObsAudioDev>;
+  Wait: DWORD;
+  T0, Elapsed: UInt64;
+begin
+  SetLength(Output, 0);
+  T0 := GetTickCount64;
+  Log('   enum %s: iniciando (timeout=%dms)...', [string(AKind), TIMEOUT_MS]);
+  Worker := TThread.CreateAnonymousThread(
+    procedure
+    begin
+      try
+        Output := EnumerateObsAudioDevicesRaw(AKind);
+      except
+        on E: Exception do
+        begin
+          SetLength(Output, 0);
+          Log('   enum %s: excecao no worker: %s', [string(AKind), E.Message]);
+        end;
+      end;
+    end);
+  Worker.FreeOnTerminate := False;
+  Worker.Start;
+  Wait := WaitForSingleObject(Worker.Handle, TIMEOUT_MS);
+  Elapsed := GetTickCount64 - T0;
+  if Wait = WAIT_TIMEOUT then
+  begin
+    Log('   enum %s: TIMEOUT apos %dms — sem audio (WASAPI travado).',
+      [string(AKind), Elapsed]);
+    SetLength(Result, 0);
+    // Vazado de proposito: thread ainda esta presa no WASAPI. O OS
+    // limpa quando o processo morrer; tentar Free aqui bloqueia.
+  end
+  else
+  begin
+    Result := Output;
+    Worker.Free;
+    Log('   enum %s: %d device(s) em %dms.',
+      [string(AKind), Length(Result), Elapsed]);
   end;
 end;
 
@@ -619,33 +682,50 @@ procedure TLibOBSEngine.ReleaseRecordingObjects;
 var
   i: Integer;
 begin
+  // Se libobs nao foi inicializado, nao temos nada que precise de
+  // limpeza via API — so zeramos os ponteiros locais (que ja deveriam
+  // ser nil). Chamar obs_set_output_source antes de obs_startup
+  // resulta em AV dentro do obs.dll.
+  if not FInitialized then
+  begin
+    GOutput := nil;
+    GVideoEncoder := nil;
+    SetLength(GAudioEncoders, 0);
+    SetLength(GSources, 0);
+    GScene := nil;
+    Exit;
+  end;
+
   // Limpa todos os canais de saida (cena + audio sources atribuidos).
   // Sem isso, a proxima gravacao herda referencias velhas e crasha.
+  // try/except defensivo: AV dentro do obs.dll durante cleanup nao
+  // pode derrubar o app (ex.: libobs em estado intermediario apos um
+  // init parcial).
   for i := 0 to 63 do
-    obs_set_output_source(Cardinal(i), nil);
+    try obs_set_output_source(Cardinal(i), nil); except end;
 
   // Ordem: output -> encoders -> sources -> scene
   if GOutput <> nil then
   begin
-    obs_output_release(GOutput);
+    try obs_output_release(GOutput); except end;
     GOutput := nil;
   end;
   if GVideoEncoder <> nil then
   begin
-    obs_encoder_release(GVideoEncoder);
+    try obs_encoder_release(GVideoEncoder); except end;
     GVideoEncoder := nil;
   end;
   for i := 0 to High(GAudioEncoders) do
     if GAudioEncoders[i] <> nil then
-      obs_encoder_release(GAudioEncoders[i]);
+      try obs_encoder_release(GAudioEncoders[i]); except end;
   SetLength(GAudioEncoders, 0);
   for i := 0 to High(GSources) do
     if GSources[i].Source <> nil then
-      obs_source_release(GSources[i].Source);
+      try obs_source_release(GSources[i].Source); except end;
   SetLength(GSources, 0);
   if GScene <> nil then
   begin
-    obs_scene_release(GScene);
+    try obs_scene_release(GScene); except end;
     GScene := nil;
   end;
 end;

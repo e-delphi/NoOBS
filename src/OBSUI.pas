@@ -41,6 +41,7 @@ type
   TUIMessageProc = procedure(const AMsg: string);
   TUITimerProc   = procedure(ATimerId: UINT_PTR);
   TUIDisplayChangeProc = procedure;
+  TUIHotkeyProc  = procedure(AHotkeyId: Integer);
 
 // Callbacks que o OBSBridge registra na sua initialization.
 // Mantem OBSUI sem dependencia direta de OBSBridge, evitando ciclos.
@@ -48,6 +49,14 @@ var
   OnUIMessage:        TUIMessageProc       = nil;
   OnUITimer:          TUITimerProc         = nil;
   OnUIDisplayChange:  TUIDisplayChangeProc = nil;
+  OnUIHotkey:         TUIHotkeyProc        = nil;
+
+// Registra atalho global do Windows. AModifiers e combinacao de
+// MOD_ALT/MOD_CONTROL/MOD_SHIFT/MOD_WIN (Winapi.Windows). AVk e o
+// virtual-key (VK_F9, etc). Retorna True se registrado com sucesso.
+// IDs > 0 e < $C000 — caller escolhe.
+function RegisterGlobalHotkey(AId: Integer; AModifiers: UINT; AVk: UINT): Boolean;
+procedure UnregisterGlobalHotkey(AId: Integer);
 
 implementation
 
@@ -61,7 +70,8 @@ uses
   System.Math,
   System.SysUtils,
   OBSConfig,
-  OBSLog;
+  OBSLog,
+  OBSStartupCheck;
 
 const
   CLASS_NAME    = 'TNoOBS';
@@ -462,6 +472,31 @@ begin
 end;
 
 // =====================================================================
+// Atalhos globais (RegisterHotKey / WM_HOTKEY)
+// =====================================================================
+
+function RegisterGlobalHotkey(AId: Integer; AModifiers: UINT; AVk: UINT): Boolean;
+begin
+  Result := False;
+  if MainWindow = 0 then Exit;
+  // Win32 RegisterHotKey: hWnd recebe WM_HOTKEY com wParam=AId. Pode
+  // falhar se outro app ja registrou a mesma combinacao globalmente.
+  Result := Winapi.Windows.RegisterHotKey(MainWindow, AId, AModifiers, AVk);
+  if Result then
+    Log('OBSUI: hotkey registrado (id=%d mod=$%x vk=$%x).',
+      [AId, AModifiers, AVk])
+  else
+    Log('OBSUI: falha ao registrar hotkey (id=%d mod=$%x vk=$%x) — ja em uso?',
+      [AId, AModifiers, AVk]);
+end;
+
+procedure UnregisterGlobalHotkey(AId: Integer);
+begin
+  if MainWindow = 0 then Exit;
+  Winapi.Windows.UnregisterHotKey(MainWindow, AId);
+end;
+
+// =====================================================================
 // Window procedure
 // =====================================================================
 
@@ -589,6 +624,15 @@ begin
       Result := 0;
       Exit;
     end;
+    WM_HOTKEY:
+    begin
+      // wParam = ID que passamos no RegisterHotKey.
+      // lParam = LOWORD: modifiers, HIWORD: vk — nao precisamos aqui.
+      if Assigned(OnUIHotkey) then
+        OnUIHotkey(Integer(wParam));
+      Result := 0;
+      Exit;
+    end;
     WM_DESTROY:
     begin
       PostQuitMessage(0);
@@ -635,6 +679,16 @@ begin
     Existing := FindWindow(CLASS_NAME, nil);
     if Existing <> 0 then
       PostMessage(Existing, WM_SHOW_INSTANCE, 0, 0);
+    if SingleInstanceMutex <> 0 then
+      CloseHandle(SingleInstanceMutex);
+    Exit;
+  end;
+
+  // Validacao do runtime — confirma obs.dll, ffmpeg, WebView2 loader e
+  // plugins criticos. Se falta algo critico, mostra MessageBox e sai
+  // sem criar janela (evita crash mais a frente com erro obscuro).
+  if not EnforceRuntime then
+  begin
     if SingleInstanceMutex <> 0 then
       CloseHandle(SingleInstanceMutex);
     Exit;

@@ -1,1 +1,4 @@
 UI RCDATA "ui\\index.html"
+AMD RCDATA "ui\\amd.png"
+NVIDIA RCDATA "ui\\nvidia.png"
+INTEL RCDATA "ui\\intel.png"

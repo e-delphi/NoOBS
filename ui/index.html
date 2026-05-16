@@ -373,9 +373,30 @@
     cursor: pointer;
     transition: background 0.1s;
     user-select: none;
+    position: relative;
   }
   .source-item:hover { background: var(--panel-2); }
   [data-theme="light"] .source-item:hover { background: var(--panel-3); }
+
+  /* Faixa colorida de 3px no lado esquerdo indicando qual track de
+     audio o dispositivo gravara. Pseudo-elemento com left:-12px
+     compensa o padding da sidebar (.sources tem padding-left:12px),
+     fazendo a faixa encostar na borda esquerda da janela.
+     Sem border-radius — barra reta colada no canto. */
+  .source-item[data-track]::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--track-color, transparent);
+  }
+  .source-item[data-track="2"] { --track-color: #3b82f6; } /* azul */
+  .source-item[data-track="3"] { --track-color: #10b981; } /* verde */
+  .source-item[data-track="4"] { --track-color: #f59e0b; } /* laranja */
+  .source-item[data-track="5"] { --track-color: #a855f7; } /* roxo */
+  .source-item[data-track="6"] { --track-color: #ef4444; } /* vermelho */
 
   /* Durante gravacao: bloqueia interacao com sources e dim o visual.
      Hover/click ficam inertes; toggles ficam congelados no estado atual. */
@@ -1125,6 +1146,54 @@
     color: var(--success);
     margin-bottom: 4px;
   }
+  .player-info-vol-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .player-info-vol {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0%, var(--success) var(--vp, 0%),
+      rgba(255,255,255,0.15) var(--vp, 0%), rgba(255,255,255,0.15) 100%);
+    cursor: pointer;
+    outline: none;
+  }
+  .player-info-vol::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+  }
+  .player-info-vol-val {
+    font-size: 10px;
+    color: rgba(255,255,255,0.65);
+    width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  [data-theme="light"] .player-info-vol-row {
+    border-top: 1px solid rgba(0,0,0,0.06);
+  }
+  [data-theme="light"] .player-info-vol {
+    background: linear-gradient(to right,
+      var(--success) 0%, var(--success) var(--vp, 0%),
+      rgba(0,0,0,0.12) var(--vp, 0%), rgba(0,0,0,0.12) 100%);
+  }
+  [data-theme="light"] .player-info-vol::-webkit-slider-thumb {
+    background: var(--success);
+  }
+  [data-theme="light"] .player-info-vol-val {
+    color: rgba(0,0,0,0.6);
+  }
   .player-info-btn { color: rgba(255,255,255,0.85); }
   .player-info-btn.active {
     background: rgba(16,185,129,0.18);
@@ -1328,6 +1397,36 @@
     transition: border-color 150ms ease;
   }
   .settings-input:focus { border-color: var(--success); }
+  /* select hereda .settings-input mas precisa de seta customizada
+     (browser nao estiliza o caret default em todos os temas). */
+  select.settings-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) calc(50% - 2px),
+      calc(100% - 11px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+  .settings-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.4;
+  }
+  .settings-gpu-logo {
+    width: 128px;
+    height: 128px;
+    object-fit: contain;
+    align-self: center;
+    margin-top: 4px;
+    display: none;  /* so aparece quando data-show=1 (vendor detectado). */
+  }
+  .settings-gpu-logo[data-show="1"] { display: block; }
   .settings-btn {
     padding: 8px 14px;
     background: var(--panel-2);
@@ -1547,6 +1646,21 @@
           <input type="text" class="settings-input" id="settingsRecDir" placeholder="C:\Users\...\Videos">
           <button class="settings-btn" onclick="Settings.pickFolder()">Procurar...</button>
         </div>
+      </div>
+      <div class="settings-field">
+        <label>Codec de vídeo</label>
+        <select class="settings-input" id="settingsCodec">
+          <option value="auto">Automático (recomendado)</option>
+          <option value="hevc-hw">HEVC / H.265 — hardware</option>
+          <option value="h264-hw">H.264 — hardware</option>
+          <option value="h264-sw">H.264 — software (x264, CPU)</option>
+        </select>
+        <div class="settings-hint" id="settingsCodecHint">
+          Automático escolhe a melhor opção disponível na ordem
+          HEVC hardware → H.264 hardware → H.264 software. Use uma
+          escolha manual só se souber o que está fazendo.
+        </div>
+        <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
       </div>
     </div>
     <div class="settings-footer">
@@ -1789,7 +1903,10 @@ const Bridge = {
       renderSources('spk', 'spkList', 'spkCount', data.speakers);
       const banner = document.getElementById('audioRefreshBanner');
       if (banner) banner.classList.remove('show');
-      Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+      // silent=true vem do load inicial do app; toast so faz sentido
+      // pra hot-plug subsequente (user plugou/desplugou dispositivo).
+      if (!data.silent)
+        Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
     },
     monitor_changed(data) {
       const banner = document.getElementById('monitorRefreshBanner');
@@ -1817,6 +1934,8 @@ const Bridge = {
     play_pending(data) { Player.showPending(data.id); },
     play_url(data) { Player.play(data.url, data.name, data.mode, data.id); },
     video_info(data) { Player.renderInfo(data); },
+    audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
+    encoder_caps(data) { Settings.applyEncoderCaps(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
     recording_added(data) { addRecordingCard(data.item); },
     recording_renamed(data) { renameRecordingCard(data.oldId, data.newId, data.newName); },
@@ -2120,17 +2239,92 @@ const Displays = {
   }
 };
 
+// Mirror da logica de track-assignment em LibOBSEngine.BuildAndStartRecording:
+// Track 1 = mix (sempre). Tracks 2-6 = isoladas. Se total > 5 sources,
+// agrupa outputs (e mics se ainda exceder). Devolve o track de cada
+// device por indice na lista.
+function computeAudioTrackAssignments(micCount, spkCount) {
+  const groupOutputs = (micCount + spkCount) > 5;
+  const groupMics = groupOutputs && (1 + micCount) > 5;
+  let nextTrack = 2;
+  const micTracks = [];
+  const spkTracks = [];
+
+  if (micCount > 0) {
+    if (groupMics) {
+      for (let i = 0; i < micCount; i++) micTracks.push(nextTrack);
+      nextTrack++;
+    } else {
+      for (let i = 0; i < micCount; i++) micTracks.push(nextTrack++);
+    }
+  }
+  if (spkCount > 0) {
+    if (groupOutputs) {
+      for (let i = 0; i < spkCount; i++) spkTracks.push(nextTrack);
+      nextTrack++;
+    } else {
+      for (let i = 0; i < spkCount; i++) spkTracks.push(nextTrack++);
+    }
+  }
+  // Clamp em 6 (max do OBS).
+  return {
+    mic: micTracks.map(t => Math.min(t, 6)),
+    spk: spkTracks.map(t => Math.min(t, 6))
+  };
+}
+
+// Cache global do ultimo assignment — calculado quando ambos mics/spks
+// chegam (renderSources e chamada uma vez pra cada).
+let LastMicCount = 0, LastSpkCount = 0;
+function getTrackFor(kindShort, idx) {
+  const a = computeAudioTrackAssignments(LastMicCount, LastSpkCount);
+  if (kindShort === 'mic') return a.mic[idx] || 0;
+  if (kindShort === 'spk') return a.spk[idx] || 0;
+  return 0;
+}
+
+// Re-aplica data-track em TODAS as source-items de mic/spk no DOM com
+// base nas contagens atuais. Chamado apos cada renderSources pra
+// garantir consistencia: se mics renderiza antes de spks, a primeira
+// passada nao sabe quantos spks vao ter; o re-pass corrige.
+function refreshTrackColors() {
+  const a = computeAudioTrackAssignments(LastMicCount, LastSpkCount);
+  ['micList', 'spkList'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    const items = list.querySelectorAll('.source-item');
+    items.forEach((el, i) => {
+      const kind = el.dataset.kind === 'mic' ? 'mic' :
+                   el.dataset.kind === 'speaker' ? 'spk' : null;
+      if (!kind) return;
+      const t = kind === 'mic' ? a.mic[i] : a.spk[i];
+      if (t && t > 0) el.dataset.track = String(t);
+      else delete el.dataset.track;
+    });
+  });
+}
+
 function renderSources(kindShort, listId, countId, items) {
   const list = document.getElementById(listId);
   list.innerHTML = '';
   const arr = items || [];
-  arr.forEach(item => {
+  // Atualiza contagens pro calculo de tracks (so mic/spk participam).
+  if (kindShort === 'mic') LastMicCount = arr.length;
+  else if (kindShort === 'spk') LastSpkCount = arr.length;
+  // Re-renderiza tracks de qualquer lista ja desenhada pra refletir
+  // mudancas de contagem (ex: mic chega depois do spk).
+  arr.forEach((item, idx) => {
     const div = document.createElement('div');
     div.className = 'source-item' + (item.enabled ? ' selected' : '');
     div.dataset.id = item.id;
     div.dataset.kind = kindShort === 'mon' ? 'monitor'
                      : kindShort === 'mic' ? 'mic'
                      : kindShort === 'cam' ? 'webcam' : 'speaker';
+    // Track-color bar pro lado esquerdo (so mics e speakers).
+    if (kindShort === 'mic' || kindShort === 'spk') {
+      const t = getTrackFor(kindShort, idx);
+      if (t > 0) div.dataset.track = String(t);
+    }
     div.onclick = () => onToggleSource(div);
 
     if (item.thumb) {
@@ -2172,6 +2366,9 @@ function renderSources(kindShort, listId, countId, items) {
     list.appendChild(div);
   });
   updateCount(listId, countId);
+  // Re-aplica cores de track em ambas as listas — garante que mudou
+  // de contagem (mic ou spk) atualize tracks ja desenhados na outra.
+  refreshTrackColors();
 }
 
 function onToggleSource(el) {
@@ -2734,8 +2931,10 @@ const Confirm = {
 // =====================================================================
 const Settings = {
   currentRecDir: '',
+  currentCodec: 'auto',
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
+    document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
     document.getElementById('settingsOverlay').classList.add('visible');
     Bridge.send('get_settings');
   },
@@ -2747,17 +2946,59 @@ const Settings = {
   },
   save() {
     const path = document.getElementById('settingsRecDir').value.trim();
-    if (!path) { this.close(); return; }
-    Bridge.send('set_record_dir', { path });
+    const codec = document.getElementById('settingsCodec').value;
+    if (path) Bridge.send('set_record_dir', { path });
+    if (codec) Bridge.send('set_codec', { codec });
     this.close();
   },
   applySettings(data) {
     this.currentRecDir = data.recordDir || '';
+    this.currentCodec = data.codec || 'auto';
     const inp = document.getElementById('settingsRecDir');
     if (inp) inp.value = this.currentRecDir;
+    const sel = document.getElementById('settingsCodec');
+    if (sel) sel.value = this.currentCodec;
   },
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
+  },
+  // caps = { hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
+  encoderCaps: null,
+  applyEncoderCaps(caps) {
+    this.encoderCaps = caps || {};
+    const sel = document.getElementById('settingsCodec');
+    if (!sel) return;
+    // Habilita/desabilita cada opcao baseado nas caps detectadas.
+    Array.from(sel.options).forEach(opt => {
+      let avail = true;
+      if (opt.value === 'hevc-hw') avail = !!caps.hevcHw;
+      else if (opt.value === 'h264-hw') avail = !!caps.h264Hw;
+      else if (opt.value === 'h264-sw') avail = !!caps.h264Sw;
+      // 'auto' sempre disponivel
+      opt.disabled = !avail;
+      // Label dinamico mostrando vendor pra hw options.
+      if (opt.value === 'hevc-hw' || opt.value === 'h264-hw') {
+        const base = opt.value === 'hevc-hw' ? 'HEVC / H.265' : 'H.264';
+        const tag = caps.vendor === 'nvidia' ? ' (NVIDIA NVENC)' :
+                    caps.vendor === 'amd'    ? ' (AMD AMF)' :
+                    caps.vendor === 'intel'  ? ' (Intel QSV)' : '';
+        opt.textContent = base + ' — hardware' + (avail ? tag : ' (indisponível)');
+      } else if (opt.value === 'h264-sw') {
+        opt.textContent = 'H.264 — software (x264, CPU)' +
+          (avail ? '' : ' (indisponível)');
+      }
+    });
+    // Logo do GPU ao lado do label.
+    const logo = document.getElementById('settingsGpuLogo');
+    if (logo) {
+      if (caps.vendorLogo) {
+        logo.src = caps.vendorLogo;
+        logo.dataset.show = '1';
+      } else {
+        logo.removeAttribute('src');
+        delete logo.dataset.show;
+      }
+    }
   }
 };
 
@@ -2827,9 +3068,16 @@ const Player = {
       v.currentTime = (seek.value / 1000) * v.duration;
     });
     vol.addEventListener('input', () => {
-      v.volume = vol.value / 100;
-      v.muted = v.volume === 0;
+      Player.masterVolume = vol.value / 100;
+      Player.masterMuted = Player.masterVolume === 0;
+      Player.applyVolumes();
     });
+
+    // Sync audio elements ao seek/play/pause/ratechange do video.
+    v.addEventListener('seeked', () => Player.syncAudios(true));
+    v.addEventListener('play',  () => Player.syncAudios(false));
+    v.addEventListener('pause', () => Player.pauseAudios());
+    v.addEventListener('ratechange', () => Player.applyRateAudios());
 
     document.addEventListener('keydown', (e) => {
       if (!ov.classList.contains('visible')) return;
@@ -3051,6 +3299,17 @@ const Player = {
     if (changed) {
       this.triedTranscode = false;
       this.infoLoaded = null;
+      // Reseta multi-track audio do video anterior.
+      this.stopDriftCheck();
+      this.audioEls.forEach(a => { try { a.pause(); a.src=''; a.load(); } catch(e){} });
+      this.audioEls = [];
+      this.audiosRequested = false;
+      this.audiosReadyForId = null;
+      this.trackVolumes = null;
+      // Re-aplica volumes com o estado zerado (defaults) — sem isso
+      // o video.volume mantem o valor da gravacao anterior, daria
+      // mismatch com o slider que mostra 100% na nova gravacao.
+      this.applyVolumes();
     }
     this.currentId = id;
     this.currentMode = mode || 'direct';
@@ -3089,6 +3348,13 @@ const Player = {
     if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
     if (this.clickTimer) { clearTimeout(this.clickTimer); this.clickTimer = null; }
     this.stopTimeRaf();
+    this.stopDriftCheck();
+    // Para e descarta audio elements (libera memoria/network).
+    this.audioEls.forEach(a => { try { a.pause(); a.src=''; a.load(); } catch(e){} });
+    this.audioEls = [];
+    this.audiosRequested = false;
+    this.audiosReadyForId = null;
+    this.trackVolumes = null;
     const player = document.querySelector('.player');
     if (player) player.classList.remove('idle');
   },
@@ -3168,16 +3434,26 @@ const Player = {
       html += '</div>';
     }
 
-    // Audio (multi-track)
+    // Audio (multi-track) com volume slider por faixa
     if (audioStreams.length > 0) {
       html += '<div class="player-info-section">';
       html += '<div class="player-info-section-title">Áudio (' +
               audioStreams.length +
               (audioStreams.length === 1 ? ' faixa' : ' faixas') + ')</div>';
+      // Inicializa volumes (Track 0 = 100, demais = 0) se ainda nao
+      // foi feito pra este video.
+      if (!Array.isArray(this.trackVolumes) ||
+          this.trackVolumes.length !== audioStreams.length) {
+        this.trackVolumes = audioStreams.map((_, i) => i === 0 ? 1.0 : 0.0);
+      }
       audioStreams.forEach((s, idx) => {
+        const volPct = Math.round((this.trackVolumes[idx] || 0) * 100);
+        // Usa o title gravado nos metadata se houver; fallback "Faixa N".
+        const label = (s.title && s.title.length > 0) ? s.title :
+          ('Faixa ' + (idx + 1) + (idx === 0 ? ' (mix)' : ''));
         html += '<div class="player-info-track">';
-        html += '<div class="player-info-track-title">Faixa ' +
-                (idx + 1) + (idx === 0 ? ' (mix)' : '') + '</div>';
+        html += '<div class="player-info-track-title">' +
+                escapeHtml(label) + '</div>';
         html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
         if (s.channels)
           html += infoRow('Canais',
@@ -3188,12 +3464,34 @@ const Player = {
             (s.sampleRate / 1000).toFixed(1) + ' kHz');
         if (s.bitrate > 0)
           html += infoRow('Bitrate', formatBitrate(s.bitrate));
+        // Slider de volume da faixa.
+        html += '<div class="player-info-vol-row">';
+        html += '<input type="range" class="player-info-vol" ' +
+                'data-track="' + idx + '" min="0" max="100" ' +
+                'value="' + volPct + '">';
+        html += '<span class="player-info-vol-val" data-track-val="' +
+                idx + '">' + volPct + '%</span>';
+        html += '</div>';
         html += '</div>';
       });
       html += '</div>';
     }
 
     body.innerHTML = html;
+
+    // Sliders de volume por faixa — wire-up apos render.
+    body.querySelectorAll('.player-info-vol').forEach(slider => {
+      const idx = parseInt(slider.dataset.track, 10);
+      slider.style.setProperty('--vp', slider.value + '%');
+      slider.addEventListener('input', () => {
+        const vol = parseInt(slider.value, 10) / 100;
+        slider.style.setProperty('--vp', slider.value + '%');
+        const label = body.querySelector(
+          '[data-track-val="' + idx + '"]');
+        if (label) label.textContent = slider.value + '%';
+        Player.setTrackVolume(idx, vol);
+      });
+    });
   },
   togglePlay() {
     const v = document.getElementById('playerVideo');
@@ -3208,19 +3506,24 @@ const Player = {
       ic.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
   },
   toggleMute() {
-    const v = document.getElementById('playerVideo');
-    v.muted = !v.muted;
+    this.masterMuted = !this.masterMuted;
+    this.applyVolumes();
+    this.updateVolUi();
   },
   updateVolUi() {
     const v = document.getElementById('playerVideo');
     const vol = document.getElementById('playerVolume');
     const ic = document.getElementById('playerVolIcon');
-    const pct = v.muted ? 0 : Math.round(v.volume * 100);
+    // Master volume e o slider em si — nao mais lido de v.volume
+    // (que agora e o produto master * trackVolumes[0]).
+    const pct = this.masterMuted ? 0 :
+      Math.round((this.masterVolume == null ? 1 : this.masterVolume) * 100);
     vol.value = pct;
     vol.style.setProperty('--vp', pct + '%');
-    if (v.muted || v.volume === 0)
+    const mute = this.masterMuted || pct === 0;
+    if (mute)
       ic.innerHTML = '<path d="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.92 8.92 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
-    else if (v.volume < 0.5)
+    else if (pct < 50)
       ic.innerHTML = '<path d="M7 9v6h4l5 5V4l-5 5H7zm9.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12z"/>';
     else
       ic.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/>';
@@ -3254,6 +3557,129 @@ const Player = {
   },
   stopTimeRaf() {
     if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+  },
+
+  // ===== Mixagem multi-track de audio =====
+  // Track 1 (mix) = audio nativo do <video>. Tracks 2..N = elementos
+  // <audio> sincronizados ao video. Volume final por track =
+  // master * trackVolumes[idx]. Audio elements sao criados sob demanda
+  // (primeira vez que o user mexe num slider de track > 0).
+  trackVolumes: null,           // ex: [1.0, 0, 0, 0, 0]
+  masterVolume: 1.0,
+  masterMuted: false,
+  audioEls: [],                 // <audio> pras tracks 2..N (indice 0 = track 2)
+  audiosRequested: false,       // ja pediu extracao pro Delphi?
+  audiosReadyForId: null,       // id pra qual ja temos URLs
+  driftRaf: null,
+
+  setTrackVolume(idx, vol) {
+    if (!Array.isArray(this.trackVolumes)) this.trackVolumes = [];
+    this.trackVolumes[idx] = vol;
+    // Track 1 (idx=0) controla o volume do <video>. Aplica imediato.
+    this.applyVolumes();
+    // Se mexeu numa track > 0 e ainda nao temos audio elements, pede
+    // a extracao agora. O reproducao do video nao para.
+    if (idx > 0 && vol > 0 && !this.audiosRequested && this.currentId) {
+      this.audiosRequested = true;
+      Bridge.send('request_audio_tracks', { id: this.currentId });
+    }
+  },
+
+  onAudioTracksReady(data) {
+    if (!data || data.id !== this.currentId) return;
+    if (this.audiosReadyForId === data.id) return; // ja setup
+    const urls = data.urls || [];
+    this.audiosReadyForId = data.id;
+    // Limpa qualquer audio anterior (defensive).
+    this.audioEls.forEach(a => { try { a.pause(); a.src=''; } catch(e){} });
+    this.audioEls = [];
+    // Cria audio elements pras tracks 2..N (skipa idx 0 = video).
+    // SEM crossOrigin — forcaria CORS check, e o HTTP server local
+    // nao retorna Access-Control-Allow-Origin (WebView2 com
+    // NavigateToString nao tem origin definida = "null").
+    const log = (msg) => Bridge.send('ui_log', { message: 'audio: ' + msg });
+    for (let i = 1; i < urls.length; i++) {
+      const a = new Audio(urls[i]);
+      a.preload = 'auto';
+      const idx = i;
+      a.addEventListener('error', () => {
+        log('track ' + idx + ' ERROR ' +
+          (a.error ? 'code=' + a.error.code : 'unknown') +
+          ' url=' + urls[idx]);
+      });
+      a.addEventListener('canplay', () => log('track ' + idx + ' canplay'));
+      a.addEventListener('loadedmetadata', () =>
+        log('track ' + idx + ' loadedmetadata dur=' + a.duration));
+      this.audioEls.push(a);
+    }
+    log('created ' + this.audioEls.length + ' audio element(s)');
+    // Sync inicial: posiciona no mesmo currentTime do video, da play
+    // se o video estiver tocando.
+    this.syncAudios(true);
+    this.applyVolumes();
+    this.startDriftCheck();
+  },
+
+  syncAudios(forceSeek) {
+    const v = document.getElementById('playerVideo');
+    if (!v || this.audioEls.length === 0) return;
+    const log = (m) => Bridge.send('ui_log', { message: 'audio-sync: ' + m });
+    this.audioEls.forEach((a, i) => {
+      if (forceSeek || Math.abs(a.currentTime - v.currentTime) > 0.05)
+        a.currentTime = v.currentTime;
+      a.playbackRate = v.playbackRate;
+      if (!v.paused && a.paused) {
+        a.play().then(
+          () => log('track ' + (i+1) + ' play OK vol=' + a.volume),
+          (err) => log('track ' + (i+1) + ' play REJEITADO ' + (err && err.name) + ': ' + (err && err.message))
+        );
+      }
+    });
+  },
+  pauseAudios() {
+    this.audioEls.forEach(a => { try { a.pause(); } catch(e){} });
+  },
+  applyRateAudios() {
+    const v = document.getElementById('playerVideo');
+    if (!v) return;
+    this.audioEls.forEach(a => { a.playbackRate = v.playbackRate; });
+  },
+  startDriftCheck() {
+    if (this.driftRaf) return;
+    let lastCheck = 0;
+    const check = (t) => {
+      const v = document.getElementById('playerVideo');
+      if (!v || this.audioEls.length === 0) { this.driftRaf = null; return; }
+      // Check a cada ~200ms (nao todo frame).
+      if (t - lastCheck > 200) {
+        lastCheck = t;
+        if (!v.paused && !v.ended) {
+          this.audioEls.forEach(a => {
+            const drift = a.currentTime - v.currentTime;
+            if (Math.abs(drift) > 0.10)
+              a.currentTime = v.currentTime;
+          });
+        }
+      }
+      this.driftRaf = requestAnimationFrame(check);
+    };
+    this.driftRaf = requestAnimationFrame(check);
+  },
+  stopDriftCheck() {
+    if (this.driftRaf) { cancelAnimationFrame(this.driftRaf); this.driftRaf = null; }
+  },
+  applyVolumes() {
+    const v = document.getElementById('playerVideo');
+    if (!v) return;
+    const tv = this.trackVolumes || [1.0];
+    const master = this.masterMuted ? 0 : (this.masterVolume == null ? 1 : this.masterVolume);
+    v.volume = Math.max(0, Math.min(1, master * (tv[0] == null ? 1 : tv[0])));
+    v.muted = false; // mute geral via volume, nao via muted
+    this.audioEls.forEach((a, i) => {
+      const trackIdx = i + 1; // audioEls[0] = track index 1
+      const tvol = tv[trackIdx] == null ? 0 : tv[trackIdx];
+      a.volume = Math.max(0, Math.min(1, master * tvol));
+    });
   }
 };
 function fmtTime(s) {

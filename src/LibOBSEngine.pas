@@ -40,6 +40,20 @@ type
     property Initialized: Boolean read FInitialized;
   end;
 
+type
+  TGpuVendor = (gvUnknown, gvNvidia, gvAmd, gvIntel);
+
+  TEncoderCaps = record
+    HevcHw: Boolean;   // qualquer encoder HEVC hardware
+    H264Hw: Boolean;   // qualquer encoder H.264 hardware (excluindo x264)
+    H264Sw: Boolean;   // x264 (CPU) — sempre True na pratica
+    Vendor: TGpuVendor;
+  end;
+
+// Detecta encoders disponiveis enumerando obs_enum_encoder_types.
+// Requer libobs ja inicializado (apos warmup ou EnsureInitialized).
+function DetectEncoderCaps: TEncoderCaps;
+
 implementation
 
 uses
@@ -207,6 +221,55 @@ begin
   Result := False;
 end;
 
+function DetectEncoderCaps: TEncoderCaps;
+// Enumera os encoder types registrados em libobs e classifica por vendor.
+// Considera que libobs ja foi inicializado (caller garante).
+var
+  i: NativeUInt;
+  P: PAnsiChar;
+  Id: string;
+begin
+  Result.HevcHw := False;
+  Result.H264Hw := False;
+  Result.H264Sw := False;
+  Result.Vendor := gvUnknown;
+
+  i := 0;
+  while obs_enum_encoder_types(i, P) do
+  begin
+    if P <> nil then
+    begin
+      Id := LowerCase(string(AnsiString(P)));
+      // x264 = CPU.
+      if (Id = 'obs_x264') or (Id = 'ffmpeg_x264') then
+        Result.H264Sw := True
+      // NVIDIA: obs_nvenc_*, jim_nvenc, jim_hevc_nvenc
+      else if (Pos('nvenc', Id) > 0) or (Pos('jim_nvenc', Id) > 0) or
+              (Pos('jim_hevc_nvenc', Id) > 0) then
+      begin
+        if Result.Vendor = gvUnknown then Result.Vendor := gvNvidia;
+        if Pos('hevc', Id) > 0 then Result.HevcHw := True
+        else Result.H264Hw := True;
+      end
+      // AMD: *_amf
+      else if Pos('amf', Id) > 0 then
+      begin
+        if Result.Vendor = gvUnknown then Result.Vendor := gvAmd;
+        if Pos('h265', Id) > 0 then Result.HevcHw := True
+        else if Pos('h264', Id) > 0 then Result.H264Hw := True;
+      end
+      // Intel QSV: obs_qsv11_*
+      else if Pos('qsv', Id) > 0 then
+      begin
+        if Result.Vendor = gvUnknown then Result.Vendor := gvIntel;
+        if Pos('hevc', Id) > 0 then Result.HevcHw := True
+        else if Pos('h264', Id) > 0 then Result.H264Hw := True;
+      end;
+    end;
+    Inc(i);
+  end;
+end;
+
 function TryCreateVideoEncoder(const AId: AnsiString): obs_encoder_t;
 var
   Settings: obs_data_t;
@@ -224,11 +287,9 @@ begin
   end;
 end;
 
-function SelectVideoEncoder: obs_encoder_t;
-var
-  i: Integer;
+function TryHevcHw: obs_encoder_t;
+var i: Integer;
 begin
-  // HEVC primeiro (melhor qualidade/bitrate).
   for i := 0 to High(HEVC_IDS) do
   begin
     Result := TryCreateVideoEncoder(HEVC_IDS[i]);
@@ -238,9 +299,16 @@ begin
       Exit;
     end;
   end;
-  // H.264 hardware, depois CPU.
+  Result := nil;
+end;
+
+function TryH264Hw: obs_encoder_t;
+var i: Integer;
+begin
+  // H264_IDS termina com 'obs_x264' (CPU). Excluir esse pra "hardware only".
   for i := 0 to High(H264_IDS) do
   begin
+    if H264_IDS[i] = 'obs_x264' then Continue;
     Result := TryCreateVideoEncoder(H264_IDS[i]);
     if Result <> nil then
     begin
@@ -248,6 +316,48 @@ begin
       Exit;
     end;
   end;
+  Result := nil;
+end;
+
+function TryH264Sw: obs_encoder_t;
+begin
+  Result := TryCreateVideoEncoder('obs_x264');
+  if Result <> nil then Log('Encoder: obs_x264');
+end;
+
+function SelectVideoEncoder: obs_encoder_t;
+var
+  Pref: string;
+begin
+  // Le preferencia do usuario. Valores: auto | hevc-hw | h264-hw | h264-sw.
+  Pref := LowerCase(GetConfigStr('codec', 'auto'));
+  Log('Codec preferido: %s', [Pref]);
+
+  if Pref = 'hevc-hw' then
+  begin
+    Result := TryHevcHw;
+    if Result <> nil then Exit;
+    Log('Codec hevc-hw indisponivel, caindo pro fallback.');
+  end
+  else if Pref = 'h264-hw' then
+  begin
+    Result := TryH264Hw;
+    if Result <> nil then Exit;
+    Log('Codec h264-hw indisponivel, caindo pro fallback.');
+  end
+  else if Pref = 'h264-sw' then
+  begin
+    Result := TryH264Sw;
+    if Result <> nil then Exit;
+    Log('Codec h264-sw indisponivel (estranho), caindo pro fallback.');
+  end;
+
+  // Auto (ou fallback de qualquer escolha que falhou):
+  // HEVC hw -> H.264 hw -> H.264 sw.
+  Result := TryHevcHw;  if Result <> nil then Exit;
+  Result := TryH264Hw;  if Result <> nil then Exit;
+  Result := TryH264Sw;  if Result <> nil then Exit;
+
   raise Exception.Create('Nenhum encoder de video disponivel.');
 end;
 
@@ -297,6 +407,47 @@ type
     Name: string;
     DeviceId: AnsiString;
   end;
+
+function BuildTrackNames(ATotalTracks: Integer;
+  const AMics, AOutputs: TArray<TObsAudioDev>;
+  const AMicTracks, AOutTracks: TArray<Integer>;
+  AGroupMics, AGroupOutputs: Boolean): TArray<string>;
+// Calcula os nomes humanos pra cada track de audio (1-indexed no array
+// de saida — Names[0] = track 1 = mix). Esses nomes sao usados como
+// "name" no obs_audio_encoder_create — OBS escreve esse name como
+// metadata "title" da stream no MKV.
+var
+  j: Integer;
+begin
+  SetLength(Result, ATotalTracks);
+  if ATotalTracks <= 0 then Exit;
+
+  Result[0] := 'Mix';
+
+  if AGroupMics and (Length(AMics) > 0) then
+  begin
+    if (AMicTracks[0] >= 1) and (AMicTracks[0] <= ATotalTracks) then
+      Result[AMicTracks[0] - 1] := 'Microfones (todos)';
+  end
+  else
+    for j := 0 to High(AMics) do
+      if (AMicTracks[j] >= 1) and (AMicTracks[j] <= ATotalTracks) then
+        Result[AMicTracks[j] - 1] := AMics[j].Name;
+
+  if AGroupOutputs and (Length(AOutputs) > 0) then
+  begin
+    if (AOutTracks[0] >= 1) and (AOutTracks[0] <= ATotalTracks) then
+      Result[AOutTracks[0] - 1] := 'Saidas (todas)';
+  end
+  else
+    for j := 0 to High(AOutputs) do
+      if (AOutTracks[j] >= 1) and (AOutTracks[j] <= ATotalTracks) then
+        Result[AOutTracks[j] - 1] := AOutputs[j].Name;
+
+  // Fallback: tracks sem nome viram "Faixa N".
+  for j := 0 to High(Result) do
+    if Result[j] = '' then Result[j] := Format('Faixa %d', [j + 1]);
+end;
 
 function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>;
 var
@@ -528,6 +679,7 @@ var
   AudioChannel: Cardinal;
   OutputSettings: obs_data_t;
   AEncSettings: obs_data_t;
+  TrackNames: TArray<string>;
 begin
   if FRecording then
     raise Exception.Create('Ja esta gravando.');
@@ -693,10 +845,16 @@ begin
     PosX := PosX + Cams[i].Width * Scale;
   end;
 
-  // 6. Audio: enumera devices via obs_properties.
+  // 6. Audio: enumera devices via obs_properties. Try/except defensivo:
+  // se WASAPI/libobs falhar (driver de audio bugado), grava ainda
+  // funciona — fica so com mix vazio (silencio).
   Log('-- Audio --');
-  Mics := EnumerateObsAudioDevices('wasapi_input_capture');
-  Outputs := EnumerateObsAudioDevices('wasapi_output_capture');
+  SetLength(Mics, 0);
+  SetLength(Outputs, 0);
+  try Mics    := EnumerateObsAudioDevices('wasapi_input_capture');  except
+    on E: Exception do Log('   enum mics falhou: %s', [E.Message]); end;
+  try Outputs := EnumerateObsAudioDevices('wasapi_output_capture'); except
+    on E: Exception do Log('   enum outputs falhou: %s', [E.Message]); end;
   Log('   %d mic(s), %d output(s)', [Length(Mics), Length(Outputs)]);
 
   // Track strategy: Track 1 = mix, Tracks 2-6 = isolated.
@@ -799,8 +957,12 @@ begin
   GVideoEncoder := SelectVideoEncoder;
   obs_encoder_set_video(GVideoEncoder, obs_get_video);
 
-  // Audio encoders: um por track.
+  // Audio encoders: um por track. O "name" do encoder (2o param de
+  // obs_audio_encoder_create) e escrito como metadata "title" da
+  // stream no MKV — visivel no info panel e em editores externos.
   Log('-- Audio encoders (%d tracks) --', [TotalTracks]);
+  TrackNames := BuildTrackNames(TotalTracks, Mics, Outputs,
+    MicTracks, OutTracks, GroupMics, GroupOutputs);
   SetLength(GAudioEncoders, TotalTracks);
   for i := 0 to TotalTracks - 1 do
   begin
@@ -808,12 +970,13 @@ begin
     SetInt(AEncSettings, 'bitrate', 192);
     GAudioEncoders[i] := obs_audio_encoder_create(
       'ffmpeg_aac',
-      PAnsiChar(ToAnsi(Format('NoOBS AAC Track %d', [i + 1]))),
+      PAnsiChar(ToAnsi(TrackNames[i])),
       AEncSettings, NativeUInt(i), nil);
     obs_data_release(AEncSettings);
     if GAudioEncoders[i] = nil then
       raise Exception.CreateFmt('obs_audio_encoder_create falhou (track %d).', [i + 1]);
     obs_encoder_set_audio(GAudioEncoders[i], obs_get_audio);
+    Log('   Track %d: %s', [i + 1, TrackNames[i]]);
   end;
 
   // 8. Output (ffmpeg_muxer = gravacao em arquivo).
@@ -888,15 +1051,39 @@ begin
 end;
 
 procedure TLibOBSEngine.Teardown;
+var
+  ShutdownThread: TThread;
+  Wait: DWORD;
 begin
   if FRecording then
     StopRecording;
   ReleaseRecordingObjects;
   if FInitialized then
   begin
-    obs_shutdown;
+    // obs_shutdown pode bloquear indefinidamente se threads internas
+    // de audio/render estiverem com trabalho pendente. Rodamos em
+    // worker com timeout — se nao retornar em 5s, abandonamos.
+    // O processo esta saindo, OS limpa o resto.
+    ShutdownThread := TThread.CreateAnonymousThread(
+      procedure
+      begin
+        try
+          obs_shutdown;
+        except
+        end;
+      end
+    );
+    ShutdownThread.FreeOnTerminate := False;
+    ShutdownThread.Start;
+    Wait := WaitForSingleObject(ShutdownThread.Handle, 5000);
+    if Wait = WAIT_TIMEOUT then
+      Log('libobs: obs_shutdown nao retornou em 5s — abandonando.')
+    else
+    begin
+      ShutdownThread.Free;
+      Log('libobs: shutdown ok.');
+    end;
     FInitialized := False;
-    Log('libobs: shutdown ok.');
   end;
 end;
 

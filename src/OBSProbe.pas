@@ -19,6 +19,7 @@ type
     Index: Integer;
     Kind: string;          // 'video' | 'audio' | 'subtitle' | etc
     Codec: string;         // 'hevc', 'h264', 'aac', 'opus'
+    Title: string;         // tags.title se presente (nome da faixa)
     Width, Height: Integer; // video apenas
     Channels: Integer;      // audio apenas
     SampleRate: Integer;    // audio apenas
@@ -268,6 +269,10 @@ begin
         Info.SampleRate := ReadInt(Item, 'sample_rate');
         Info.BitRate    := ReadInt64(Item, 'bit_rate');
         Info.Duration   := ReadFloat(Item, 'duration');
+        // tags.title — metadata escrita pelo NoOBS na gravacao.
+        Info.Title := '';
+        if Item.GetValue('tags') is TJSONObject then
+          Info.Title := ReadStr(TJSONObject(Item.GetValue('tags')), 'title');
         AReport.Streams[i] := Info;
       end;
     end;

@@ -44,6 +44,7 @@ uses
   System.Generics.Collections,
   System.IOUtils,
   System.Classes,
+  System.NetEncoding,
   OBSUI,
   OBSLog,
   OBSScene,
@@ -462,18 +463,26 @@ end;
 // Push de estado
 // =====================================================================
 
-procedure PushInit;
+procedure PushInit(AIncludeAudio: Boolean = True);
 var
   Init: TJSONObject;
 begin
-  // PushInit agora le sources direto de Win32/WASAPI — OBS pode estar
-  // dormindo (sobe so durante gravacao). Se OBS estiver vivo, podemos
-  // tambem tentar as APIs de scene, mas o caminho default e Win-side.
+  // Se AIncludeAudio=False: pula a enumeracao WASAPI (que pode demorar
+  // 30s+ em maquinas sem mic / audio service ruim). Caller deve depois
+  // disparar enumeracao em worker thread e push audio_sources_refreshed.
   Init := TJSONObject.Create;
   Init.AddPair('type', 'init');
   Init.AddPair('monitors',   BuildMonitorsFromWin);
-  Init.AddPair('mics',       BuildAudioFromWin(adkInput));
-  Init.AddPair('speakers',   BuildAudioFromWin(adkOutput));
+  if AIncludeAudio then
+  begin
+    Init.AddPair('mics',     BuildAudioFromWin(adkInput));
+    Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+  end
+  else
+  begin
+    Init.AddPair('mics',     TJSONArray.Create);
+    Init.AddPair('speakers', TJSONArray.Create);
+  end;
   Init.AddPair('webcams',    BuildWebcamsFromWin);
   Init.AddPair('recordings', BuildRecordingsArray);
   Init.AddPair('recordDir',  RecordDir);
@@ -1087,20 +1096,23 @@ begin
 end;
 
 procedure DoInit;
-// Phase 3: OBS NAO e iniciado aqui. So sobe quando o usuario clica
-// em "Iniciar Gravacao". Init pega monitores via Win32 e audio via
-// WASAPI — UI funciona toda via APIs nativas.
+// OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
+// monitores via Win32 e audio via WASAPI — UI funciona toda via APIs
+// nativas. Enumeracao WASAPI roda em worker thread porque maquinas
+// sem mic / com audio driver mal podem fazer COM calls levarem 30s+.
 begin
   if Initialized then
   begin
     PushInit;
     Exit;
   end;
+  Log('DoInit: inicio');
 
   PushTheme;
 
   try StartPlayerServer; except on E: Exception do
     Log('Player: falha ao subir servidor: %s', [E.Message]); end;
+  Log('DoInit: PlayerServer ok');
 
   if RecordDir = '' then
   begin
@@ -1110,11 +1122,44 @@ begin
   end;
   PushRecordings;
   ScanRecordingsMeta;
+  Log('DoInit: recordings ok');
 
-  // Sources via Win32 / WASAPI.
-  InitAudio;
-  PushInit;
+  // Push UI imediato com audio vazio (AIncludeAudio=False). A
+  // enumeracao WASAPI roda em worker thread porque pode bloquear
+  // 30s+ em maquinas sem mic ou com audio service em estado ruim.
+  // Quando terminar, push refresh.
+  PushInit(False);
   PushRecordingState;
+  Log('DoInit: UI pushed');
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Init: TJSONObject;
+    begin
+      if IsShuttingDown then Exit;
+      try InitAudio; except end;
+      if IsShuttingDown then Exit;
+      try EnumerateAudioDevices; except end; // forca cache (pode demorar)
+      if IsShuttingDown then Exit;
+      TThread.Queue(nil, procedure begin
+        if IsShuttingDown then Exit;
+        try
+          Init := TJSONObject.Create;
+          Init.AddPair('type', 'audio_sources_refreshed');
+          // silent=true: nao mostra toast "Dispositivos atualizados"
+          // (esse e o load inicial, nao foi um hot-plug do usuario).
+          Init.AddPair('silent', TJSONBool.Create(True));
+          Init.AddPair('mics',     BuildAudioFromWin(adkInput));
+          Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+          PostOwned(Init);
+          Log('DoInit: audio enumeration completa');
+        except
+          on E: Exception do
+            Log('DoInit: erro ao publicar audio: %s', [E.Message]);
+        end;
+      end);
+    end).Start;
 
   // Captura de thumbs em thread propria (independe do WM_TIMER que e
   // suprimido durante modal sizemove loop — drag/resize de janela).
@@ -1448,6 +1493,7 @@ begin
         StreamObj.AddPair('index', TJSONNumber.Create(S.Index));
         StreamObj.AddPair('kind', S.Kind);
         StreamObj.AddPair('codec', S.Codec);
+        StreamObj.AddPair('title', S.Title);
         StreamObj.AddPair('bitrate', TJSONNumber.Create(S.BitRate));
         StreamObj.AddPair('duration', TJSONNumber.Create(S.Duration));
         if S.Kind = 'video' then
@@ -1463,6 +1509,50 @@ begin
         Streams.AddElement(StreamObj);
       end;
       Obj.AddPair('streams', Streams);
+
+      TThread.Queue(nil, procedure begin PostOwned(Obj); end);
+    end).Start;
+end;
+
+procedure HandleRequestAudioTracks(const APath: string);
+// Extrai todas as audio tracks (uma vez, ~500ms-2s) e devolve URLs.
+// JS cria audio elements sincronizados ao video element pra mixagem
+// per-track em tempo real.
+begin
+  if APath = '' then Exit;
+  if not TFile.Exists(APath) then
+  begin
+    PostError('Arquivo nao encontrado.');
+    Exit;
+  end;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Urls: TArray<string>;
+      Ok: Boolean;
+      i: Integer;
+      Obj: TJSONObject;
+      Arr: TJSONArray;
+    begin
+      if IsShuttingDown then Exit;
+      Ok := False;
+      try Ok := GetAudioTrackUrls(APath, Urls); except end;
+      if IsShuttingDown then Exit;
+      if not Ok then
+      begin
+        TThread.Queue(nil, procedure begin
+          PostError('Falha ao extrair faixas de audio.'); end);
+        Exit;
+      end;
+
+      Obj := TJSONObject.Create;
+      Obj.AddPair('type', 'audio_tracks_ready');
+      Obj.AddPair('id', APath);
+      Arr := TJSONArray.Create;
+      for i := 0 to High(Urls) do
+        Arr.AddElement(TJSONString.Create(Urls[i]));
+      Obj.AddPair('urls', Arr);
 
       TThread.Queue(nil, procedure begin PostOwned(Obj); end);
     end).Start;
@@ -1501,7 +1591,26 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'settings');
   Obj.AddPair('recordDir', RecordDir);
+  Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
   PostOwned(Obj);
+end;
+
+procedure HandleSetCodec(const ACodec: string);
+// Valores aceitos: auto | hevc-hw | h264-hw | h264-sw.
+// LibOBSEngine.SelectVideoEncoder consulta config 'codec' em cada
+// gravacao; mudanca aqui afeta a proxima gravacao.
+const
+  VALID: array[0..3] of string = ('auto', 'hevc-hw', 'h264-hw', 'h264-sw');
+var
+  i: Integer;
+  Ok: Boolean;
+begin
+  Ok := False;
+  for i := 0 to High(VALID) do
+    if SameText(ACodec, VALID[i]) then begin Ok := True; Break; end;
+  if not Ok then Exit;
+  SetConfigStr('codec', ACodec);
+  Log('Codec preferido alterado para: %s', [ACodec]);
 end;
 
 function PickFolder(const AInitial: string): string;
@@ -1639,12 +1748,16 @@ begin
       HandleRequestTranscode(GetStrField(Obj, 'id'))
     else if MsgType = 'request_video_info' then
       HandleRequestVideoInfo(GetStrField(Obj, 'id'))
+    else if MsgType = 'request_audio_tracks' then
+      HandleRequestAudioTracks(GetStrField(Obj, 'id'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
     else if MsgType = 'pick_record_dir' then
       HandlePickRecordDir
     else if MsgType = 'set_record_dir' then
       HandleSetRecordDir(GetStrField(Obj, 'path'))
+    else if MsgType = 'set_codec' then
+      HandleSetCodec(GetStrField(Obj, 'codec'))
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then
@@ -1654,6 +1767,70 @@ begin
   finally
     Obj.Free;
   end;
+end;
+
+function LoadResourceAsDataUrl(const AResName, AMime: string): string;
+// Le um recurso RCDATA do .exe e devolve uma data URL (base64) usavel
+// como src de <img> no WebView. Retorna '' se o recurso nao existir.
+var
+  Stream: TResourceStream;
+  Bytes: TBytes;
+  Base64: string;
+begin
+  Result := '';
+  if FindResource(HInstance, PChar(AResName), RT_RCDATA) = 0 then Exit;
+  try
+    Stream := TResourceStream.Create(HInstance, AResName, RT_RCDATA);
+    try
+      SetLength(Bytes, Stream.Size);
+      if Stream.Size > 0 then Stream.ReadBuffer(Bytes[0], Stream.Size);
+    finally
+      Stream.Free;
+    end;
+    Base64 := TNetEncoding.Base64.EncodeBytesToString(Bytes);
+    // Remove quebras de linha que TNetEncoding adiciona.
+    Base64 := StringReplace(Base64, #13#10, '', [rfReplaceAll]);
+    Base64 := StringReplace(Base64, #10, '', [rfReplaceAll]);
+    Result := 'data:' + AMime + ';base64,' + Base64;
+  except
+    Result := '';
+  end;
+end;
+
+procedure PushEncoderCaps;
+// Detecta encoders disponiveis e envia pra UI: quais codecs sao
+// suportados + logo do vendor do GPU. UI usa pra habilitar opcoes
+// no select e mostrar o icone (AMD/NVIDIA/INTEL).
+var
+  Caps: TEncoderCaps;
+  Obj: TJSONObject;
+  VendorStr, VendorLogo: string;
+begin
+  try
+    Caps := DetectEncoderCaps;
+  except
+    Exit;
+  end;
+
+  case Caps.Vendor of
+    gvNvidia: begin VendorStr := 'nvidia'; VendorLogo := LoadResourceAsDataUrl('NVIDIA', 'image/png'); end;
+    gvAmd:    begin VendorStr := 'amd';    VendorLogo := LoadResourceAsDataUrl('AMD',    'image/png'); end;
+    gvIntel:  begin VendorStr := 'intel';  VendorLogo := LoadResourceAsDataUrl('INTEL',  'image/png'); end;
+  else
+    begin VendorStr := ''; VendorLogo := ''; end;
+  end;
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'encoder_caps');
+  Obj.AddPair('hevcHw', TJSONBool.Create(Caps.HevcHw));
+  Obj.AddPair('h264Hw', TJSONBool.Create(Caps.H264Hw));
+  Obj.AddPair('h264Sw', TJSONBool.Create(Caps.H264Sw));
+  Obj.AddPair('vendor', VendorStr);
+  Obj.AddPair('vendorLogo', VendorLogo);
+  PostOwned(Obj);
+  Log('Encoder caps: hevc-hw=%s h264-hw=%s h264-sw=%s vendor=%s',
+    [BoolToStr(Caps.HevcHw, True), BoolToStr(Caps.H264Hw, True),
+     BoolToStr(Caps.H264Sw, True), VendorStr]);
 end;
 
 procedure OnTimer(ATimerId: UINT_PTR);
@@ -1692,6 +1869,10 @@ begin
         Engine := TLibOBSEngine.Create;
         Engine.EnsureInitialized;
         Log('libobs: warmup pronto — proxima gravacao sera instantanea.');
+        // Apos warmup, libobs ja conhece os encoders. Detecta + envia
+        // pra UI poder mostrar logo do GPU e habilitar/desabilitar
+        // opcoes no select de codec.
+        PushEncoderCaps;
       except
         on E: Exception do
         begin

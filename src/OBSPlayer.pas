@@ -57,6 +57,14 @@ procedure GetCachedMeta(const APath: string;
 // listadas. ALivePaths sao os paths das gravacoes que ainda existem.
 procedure GarbageCollectCache(const ALivePaths: TArray<string>);
 
+// Extrai todas as audio tracks da gravacao em arquivos separados (m4a)
+// e devolve URLs servidas pelo HTTP server. Idempotente: se ja extraiu
+// antes, retorna direto do cache (~ms). Primeira extracao usa ffmpeg
+// -c copy (sem reencode), ~500ms-2s pra gravacao de 10 min.
+// Retorna False se ffmpeg falhar ou arquivo nao existir.
+function GetAudioTrackUrls(const APath: string;
+  out AUrls: TArray<string>): Boolean;
+
 implementation
 
 uses
@@ -71,7 +79,8 @@ uses
   IdCustomHTTPServer,
   IdHTTPServer,
   IdGlobal,
-  OBSLog;
+  OBSLog,
+  OBSProbe;
 
 type
   // OnCommandGet exige method-of-object. Esta classe e um trampolim.
@@ -489,6 +498,71 @@ begin
   Result := MakeUrl('-tx', CacheFile, '.mp4');
 end;
 
+function GetAudioTrackUrls(const APath: string;
+  out AUrls: TArray<string>): Boolean;
+var
+  Report: TProbeReport;
+  CacheDir, Token, TrackFile, AllArgs, StdErr: string;
+  AudioStreams: TStreamArray;
+  i, TrackCount, NeedExtract: Integer;
+  Code: DWORD;
+begin
+  Result := False;
+  SetLength(AUrls, 0);
+  if not FileExists(APath) then Exit;
+  if not FFmpegAvailable then Exit;
+
+  // Probe pra saber quantas audio tracks tem.
+  if not Probe(APath, Report) then Exit;
+  AudioStreams := Report.AudioStreams;
+  TrackCount := Length(AudioStreams);
+  if TrackCount = 0 then Exit;
+
+  CacheDir := CacheDirFor(APath);
+  if not DirectoryExists(CacheDir) then ForceDirectories(CacheDir);
+  Token := HashName(APath);
+
+  // Conta quantos arquivos precisam ser extraidos (cache miss).
+  NeedExtract := 0;
+  for i := 0 to TrackCount - 1 do
+  begin
+    TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
+      Format('%s_a%d.m4a', [Token, i]);
+    if not FileExists(TrackFile) then Inc(NeedExtract);
+  end;
+
+  // Se algum arquivo falta, extrai TODOS de uma vez (ffmpeg multi-map
+  // e mais rapido que N chamadas separadas).
+  if NeedExtract > 0 then
+  begin
+    AllArgs := '-y -hide_banner -loglevel error -i "' + APath + '"';
+    for i := 0 to TrackCount - 1 do
+    begin
+      TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
+        Format('%s_a%d.m4a', [Token, i]);
+      AllArgs := AllArgs + Format(' -map 0:a:%d -c copy "%s"',
+        [i, TrackFile]);
+    end;
+    Log('Player: extracting %d audio tracks: %s',
+      [TrackCount, ExtractFileName(APath)]);
+    if not RunFFmpegCapture(AllArgs, StdErr, Code) then
+    begin
+      Log('Player: extract audio falhou (code=%d): %s', [Code, StdErr]);
+      Exit;
+    end;
+  end;
+
+  // Monta URLs (todas ja registradas no token map via MakeUrl).
+  SetLength(AUrls, TrackCount);
+  for i := 0 to TrackCount - 1 do
+  begin
+    TrackFile := IncludeTrailingPathDelimiter(CacheDir) +
+      Format('%s_a%d.m4a', [Token, i]);
+    AUrls[i] := MakeUrl(Format('-a%d', [i]), TrackFile, '.m4a');
+  end;
+  Result := True;
+end;
+
 // =====================================================================
 // HTTP server: serve o arquivo de cache com Range
 // =====================================================================
@@ -545,13 +619,16 @@ begin
     // Content-Type por extensao — Chromium e mais permissivo se vier
     // o tipo certo. video/x-matroska pra .mkv, video/mp4 pra .mp4 etc.
     case IndexStr(LowerCase(ExtractFileExt(AFilePath)),
-                  ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg', '.jpeg', '.png']) of
+                  ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg',
+                   '.jpeg', '.png', '.m4a', '.aac']) of
       0, 1: AResp.ContentType := 'video/mp4';
       2:    AResp.ContentType := 'video/x-matroska';
       3:    AResp.ContentType := 'video/webm';
       4:    AResp.ContentType := 'video/quicktime';
       5, 6: AResp.ContentType := 'image/jpeg';
       7:    AResp.ContentType := 'image/png';
+      8:    AResp.ContentType := 'audio/mp4';
+      9:    AResp.ContentType := 'audio/aac';
     else
       AResp.ContentType := 'application/octet-stream';
     end;

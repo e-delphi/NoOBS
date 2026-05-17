@@ -41,7 +41,7 @@ exatamente no lugar onde libobs espera.
 - **libobs** (`obs.dll`) carregada in-process via `external delayed`.
 - **libavformat/avcodec/avutil/swscale** (FFmpeg 7.x) carregadas
   in-process via `external delayed`. Bundled pelo OBS portátil.
-- **Indy** (`TIdHTTPServer`, `TIdTCPClient`) — RTL.
+- **Indy** (`TIdHTTPServer`) — RTL.
 - **HTML/CSS/JS puro** (sem framework) embutido como `RCDATA "UI"`.
 
 ## Estrutura do projeto

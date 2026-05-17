@@ -39,4 +39,3 @@ Este software utiliza os seguintes componentes open-source:
 
 - **OBS Studio** — GPL v2+ — https://github.com/obsproject/obs-studio
 - **FFmpeg** — LGPL v2.1+ / GPL v2+ — https://ffmpeg.org
-- **Bird.Socket.Client** — MIT

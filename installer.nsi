@@ -1,0 +1,132 @@
+!include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "x64.nsh"
+
+;--------------------------------
+; Geral
+;--------------------------------
+Name "NoOBS"
+OutFile "NoOBS-Setup.exe"
+InstallDir "$PROGRAMFILES64\NoOBS"
+InstallDirRegKey HKLM "Software\NoOBS" "InstallDir"
+RequestExecutionLevel admin
+Unicode True
+
+!define MUI_ICON "icon.ico"
+!define MUI_UNICON "icon.ico"
+!define MUI_ABORTWARNING
+
+;--------------------------------
+; Paginas do instalador
+;--------------------------------
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+
+!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\64bit\NoOBS.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Abrir NoOBS"
+!insertmacro MUI_PAGE_FINISH
+
+;--------------------------------
+; Paginas do desinstalador
+;--------------------------------
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+
+;--------------------------------
+; Idioma
+;--------------------------------
+!insertmacro MUI_LANGUAGE "PortugueseBR"
+
+;--------------------------------
+; Verificacao de 64-bit
+;--------------------------------
+Function .onInit
+    ${IfNot} ${RunningX64}
+        MessageBox MB_OK|MB_ICONSTOP "NoOBS requer Windows 64-bit."
+        Abort
+    ${EndIf}
+
+    ; Fecha o NoOBS se estiver rodando
+    FindWindow $0 "" "NoOBS"
+    ${If} $0 != 0
+        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "NoOBS esta em execucao. Clique OK para fechar e continuar." IDOK close IDCANCEL abort
+        close:
+            SendMessage $0 ${WM_CLOSE} 0 0
+            Sleep 1000
+            Goto done
+        abort:
+            Abort
+        done:
+    ${EndIf}
+FunctionEnd
+
+;--------------------------------
+; Instalacao
+;--------------------------------
+Section "NoOBS" SecMain
+    SectionIn RO
+
+    SetOutPath "$INSTDIR\bin\64bit"
+    File /r "exe\bin\64bit\*.*"
+
+    SetOutPath "$INSTDIR\data"
+    File /r "exe\data\*.*"
+
+    SetOutPath "$INSTDIR\obs-plugins"
+    File /r "exe\obs-plugins\*.*"
+
+    WriteUninstaller "$INSTDIR\uninstall.exe"
+
+    ; Menu Iniciar
+    CreateDirectory "$SMPROGRAMS\NoOBS"
+    CreateShortcut "$SMPROGRAMS\NoOBS\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+    CreateShortcut "$SMPROGRAMS\NoOBS\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
+
+    ; Atalho na area de trabalho
+    CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+
+    ; Registro - Adicionar/Remover Programas
+    WriteRegStr HKLM "Software\NoOBS" "InstallDir" "$INSTDIR"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayName" "NoOBS"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "UninstallString" '"$INSTDIR\uninstall.exe"'
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayIcon" "$INSTDIR\bin\64bit\NoOBS.exe"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "Publisher" "NoOBS"
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoModify" 1
+    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoRepair" 1
+SectionEnd
+
+;--------------------------------
+; Desinstalacao
+;--------------------------------
+Function un.onInit
+    ; Fecha o NoOBS se estiver rodando
+    FindWindow $0 "" "NoOBS"
+    ${If} $0 != 0
+        SendMessage $0 ${WM_CLOSE} 0 0
+        Sleep 1000
+    ${EndIf}
+FunctionEnd
+
+Section "Uninstall"
+    RMDir /r "$INSTDIR\bin"
+    RMDir /r "$INSTDIR\data"
+    RMDir /r "$INSTDIR\obs-plugins"
+    Delete "$INSTDIR\uninstall.exe"
+    RMDir "$INSTDIR"
+
+    Delete "$DESKTOP\NoOBS.lnk"
+    Delete "$SMPROGRAMS\NoOBS\NoOBS.lnk"
+    Delete "$SMPROGRAMS\NoOBS\Desinstalar.lnk"
+    RMDir "$SMPROGRAMS\NoOBS"
+
+    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS"
+    DeleteRegKey HKLM "Software\NoOBS"
+
+    ; Pergunta se quer remover configuracoes e cache
+    MessageBox MB_YESNO "Deseja remover as configuracoes e cache do NoOBS?" IDNO skip
+        RMDir /r "$LOCALAPPDATA\NoOBS"
+        RMDir /r "$LOCALAPPDATA\TNoOBS"
+    skip:
+SectionEnd

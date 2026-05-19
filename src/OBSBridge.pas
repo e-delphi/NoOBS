@@ -292,7 +292,7 @@ begin
   for i := 0 to High(Mons) do
   begin
     Id := MonitorIdFromIndex(Mons[i].Index);
-    Thumb := CaptureMonitorAsDataUrl(Mons[i], 320, 180);
+    Thumb := CaptureMonitorAsDataUrl(Mons[i], 480, 270);
     Item := TJSONObject.Create;
     Item.AddPair('id', Id);
     Item.AddPair('name', Format('Monitor %d', [Mons[i].Index + 1]));
@@ -774,24 +774,23 @@ begin
 end;
 
 procedure PushMonitorThumbs;
-// Captura screenshot de cada monitor e empurra como array {id, thumb}.
-// Chamado pelo timer a cada 1s. Captura + JPEG + base64 sao caros pra
-// monitores grandes (4K), entao roda numa worker thread pra nao travar
-// a UI. ThumbBusy garante que so 1 captura roda em paralelo (skipa o
-// tick se o anterior nao terminou).
+// Captura screenshot de cada monitor, armazena JPEG em memoria no
+// OBSPlayer e empurra URLs HTTP pro JS. Sem base64 no IPC — o
+// WebView2 busca o JPEG direto pelo HTTP local.
 var
   Mons: TMonitorInfoArray;
 begin
   if IsShuttingDown or ThumbBusy then Exit;
   ThumbBusy := True;
-  Mons := EnumerateMonitors; // rapido — so EnumDisplayMonitors
+  Mons := EnumerateMonitors;
 
   TThread.CreateAnonymousThread(
     procedure
     var
       i: Integer;
-      LocalArr: TArray<TPair<string, string>>;  // id, thumb
-      Thumb, Id: string;
+      LocalArr: TArray<TPair<string, string>>;  // id, url
+      Jpeg: TBytes;
+      Id, Url: string;
     begin
       try
         SetLength(LocalArr, Length(Mons));
@@ -803,8 +802,11 @@ begin
             Exit;
           end;
           Id := MonitorIdFromIndex(Mons[i].Index);
-          Thumb := CaptureMonitorAsDataUrl(Mons[i], 320, 180);
-          LocalArr[i] := TPair<string, string>.Create(Id, Thumb);
+          Jpeg := CaptureMonitorAsJpeg(Mons[i], 480, 270);
+          if Length(Jpeg) > 0 then
+            SetMonitorThumb(Id, Jpeg);
+          Url := GetMonitorThumbUrl(Id);
+          LocalArr[i] := TPair<string, string>.Create(Id, Url);
         end;
 
         if IsShuttingDown then
@@ -844,7 +846,6 @@ begin
             end;
           end);
       except
-        // Se a captura quebrar, libera mesmo assim.
         TThread.Queue(nil, procedure begin ThumbBusy := False; end);
       end;
     end).Start;
@@ -1714,11 +1715,11 @@ begin
 end;
 
 procedure HandleSetCodec(const ACodec: string);
-// Valores aceitos: auto | hevc-hw | h264-hw | h264-sw.
+// Valores aceitos: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
 // LibOBSEngine.SelectVideoEncoder consulta config 'codec' em cada
 // gravacao; mudanca aqui afeta a proxima gravacao.
 const
-  VALID: array[0..3] of string = ('auto', 'hevc-hw', 'h264-hw', 'h264-sw');
+  VALID: array[0..4] of string = ('auto', 'av1-hw', 'hevc-hw', 'h264-hw', 'h264-sw');
 var
   i: Integer;
   Ok: Boolean;
@@ -1940,15 +1941,16 @@ begin
 
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'encoder_caps');
+  Obj.AddPair('av1Hw', TJSONBool.Create(Caps.Av1Hw));
   Obj.AddPair('hevcHw', TJSONBool.Create(Caps.HevcHw));
   Obj.AddPair('h264Hw', TJSONBool.Create(Caps.H264Hw));
   Obj.AddPair('h264Sw', TJSONBool.Create(Caps.H264Sw));
   Obj.AddPair('vendor', VendorStr);
   Obj.AddPair('vendorLogo', VendorLogo);
   PostOwned(Obj);
-  Log('Encoder caps: hevc-hw=%s h264-hw=%s h264-sw=%s vendor=%s',
-    [BoolToStr(Caps.HevcHw, True), BoolToStr(Caps.H264Hw, True),
-     BoolToStr(Caps.H264Sw, True), VendorStr]);
+  Log('Encoder caps: av1-hw=%s hevc-hw=%s h264-hw=%s h264-sw=%s vendor=%s',
+    [BoolToStr(Caps.Av1Hw, True), BoolToStr(Caps.HevcHw, True),
+     BoolToStr(Caps.H264Hw, True), BoolToStr(Caps.H264Sw, True), VendorStr]);
 end;
 
 procedure OnTimer(ATimerId: UINT_PTR);

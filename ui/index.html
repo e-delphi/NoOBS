@@ -131,13 +131,24 @@
     flex-direction: column;
   }
 
-  /* Big record button at top */
+  /* Big record button at top — sticky pra ficar sempre visivel.
+     Margem negativa + padding compensam o padding do .sources,
+     fazendo o fundo opaco cobrir toda a largura da sidebar. */
   .record-block {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    padding: 14px 12px;
+    margin: -14px -12px 0;
+    position: sticky;
+    top: -14px;
+    z-index: 5;
+  }
+  .record-block-inner {
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 10px;
-    margin-bottom: 18px;
   }
   .record-btn {
     width: 100%;
@@ -220,6 +231,7 @@
 
   /* Section */
   .section { margin-bottom: 18px; }
+  .record-block + .section { margin-top: 14px; }
   .section:last-child { margin-bottom: 0; }
   .section-title {
     display: flex;
@@ -412,8 +424,6 @@
        - background opaco evita transparencia quando scrolla por tras */
   .track-legend {
     margin-top: auto;
-    position: sticky;
-    bottom: 0;
     background: var(--panel);
     padding: 14px 0 4px;
     border-top: 1px solid var(--border);
@@ -1734,14 +1744,16 @@
         <label>Codec de vídeo</label>
         <select class="settings-input" id="settingsCodec">
           <option value="auto">Automático (recomendado)</option>
+          <option value="av1-hw">AV1 — hardware</option>
           <option value="hevc-hw">HEVC / H.265 — hardware</option>
           <option value="h264-hw">H.264 — hardware</option>
           <option value="h264-sw">H.264 — software (x264, CPU)</option>
         </select>
         <div class="settings-hint" id="settingsCodecHint">
           Automático escolhe a melhor opção disponível na ordem
-          HEVC hardware → H.264 hardware → H.264 software. Use uma
-          escolha manual só se souber o que está fazendo.
+          AV1 hardware → HEVC hardware → H.264 hardware → H.264
+          software. Use uma escolha manual só se souber o que está
+          fazendo.
         </div>
         <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
       </div>
@@ -1834,13 +1846,15 @@
 
       <!-- Botão de gravar -->
       <div class="record-block">
-        <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
-          <span class="icon"></span>
-          <span id="recordLabel">Iniciar gravação</span>
-        </button>
-        <div class="rec-status" id="recStatus">
-          <span class="dot"></span>
-          <span class="text" id="recStatusText">00:00:00</span>
+        <div class="record-block-inner">
+          <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
+            <span class="icon"></span>
+            <span id="recordLabel">Iniciar gravação</span>
+          </button>
+          <div class="rec-status" id="recStatus">
+            <span class="dot"></span>
+            <span class="text" id="recStatusText">00:00:00</span>
+          </div>
         </div>
       </div>
 
@@ -3133,7 +3147,7 @@ const Settings = {
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
   },
-  // caps = { hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
+  // caps = { av1Hw, hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
   encoderCaps: null,
   applyEncoderCaps(caps) {
     this.encoderCaps = caps || {};
@@ -3142,14 +3156,15 @@ const Settings = {
     // Habilita/desabilita cada opcao baseado nas caps detectadas.
     Array.from(sel.options).forEach(opt => {
       let avail = true;
-      if (opt.value === 'hevc-hw') avail = !!caps.hevcHw;
+      if (opt.value === 'av1-hw') avail = !!caps.av1Hw;
+      else if (opt.value === 'hevc-hw') avail = !!caps.hevcHw;
       else if (opt.value === 'h264-hw') avail = !!caps.h264Hw;
       else if (opt.value === 'h264-sw') avail = !!caps.h264Sw;
-      // 'auto' sempre disponivel
       opt.disabled = !avail;
       // Label dinamico mostrando vendor pra hw options.
-      if (opt.value === 'hevc-hw' || opt.value === 'h264-hw') {
-        const base = opt.value === 'hevc-hw' ? 'HEVC / H.265' : 'H.264';
+      if (opt.value === 'av1-hw' || opt.value === 'hevc-hw' || opt.value === 'h264-hw') {
+        const base = opt.value === 'av1-hw' ? 'AV1' :
+                     opt.value === 'hevc-hw' ? 'HEVC / H.265' : 'H.264';
         const tag = caps.vendor === 'nvidia' ? ' (NVIDIA NVENC)' :
                     caps.vendor === 'amd'    ? ' (AMD AMF)' :
                     caps.vendor === 'intel'  ? ' (Intel QSV)' : '';
@@ -3854,7 +3869,7 @@ const Player = {
   }
 };
 function fmtTime(s) {
-  s = Math.max(0, Math.floor(s || 0));
+  s = Math.max(0, Math.round(s || 0));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   const pad = (n) => n.toString().padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;

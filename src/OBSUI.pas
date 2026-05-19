@@ -73,6 +73,31 @@ uses
   OBSLog,
   OBSStartupCheck;
 
+// ---------------------------------------------------------------------
+// Fallback de ICoreWebView2Settings3 pra Delphi 11
+// ---------------------------------------------------------------------
+// O Winapi.WebView2 do Delphi 12 ja declara essa interface. No Delphi 11
+// nao — declaramos aqui com o IID oficial da Microsoft
+// ({FDB5AB74-AF33-4854-84F0-0A631DEB5EBA}, publicado no SDK do WebView2)
+// e reproduzimos a ordem do vtable: os 2 metodos de Settings2 (UserAgent)
+// como padding, seguidos dos 2 proprios de Settings3.
+//
+// Nao usamos Settings2.UserAgent — esta ai so pra ocupar os slots
+// corretos do vtable, ja que herdamos direto de ICoreWebView2Settings
+// (que sempre existe) e nao de Settings2 (que tambem pode faltar).
+{$IF not declared(ICoreWebView2Settings3)}
+const
+  IID_ICoreWebView2Settings3: TGUID = '{FDB5AB74-AF33-4854-84F0-0A631DEB5EBA}';
+type
+  ICoreWebView2Settings3 = interface(ICoreWebView2Settings)
+    ['{FDB5AB74-AF33-4854-84F0-0A631DEB5EBA}']
+    function Get_UserAgent(out userAgent: PWideChar): HRESULT; stdcall;
+    function Set_UserAgent(userAgent: PWideChar): HRESULT; stdcall;
+    function Get_AreBrowserAcceleratorKeysEnabled(out value: Integer): HRESULT; stdcall;
+    function Set_AreBrowserAcceleratorKeysEnabled(value: Integer): HRESULT; stdcall;
+  end;
+{$IFEND}
+
 const
   CLASS_NAME    = 'TNoOBS';
   WINDOW_TITLE  = 'NoOBS';
@@ -671,6 +696,8 @@ var
   WorkArea: TRect;
   WinX, WinY, WinW, WinH: Integer;
 begin
+  SetCurrentDir(ExtractFilePath(ParamStr(0)));
+
   WM_SHOW_INSTANCE := RegisterWindowMessage(SHOW_MSG_NAME);
   SingleInstanceMutex := CreateMutex(nil, False, MUTEX_NAME);
   if GetLastError = ERROR_ALREADY_EXISTS then

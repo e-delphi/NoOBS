@@ -137,7 +137,7 @@ User clica "Iniciar Gravação" (ou hotkey Ctrl+Shift+F9):
     - Cria scene + sources de monitor/webcam/audio
     - Resolve monitor_id via obs_properties
     - Configura track bitmask (1 mix + N isolados, max 6)
-    - SelectVideoEncoder: lê config codec, dispatch HEVC/H264/SW
+    - SelectVideoEncoder: lê config codec, dispatch AV1/HEVC/H264/SW
     - Cria output ffmpeg_muxer (MKV) + obs_output_start
   • PushRecordingState
 
@@ -294,7 +294,7 @@ Usa `obs_open_module` + `obs_init_module` por plugin (não
 
 `jim_hevc_nvenc` foi marcado obsoleto em favor de `obs_nvenc_hevc_tex`.
 `LibOBSEngine.SelectVideoEncoder` testa o novo primeiro, com
-fallback chain HEVC → H.264 hardware → x264 CPU.
+fallback chain AV1 → HEVC → H.264 hardware → x264 CPU.
 
 OBS recente retorna handle "phantom" pra encoder ID não registrado —
 `EncoderTypeExists` valida via `obs_enum_encoder_types` antes de
@@ -518,6 +518,33 @@ atalho, só não funciona até o conflict sair.
 Se faltar crítico, mostra `MessageBox` claro listando o que falta e
 aponta pro log. Sem isso, app crasha mais tarde com erro obscuro.
 
+### 35. **FPU exception mask: Delphi default quebra libobs/libav**
+
+Delphi por padrão habilita `EInvalidOp`, `EZeroDivide` e `EOverflow`
+na FPU (mask = `[exDenormalized, exUnderflow, exPrecision]`). Já
+libobs, libav, D3D11 e drivers de GPU assumem o default do Windows
+(**todas** mascaradas) e rotineiramente produzem NaN/Inf em cálculos
+internos — matrizes de projeção, scale 0/0 enquanto source assíncrona
+inicializa, etc. Comportamento normal para C, mas em Delphi o flag
+fica pendente na FPU.
+
+Quando o controle volta pro Delphi, **qualquer** operação FP
+posterior (até em outra unit, muito depois) dispara `EInvalidOp`
+"Invalid floating point operation" com stack trace enganoso. Sintoma
+clássico: gravação "Falha ao iniciar: Invalid floating point
+operation" disparada N segundos depois, apontando linha aleatória
+de aritmética Single inocente.
+
+**Solução** em `initialization` de `LibOBSEngine.pas`:
+
+```pascal
+SetExceptionMask(exAllArithmeticExceptions);
+```
+
+`System.Math` precisa estar nas uses. Roda antes de qualquer chamada
+pra obs.dll/libav (initialization de unit roda antes do `begin` do
+.dpr). Mesma máscara cobre todas as threads do processo.
+
 ---
 
 ## Caches
@@ -551,7 +578,7 @@ recuperáveis manualmente).
 | `version`                        | `1` (discriminator)                                |
 | `theme`                          | `"dark"` ou `"light"`                              |
 | `recordDir`                      | path absoluto                                      |
-| `codec`                          | `"auto"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"`    |
+| `codec`                          | `"auto"`, `"av1-hw"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"` |
 | `sources.monitors[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |
 | `sources.speakers[name]`         | `true` / `false` (default: `true`)                 |

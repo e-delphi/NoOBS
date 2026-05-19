@@ -1,4 +1,4 @@
-{
+﻿{
   OBSPlayer — servidor HTTP local + libavformat pra tocar gravacoes
   dentro do WebView2.
 
@@ -29,6 +29,14 @@ uses
 
 procedure StartPlayerServer;
 procedure StopPlayerServer;
+
+// Armazena JPEG em memoria pra um monitor (id = "NoOBS Monitor N").
+// Chamado pela worker thread de thumbs. Thread-safe.
+procedure SetMonitorThumb(const AId: string; const AJpeg: TBytes);
+
+// URL do thumb de um monitor via HTTP (ex: /thumb/mon0.jpg?v=123).
+// Retorna '' se o server nao subiu ou nao ha thumb pro id.
+function GetMonitorThumbUrl(const AId: string): string;
 
 // URL "direta" — serve o arquivo original sem transcode. Pode falhar
 // no player se o codec nao for suportado pelo WebView2 (ex: HEVC sem
@@ -98,6 +106,12 @@ var
   TokenMap: TDictionary<string, string> = nil;
   TokenLock: TCriticalSection = nil;
 
+  // Thumbs volateis de monitor: id -> JPEG bytes. Atualizado a cada
+  // ~1s pela worker thread de captura. Servido em /thumb/<slot>.jpg.
+  ThumbMap: TDictionary<string, TBytes> = nil;
+  ThumbVersion: Integer = 0;
+  ThumbLock: TCriticalSection = nil;
+
 function ExeDir: string;
 begin
   Result := ExtractFilePath(ParamStr(0));
@@ -140,6 +154,35 @@ begin
   for i := 0 to 9 do
     Result := Result + IntToHex(Bytes[i], 2);
   Result := LowerCase(Result);
+end;
+
+procedure SetMonitorThumb(const AId: string; const AJpeg: TBytes);
+begin
+  if ThumbLock = nil then Exit;
+  ThumbLock.Enter;
+  try
+    ThumbMap.AddOrSetValue(AId, AJpeg);
+    Inc(ThumbVersion);
+  finally
+    ThumbLock.Leave;
+  end;
+end;
+
+function GetMonitorThumbUrl(const AId: string): string;
+var
+  Ver: Integer;
+begin
+  Result := '';
+  if (Server = nil) or (ThumbLock = nil) then Exit;
+  ThumbLock.Enter;
+  try
+    if not ThumbMap.ContainsKey(AId) then Exit;
+    Ver := ThumbVersion;
+  finally
+    ThumbLock.Leave;
+  end;
+  Result := Format('http://127.0.0.1:%d/thumb/%s.jpg?v=%d',
+    [ServerPort, AId, Ver]);
 end;
 
 function EnsureCachedMp4(const APath: string): string;
@@ -528,6 +571,43 @@ begin
   FS.Free;
 end;
 
+procedure ServeMonitorThumb(const AId: string;
+  AResp: TIdHTTPResponseInfo);
+var
+  Jpeg: TBytes;
+  MS: TMemoryStream;
+begin
+  if ThumbLock = nil then
+  begin
+    AResp.ResponseNo := 503;
+    Exit;
+  end;
+  ThumbLock.Enter;
+  try
+    if not ThumbMap.TryGetValue(AId, Jpeg) then
+    begin
+      AResp.ResponseNo := 404;
+      AResp.ContentText := 'no thumb';
+      Exit;
+    end;
+  finally
+    ThumbLock.Leave;
+  end;
+  if Length(Jpeg) = 0 then
+  begin
+    AResp.ResponseNo := 404;
+    Exit;
+  end;
+  MS := TMemoryStream.Create;
+  MS.WriteBuffer(Jpeg[0], Length(Jpeg));
+  MS.Position := 0;
+  AResp.ResponseNo := 200;
+  AResp.ContentType := 'image/jpeg';
+  AResp.CustomHeaders.Values['Cache-Control'] := 'no-store';
+  AResp.ContentLength := MS.Size;
+  AResp.ContentStream := MS;
+end;
+
 procedure TPlayerServerHandler.HandleGet(AContext: TIdContext;
   ARequest: TIdHTTPRequestInfo; AResponse: TIdHTTPResponseInfo);
 var
@@ -536,7 +616,17 @@ var
 begin
   Doc := ARequest.Document;
 
-  // Espera /v/<token>.mp4
+  // /thumb/<id>.jpg — thumbs volateis de monitor
+  if StartsText('/thumb/', Doc) then
+  begin
+    Token := Copy(Doc, 8, MaxInt);
+    P := Pos('.', Token);
+    if P > 0 then Token := Copy(Token, 1, P - 1);
+    ServeMonitorThumb(Token, AResponse);
+    Exit;
+  end;
+
+  // /v/<token>.ext — arquivos registrados
   if not StartsText('/v/', Doc) then
   begin
     AResponse.ResponseNo := 404;
@@ -575,6 +665,10 @@ begin
   TokenLock := TCriticalSection.Create;
   TokenMap := TDictionary<string, string>.Create;
 
+  ThumbLock := TCriticalSection.Create;
+  ThumbMap := TDictionary<string, TBytes>.Create;
+  ThumbVersion := 0;
+
   Handler := TPlayerServerHandler.Create;
   Server := TIdHTTPServer.Create(nil);
   Server.OnCommandGet := Handler.HandleGet;
@@ -605,6 +699,8 @@ begin
   FreeAndNil(Handler);
   FreeAndNil(TokenMap);
   FreeAndNil(TokenLock);
+  FreeAndNil(ThumbMap);
+  FreeAndNil(ThumbLock);
   ServerPort := 0;
 end;
 

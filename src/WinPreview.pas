@@ -22,8 +22,12 @@ type
 
 function EnumerateMonitors: TMonitorInfoArray;
 
-// Captura JPEG (data URL pronto: "data:image/jpeg;base64,...")
-// do monitor especificado, escalado pra AThumbW x AThumbH.
+// Captura JPEG raw (bytes) do monitor, escalado pra AThumbW x AThumbH.
+function CaptureMonitorAsJpeg(const AMon: TMonitorInfo;
+  AThumbW, AThumbH: Integer): TBytes;
+
+// Wrapper legado: retorna data URL base64. Usado no BuildMonitorsFromWin
+// (init, uma unica vez) pra manter o thumb inline no JSON inicial.
 function CaptureMonitorAsDataUrl(const AMon: TMonitorInfo;
   AThumbW, AThumbH: Integer): string;
 
@@ -78,33 +82,29 @@ begin
   Result := State.List;
 end;
 
-function CaptureMonitorAsDataUrl(const AMon: TMonitorInfo;
-  AThumbW, AThumbH: Integer): string;
+function CaptureMonitorAsJpeg(const AMon: TMonitorInfo;
+  AThumbW, AThumbH: Integer): TBytes;
 var
   ScreenDC: HDC;
   VclBmp: TBitmap;
   Jpeg: TJPEGImage;
   Stream: TMemoryStream;
-  B64: string;
 begin
-  Result := '';
+  SetLength(Result, 0);
   if (AThumbW <= 0) or (AThumbH <= 0) then Exit;
   if (AMon.Width <= 0) or (AMon.Height <= 0) then Exit;
 
   ScreenDC := GetDC(0);
   if ScreenDC = 0 then Exit;
   try
-    // TBitmap gerencia HBITMAP/HDC sem vazar — sem juggling manual
-    // de SelectObject/DeleteObject.
     VclBmp := TBitmap.Create;
     try
       VclBmp.PixelFormat := pf24bit;
       VclBmp.SetSize(AThumbW, AThumbH);
-      // CAPTUREBLT ($40000000) inclui janelas layered/topmost.
       SetStretchBltMode(VclBmp.Canvas.Handle, HALFTONE);
       StretchBlt(VclBmp.Canvas.Handle, 0, 0, AThumbW, AThumbH,
         ScreenDC, AMon.X, AMon.Y, AMon.Width, AMon.Height,
-        SRCCOPY or DWORD($40000000));
+        SRCCOPY);
 
       Jpeg := TJPEGImage.Create;
       try
@@ -113,10 +113,8 @@ begin
         Stream := TMemoryStream.Create;
         try
           Jpeg.SaveToStream(Stream);
-          Stream.Position := 0;
-          B64 := TNetEncoding.Base64.EncodeBytesToString(
-            Stream.Memory, Stream.Size);
-          Result := 'data:image/jpeg;base64,' + B64;
+          SetLength(Result, Stream.Size);
+          Move(Stream.Memory^, Result[0], Stream.Size);
         finally
           Stream.Free;
         end;
@@ -129,6 +127,18 @@ begin
   finally
     ReleaseDC(0, ScreenDC);
   end;
+end;
+
+function CaptureMonitorAsDataUrl(const AMon: TMonitorInfo;
+  AThumbW, AThumbH: Integer): string;
+var
+  Bytes: TBytes;
+begin
+  Result := '';
+  Bytes := CaptureMonitorAsJpeg(AMon, AThumbW, AThumbH);
+  if Length(Bytes) = 0 then Exit;
+  Result := 'data:image/jpeg;base64,' +
+    TNetEncoding.Base64.EncodeBytesToString(Bytes, Length(Bytes));
 end;
 
 end.

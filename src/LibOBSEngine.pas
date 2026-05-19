@@ -44,6 +44,7 @@ type
   TGpuVendor = (gvUnknown, gvNvidia, gvAmd, gvIntel);
 
   TEncoderCaps = record
+    Av1Hw:  Boolean;   // qualquer encoder AV1 hardware
     HevcHw: Boolean;   // qualquer encoder HEVC hardware
     H264Hw: Boolean;   // qualquer encoder H.264 hardware (excluindo x264)
     H264Sw: Boolean;   // x264 (CPU) — sempre True na pratica
@@ -61,6 +62,7 @@ uses
   System.Classes,
   System.Generics.Collections,
   System.AnsiStrings,
+  System.Math,
   LibOBS,
   OBSScene,
   OBSConfig,
@@ -74,7 +76,13 @@ const
   SCENE_NAME = 'NoOBS';
   MANAGED_PREFIX = 'NoOBS ';
 
-// Listas de encoder IDs — mesma ordem de prioridade do OBSScene antigo.
+// Listas de encoder IDs por codec, em ordem de prioridade.
+  AV1_IDS: array[0..3] of AnsiString = (
+    'obs_nvenc_av1_tex',
+    'obs_nvenc_av1',
+    'av1_texture_amf',
+    'obs_qsv11_av1'
+  );
   HEVC_IDS: array[0..5] of AnsiString = (
     'obs_nvenc_hevc_tex',
     'jim_hevc_nvenc',
@@ -135,6 +143,12 @@ begin
   if log_level > LOG_WARNING then Exit;
 
   Raw := string(AnsiString(msg));
+
+  // Filtra warnings benignos do obs_shutdown que nao indicam bug no nosso
+  // codigo. "Double destroy" e disparado pelo cleanup interno de plugins
+  // do libobs durante shutdown — nao afeta funcionalidade, nao depende
+  // do nosso ciclo de gestao de sources.
+  if Pos('Double destroy just occurred', Raw) > 0 then Exit;
 
   case log_level of
     LOG_ERROR:   Prefix := 'obs[E]';
@@ -234,6 +248,7 @@ var
   P: PAnsiChar;
   Id: string;
 begin
+  Result.Av1Hw  := False;
   Result.HevcHw := False;
   Result.H264Hw := False;
   Result.H264Sw := False;
@@ -253,21 +268,24 @@ begin
               (Pos('jim_hevc_nvenc', Id) > 0) then
       begin
         if Result.Vendor = gvUnknown then Result.Vendor := gvNvidia;
-        if Pos('hevc', Id) > 0 then Result.HevcHw := True
+        if Pos('av1', Id) > 0 then Result.Av1Hw := True
+        else if Pos('hevc', Id) > 0 then Result.HevcHw := True
         else Result.H264Hw := True;
       end
       // AMD: *_amf
       else if Pos('amf', Id) > 0 then
       begin
         if Result.Vendor = gvUnknown then Result.Vendor := gvAmd;
-        if Pos('h265', Id) > 0 then Result.HevcHw := True
+        if Pos('av1', Id) > 0 then Result.Av1Hw := True
+        else if Pos('h265', Id) > 0 then Result.HevcHw := True
         else if Pos('h264', Id) > 0 then Result.H264Hw := True;
       end
       // Intel QSV: obs_qsv11_*
       else if Pos('qsv', Id) > 0 then
       begin
         if Result.Vendor = gvUnknown then Result.Vendor := gvIntel;
-        if Pos('hevc', Id) > 0 then Result.HevcHw := True
+        if Pos('av1', Id) > 0 then Result.Av1Hw := True
+        else if Pos('hevc', Id) > 0 then Result.HevcHw := True
         else if Pos('h264', Id) > 0 then Result.H264Hw := True;
       end;
     end;
@@ -290,6 +308,21 @@ begin
   finally
     obs_data_release(Settings);
   end;
+end;
+
+function TryAv1Hw: obs_encoder_t;
+var i: Integer;
+begin
+  for i := 0 to High(AV1_IDS) do
+  begin
+    Result := TryCreateVideoEncoder(AV1_IDS[i]);
+    if Result <> nil then
+    begin
+      Log('Encoder: %s', [string(AV1_IDS[i])]);
+      Exit;
+    end;
+  end;
+  Result := nil;
 end;
 
 function TryHevcHw: obs_encoder_t;
@@ -334,11 +367,17 @@ function SelectVideoEncoder: obs_encoder_t;
 var
   Pref: string;
 begin
-  // Le preferencia do usuario. Valores: auto | hevc-hw | h264-hw | h264-sw.
+  // Le preferencia do usuario. Valores: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
   Pref := LowerCase(GetConfigStr('codec', 'auto'));
   Log('Codec preferido: %s', [Pref]);
 
-  if Pref = 'hevc-hw' then
+  if Pref = 'av1-hw' then
+  begin
+    Result := TryAv1Hw;
+    if Result <> nil then Exit;
+    Log('Codec av1-hw indisponivel, caindo pro fallback.');
+  end
+  else if Pref = 'hevc-hw' then
   begin
     Result := TryHevcHw;
     if Result <> nil then Exit;
@@ -358,7 +397,8 @@ begin
   end;
 
   // Auto (ou fallback de qualquer escolha que falhou):
-  // HEVC hw -> H.264 hw -> H.264 sw.
+  // AV1 hw -> HEVC hw -> H.264 hw -> H.264 sw.
+  Result := TryAv1Hw;   if Result <> nil then Exit;
   Result := TryHevcHw;  if Result <> nil then Exit;
   Result := TryH264Hw;  if Result <> nil then Exit;
   Result := TryH264Sw;  if Result <> nil then Exit;
@@ -462,7 +502,7 @@ var
   Props: obs_properties_t;
   Prop: obs_property_t;
   Count, i: NativeUInt;
-  ItemName, ItemValue: AnsiString;
+  ItemValue: AnsiString;
   Dev: TObsAudioDev;
 begin
   SetLength(Result, 0);
@@ -477,10 +517,12 @@ begin
     if Count = 0 then Exit;
     for i := 0 to Count - 1 do
     begin
-      ItemName := AnsiString(obs_property_list_item_name(Prop, i));
+      // OBS retorna strings em UTF-8. string(AnsiString(...)) interpretaria
+      // como cp1252 e quebraria acentos ("Saida" -> "SaA­da"). Usar FromAnsi
+      // (UTF8ToString) garante decodificacao correta.
+      Dev.Name := FromAnsi(obs_property_list_item_name(Prop, i));
       ItemValue := AnsiString(obs_property_list_item_string(Prop, i));
       if ItemValue = 'default' then Continue;
-      Dev.Name := string(ItemName);
       Dev.DeviceId := ItemValue;
       SetLength(Result, Length(Result) + 1);
       Result[High(Result)] := Dev;
@@ -1135,9 +1177,15 @@ var
   ShutdownThread: TThread;
   Wait: DWORD;
 begin
+  // Para output ativo, mas NAO chama ReleaseRecordingObjects.
+  // obs_shutdown libera tudo internamente (sources, encoders, output).
+  // Liberar manualmente antes causa "Double destroy" porque obs_shutdown
+  // tenta liberar sources que ja foram destruidos.
   if FRecording then
-    StopRecording;
-  ReleaseRecordingObjects;
+  begin
+    try obs_output_stop(GOutput); except end;
+    FRecording := False;
+  end;
   if FInitialized then
   begin
     // obs_shutdown pode bloquear indefinidamente se threads internas
@@ -1163,8 +1211,31 @@ begin
       ShutdownThread.Free;
       Log('libobs: shutdown ok.');
     end;
+    GOutput := nil;
+    GVideoEncoder := nil;
+    SetLength(GAudioEncoders, 0);
+    SetLength(GSources, 0);
+    GScene := nil;
     FInitialized := False;
   end;
 end;
+
+initialization
+  // Mascara excecoes da FPU (pegadinha Delphi <-> DLL C).
+  //
+  // O Delphi por padrao habilita EInvalidOp/EZeroDivide/EOverflow na FPU
+  // (mask = [exDenormalized, exUnderflow, exPrecision]). Ja libobs, libav,
+  // D3D11 e drivers de GPU assumem o default do Windows (TODAS mascaradas)
+  // e rotineiramente produzem NaN/Inf em calculos internos (projecoes,
+  // matrizes vazias, scale=0/0 enquanto source assincrona inicializa, etc).
+  //
+  // Quando o controle volta pro Delphi, o flag invalido fica pendente na
+  // FPU. Qualquer operacao FP subsequente (ate em outra unit) dispara
+  // "Invalid floating point operation" com stack trace enganoso — o erro
+  // aparece muito longe da causa raiz.
+  //
+  // Sintoma classico: gravacao "Falha ao iniciar: Invalid floating point
+  // operation" depois de N segundos enumerando webcam/audio.
+  SetExceptionMask(exAllArithmeticExceptions);
 
 end.

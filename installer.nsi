@@ -7,9 +7,9 @@
 ;--------------------------------
 Name "NoOBS"
 OutFile "NoOBS-Setup.exe"
-InstallDir "$PROGRAMFILES64\NoOBS"
-InstallDirRegKey HKLM "Software\NoOBS" "InstallDir"
-RequestExecutionLevel admin
+InstallDir "$LOCALAPPDATA\NoOBS"
+InstallDirRegKey HKCU "Software\NoOBS" "InstallDir"
+RequestExecutionLevel user
 Unicode True
 
 !define MUI_ICON "icon.ico"
@@ -79,22 +79,21 @@ Section "NoOBS" SecMain
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
-    ; Menu Iniciar
+    ; Atalhos — SetOutPath define o "Start in" do .lnk
+    SetOutPath "$INSTDIR\bin\64bit"
     CreateDirectory "$SMPROGRAMS\NoOBS"
     CreateShortcut "$SMPROGRAMS\NoOBS\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
     CreateShortcut "$SMPROGRAMS\NoOBS\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
-
-    ; Atalho na area de trabalho
     CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
 
     ; Registro - Adicionar/Remover Programas
-    WriteRegStr HKLM "Software\NoOBS" "InstallDir" "$INSTDIR"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayName" "NoOBS"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "UninstallString" '"$INSTDIR\uninstall.exe"'
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayIcon" "$INSTDIR\bin\64bit\NoOBS.exe"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "Publisher" "NoOBS"
-    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoModify" 1
-    WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoRepair" 1
+    WriteRegStr HKCU "Software\NoOBS" "InstallDir" "$INSTDIR"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayName" "NoOBS"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "UninstallString" '"$INSTDIR\uninstall.exe"'
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayIcon" "$INSTDIR\bin\64bit\NoOBS.exe"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "Publisher" "NoOBS"
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoModify" 1
+    WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoRepair" 1
 SectionEnd
 
 ;--------------------------------
@@ -121,8 +120,8 @@ Section "Uninstall"
     Delete "$SMPROGRAMS\NoOBS\Desinstalar.lnk"
     RMDir "$SMPROGRAMS\NoOBS"
 
-    DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS"
-    DeleteRegKey HKLM "Software\NoOBS"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS"
+    DeleteRegKey HKCU "Software\NoOBS"
 
     ; Pergunta se quer remover configuracoes e cache
     MessageBox MB_YESNO "Deseja remover as configuracoes e cache do NoOBS?" IDNO skip

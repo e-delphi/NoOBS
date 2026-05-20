@@ -22,6 +22,7 @@ Unicode True
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
 
 !define MUI_FINISHPAGE_RUN "$INSTDIR\bin\64bit\NoOBS.exe"
@@ -97,6 +98,23 @@ Section "NoOBS" SecMain
 SectionEnd
 
 ;--------------------------------
+; Componente opcional: Iniciar com Windows
+; Habilitado por padrao. User pode desmarcar na pagina Componentes.
+; Registra "/tray" — abre minimizado na bandeja ao logar.
+;--------------------------------
+Section "Iniciar com o Windows" SecAutostart
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /tray'
+SectionEnd
+
+LangString DESC_SecMain      ${LANG_PORTUGUESEBR} "Arquivos do NoOBS (obrigatorio)."
+LangString DESC_SecAutostart ${LANG_PORTUGUESEBR} "Inicia o NoOBS automaticamente quando o Windows logar, minimizado na bandeja do sistema. Voce pode mudar isso depois nas configuracoes."
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain}      $(DESC_SecMain)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart} $(DESC_SecAutostart)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+;--------------------------------
 ; Desinstalacao
 ;--------------------------------
 Function un.onInit
@@ -122,6 +140,9 @@ Section "Uninstall"
 
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS"
     DeleteRegKey HKCU "Software\NoOBS"
+
+    ; Remove autostart se estiver registrado (instalador pode ter adicionado).
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS"
 
     ; Pergunta se quer remover configuracoes e cache
     MessageBox MB_YESNO "Deseja remover as configuracoes e cache do NoOBS?" IDNO skip

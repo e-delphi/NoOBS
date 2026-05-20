@@ -59,6 +59,9 @@ uses
   OBSEncoder,
   OBSAudioTracks,
   OBSEngine,
+  OBSHotkey,
+  OBSAutostart,
+  OBSTray,
   WinPreview,
   WinAudioMeter,
   WinWebcam;
@@ -1381,6 +1384,67 @@ begin
   ScanRecordingsMeta;
 end;
 
+procedure ApplyHotkeyFromConfig;
+// Le 'hotkey' do config e (re)registra. Default = "Pause" (tecla
+// PAUSE/BREAK — improvavel de conflitar com outros apps).
+// Config string vazia ('') = nenhum atalho global.
+const
+  DEFAULT_HOTKEY = 'Pause';
+var
+  Spec: string;
+  HK: THotkeySpec;
+  Ok: Boolean;
+begin
+  // Sempre desregistra antes — handler tolera nao-registrado.
+  UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
+
+  // Le do config. Se a chave nunca foi setada, usa default. Se foi
+  // explicitamente setada como vazia, nao registra nada.
+  Spec := GetConfigStr('hotkey', DEFAULT_HOTKEY);
+  if Spec.Trim = '' then
+  begin
+    Log('Hotkey: desativada (config vazia).');
+    Exit;
+  end;
+
+  HK := ParseHotkey(Spec);
+  if not HK.Valid then
+  begin
+    Log('Hotkey: spec invalido "%s" — ignorado.', [Spec]);
+    Exit;
+  end;
+
+  Ok := RegisterGlobalHotkey(HK_RECORD_TOGGLE, HK.Modifiers, HK.Vk);
+  if Ok then
+    Log('Hotkey: registrado "%s".', [Spec])
+  else
+    Log('Hotkey: RegisterHotKey falhou pra "%s" (outro app pode estar usando).',
+      [Spec]);
+end;
+
+procedure HandleSetHotkey(const ASpec: string);
+// ASpec vazio = limpa o atalho. String valida = registra novo.
+// Persiste em config e aplica imediato.
+var
+  HK: THotkeySpec;
+  Normalized: string;
+begin
+  Normalized := ASpec.Trim;
+  if Normalized <> '' then
+  begin
+    HK := ParseHotkey(Normalized);
+    if not HK.Valid then
+    begin
+      Log('HandleSetHotkey: spec invalido "%s" — ignorado.', [Normalized]);
+      Exit;
+    end;
+    // Re-formata canonicamente (Ctrl antes de Shift antes de Alt etc).
+    Normalized := FormatHotkey(HK.Modifiers, HK.Vk);
+  end;
+  SetConfigStr('hotkey', Normalized);
+  ApplyHotkeyFromConfig;
+end;
+
 procedure DoInit;
 // OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
 // monitores via Win32 e audio via WASAPI — UI funciona toda via APIs
@@ -1474,11 +1538,9 @@ begin
   // carrega + plugins + D3D11 device. Com warmup, ela e instantanea.
   SetTimer(MainWindowHandle, TIMER_OBS_WARMUP, OBS_WARMUP_DELAY_MS, nil);
 
-  // Atalhos globais — Ctrl+Shift+F9 = toggle gravacao. Pode falhar se
-  // outro app ja registrou (ex.: OBS Studio rodando paralelo). Falha
-  // nao e fatal, app sobe normal sem o atalho.
-  RegisterGlobalHotkey(HK_RECORD_TOGGLE,
-    MOD_CONTROL or MOD_SHIFT, VK_F9);
+  // Atalho global configuravel. Default = Pause se config vazio.
+  // Falha de registro nao e fatal — outro app pode ter o mesmo atalho.
+  ApplyHotkeyFromConfig;
 
   Initialized := True;
   Log('DoInit: pronto (sem OBS — sobe na hora da gravacao).');
@@ -1528,6 +1590,10 @@ begin
   end;
 end;
 
+// Forward — MaybeNotifyRecord e implementada junto das outras de
+// settings (mais abaixo) mas e chamada pelo Handle{Start,Stop}.
+procedure MaybeNotifyRecord(const ATitle, AMessage: string); forward;
+
 procedure HandleRecordStart;
 var
   OutputPath: string;
@@ -1564,6 +1630,13 @@ begin
     RecordingMonitorsSnapshot := WinPreview.EnumerateMonitors;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
     PushRecordingState;
+    // Auto-minimizar pra bandeja se o user pediu — UI da lugar pra
+    // outras janelas durante a gravacao. Hotkey global continua
+    // funcionando pra parar.
+    if GetConfigBool('minimizeOnRecord', False) then
+      OBSUI.HideToTray;
+    // Notificacao na bandeja (so dispara se o tray esta visivel).
+    MaybeNotifyRecord('NoOBS', 'Gravação iniciada.');
     Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);
   except
     on E: Exception do
@@ -1617,6 +1690,10 @@ begin
   PushRecordingState;
   if OutputPath <> '' then
     PushRecordingAdded(OutputPath, Elapsed);
+
+  // Notifica fim da gravacao (so se em tray e config permite).
+  MaybeNotifyRecord('NoOBS',
+    Format('Gravação finalizada (%dm %ds).', [Elapsed div 60, Elapsed mod 60]));
 
   if PendingAudioRefresh then
   begin
@@ -1947,7 +2024,42 @@ begin
   Obj.AddPair('type', 'settings');
   Obj.AddPair('recordDir', RecordDir);
   Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
+  Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause'));
+  Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
+  Obj.AddPair('minimizeOnRecord',
+    TJSONBool.Create(GetConfigBool('minimizeOnRecord', False)));
+  Obj.AddPair('notifyOnRecord',
+    TJSONBool.Create(GetConfigBool('notifyOnRecord', True)));
   PostOwned(Obj);
+end;
+
+procedure HandleSetAutostart(AEnable: Boolean);
+begin
+  OBSAutostart.SetAutoStart(AEnable);
+  Log('Autostart: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetMinimizeOnRecord(AEnable: Boolean);
+begin
+  SetConfigBool('minimizeOnRecord', AEnable);
+  Log('MinimizeOnRecord: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetNotifyOnRecord(AEnable: Boolean);
+begin
+  SetConfigBool('notifyOnRecord', AEnable);
+  Log('NotifyOnRecord: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure MaybeNotifyRecord(const ATitle, AMessage: string);
+// So mostra balloon se:
+//   1. User pediu (config notifyOnRecord = True)
+//   2. Tray esta ativo (janela escondida) — senao a notificacao
+//      seria redundante, o user esta olhando a UI mesmo.
+begin
+  if not GetConfigBool('notifyOnRecord', True) then Exit;
+  if not OBSTray.IsTrayInstalled then Exit;
+  OBSTray.ShowBalloon(ATitle, AMessage);
 end;
 
 procedure HandleSetCodec(const ACodec: string);
@@ -2113,6 +2225,14 @@ begin
       HandleSetRecordDir(GetStrField(Obj, 'path'))
     else if MsgType = 'set_codec' then
       HandleSetCodec(GetStrField(Obj, 'codec'))
+    else if MsgType = 'set_hotkey' then
+      HandleSetHotkey(GetStrField(Obj, 'hotkey'))
+    else if MsgType = 'set_autostart' then
+      HandleSetAutostart(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_minimize_on_record' then
+      HandleSetMinimizeOnRecord(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_notify_on_record' then
+      HandleSetNotifyOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then
@@ -2306,13 +2426,40 @@ begin
   Log('Shutdown: fim');
 end;
 
+function ShouldHideOnClose: Boolean;
+// WM_CLOSE chama esse callback pra decidir entre minimizar pra bandeja
+// ou fechar de verdade. Regras:
+//   - Autostart ON: user quer manter o app rodando sempre
+//   - Gravando: nunca interromper a gravacao por engano
+//   - Caso contrario: fecha normal
+begin
+  Result := OBSAutostart.IsAutoStartEnabled or RecordingActive;
+end;
+
+// Toggle de gravacao usado pelo menu do tray (item "Iniciar/Parar
+// gravacao"). Mesmo comportamento da hotkey global.
+procedure ToggleRecordFromTray;
+begin
+  if RecordingActive then HandleRecordStop
+  else HandleRecordStart;
+end;
+
+function IsRecording: Boolean;
+begin
+  Result := RecordingActive;
+end;
+
 initialization
   // Liga a UI a este bridge sem criar dependencia direta de OBSUI -> OBSBridge.
-  OBSUI.OnUIMessage       := Dispatch;
-  OBSUI.OnUITimer         := OnTimer;
-  OBSUI.OnUIDisplayChange := OnDisplayChange;
-  OBSUI.OnUIDeviceChange  := OnDeviceNodeChange;
-  OBSUI.OnUIHotkey        := OnHotkey;
+  OBSUI.OnUIMessage           := Dispatch;
+  OBSUI.OnUITimer             := OnTimer;
+  OBSUI.OnUIDisplayChange     := OnDisplayChange;
+  OBSUI.OnUIDeviceChange      := OnDeviceNodeChange;
+  OBSUI.OnUIHotkey            := OnHotkey;
+  OBSUI.OnUIShouldHideOnClose := ShouldHideOnClose;
+  // Tray menu — item "Iniciar/Parar gravacao" usa esses callbacks.
+  OBSTray.OnToggleRecord      := ToggleRecordFromTray;
+  OBSTray.OnIsRecording       := IsRecording;
 
 finalization
   Shutdown;

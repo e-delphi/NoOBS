@@ -33,6 +33,9 @@ uses
 function GetConfigStr(const AKey, ADefault: string): string;
 procedure SetConfigStr(const AKey, AValue: string);
 
+function GetConfigBool(const AKey: string; ADefault: Boolean): Boolean;
+procedure SetConfigBool(const AKey: string; AValue: Boolean);
+
 // Toggle de source: ACategory = 'monitors'/'mics'/'speakers'/'webcams',
 // AId = indice (monitor) ou nome do dispositivo.
 function GetSourceBool(const ACategory, AId: string;
@@ -209,6 +212,39 @@ begin
     Pair := CachedJson.RemovePair(AKey);
     if Pair <> nil then Pair.Free;
     CachedJson.AddPair(AKey, AValue);
+    WriteToDisk;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+function GetConfigBool(const AKey: string; ADefault: Boolean): Boolean;
+var
+  V: TJSONValue;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    V := CachedJson.GetValue(AKey);
+    if V is TJSONBool then
+      Result := TJSONBool(V).AsBoolean
+    else
+      Result := ADefault;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+procedure SetConfigBool(const AKey: string; AValue: Boolean);
+var
+  Pair: TJSONPair;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    Pair := CachedJson.RemovePair(AKey);
+    if Pair <> nil then Pair.Free;
+    CachedJson.AddPair(AKey, TJSONBool.Create(AValue));
     WriteToDisk;
   finally
     ConfigLock.Leave;

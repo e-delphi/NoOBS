@@ -10,9 +10,13 @@
     - Suporte a dark mode em menus do sistema (uxtheme privado).
 
   Removido:
-    - Tray icon e auto-start (irrelevante: OBS e quem fica em tray).
     - Retry de navegacao com timer (HTML e local; falha = bug nosso).
     - Handler de permission (UI nao pede camera/mic).
+
+  Tray icon (OBSTray) e auto-start (OBSAutostart) controlam minimizacao
+  pra bandeja, start with Windows e /tray command line. WM_CLOSE da
+  janela e interceptada pra minimizar pra bandeja em vez de matar o
+  processo (so o item "Fechar" do menu tray realmente fecha).
 
   HTML carregado direto da resource embutida no exe (sem dependencia de arquivo).
 }
@@ -43,15 +47,24 @@ type
   TUIDisplayChangeProc = procedure;
   TUIDeviceChangeProc  = procedure;
   TUIHotkeyProc  = procedure(AHotkeyId: Integer);
+  // Returna True se WM_CLOSE deve esconder na bandeja em vez de fechar
+  // de verdade. OBSBridge implementa: True se autostart OU gravando.
+  TUIShouldHideOnCloseFunc = function: Boolean;
 
 // Callbacks que o OBSBridge registra na sua initialization.
 // Mantem OBSUI sem dependencia direta de OBSBridge, evitando ciclos.
 var
-  OnUIMessage:        TUIMessageProc       = nil;
-  OnUITimer:          TUITimerProc         = nil;
-  OnUIDisplayChange:  TUIDisplayChangeProc = nil;
-  OnUIDeviceChange:   TUIDeviceChangeProc  = nil;
-  OnUIHotkey:         TUIHotkeyProc        = nil;
+  OnUIMessage:           TUIMessageProc           = nil;
+  OnUITimer:             TUITimerProc             = nil;
+  OnUIDisplayChange:     TUIDisplayChangeProc     = nil;
+  OnUIDeviceChange:      TUIDeviceChangeProc      = nil;
+  OnUIHotkey:            TUIHotkeyProc            = nil;
+  OnUIShouldHideOnClose: TUIShouldHideOnCloseFunc = nil;
+
+// Esconde a janela principal pra bandeja (instala icone se ainda nao
+// estiver). Chamado por OBSBridge quando "minimizar ao gravar" esta
+// ativo, ou pelo WM_CLOSE quando o fluxo manda esconder.
+procedure HideToTray;
 
 // Registra atalho global do Windows. AModifiers e combinacao de
 // MOD_ALT/MOD_CONTROL/MOD_SHIFT/MOD_WIN (Winapi.Windows). AVk e o
@@ -73,7 +86,8 @@ uses
   System.SysUtils,
   OBSConfig,
   OBSLog,
-  OBSStartupCheck;
+  OBSStartupCheck,
+  OBSTray;
 
 // ---------------------------------------------------------------------
 // Fallback de ICoreWebView2Settings3 pra Delphi 11
@@ -135,6 +149,13 @@ var
   SingleInstanceMutex: THandle = 0;
   WM_SHOW_INSTANCE: UINT = 0;
   UserDataFolder: string;
+  // True quando o user pediu pra fechar de verdade (menu tray -> Fechar).
+  // WM_CLOSE checa essa flag: se False, minimiza pra bandeja em vez de
+  // destruir a janela.
+  RealQuitRequested: Boolean = False;
+  // Lembra se a janela estava maximizada antes de minimizar pra tray —
+  // restaura no mesmo estado quando o user reabrir.
+  WasMaximized: Boolean = False;
 
   SetPreferredAppMode:    TSetPreferredAppMode    = nil;
   AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
@@ -670,8 +691,46 @@ begin
       Result := 0;
       Exit;
     end;
+    OBSTray.WM_TRAYICON:
+    begin
+      OBSTray.HandleTrayMessage(hwnd, lParam);
+      Result := 0;
+      Exit;
+    end;
+    WM_COMMAND:
+    begin
+      // IDs de menu tray sao >= 9000.
+      if LOWORD(wParam) >= 9000 then
+      begin
+        OBSTray.HandleTrayCommand(hwnd, LOWORD(wParam));
+        Result := 0;
+        Exit;
+      end;
+    end;
+    WM_CLOSE:
+    begin
+      // Intercepta o close do botao [X] / Alt+F4. Decide entre:
+      //   - Fechar de verdade (RealQuitRequested = menu tray "Fechar",
+      //     ou nao quer ficar em tray nesse estado)
+      //   - Minimizar pra bandeja (autostart ON, ou gravando)
+      //
+      // OBSBridge implementa OnUIShouldHideOnClose:
+      //   Result := autostart_enabled OR recording_active
+      if not RealQuitRequested then
+      begin
+        if Assigned(OnUIShouldHideOnClose) and OnUIShouldHideOnClose() then
+        begin
+          HideToTray;
+          Result := 0;
+          Exit;
+        end;
+        // Caso contrario, cai pra DefWindowProc que destroi a janela
+        // (gera WM_DESTROY -> PostQuitMessage -> sai do GetMessage loop).
+      end;
+    end;
     WM_DESTROY:
     begin
+      OBSTray.RemoveTrayIcon;
       PostQuitMessage(0);
       Result := 0;
       Exit;
@@ -698,6 +757,42 @@ begin
   if Wnd <> 0 then PostMessage(Wnd, WM_NULL, 0, 0);
 end;
 
+procedure HideToTray;
+begin
+  if MainWindow = 0 then Exit;
+  if not IsWindowVisible(MainWindow) then Exit;
+  WasMaximized := IsZoomed(MainWindow);
+  ShowWindow(MainWindow, SW_HIDE);
+  OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+end;
+
+procedure OnTrayCommandHandler(ACommand: Integer);
+begin
+  case ACommand of
+    OBSTray.ID_TRAY_SHOW:
+    begin
+      // Restaura janela. Se nao havia sido criada ainda (start /tray),
+      // mostra agora.
+      if MainWindow = 0 then Exit;
+      if IsIconic(MainWindow) then
+        ShowWindow(MainWindow, SW_RESTORE)
+      else if WasMaximized then
+        ShowWindow(MainWindow, SW_SHOWMAXIMIZED)
+      else
+        ShowWindow(MainWindow, SW_SHOW);
+      SetForegroundWindow(MainWindow);
+      OBSTray.RemoveTrayIcon;
+    end;
+    OBSTray.ID_TRAY_QUIT:
+    begin
+      // Saida real (nao minimiza pra tray).
+      RealQuitRequested := True;
+      if MainWindow <> 0 then
+        DestroyWindow(MainWindow);
+    end;
+  end;
+end;
+
 procedure Run;
 var
   Msg: TMsg;
@@ -707,17 +802,27 @@ var
   Wakeup: TWakeMainThread;
   WorkArea: TRect;
   WinX, WinY, WinW, WinH: Integer;
+  StartInTray: Boolean;
 begin
   SetCurrentDir(ExtractFilePath(ParamStr(0)));
+
+  // "/tray" no command line = abre direto minimizado na bandeja
+  // (usado pelo auto-start com Windows).
+  StartInTray := Pos('/tray', LowerCase(string(GetCommandLine))) > 0;
 
   WM_SHOW_INSTANCE := RegisterWindowMessage(SHOW_MSG_NAME);
   SingleInstanceMutex := CreateMutex(nil, False, MUTEX_NAME);
   if GetLastError = ERROR_ALREADY_EXISTS then
   begin
-    // Outra instancia ja esta rodando: traz pra frente e sai.
-    Existing := FindWindow(CLASS_NAME, nil);
-    if Existing <> 0 then
-      PostMessage(Existing, WM_SHOW_INSTANCE, 0, 0);
+    // Outra instancia ja esta rodando: traz pra frente e sai. Excecao:
+    // se a 2a instancia veio com /tray (auto-start), nao incomoda o user
+    // — a 1a continua como esta.
+    if not StartInTray then
+    begin
+      Existing := FindWindow(CLASS_NAME, nil);
+      if Existing <> 0 then
+        PostMessage(Existing, WM_SHOW_INSTANCE, 0, 0);
+    end;
     if SingleInstanceMutex <> 0 then
       CloseHandle(SingleInstanceMutex);
     Exit;
@@ -768,8 +873,20 @@ begin
     WinX, WinY, WinW, WinH,
     0, 0, HInstance, nil);
 
-  ShowWindow(Wnd, SW_SHOW);
-  UpdateWindow(Wnd);
+  // Liga o handler de comandos do tray (Abrir / Fechar).
+  OBSTray.OnTrayCommand := OnTrayCommandHandler;
+
+  if StartInTray then
+  begin
+    // Inicia oculto + icone na bandeja. User clica pra abrir.
+    WasMaximized := True; // por convencao restaura maximizado depois
+    OBSTray.InstallTrayIcon(Wnd, WINDOW_TITLE);
+  end
+  else
+  begin
+    ShowWindow(Wnd, SW_SHOW);
+    UpdateWindow(Wnd);
+  end;
 
   // Acorda o GetMessage quando uma worker thread enfileira via
   // Synchronize/Queue. Sem isso o pump fica dormindo ate proxima

@@ -67,8 +67,8 @@ const
   TIMER_RECORDING_TICK = 7001;
   RECORDING_TICK_MS    = 1000;
 
-  THUMB_TICK_MS        = 1000;  // intervalo normal (TThumbTimerThread)
-  THUMB_BURST_MS       = 400;   // intervalo durante burst pos-refresh
+  THUMB_TICK_MS        = 500;   // 2 FPS — boa sensacao de "ao vivo"
+                                //         sem custo proibitivo de BitBlt
 
   TIMER_AUDIO_REFRESH  = 7003;
   AUDIO_REFRESH_DEBOUNCE_MS = 800;
@@ -96,12 +96,9 @@ type
   // (drag/resize da janela). Com thread, a captura continua tocando.
   TThumbTimerThread = class(TThread)
   private
-    FNormalMs: Cardinal;
-    FBurstMs: Cardinal;
-    FBurstUntilTick: Cardinal;
+    FIntervalMs: Cardinal;
   public
-    constructor Create(ANormalMs, ABurstMs: Cardinal);
-    procedure RequestBurst(ADurationMs: Cardinal);
+    constructor Create(AIntervalMs: Cardinal);
     procedure Execute; override;
   end;
 
@@ -817,40 +814,24 @@ procedure PushMonitorThumbs; forward;
 // TThumbTimerThread
 // ----------------------------------------------------------------------
 
-constructor TThumbTimerThread.Create(ANormalMs, ABurstMs: Cardinal);
+constructor TThumbTimerThread.Create(AIntervalMs: Cardinal);
 begin
-  FNormalMs := ANormalMs;
-  FBurstMs := ABurstMs;
-  FBurstUntilTick := 0;
+  FIntervalMs := AIntervalMs;
   FreeOnTerminate := False;
   inherited Create(False);
 end;
 
-procedure TThumbTimerThread.RequestBurst(ADurationMs: Cardinal);
-begin
-  // Atomico: write de Cardinal alinhado e thread-safe em x64.
-  FBurstUntilTick := GetTickCount + ADurationMs;
-end;
-
 procedure TThumbTimerThread.Execute;
 var
-  Interval, Step, Slept: Cardinal;
+  Step, Slept: Cardinal;
 begin
   while not Terminated do
   begin
-    if (FBurstUntilTick <> 0) and (GetTickCount < FBurstUntilTick) then
-      Interval := FBurstMs
-    else
-    begin
-      FBurstUntilTick := 0;
-      Interval := FNormalMs;
-    end;
-
     // Sleep em pedacos de 100ms pra terminar rapido no shutdown.
     Slept := 0;
-    while (Slept < Interval) and (not Terminated) do
+    while (Slept < FIntervalMs) and (not Terminated) do
     begin
-      Step := Interval - Slept;
+      Step := FIntervalMs - Slept;
       if Step > 100 then Step := 100;
       Sleep(Step);
       Inc(Slept, Step);
@@ -1070,9 +1051,6 @@ begin
       MonitorRetryAttempts := 0;
     end;
 
-    // Burst de 5s: captura a cada 400ms pra novos sources poderem
-    // mostrar imagem assim que renderizam.
-    if ThumbThread <> nil then ThumbThread.RequestBurst(5000);
   finally
     MonitorRefreshInProgress := False;
     PushRefreshBusy(False, 'monitors');
@@ -1478,7 +1456,7 @@ begin
   // Captura de thumbs em thread propria (independe do WM_TIMER que e
   // suprimido durante modal sizemove loop — drag/resize de janela).
   if ThumbThread = nil then
-    ThumbThread := TThumbTimerThread.Create(THUMB_TICK_MS, THUMB_BURST_MS);
+    ThumbThread := TThumbTimerThread.Create(THUMB_TICK_MS);
 
   // Audio meters continuam via WM_TIMER (ok pausar durante drag — UI
   // de meters nao e foco enquanto o user move a janela).

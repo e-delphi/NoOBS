@@ -1,9 +1,9 @@
 ﻿(*
   OBSBridge — ponte entre a UI HTML (via OBSUI) e o motor de gravacao
-  (via LibOBSEngine).
+  (via OBSEngine).
 
   Fluxo:
-    JS  -> OBSUI.OnUIMessage -> Dispatch -> handlers -> LibOBSEngine
+    JS  -> OBSUI.OnUIMessage -> Dispatch -> handlers -> OBSEngine
     handlers -> Build*State -> OBSUI.PostJSON -> JS
 
   Mensagens JS -> Delphi (campo "type"):
@@ -55,7 +55,10 @@ uses
   OBSRecordWatch,
   System.SyncObjs,
   FFmpegLib,
-  LibOBSEngine,
+  NoOBSTypes,
+  OBSEncoder,
+  OBSAudioTracks,
+  OBSEngine,
   WinPreview,
   WinAudioMeter,
   WinWebcam;
@@ -75,6 +78,9 @@ const
 
   TIMER_MONITOR_REFRESH = 7004;
   MONITOR_REFRESH_DEBOUNCE_MS = 2500;
+
+  TIMER_WEBCAM_REFRESH  = 7007;
+  WEBCAM_REFRESH_DEBOUNCE_MS = 800;
 
   TIMER_OBS_WARMUP      = 7006;
   OBS_WARMUP_DELAY_MS   = 1500;  // tempo pra UI renderizar antes do init
@@ -105,7 +111,7 @@ const
   HK_RECORD_TOGGLE = 100;
 
 var
-  Engine: TLibOBSEngine = nil;
+  Engine: TOBSEngine = nil;
   Initialized: Boolean = False;
 
   // Flag de shutdown lido por TODAS as worker threads (capture, ffprobe,
@@ -339,29 +345,99 @@ begin
   end;
 end;
 
-function BuildAudioFromWin(AKind: TAudioDeviceKind): TJSONArray;
+// Constroi micsJson + speakersJson com o campo `track` ja computado pela
+// funcao centralizada em OBSEngine. Single source of truth: UI nao
+// re-implementa o agrupamento.
+procedure BuildAudioJsonWithTracks(out AMicsJson, ASpkJson: TJSONArray);
 var
   Devs: TAudioDeviceInfoArray;
-  i: Integer;
+  MicIdxs, SpkIdxs: TArray<Integer>;
+  MicEnabled, MicDefault, SpkEnabled, SpkDefault: TArray<Boolean>;
+  MicTracks, SpkTracks: TArray<Integer>;
+  TotalTracks: Integer;
+  i, k: Integer;
   Item: TJSONObject;
   Id: string;
 begin
-  Result := TJSONArray.Create;
+  AMicsJson := TJSONArray.Create;
+  ASpkJson := TJSONArray.Create;
   InitAudio;
   Devs := EnumerateAudioDevices;
+
+  // Separa mics e spks. Reordena cada lista pra que o default fique
+  // primeiro (Windows default = top da UI). Particionamento estavel:
+  // 1a passada pega so defaults; 2a passada pega o resto na ordem
+  // original. Mics e speakers seguem a mesma regra (user pediu).
   for i := 0 to High(Devs) do
+    if (Devs[i].Kind = adkInput) and Devs[i].IsDefault then
+    begin
+      SetLength(MicIdxs, Length(MicIdxs) + 1);
+      MicIdxs[High(MicIdxs)] := i;
+    end;
+  for i := 0 to High(Devs) do
+    if (Devs[i].Kind = adkInput) and (not Devs[i].IsDefault) then
+    begin
+      SetLength(MicIdxs, Length(MicIdxs) + 1);
+      MicIdxs[High(MicIdxs)] := i;
+    end;
+  for i := 0 to High(Devs) do
+    if (Devs[i].Kind = adkOutput) and Devs[i].IsDefault then
+    begin
+      SetLength(SpkIdxs, Length(SpkIdxs) + 1);
+      SpkIdxs[High(SpkIdxs)] := i;
+    end;
+  for i := 0 to High(Devs) do
+    if (Devs[i].Kind = adkOutput) and (not Devs[i].IsDefault) then
+    begin
+      SetLength(SpkIdxs, Length(SpkIdxs) + 1);
+      SpkIdxs[High(SpkIdxs)] := i;
+    end;
+
+  SetLength(MicEnabled, Length(MicIdxs));
+  SetLength(MicDefault, Length(MicIdxs));
+  SetLength(SpkEnabled, Length(SpkIdxs));
+  SetLength(SpkDefault, Length(SpkIdxs));
+  for k := 0 to High(MicIdxs) do
   begin
-    if Devs[i].Kind <> AKind then Continue;
-    if AKind = adkInput then
-      Id := MicIdFromName(Devs[i].Name)
-    else
-      Id := OutIdFromName(Devs[i].Name);
+    Id := MicIdFromName(Devs[MicIdxs[k]].Name);
+    MicEnabled[k] := GetSourceEnabled(Id, True);
+    MicDefault[k] := Devs[MicIdxs[k]].IsDefault;
+  end;
+  for k := 0 to High(SpkIdxs) do
+  begin
+    Id := OutIdFromName(Devs[SpkIdxs[k]].Name);
+    SpkEnabled[k] := GetSourceEnabled(Id, True);
+    SpkDefault[k] := Devs[SpkIdxs[k]].IsDefault;
+  end;
+
+  ComputeAudioTrackAssignments(MicEnabled, MicDefault, SpkEnabled, SpkDefault,
+    MicTracks, SpkTracks, TotalTracks);
+
+  for k := 0 to High(MicIdxs) do
+  begin
+    i := MicIdxs[k];
+    Id := MicIdFromName(Devs[i].Name);
     Item := TJSONObject.Create;
     Item.AddPair('id',   Id);
     Item.AddPair('name', Devs[i].Name);
     Item.AddPair('info', '');
-    Item.AddPair('enabled', TJSONBool.Create(GetSourceEnabled(Id, True)));
-    Result.AddElement(Item);
+    Item.AddPair('enabled',   TJSONBool.Create(MicEnabled[k]));
+    Item.AddPair('isDefault', TJSONBool.Create(MicDefault[k]));
+    Item.AddPair('track',     TJSONNumber.Create(MicTracks[k]));
+    AMicsJson.AddElement(Item);
+  end;
+  for k := 0 to High(SpkIdxs) do
+  begin
+    i := SpkIdxs[k];
+    Id := OutIdFromName(Devs[i].Name);
+    Item := TJSONObject.Create;
+    Item.AddPair('id',   Id);
+    Item.AddPair('name', Devs[i].Name);
+    Item.AddPair('info', '');
+    Item.AddPair('enabled',   TJSONBool.Create(SpkEnabled[k]));
+    Item.AddPair('isDefault', TJSONBool.Create(SpkDefault[k]));
+    Item.AddPair('track',     TJSONNumber.Create(SpkTracks[k]));
+    ASpkJson.AddElement(Item);
   end;
 end;
 
@@ -481,8 +557,10 @@ begin
   Init.AddPair('monitors',   BuildMonitorsFromWin);
   if AIncludeAudio then
   begin
-    Init.AddPair('mics',     BuildAudioFromWin(adkInput));
-    Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+    var MicsJ: TJSONArray; var SpksJ: TJSONArray;
+    BuildAudioJsonWithTracks(MicsJ, SpksJ);
+    Init.AddPair('mics',     MicsJ);
+    Init.AddPair('speakers', SpksJ);
   end
   else
   begin
@@ -717,6 +795,11 @@ begin
       for j := 0 to High(Files) do
       begin
         if IsShuttingDown then Exit;
+        // Pula a gravacao em andamento: muxer ainda nao escreveu o
+        // trailer EBML, avformat_open_input falha e polui o log.
+        // PushRecordingAdded gera a thumb assim que ela terminar.
+        if RecordingActive and (LastRecordingPath <> '') and
+           SameText(Files[j], LastRecordingPath) then Continue;
         ProcessSingleMetaSync(Files[j]);
       end;
     end).Start;
@@ -869,7 +952,13 @@ var
   LastDeviceChangeTickMs: Cardinal = 0;
   PendingAudioRefresh: Boolean = False;
   PendingMonitorRefresh: Boolean = False;
-  RefreshInProgress: Boolean = False; // re-entrance guard pros refreshes
+  PendingWebcamRefresh: Boolean = False;
+  // Re-entrance guards POR TIPO. Compartilhar uma flag global fazia
+  // o monitor refresh ser silenciosamente ignorado quando o audio
+  // refresh ainda estava em worker thread (audio seta a flag, monitor
+  // ve True e desiste — banner do monitor nao some).
+  AudioRefreshInProgress:   Boolean = False;
+  MonitorRefreshInProgress: Boolean = False;
   LastMonitorCount: Integer = -1;     // pra detectar mudanca real
   MonitorRetryAttempts: Integer = 0;  // tentativas extras pos-evento
 
@@ -904,12 +993,12 @@ var
   NewCount: Integer;
   Mons: TMonitorInfoArray;
 begin
-  if RefreshInProgress then
+  if MonitorRefreshInProgress then
   begin
-    Log('DoRefreshMonitors: outro refresh em andamento, ignorando.');
+    Log('DoRefreshMonitors: outro refresh de monitor em andamento, ignorando.');
     Exit;
   end;
-  RefreshInProgress := True;
+  MonitorRefreshInProgress := True;
   PushRefreshBusy(True, 'monitors');
   try
     try
@@ -946,7 +1035,7 @@ begin
     // mostrar imagem assim que renderizam.
     if ThumbThread <> nil then ThumbThread.RequestBurst(5000);
   finally
-    RefreshInProgress := False;
+    MonitorRefreshInProgress := False;
     PushRefreshBusy(False, 'monitors');
   end;
 end;
@@ -973,6 +1062,90 @@ begin
   end;
 end;
 
+procedure DoRefreshWebcams;
+// Re-enumera webcams via DirectShow e empurra a lista atualizada
+// pra UI. Disparado por WM_DEVICECHANGE (USB plug/unplug).
+var
+  Init: TJSONObject;
+begin
+  try
+    Init := TJSONObject.Create;
+    Init.AddPair('type', 'webcams_refreshed');
+    Init.AddPair('webcams', BuildWebcamsFromWin);
+    PostOwned(Init);
+    Log('DoRefreshWebcams: pushed.');
+  except
+    on E: Exception do
+      Log('DoRefreshWebcams falhou: %s', [E.Message]);
+  end;
+end;
+
+procedure OnDeviceNodeChange;
+// WM_DEVICECHANGE (DBT_DEVNODES_CHANGED) chega na main thread.
+// Dispara pra qualquer mudanca de hardware — USB plug/unplug, etc.
+// Usamos pra detectar webcam (DirectShow nao tem callback nativo).
+// Debounce 800ms agrega rajadas de eventos do mesmo plug/unplug.
+// Nome diferente de OnDeviceChange pra evitar colisao com o callback
+// do OBSAudioWatch (que recebe parametros).
+begin
+  Log('WM_DEVICECHANGE recebido (DBT_DEVNODES_CHANGED).');
+  if RecordingActive then
+  begin
+    // Durante gravacao, marca pendente e aplica apos stop. Sources de
+    // monitor/webcam ja sao bloqueados pelo SetSourceEnabled enquanto
+    // grava, entao nao ha como fazer refresh no meio.
+    PendingWebcamRefresh := True;
+    Exit;
+  end;
+  if MainWindowHandle <> 0 then
+  begin
+    KillTimer(MainWindowHandle, TIMER_WEBCAM_REFRESH);
+    SetTimer(MainWindowHandle, TIMER_WEBCAM_REFRESH,
+      WEBCAM_REFRESH_DEBOUNCE_MS, nil);
+  end;
+end;
+
+procedure LogDeviceSnapshot(const ATag: string;
+  const ADevs: TAudioDeviceInfoArray);
+// Dump da lista de dispositivos enumerados pra facilitar diagnostico
+// de duplicacao / sumico apos hot-plug. Lista por kind + flag default.
+// Detecta nomes duplicados (caso 2 USB iguais ou WASAPI inconsistente)
+// e emite warning explicito no log.
+var
+  i, j: Integer;
+  NMics, NSpks: Integer;
+  Names: TArray<string>;
+  Dup: Boolean;
+begin
+  NMics := 0; NSpks := 0;
+  for i := 0 to High(ADevs) do
+    if ADevs[i].Kind = adkInput then Inc(NMics)
+    else Inc(NSpks);
+  Log('%s snapshot: %d mic(s), %d spk(s)', [ATag, NMics, NSpks]);
+  SetLength(Names, 0);
+  for i := 0 to High(ADevs) do
+  begin
+    if ADevs[i].Kind = adkInput then
+      Log('   IN  "%s"%s', [ADevs[i].Name,
+        IfThen(ADevs[i].IsDefault, ' [default]', '')])
+    else
+      Log('   OUT "%s"%s', [ADevs[i].Name,
+        IfThen(ADevs[i].IsDefault, ' [default]', '')]);
+    // Detecta nome duplicado dentro do mesmo kind.
+    Dup := False;
+    for j := 0 to High(Names) do
+      if SameText(Names[j], Format('%d:%s', [Integer(ADevs[i].Kind), ADevs[i].Name])) then
+      begin Dup := True; Break; end;
+    if Dup then
+      Log('   ^ AVISO: nome duplicado neste kind — UI vai mostrar 2 cards iguais.')
+    else
+    begin
+      SetLength(Names, Length(Names) + 1);
+      Names[High(Names)] := Format('%d:%s', [Integer(ADevs[i].Kind), ADevs[i].Name]);
+    end;
+  end;
+end;
+
 procedure DoRefreshAudio;
 // Re-enumera audio devices via WASAPI e empurra a lista atualizada
 // pra UI. Disparado por OBSAudioWatch ao detectar hot-plug (USB
@@ -981,15 +1154,15 @@ procedure DoRefreshAudio;
 // IMPORTANTE: enumeracao WASAPI roda em worker thread porque pode
 // bloquear 60s+ quando o Windows Audio Service esta doente — caso
 // classico: remover o ultimo mic conectado. RefreshAudioDevices +
-// EnumerateAudioDevices ficam no worker; so o BuildAudioFromWin
+// EnumerateAudioDevices ficam no worker; so o BuildAudioJsonWithTracks
 // (que ja le do cache) roda no UI thread via TThread.Queue.
 begin
-  if RefreshInProgress then
+  if AudioRefreshInProgress then
   begin
-    Log('DoRefreshAudio: outro refresh em andamento, ignorando.');
+    Log('DoRefreshAudio: outro refresh de audio em andamento, ignorando.');
     Exit;
   end;
-  RefreshInProgress := True;
+  AudioRefreshInProgress := True;
   PushRefreshBusy(True, 'audio');
   Log('DoRefreshAudio: disparando worker.');
 
@@ -1027,17 +1200,21 @@ begin
           Devs := EnumerateAudioDevices;
           Log('DoRefreshAudio: EnumerateAudioDevices em %dms (%d device(s)).',
             [GetTickCount64 - TPhase, Length(Devs)]);
+          LogDeviceSnapshot('DoRefreshAudio', Devs);
           if IsShuttingDown then Exit;
 
           TThread.Queue(nil,
             procedure
+            var
+              MicsJ, SpksJ: TJSONArray;
             begin
               if IsShuttingDown then Exit;
               try
                 Init := TJSONObject.Create;
                 Init.AddPair('type', 'audio_sources_refreshed');
-                Init.AddPair('mics',     BuildAudioFromWin(adkInput));
-                Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+                BuildAudioJsonWithTracks(MicsJ, SpksJ);
+                Init.AddPair('mics',     MicsJ);
+                Init.AddPair('speakers', SpksJ);
                 PostOwned(Init);
               except
                 on E: Exception do
@@ -1054,7 +1231,7 @@ begin
         TThread.Queue(nil,
           procedure
           begin
-            RefreshInProgress := False;
+            AudioRefreshInProgress := False;
             PushRefreshBusy(False, 'audio');
           end);
       end;
@@ -1084,11 +1261,17 @@ const
     'added', 'removed', 'stateChanged', 'defaultChanged'
   );
 var
-  ShortId: string;
+  ShortId, FriendlyName: string;
 begin
   ShortId := ADeviceId;
   if Length(ShortId) > 40 then ShortId := Copy(ShortId, 1, 37) + '...';
-  Log('AudioWatch: %s id="%s"', [KIND_NAMES[AKind], ShortId]);
+  FriendlyName := '';
+  try FriendlyName := ResolveDeviceName(ADeviceId); except end;
+  if FriendlyName <> '' then
+    Log('AudioWatch: %s "%s" (id="%s")',
+      [KIND_NAMES[AKind], FriendlyName, ShortId])
+  else
+    Log('AudioWatch: %s id="%s"', [KIND_NAMES[AKind], ShortId]);
 
   if AKind = adcDefaultChanged then Exit;
   TThread.Queue(nil,
@@ -1226,9 +1409,14 @@ begin
       if IsShuttingDown then Exit;
       try InitAudio; except end;
       if IsShuttingDown then Exit;
-      try EnumerateAudioDevices; except end; // forca cache (pode demorar)
+      try
+        LogDeviceSnapshot('DoInit', EnumerateAudioDevices);
+      except end; // forca cache (pode demorar)
       if IsShuttingDown then Exit;
-      TThread.Queue(nil, procedure begin
+      TThread.Queue(nil, procedure
+      var
+        MicsJ, SpksJ: TJSONArray;
+      begin
         if IsShuttingDown then Exit;
         try
           Init := TJSONObject.Create;
@@ -1236,8 +1424,9 @@ begin
           // silent=true: nao mostra toast "Dispositivos atualizados"
           // (esse e o load inicial, nao foi um hot-plug do usuario).
           Init.AddPair('silent', TJSONBool.Create(True));
-          Init.AddPair('mics',     BuildAudioFromWin(adkInput));
-          Init.AddPair('speakers', BuildAudioFromWin(adkOutput));
+          BuildAudioJsonWithTracks(MicsJ, SpksJ);
+          Init.AddPair('mics',     MicsJ);
+          Init.AddPair('speakers', SpksJ);
           PostOwned(Init);
           Log('DoInit: audio enumeration completa');
         except
@@ -1285,6 +1474,8 @@ end;
 procedure HandleToggleSource(const AId: string; AEnabled: Boolean);
 var
   IsMonitor, IsAudio: Boolean;
+  Init: TJSONObject;
+  MicsJ, SpksJ: TJSONArray;
 begin
   IsMonitor := StartsText(PFX_MONITOR, AId) or StartsText(PFX_WEBCAM, AId);
   IsAudio   := StartsText(PFX_MIC, AId) or StartsText(PFX_OUT, AId);
@@ -1299,6 +1490,25 @@ begin
 
   if RecordingActive and IsAudio and (Engine <> nil) then
     try Engine.SetSourceMuted(AId, not AEnabled); except end;
+
+  // Audio toggle altera o agrupamento (default + total enabled mudam a
+  // atribuicao de tracks). Empurra refresh silencioso pra UI atualizar
+  // cores/legenda. Single source of truth: o calculo so existe aqui.
+  if IsAudio then
+  begin
+    try
+      Init := TJSONObject.Create;
+      Init.AddPair('type', 'audio_sources_refreshed');
+      Init.AddPair('silent', TJSONBool.Create(True));
+      BuildAudioJsonWithTracks(MicsJ, SpksJ);
+      Init.AddPair('mics',     MicsJ);
+      Init.AddPair('speakers', SpksJ);
+      PostOwned(Init);
+    except
+      on E: Exception do
+        Log('HandleToggleSource: refresh falhou: %s', [E.Message]);
+    end;
+  end;
 end;
 
 procedure HandleRecordStart;
@@ -1314,7 +1524,7 @@ begin
   try
     TStep := GetTickCount64;
     if Engine = nil then
-      Engine := TLibOBSEngine.Create;
+      Engine := TOBSEngine.Create;
     Engine.EnsureInitialized;
     Log('HandleRecordStart: EnsureInitialized em %dms.',
       [GetTickCount64 - TStep]);
@@ -1396,6 +1606,11 @@ begin
   begin
     PendingMonitorRefresh := False;
     DoRefreshMonitors;
+  end;
+  if PendingWebcamRefresh then
+  begin
+    PendingWebcamRefresh := False;
+    DoRefreshWebcams;
   end;
 end;
 
@@ -1716,7 +1931,7 @@ end;
 
 procedure HandleSetCodec(const ACodec: string);
 // Valores aceitos: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
-// LibOBSEngine.SelectVideoEncoder consulta config 'codec' em cada
+// OBSEncoder.SelectVideoEncoder consulta config 'codec' em cada
 // gravacao; mudanca aqui afeta a proxima gravacao.
 const
   VALID: array[0..4] of string = ('auto', 'av1-hw', 'hevc-hw', 'h264-hw', 'h264-sw');
@@ -1962,7 +2177,7 @@ begin
   end
   else if ATimerId = TIMER_AUDIO_REFRESH then
   begin
-    if RefreshInProgress then Exit; // continua agendado, tenta no proximo tick
+    if AudioRefreshInProgress then Exit; // continua agendado, tenta no proximo tick
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
     Log('TIMER_AUDIO_REFRESH: debounce fired.');
     if not RecordingActive then
@@ -1970,10 +2185,17 @@ begin
   end
   else if ATimerId = TIMER_MONITOR_REFRESH then
   begin
-    if RefreshInProgress then Exit;
+    if MonitorRefreshInProgress then Exit;
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
     if not RecordingActive then
       DoRefreshMonitors;
+  end
+  else if ATimerId = TIMER_WEBCAM_REFRESH then
+  begin
+    KillTimer(MainWindowHandle, TIMER_WEBCAM_REFRESH);
+    Log('TIMER_WEBCAM_REFRESH: debounce fired.');
+    if not RecordingActive then
+      DoRefreshWebcams;
   end
   else if ATimerId = TIMER_AUDIO_METER then
   begin
@@ -1987,7 +2209,7 @@ begin
     if (Engine = nil) and (not RecordingActive) then
     begin
       try
-        Engine := TLibOBSEngine.Create;
+        Engine := TOBSEngine.Create;
         Engine.EnsureInitialized;
         Log('libobs: warmup pronto — proxima gravacao sera instantanea.');
         // Apos warmup, libobs ja conhece os encoders. Detecta + envia
@@ -2068,6 +2290,7 @@ initialization
   OBSUI.OnUIMessage       := Dispatch;
   OBSUI.OnUITimer         := OnTimer;
   OBSUI.OnUIDisplayChange := OnDisplayChange;
+  OBSUI.OnUIDeviceChange  := OnDeviceNodeChange;
   OBSUI.OnUIHotkey        := OnHotkey;
 
 finalization

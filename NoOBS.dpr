@@ -7,7 +7,12 @@
     OBSUI          — host WebView2 (janela, mensagens com JS, tema).
     OBSBridge      — ponte UI <-> motor de gravacao (dispatch, push de estado).
     LibOBS         — bindings Delphi para obs.dll (tipos, funcoes cdecl).
-    LibOBSEngine   — motor de gravacao (init, scene, encoders, output).
+    OBSEngine      — motor de gravacao (init, scene, encoders, output).
+    OBSEncoder     — selecao de codec de video (AV1/HEVC/H264/x264).
+    OBSAudioTracks — atribuicao de faixas de audio + enum de devices.
+    NoOBSTypes     — tipos compartilhados (TEncoderCaps, etc).
+    FFmpegOps      — wrappers altos sobre libav* (Remux, ExtractFrame, ...).
+    FFmpegLib      — bindings raw das DLLs libav*.
     OBSScene       — tipos de monitor/audio e calculo de canvas.
 }
 program NoOBS;
@@ -19,12 +24,16 @@ program NoOBS;
 {$R *.dres}
 
 uses
+  NoOBSTypes in 'src\NoOBSTypes.pas',
   FFmpegLib in 'src\FFmpegLib.pas',
+  FFmpegOps in 'src\FFmpegOps.pas',
   LibOBS in 'src\LibOBS.pas',
-  LibOBSEngine in 'src\LibOBSEngine.pas',
+  OBSEngine in 'src\OBSEngine.pas',
+  OBSAudioTracks in 'src\OBSAudioTracks.pas',
   OBSAudioWatch in 'src\OBSAudioWatch.pas',
   OBSBridge in 'src\OBSBridge.pas',
   OBSConfig in 'src\OBSConfig.pas',
+  OBSEncoder in 'src\OBSEncoder.pas',
   OBSLog in 'src\OBSLog.pas',
   OBSPlayer in 'src\OBSPlayer.pas',
   OBSProbe in 'src\OBSProbe.pas',

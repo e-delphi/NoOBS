@@ -141,8 +141,8 @@
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.224;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Build>224</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.244;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Build>244</VerInfo_Build>
         <Icon_MainIcon>icon.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
@@ -170,12 +170,16 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="src\NoOBSTypes.pas"/>
         <DCCReference Include="src\FFmpegLib.pas"/>
+        <DCCReference Include="src\FFmpegOps.pas"/>
         <DCCReference Include="src\LibOBS.pas"/>
-        <DCCReference Include="src\LibOBSEngine.pas"/>
+        <DCCReference Include="src\OBSEngine.pas"/>
+        <DCCReference Include="src\OBSAudioTracks.pas"/>
         <DCCReference Include="src\OBSAudioWatch.pas"/>
         <DCCReference Include="src\OBSBridge.pas"/>
         <DCCReference Include="src\OBSConfig.pas"/>
+        <DCCReference Include="src\OBSEncoder.pas"/>
         <DCCReference Include="src\OBSLog.pas"/>
         <DCCReference Include="src\OBSPlayer.pas"/>
         <DCCReference Include="src\OBSProbe.pas"/>

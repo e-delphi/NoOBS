@@ -1,23 +1,25 @@
 ﻿(*
-  LibOBSEngine - motor de gravacao via libobs (obs.dll) direto.
+  OBSEngine - motor de gravacao via libobs (obs.dll) direto.
 
-  Substitui a combinacao de OBSLauncher (processo) + OBSClient
-  (websocket) + OBSScene (RPCs). Controla o ciclo de vida do libobs
-  in-process: init, scene, sources, encoder, output, recording.
+  Wrapper de alto nivel sobre LibOBS (bindings raw). Controla o ciclo
+  de vida do libobs in-process: init, scene, sources, encoder, output,
+  recording. Selecao de encoder fica em OBSEncoder; atribuicao de
+  tracks de audio + enumeracao de devices fica em OBSAudioTracks.
 
   Principio: o core (obs_startup) inicializa uma vez e permanece vivo
   entre gravacoes. Scene/encoder/output sao reconstruidos a cada
   sessao. Teardown completo so no exit do app.
 *)
-unit LibOBSEngine;
+unit OBSEngine;
 
 interface
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  NoOBSTypes;
 
 type
-  TLibOBSEngine = class
+  TOBSEngine = class
   private
     FInitialized: Boolean;
     FRecording: Boolean;
@@ -40,20 +42,11 @@ type
     property Initialized: Boolean read FInitialized;
   end;
 
-type
-  TGpuVendor = (gvUnknown, gvNvidia, gvAmd, gvIntel);
-
-  TEncoderCaps = record
-    Av1Hw:  Boolean;   // qualquer encoder AV1 hardware
-    HevcHw: Boolean;   // qualquer encoder HEVC hardware
-    H264Hw: Boolean;   // qualquer encoder H.264 hardware (excluindo x264)
-    H264Sw: Boolean;   // x264 (CPU) — sempre True na pratica
-    Vendor: TGpuVendor;
-  end;
-
-// Detecta encoders disponiveis enumerando obs_enum_encoder_types.
-// Requer libobs ja inicializado (apos warmup ou EnsureInitialized).
-function DetectEncoderCaps: TEncoderCaps;
+// Tipos publicos (TGpuVendor, TEncoderCaps, TObsAudioDev) ficam em
+// NoOBSTypes. Selecao de encoder foi pra OBSEncoder. Atribuicao de
+// tracks de audio + enumeracao de devices foi pra OBSAudioTracks.
+// Esta unit so cuida do ciclo de vida do libobs + montagem da cena
+// de gravacao (TOBSEngine).
 
 implementation
 
@@ -67,6 +60,8 @@ uses
   OBSScene,
   OBSConfig,
   OBSLog,
+  OBSEncoder,
+  OBSAudioTracks,
   WinPreview,
   WinAudioMeter,
   WinWebcam;
@@ -76,29 +71,6 @@ const
   SCENE_NAME = 'NoOBS';
   MANAGED_PREFIX = 'NoOBS ';
 
-// Listas de encoder IDs por codec, em ordem de prioridade.
-  AV1_IDS: array[0..3] of AnsiString = (
-    'obs_nvenc_av1_tex',
-    'obs_nvenc_av1',
-    'av1_texture_amf',
-    'obs_qsv11_av1'
-  );
-  HEVC_IDS: array[0..5] of AnsiString = (
-    'obs_nvenc_hevc_tex',
-    'jim_hevc_nvenc',
-    'obs_qsv11_hevc',
-    'h265_texture_amf',
-    'obs_nvenc_hevc',
-    'amd_amf_hevc'
-  );
-  H264_IDS: array[0..5] of AnsiString = (
-    'obs_nvenc_h264_tex',
-    'jim_nvenc',
-    'obs_qsv11_h264',
-    'h264_texture_amf',
-    'obs_nvenc_h264',
-    'obs_x264'
-  );
 
 type
   TSourceEntry = record
@@ -144,11 +116,16 @@ begin
 
   Raw := string(AnsiString(msg));
 
-  // Filtra warnings benignos do obs_shutdown que nao indicam bug no nosso
-  // codigo. "Double destroy" e disparado pelo cleanup interno de plugins
-  // do libobs durante shutdown — nao afeta funcionalidade, nao depende
-  // do nosso ciclo de gestao de sources.
+  // Filtra warnings benignos do libobs que nao indicam bug no nosso codigo:
+  // - "Double destroy": cleanup interno de plugins durante shutdown.
+  // - "UI task could not be queued": libobs tenta agendar tarefa pra um
+  //   frontend OBS Studio (nao usado aqui). Disparado por callbacks
+  //   internos durante hot-plug de audio. Sem impacto funcional.
+  // - "duplicate name": destruicao diferida de sources entre gravacoes;
+  //   OBS auto-renomeia o novo source sem afetar a gravacao.
   if Pos('Double destroy just occurred', Raw) > 0 then Exit;
+  if Pos('UI task could not be queued', Raw) > 0 then Exit;
+  if Pos('duplicate name', Raw) > 0 then Exit;
 
   case log_level of
     LOG_ERROR:   Prefix := 'obs[E]';
@@ -225,187 +202,6 @@ begin
   Result := nil;
 end;
 
-function EncoderTypeExists(const AId: AnsiString): Boolean;
-var
-  i: NativeUInt;
-  P: PAnsiChar;
-begin
-  i := 0;
-  while obs_enum_encoder_types(i, P) do
-  begin
-    if (P <> nil) and (System.AnsiStrings.StrComp(P, PAnsiChar(AId)) = 0) then
-      Exit(True);
-    Inc(i);
-  end;
-  Result := False;
-end;
-
-function DetectEncoderCaps: TEncoderCaps;
-// Enumera os encoder types registrados em libobs e classifica por vendor.
-// Considera que libobs ja foi inicializado (caller garante).
-var
-  i: NativeUInt;
-  P: PAnsiChar;
-  Id: string;
-begin
-  Result.Av1Hw  := False;
-  Result.HevcHw := False;
-  Result.H264Hw := False;
-  Result.H264Sw := False;
-  Result.Vendor := gvUnknown;
-
-  i := 0;
-  while obs_enum_encoder_types(i, P) do
-  begin
-    if P <> nil then
-    begin
-      Id := LowerCase(string(AnsiString(P)));
-      // x264 = CPU.
-      if (Id = 'obs_x264') or (Id = 'ffmpeg_x264') then
-        Result.H264Sw := True
-      // NVIDIA: obs_nvenc_*, jim_nvenc, jim_hevc_nvenc
-      else if (Pos('nvenc', Id) > 0) or (Pos('jim_nvenc', Id) > 0) or
-              (Pos('jim_hevc_nvenc', Id) > 0) then
-      begin
-        if Result.Vendor = gvUnknown then Result.Vendor := gvNvidia;
-        if Pos('av1', Id) > 0 then Result.Av1Hw := True
-        else if Pos('hevc', Id) > 0 then Result.HevcHw := True
-        else Result.H264Hw := True;
-      end
-      // AMD: *_amf
-      else if Pos('amf', Id) > 0 then
-      begin
-        if Result.Vendor = gvUnknown then Result.Vendor := gvAmd;
-        if Pos('av1', Id) > 0 then Result.Av1Hw := True
-        else if Pos('h265', Id) > 0 then Result.HevcHw := True
-        else if Pos('h264', Id) > 0 then Result.H264Hw := True;
-      end
-      // Intel QSV: obs_qsv11_*
-      else if Pos('qsv', Id) > 0 then
-      begin
-        if Result.Vendor = gvUnknown then Result.Vendor := gvIntel;
-        if Pos('av1', Id) > 0 then Result.Av1Hw := True
-        else if Pos('hevc', Id) > 0 then Result.HevcHw := True
-        else if Pos('h264', Id) > 0 then Result.H264Hw := True;
-      end;
-    end;
-    Inc(i);
-  end;
-end;
-
-function TryCreateVideoEncoder(const AId: AnsiString): obs_encoder_t;
-var
-  Settings: obs_data_t;
-begin
-  // OBS recente retorna "phantom" encoder pra IDs nao registrados — checar
-  // existencia via obs_enum_encoder_types antes de criar.
-  if not EncoderTypeExists(AId) then Exit(nil);
-
-  Settings := MakeSettings;
-  try
-    Result := obs_video_encoder_create(PAnsiChar(AId),
-      'NoOBS Video Encoder', Settings, nil);
-  finally
-    obs_data_release(Settings);
-  end;
-end;
-
-function TryAv1Hw: obs_encoder_t;
-var i: Integer;
-begin
-  for i := 0 to High(AV1_IDS) do
-  begin
-    Result := TryCreateVideoEncoder(AV1_IDS[i]);
-    if Result <> nil then
-    begin
-      Log('Encoder: %s', [string(AV1_IDS[i])]);
-      Exit;
-    end;
-  end;
-  Result := nil;
-end;
-
-function TryHevcHw: obs_encoder_t;
-var i: Integer;
-begin
-  for i := 0 to High(HEVC_IDS) do
-  begin
-    Result := TryCreateVideoEncoder(HEVC_IDS[i]);
-    if Result <> nil then
-    begin
-      Log('Encoder: %s', [string(HEVC_IDS[i])]);
-      Exit;
-    end;
-  end;
-  Result := nil;
-end;
-
-function TryH264Hw: obs_encoder_t;
-var i: Integer;
-begin
-  // H264_IDS termina com 'obs_x264' (CPU). Excluir esse pra "hardware only".
-  for i := 0 to High(H264_IDS) do
-  begin
-    if H264_IDS[i] = 'obs_x264' then Continue;
-    Result := TryCreateVideoEncoder(H264_IDS[i]);
-    if Result <> nil then
-    begin
-      Log('Encoder: %s', [string(H264_IDS[i])]);
-      Exit;
-    end;
-  end;
-  Result := nil;
-end;
-
-function TryH264Sw: obs_encoder_t;
-begin
-  Result := TryCreateVideoEncoder('obs_x264');
-  if Result <> nil then Log('Encoder: obs_x264');
-end;
-
-function SelectVideoEncoder: obs_encoder_t;
-var
-  Pref: string;
-begin
-  // Le preferencia do usuario. Valores: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
-  Pref := LowerCase(GetConfigStr('codec', 'auto'));
-  Log('Codec preferido: %s', [Pref]);
-
-  if Pref = 'av1-hw' then
-  begin
-    Result := TryAv1Hw;
-    if Result <> nil then Exit;
-    Log('Codec av1-hw indisponivel, caindo pro fallback.');
-  end
-  else if Pref = 'hevc-hw' then
-  begin
-    Result := TryHevcHw;
-    if Result <> nil then Exit;
-    Log('Codec hevc-hw indisponivel, caindo pro fallback.');
-  end
-  else if Pref = 'h264-hw' then
-  begin
-    Result := TryH264Hw;
-    if Result <> nil then Exit;
-    Log('Codec h264-hw indisponivel, caindo pro fallback.');
-  end
-  else if Pref = 'h264-sw' then
-  begin
-    Result := TryH264Sw;
-    if Result <> nil then Exit;
-    Log('Codec h264-sw indisponivel (estranho), caindo pro fallback.');
-  end;
-
-  // Auto (ou fallback de qualquer escolha que falhou):
-  // AV1 hw -> HEVC hw -> H.264 hw -> H.264 sw.
-  Result := TryAv1Hw;   if Result <> nil then Exit;
-  Result := TryHevcHw;  if Result <> nil then Exit;
-  Result := TryH264Hw;  if Result <> nil then Exit;
-  Result := TryH264Sw;  if Result <> nil then Exit;
-
-  raise Exception.Create('Nenhum encoder de video disponivel.');
-end;
-
 // -----------------------------------------------------------------------
 // Monitor ID resolution via obs_properties
 // -----------------------------------------------------------------------
@@ -446,149 +242,13 @@ begin
   end;
 end;
 
-// -----------------------------------------------------------------------
-// Audio device enumeration via obs_properties
-// -----------------------------------------------------------------------
 
-type
-  TObsAudioDev = record
-    Name: string;
-    DeviceId: AnsiString;
-  end;
-
-function BuildTrackNames(ATotalTracks: Integer;
-  const AMics, AOutputs: TArray<TObsAudioDev>;
-  const AMicTracks, AOutTracks: TArray<Integer>;
-  AGroupMics, AGroupOutputs: Boolean): TArray<string>;
-// Calcula os nomes humanos pra cada track de audio (1-indexed no array
-// de saida — Names[0] = track 1 = mix). Esses nomes sao usados como
-// "name" no obs_audio_encoder_create — OBS escreve esse name como
-// metadata "title" da stream no MKV.
-var
-  j: Integer;
-begin
-  SetLength(Result, ATotalTracks);
-  if ATotalTracks <= 0 then Exit;
-
-  Result[0] := 'Mix';
-
-  if AGroupMics and (Length(AMics) > 0) then
-  begin
-    if (AMicTracks[0] >= 1) and (AMicTracks[0] <= ATotalTracks) then
-      Result[AMicTracks[0] - 1] := 'Microfones (todos)';
-  end
-  else
-    for j := 0 to High(AMics) do
-      if (AMicTracks[j] >= 1) and (AMicTracks[j] <= ATotalTracks) then
-        Result[AMicTracks[j] - 1] := AMics[j].Name;
-
-  if AGroupOutputs and (Length(AOutputs) > 0) then
-  begin
-    if (AOutTracks[0] >= 1) and (AOutTracks[0] <= ATotalTracks) then
-      Result[AOutTracks[0] - 1] := 'Saidas (todas)';
-  end
-  else
-    for j := 0 to High(AOutputs) do
-      if (AOutTracks[j] >= 1) and (AOutTracks[j] <= ATotalTracks) then
-        Result[AOutTracks[j] - 1] := AOutputs[j].Name;
-
-  // Fallback: tracks sem nome viram "Faixa N".
-  for j := 0 to High(Result) do
-    if Result[j] = '' then Result[j] := Format('Faixa %d', [j + 1]);
-end;
-
-function EnumerateObsAudioDevicesRaw(const AKind: AnsiString): TArray<TObsAudioDev>;
-var
-  Props: obs_properties_t;
-  Prop: obs_property_t;
-  Count, i: NativeUInt;
-  ItemValue: AnsiString;
-  Dev: TObsAudioDev;
-begin
-  SetLength(Result, 0);
-  Props := obs_get_source_properties(PAnsiChar(AKind));
-  if Props = nil then Exit;
-  try
-    Prop := obs_properties_get(Props, 'device_id');
-    if Prop = nil then Exit;
-    Count := obs_property_list_item_count(Prop);
-    // Count e NativeUInt — se 0 (sem mic conectado, por exemplo),
-    // Count-1 underflowa pra $FFFFFFFF e dispara EIntOverflow.
-    if Count = 0 then Exit;
-    for i := 0 to Count - 1 do
-    begin
-      // OBS retorna strings em UTF-8. string(AnsiString(...)) interpretaria
-      // como cp1252 e quebraria acentos ("Saida" -> "SaA­da"). Usar FromAnsi
-      // (UTF8ToString) garante decodificacao correta.
-      Dev.Name := FromAnsi(obs_property_list_item_name(Prop, i));
-      ItemValue := AnsiString(obs_property_list_item_string(Prop, i));
-      if ItemValue = 'default' then Continue;
-      Dev.DeviceId := ItemValue;
-      SetLength(Result, Length(Result) + 1);
-      Result[High(Result)] := Dev;
-    end;
-  finally
-    obs_properties_destroy(Props);
-  end;
-end;
-
-function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>;
-// Wrapper com timeout: obs_get_source_properties('wasapi_*') chama
-// internamente o WASAPI do Windows pra listar devices. Quando o audio
-// service esta doente (ex.: depois de remover o ultimo mic), essa
-// chamada pode travar 60s+. Rodamos em worker e damos 3s — se nao
-// retornar, devolve lista vazia (gravacao continua sem audio).
-// 3s e folga: caso saudavel retorna em <50ms.
-const
-  TIMEOUT_MS = 3000;
-var
-  Worker: TThread;
-  Output: TArray<TObsAudioDev>;
-  Wait: DWORD;
-  T0, Elapsed: UInt64;
-begin
-  SetLength(Output, 0);
-  T0 := GetTickCount64;
-  Log('   enum %s: iniciando (timeout=%dms)...', [string(AKind), TIMEOUT_MS]);
-  Worker := TThread.CreateAnonymousThread(
-    procedure
-    begin
-      try
-        Output := EnumerateObsAudioDevicesRaw(AKind);
-      except
-        on E: Exception do
-        begin
-          SetLength(Output, 0);
-          Log('   enum %s: excecao no worker: %s', [string(AKind), E.Message]);
-        end;
-      end;
-    end);
-  Worker.FreeOnTerminate := False;
-  Worker.Start;
-  Wait := WaitForSingleObject(Worker.Handle, TIMEOUT_MS);
-  Elapsed := GetTickCount64 - T0;
-  if Wait = WAIT_TIMEOUT then
-  begin
-    Log('   enum %s: TIMEOUT apos %dms — sem audio (WASAPI travado).',
-      [string(AKind), Elapsed]);
-    SetLength(Result, 0);
-    // Vazado de proposito: thread ainda esta presa no WASAPI. O OS
-    // limpa quando o processo morrer; tentar Free aqui bloqueia.
-  end
-  else
-  begin
-    Result := Output;
-    Worker.Free;
-    Log('   enum %s: %d device(s) em %dms.',
-      [string(AKind), Length(Result), Elapsed]);
-  end;
-end;
 
 // -----------------------------------------------------------------------
-// TLibOBSEngine
+// TOBSEngine
 // -----------------------------------------------------------------------
 
-constructor TLibOBSEngine.Create;
+constructor TOBSEngine.Create;
 begin
   inherited Create;
   FInitialized := False;
@@ -600,13 +260,13 @@ begin
   SetLength(GSources, 0);
 end;
 
-destructor TLibOBSEngine.Destroy;
+destructor TOBSEngine.Destroy;
 begin
   Teardown;
   inherited;
 end;
 
-procedure TLibOBSEngine.ResolvePaths;
+procedure TOBSEngine.ResolvePaths;
 begin
   // Layout esperado: NoOBS.exe roda em obs\bin\64bit\ (ao lado de obs.dll
   // e dos helpers como obs-ffmpeg-mux.exe). Plugins e data ficam em
@@ -616,7 +276,7 @@ begin
   FObsPluginDataDir := ExpandFileName(FExeDir + '..\..\data\obs-plugins');
 end;
 
-procedure TLibOBSEngine.LoadModules;
+procedure TOBSEngine.LoadModules;
 // Carrega APENAS os plugins que precisamos. Pular obs-websocket.dll
 // (crash: tenta chamar obs_frontend_* sem UI). obs_load_all_modules
 // nao filtra, entao usamos obs_open_module + obs_init_module por plugin.
@@ -659,7 +319,7 @@ begin
   Log('libobs: %d plugins carregados, %d falharam.', [Loaded, Failed]);
 end;
 
-procedure TLibOBSEngine.EnsureInitialized;
+procedure TOBSEngine.EnsureInitialized;
 var
   Ret: Integer;
   OVI: obs_video_info;
@@ -720,7 +380,7 @@ begin
   FInitialized := True;
 end;
 
-procedure TLibOBSEngine.ReleaseRecordingObjects;
+procedure TOBSEngine.ReleaseRecordingObjects;
 var
   i: Integer;
 begin
@@ -772,7 +432,7 @@ begin
   end;
 end;
 
-procedure TLibOBSEngine.BuildAndStartRecording(const AOutputPath: string);
+procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string);
 var
   Monitors: TOBSMonitorArray;
   Cams: TWebcamInfoArray;
@@ -791,10 +451,13 @@ var
   Item: obs_sceneitem_t;
   Pos, Sc: TVec2;
   PosX: Double;
-  Mics, Outputs: TArray<TObsAudioDev>;
+  Mics, Outputs, ReorderedMics, ReorderedOuts: TArray<TObsAudioDev>;
   MicTracks, OutTracks: TArray<Integer>;
-  GroupMics, GroupOutputs: Boolean;
-  NextTrack, TotalTracks: Integer;
+  MicEnabledArr, MicDefaultArr: TArray<Boolean>;
+  OutEnabledArr, OutDefaultArr: TArray<Boolean>;
+  DefaultMicId, DefaultSpkId: string;
+  WinDevs: WinAudioMeter.TAudioDeviceInfoArray;
+  TotalTracks: Integer;
   TrackBitmask: Cardinal;
   AudioName: AnsiString;
   Enabled: Boolean;
@@ -979,49 +642,86 @@ begin
     on E: Exception do Log('   enum outputs falhou: %s', [E.Message]); end;
   Log('   %d mic(s), %d output(s)', [Length(Mics), Length(Outputs)]);
 
-  // Track strategy: Track 1 = mix, Tracks 2-6 = isolated.
-  GroupMics := False;
-  GroupOutputs := False;
-  if Length(Mics) + Length(Outputs) > 5 then
+  // Track strategy: Track 1 = mix, Tracks 2-6 = isolated (5 slots max).
+  //
+  // Atribuicao de tracks via funcao centralizada (mesma logica usada
+  // pra montar a lista pra UI). Prepara arrays paralelos de flags.
+  SetLength(MicEnabledArr, Length(Mics));
+  SetLength(MicDefaultArr, Length(Mics));
+  SetLength(OutEnabledArr, Length(Outputs));
+  SetLength(OutDefaultArr, Length(Outputs));
+
+  DefaultMicId := '';
+  DefaultSpkId := '';
+  WinDevs := WinAudioMeter.EnumerateAudioDevices;
+  for j := 0 to High(WinDevs) do
+    if WinDevs[j].IsDefault then
+    begin
+      if WinDevs[j].Kind = adkInput then DefaultMicId := WinDevs[j].DeviceId
+      else DefaultSpkId := WinDevs[j].DeviceId;
+    end;
+
+  // Reordena: default primeiro, depois os outros (na ordem original).
+  // Mesma logica que BuildAudioJsonWithTracks no OBSBridge — mantem
+  // engine e UI sincronizados, default sempre na primeira track isolada.
+  ReorderedMics := nil;
+  for j := 0 to High(Mics) do
+    if (DefaultMicId <> '') and
+       SameText(FromAnsi(PAnsiChar(Mics[j].DeviceId)), DefaultMicId) then
+    begin
+      SetLength(ReorderedMics, Length(ReorderedMics) + 1);
+      ReorderedMics[High(ReorderedMics)] := Mics[j];
+    end;
+  for j := 0 to High(Mics) do
+    if (DefaultMicId = '') or
+       not SameText(FromAnsi(PAnsiChar(Mics[j].DeviceId)), DefaultMicId) then
+    begin
+      SetLength(ReorderedMics, Length(ReorderedMics) + 1);
+      ReorderedMics[High(ReorderedMics)] := Mics[j];
+    end;
+  Mics := ReorderedMics;
+
+  ReorderedOuts := nil;
+  for j := 0 to High(Outputs) do
+    if (DefaultSpkId <> '') and
+       SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId) then
+    begin
+      SetLength(ReorderedOuts, Length(ReorderedOuts) + 1);
+      ReorderedOuts[High(ReorderedOuts)] := Outputs[j];
+    end;
+  for j := 0 to High(Outputs) do
+    if (DefaultSpkId = '') or
+       not SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId) then
+    begin
+      SetLength(ReorderedOuts, Length(ReorderedOuts) + 1);
+      ReorderedOuts[High(ReorderedOuts)] := Outputs[j];
+    end;
+  Outputs := ReorderedOuts;
+
+  // Re-aloca arrays apos reorder.
+  SetLength(MicEnabledArr, Length(Mics));
+  SetLength(MicDefaultArr, Length(Mics));
+  SetLength(OutEnabledArr, Length(Outputs));
+  SetLength(OutDefaultArr, Length(Outputs));
+
+  for j := 0 to High(Mics) do
   begin
-    GroupOutputs := True;
-    if 1 + Length(Mics) > 5 then GroupMics := True;
+    MicEnabledArr[j] := GetSourceBool('mics', Mics[j].Name, True);
+    MicDefaultArr[j] := (DefaultMicId <> '') and
+      SameText(FromAnsi(PAnsiChar(Mics[j].DeviceId)), DefaultMicId);
+  end;
+  for j := 0 to High(Outputs) do
+  begin
+    OutEnabledArr[j] := GetSourceBool('speakers', Outputs[j].Name, True);
+    OutDefaultArr[j] := (DefaultSpkId <> '') and
+      SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId);
   end;
 
-  SetLength(MicTracks, Length(Mics));
-  SetLength(OutTracks, Length(Outputs));
-  NextTrack := 2;
+  ComputeAudioTrackAssignments(MicEnabledArr, MicDefaultArr,
+    OutEnabledArr, OutDefaultArr, MicTracks, OutTracks, TotalTracks);
 
-  if Length(Mics) > 0 then
-  begin
-    if GroupMics then
-    begin
-      for j := 0 to High(Mics) do MicTracks[j] := NextTrack;
-      Inc(NextTrack);
-    end
-    else
-      for j := 0 to High(Mics) do
-      begin
-        MicTracks[j] := NextTrack;
-        Inc(NextTrack);
-      end;
-  end;
-  if Length(Outputs) > 0 then
-  begin
-    if GroupOutputs then
-    begin
-      for j := 0 to High(Outputs) do OutTracks[j] := NextTrack;
-      Inc(NextTrack);
-    end
-    else
-      for j := 0 to High(Outputs) do
-      begin
-        OutTracks[j] := NextTrack;
-        Inc(NextTrack);
-      end;
-  end;
-  TotalTracks := NextTrack - 1;
-  if TotalTracks > 6 then TotalTracks := 6;
+  Log('   habilitados: %d mic(s), %d output(s)',
+    [CountTrue(MicEnabledArr), CountTrue(OutEnabledArr)]);
 
   // Canal 0 ja e a cena (video). Canais 1+ recebem audio sources.
   // Esse e o jeito canonico do OBS — sources soltas atribuidas a
@@ -1037,7 +737,13 @@ begin
     SetStr(Settings, 'device_id', Mics[j].DeviceId);
     Src := CreateSource('wasapi_input_capture', AudioName, Settings);
 
-    TrackBitmask := 1 or Cardinal(1 shl (MicTracks[j] - 1));
+    // Bitmask: bit 0 = Mix (track 1). Se MicTracks[j] > 0, adiciona o
+    // bit da track isolada. Disabled (MicTracks[j] = 0) fica so no Mix
+    // — mas como esta muted, nao contribui pra nada.
+    if MicTracks[j] > 0 then
+      TrackBitmask := 1 or Cardinal(1 shl (MicTracks[j] - 1))
+    else
+      TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
     Enabled := GetSourceBool('mics', Mics[j].Name, True);
@@ -1059,7 +765,10 @@ begin
     SetStr(Settings, 'device_id', Outputs[j].DeviceId);
     Src := CreateSource('wasapi_output_capture', AudioName, Settings);
 
-    TrackBitmask := 1 or Cardinal(1 shl (OutTracks[j] - 1));
+    if OutTracks[j] > 0 then
+      TrackBitmask := 1 or Cardinal(1 shl (OutTracks[j] - 1))
+    else
+      TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
     Enabled := GetSourceBool('speakers', Outputs[j].Name, True);
@@ -1084,7 +793,7 @@ begin
   // stream no MKV — visivel no info panel e em editores externos.
   Log('-- Audio encoders (%d tracks) --', [TotalTracks]);
   TrackNames := BuildTrackNames(TotalTracks, Mics, Outputs,
-    MicTracks, OutTracks, GroupMics, GroupOutputs);
+    MicTracks, OutTracks);
   SetLength(GAudioEncoders, TotalTracks);
   for i := 0 to TotalTracks - 1 do
   begin
@@ -1130,7 +839,7 @@ begin
   Log('Gravacao iniciada.');
 end;
 
-function TLibOBSEngine.StopRecording: string;
+function TOBSEngine.StopRecording: string;
 var
   Deadline: Cardinal;
 begin
@@ -1157,12 +866,12 @@ begin
   Log('Gravacao finalizada: %s', [FOutputPath]);
 end;
 
-function TLibOBSEngine.IsRecording: Boolean;
+function TOBSEngine.IsRecording: Boolean;
 begin
   Result := FRecording;
 end;
 
-procedure TLibOBSEngine.SetSourceMuted(const ASourceName: string;
+procedure TOBSEngine.SetSourceMuted(const ASourceName: string;
   AMuted: Boolean);
 var
   Src: obs_source_t;
@@ -1172,7 +881,7 @@ begin
     obs_source_set_muted(Src, ByteBool(AMuted));
 end;
 
-procedure TLibOBSEngine.Teardown;
+procedure TOBSEngine.Teardown;
 var
   ShutdownThread: TThread;
   Wait: DWORD;

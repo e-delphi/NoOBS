@@ -58,15 +58,36 @@ clean-obs.bat
 
 ## Arquitetura
 
+Arquitetura em 4 camadas:
+
+1. **Bindings raw** — declarações `external` das DLLs:
+   - `LibOBS` — obs.dll
+   - `FFmpegLib` — libavformat/avcodec/avutil/swscale + structs + acessors low-level
+2. **Wrappers altos** — API Delphi limpa sobre as DLLs:
+   - `OBSEngine` — TOBSEngine class (init, scene, sources, output MKV)
+   - `FFmpegOps` — RemuxFile, ExtractAudioTracks, ExtractFrameJpeg
+3. **Domínio do app** — lógica de negócio:
+   - `OBSEncoder` — seleção de codec (AV1/HEVC/H264/x264)
+   - `OBSAudioTracks` — atribuição de tracks + enum de audio devices
+   - `OBSPlayer`, `OBSProbe`, `OBSConfig`, `OBSLog`, ...
+4. **Orquestração** — UI + dispatch:
+   - `OBSUI`, `OBSBridge`
+
+Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
+
 | Unit                | Papel                                                                              |
 |---------------------|------------------------------------------------------------------------------------|
 | `OBSUI`             | Host WebView2, janela, message pump, splash, sync de tema, hotkey global (`WM_HOTKEY`) |
-| `OBSBridge`         | Dispatcher central UI ↔ Delphi. Timers. Lifecycle de gravação via LibOBSEngine     |
+| `OBSBridge`         | Dispatcher central UI ↔ Delphi. Timers. Lifecycle de gravação via OBSEngine     |
 | `LibOBS`            | Bindings Delphi para obs.dll (tipos opacos, structs, enums, funções cdecl)         |
-| `LibOBSEngine`      | Motor de gravação: init libobs, scene, sources, encoders, output MKV               |
+| `OBSEngine`         | Motor de gravação: init libobs, scene, sources, output MKV (TOBSEngine class)      |
+| `OBSEncoder`        | Detecção/seleção de encoder de vídeo (AV1/HEVC/H264 hw, x264 sw)                   |
+| `OBSAudioTracks`    | `ComputeAudioTrackAssignments` (single source of truth) + `BuildTrackNames` + enum de devices via obs_properties |
 | `OBSScene`          | Tipos puros (TOBSMonitor, TAudioDevice) + `ComputeCanvas` + `FilterEnabledMonitors`|
 | `OBSStartupCheck`   | Valida presença de obs.dll, libav, WebView2 antes de criar janela                  |
-| `FFmpegLib`         | Bindings Delphi para libavformat/avcodec/avutil/swscale + `RemuxFile` / `ExtractAudioTracks` / `ExtractFrameJpeg` / `Probe via libav` |
+| `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
+| `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets) |
+| `FFmpegOps`         | **Wrappers altos**: `RemuxFile`, `ExtractAudioTracks`, `ExtractFrameJpeg`          |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
@@ -231,7 +252,7 @@ avançado. **Solução**: chamar uma procedure separada que recebe
 GPUs Turing+ (NVENC HEVC moderno) rejeitam canvas > 8192 com
 `NV_ENC_ERR_INVALID_PARAM "Width greater than supported value"`.
 
-**Solução** em `LibOBSEngine` (via `ENCODER_MAX_DIM = 8192`):
+**Solução** em `OBSEngine` (via `ENCODER_MAX_DIM = 8192`):
 clampa canvas proporcionalmente antes de `obs_reset_video`.
 Dimensões ímpares ajustadas com `if Odd then Dec`.
 
@@ -240,7 +261,7 @@ Dimensões ímpares ajustadas com `if Odd then Dec`.
 Marcar só mic/speaker (0 monitor + 0 webcam): MKV exige stream de
 vídeo válido. Solução: canvas preto 800×600 (OBS renderiza frame preto
 contínuo). Audio tracks gravam normal. Fallback em
-`LibOBSEngine.BuildAndStartRecording` quando `(W=0 or H=0)`.
+`OBSEngine.BuildAndStartRecording` quando `(W=0 or H=0)`.
 
 ### 9. **GDI handle leak em captura de tela**
 
@@ -255,14 +276,14 @@ internamente.
 ### 10. **`MKV` é o único formato seguro contra queda de energia**
 
 MP4 escreve cabeçalho no fim do arquivo — se travar, perde tudo.
-MKV é frame-by-frame recuperável. `LibOBSEngine` usa `ffmpeg_muxer`
+MKV é frame-by-frame recuperável. `OBSEngine` usa `ffmpeg_muxer`
 com path `.mkv`. Pra player, remuxamos sob demanda pra MP4 (cache).
 
 ### 11. **Canvas baseado em monitores enabled, não todos**
 
 Canvas e bounding sempre consideram só os monitores marcados em
 `enabled.NoOBS Monitor N` no `config.json`. `FilterEnabledMonitors`
-é chamado em `LibOBSEngine.BuildAndStartRecording` antes de computar
+é chamado em `OBSEngine.BuildAndStartRecording` antes de computar
 bounding e criar sources.
 
 Layout = compacto side-by-side (sum widths × max height).
@@ -280,7 +301,7 @@ meter passa a retornar valores reais.
 
 ### 13. **Plugins minimos pro libobs**
 
-Plugins carregados (whitelist em `LibOBSEngine.LoadModules.WANTED`):
+Plugins carregados (whitelist em `OBSEngine.LoadModules.WANTED`):
 `obs-ffmpeg` (encoder áudio + muxer MKV), `obs-x264` (CPU encoder
 fallback), `obs-nvenc` (HEVC/H264 NVIDIA, opcional), `win-capture`
 (monitor_capture), `win-dshow` (webcam), `win-wasapi` (mics +
@@ -293,7 +314,7 @@ Usa `obs_open_module` + `obs_init_module` por plugin (não
 ### 14. Encoders que viraram "Obsoleto" em OBS 31+
 
 `jim_hevc_nvenc` foi marcado obsoleto em favor de `obs_nvenc_hevc_tex`.
-`LibOBSEngine.SelectVideoEncoder` testa o novo primeiro, com
+`OBSEncoder.SelectVideoEncoder` testa o novo primeiro, com
 fallback chain AV1 → HEVC → H.264 hardware → x264 CPU.
 
 OBS recente retorna handle "phantom" pra encoder ID não registrado —
@@ -338,7 +359,7 @@ janela aparecer.
 
 Para criar uma source `monitor_capture` com o monitor correto, é
 necessário resolver o `monitor_id` interno do OBS (varia entre
-reinstalls, drivers, etc). `LibOBSEngine.ResolveMonitorId` cria uma
+reinstalls, drivers, etc). `OBSEngine.ResolveMonitorId` cria uma
 source temporária, enumera a property list de `monitor_id`, e faz
 match pelo sufixo `@ X,Y` na descrição.
 
@@ -385,7 +406,7 @@ de vezes chamando API com índices inválidos — **freeze de minutos**.
 `Count` é tipo unsigned.
 
 Locais já corrigidos: `WinAudioMeter.RebuildCache`,
-`LibOBSEngine.ResolveMonitorId`, `FFmpegLib.EnumerateObsAudioDevicesRaw`.
+`OBSEngine.ResolveMonitorId`, `OBSAudioTracks.EnumerateObsAudioDevicesRaw`.
 
 ### 25. **`av_frame_*` está em libavutil, NÃO libavcodec**
 
@@ -454,7 +475,7 @@ quebra acentos.
 - Leitura: `UTF8ToString(PAnsiChar)` → `string`
 - Arquivos: `CreateFileW` (não `CreateFileA`) pra paths com acentos
 
-`LibOBSEngine.ToAnsi` / `.FromAnsi` também usam UTF-8 (libobs segue
+`OBSEngine.ToAnsi` / `.FromAnsi` também usam UTF-8 (libobs segue
 a mesma convenção do FFmpeg).
 
 ### 30. **WASAPI bloqueia quando o audio service está doente**
@@ -478,7 +499,7 @@ Se threads internas de áudio/render do libobs estão com trabalho
 pendente, `obs_shutdown` pode esperar pra sempre. Em fechamento do
 app isso impede o processo de morrer.
 
-**Solução**: `LibOBSEngine.Teardown` chama `obs_shutdown` em worker
+**Solução**: `OBSEngine.Teardown` chama `obs_shutdown` em worker
 thread com `WaitForSingleObject(5000)`. Se timeout, abandona e segue
 — o `ExitProcess` no fim do programa Delphi mata threads zumbi.
 
@@ -535,7 +556,7 @@ clássico: gravação "Falha ao iniciar: Invalid floating point
 operation" disparada N segundos depois, apontando linha aleatória
 de aritmética Single inocente.
 
-**Solução** em `initialization` de `LibOBSEngine.pas`:
+**Solução** em `initialization` de `OBSEngine.pas`:
 
 ```pascal
 SetExceptionMask(exAllArithmeticExceptions);
@@ -649,7 +670,7 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 - **NÃO use** `file://` no WebView — bloqueado.
 - **NÃO chame** funções libobs de worker thread — main thread only.
 - **NÃO permita** canvas > 8192 — NVENC rejeita. Clamp obrigatório
-  via `ENCODER_MAX_DIM` em `LibOBSEngine`.
+  via `ENCODER_MAX_DIM` em `OBSEngine`.
 - **NÃO esqueça** o BOM em `.pas` novos.
 - **NÃO bloqueie** a main thread por mais de ~1s sem mostrar overlay
   via `PushRefreshBusy(True, ...)` antes.

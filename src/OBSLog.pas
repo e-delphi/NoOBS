@@ -147,8 +147,68 @@ begin
   end;
 end;
 
+// Vectored exception handler — captura crashes nativos (access
+// violations em codigo de DLLs externas como WASAPI/COM) que escapam
+// dos try/except do Delphi por nao serem EAccessViolation Pascal.
+// Quando o processo ia morrer silenciosamente, agora pelo menos
+// deixa rastro no log antes da morte.
+type
+  PExceptionPointers = ^TExceptionPointers;
+  TExceptionPointers = record
+    ExceptionRecord: Pointer;
+    ContextRecord: Pointer;
+  end;
+
+  TExceptionRecord = record
+    ExceptionCode: DWORD;
+    ExceptionFlags: DWORD;
+    ExceptionRecord: Pointer;
+    ExceptionAddress: Pointer;
+  end;
+  PExceptionRecord = ^TExceptionRecord;
+
+function VectoredExceptionHandler(ExceptionInfo: PExceptionPointers): LONG; stdcall;
+const
+  EXCEPTION_CONTINUE_SEARCH       = 0;
+  // Codigos inequivocos de crash. Outros (Delphi managed, breakpoints,
+  // C++ EH) sao tratados pelos handlers normais — nao logamos pra
+  // nao poluir o log com excecoes "normais".
+  STATUS_ACCESS_VIOLATION   = DWORD($C0000005);
+  STATUS_ILLEGAL_INSTRUCTION= DWORD($C000001D);
+  STATUS_PRIV_INSTRUCTION   = DWORD($C0000096);
+  STATUS_STACK_OVERFLOW     = DWORD($C00000FD);
+  STATUS_INT_DIVIDE_BY_ZERO = DWORD($C0000094);
+  STATUS_HEAP_CORRUPTION    = DWORD($C0000374);
+  STATUS_INVALID_HANDLE     = DWORD($C0000008);
+var
+  Rec: PExceptionRecord;
+  Code: DWORD;
+begin
+  Result := EXCEPTION_CONTINUE_SEARCH;
+  if ExceptionInfo = nil then Exit;
+  Rec := PExceptionRecord(ExceptionInfo.ExceptionRecord);
+  if Rec = nil then Exit;
+  Code := Rec.ExceptionCode;
+  if (Code <> STATUS_ACCESS_VIOLATION) and
+     (Code <> STATUS_ILLEGAL_INSTRUCTION) and
+     (Code <> STATUS_PRIV_INSTRUCTION) and
+     (Code <> STATUS_STACK_OVERFLOW) and
+     (Code <> STATUS_INT_DIVIDE_BY_ZERO) and
+     (Code <> STATUS_HEAP_CORRUPTION) and
+     (Code <> STATUS_INVALID_HANDLE) then Exit;
+  try
+    Log('NATIVE EXCEPTION: code=$%.8x addr=$%p (first-chance — pode ser pego por try/except)',
+      [Code, Rec.ExceptionAddress]);
+  except end;
+end;
+
+function AddVectoredExceptionHandler(First: ULONG; Handler: Pointer): Pointer;
+  stdcall; external 'kernel32.dll';
+
 initialization
   InitLog;
+  // Registra handler nativo — first-chance, primeira posicao.
+  AddVectoredExceptionHandler(1, @VectoredExceptionHandler);
 
 finalization
   DoneLog;

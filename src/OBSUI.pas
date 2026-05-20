@@ -41,6 +41,7 @@ type
   TUIMessageProc = procedure(const AMsg: string);
   TUITimerProc   = procedure(ATimerId: UINT_PTR);
   TUIDisplayChangeProc = procedure;
+  TUIDeviceChangeProc  = procedure;
   TUIHotkeyProc  = procedure(AHotkeyId: Integer);
 
 // Callbacks que o OBSBridge registra na sua initialization.
@@ -49,6 +50,7 @@ var
   OnUIMessage:        TUIMessageProc       = nil;
   OnUITimer:          TUITimerProc         = nil;
   OnUIDisplayChange:  TUIDisplayChangeProc = nil;
+  OnUIDeviceChange:   TUIDeviceChangeProc  = nil;
   OnUIHotkey:         TUIHotkeyProc        = nil;
 
 // Registra atalho global do Windows. AModifiers e combinacao de
@@ -646,6 +648,16 @@ begin
     begin
       if Assigned(OnUIDisplayChange) then
         OnUIDisplayChange;
+      Result := 0;
+      Exit;
+    end;
+    WM_DEVICECHANGE:
+    begin
+      // wParam = DBT_DEVNODES_CHANGED ($0007) dispara pra qualquer mudanca
+      // de hardware no devnode tree (USB plug/unplug, etc). E o evento
+      // mais abrangente — pega webcams sem precisar de RegisterDeviceNotification.
+      if (wParam = $0007 {DBT_DEVNODES_CHANGED}) and Assigned(OnUIDeviceChange) then
+        OnUIDeviceChange;
       Result := 0;
       Exit;
     end;

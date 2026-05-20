@@ -174,6 +174,22 @@
     background: #c43a37;
   }
   .record-btn:active { transform: translateY(1px); }
+  .record-btn:disabled,
+  .record-btn[disabled] {
+    background: var(--surface-2, #3a3a3a);
+    color: var(--text-3, rgba(255,255,255,0.4));
+    cursor: not-allowed;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+  .record-btn:disabled:hover,
+  .record-btn[disabled]:hover {
+    background: var(--surface-2, #3a3a3a);
+  }
+  .record-btn:disabled:active,
+  .record-btn[disabled]:active { transform: none; }
+  .record-btn:disabled .icon,
+  .record-btn[disabled] .icon { background: var(--text-3, rgba(255,255,255,0.3)); }
   .record-btn .icon {
     width: 11px; height: 11px;
     background: rgba(255,255,255,0.9);
@@ -408,11 +424,37 @@
     width: 3px;
     background: var(--track-color, transparent);
   }
+  /* Paleta sem verde/vermelho — essas cores tem semantica reservada
+     (verde = bolinha de default, vermelho = botao de gravar/stop) e
+     misturadas nas tracks confundiriam o user. Magenta foi descartado
+     por ficar muito proximo do roxo. Amarelo foi descartado por ficar
+     muito proximo do laranja. */
   .source-item[data-track="2"] { --track-color: #3b82f6; } /* azul */
-  .source-item[data-track="3"] { --track-color: #10b981; } /* verde */
+  .source-item[data-track="3"] { --track-color: #06b6d4; } /* ciano */
   .source-item[data-track="4"] { --track-color: #f59e0b; } /* laranja */
   .source-item[data-track="5"] { --track-color: #a855f7; } /* roxo */
-  .source-item[data-track="6"] { --track-color: #ef4444; } /* vermelho */
+  .source-item[data-track="6"] { --track-color: #f472b6; } /* rosa */
+
+  /* Audio devices desabilitados (mic/speaker sem .selected): barra
+     cinza no mesmo lugar pra manter o alinhamento visual com os
+     habilitados. No tema dark usa um cinza um pouco mais claro que
+     a --border pra ficar visivel contra o painel; no tema light usa
+     a --border padrao. */
+  .source-item[data-kind="mic"]:not(.selected)::before,
+  .source-item[data-kind="speaker"]:not(.selected)::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: #52525b; /* zinc-600 — visivel no tema dark */
+    opacity: 0.7;
+  }
+  [data-theme="light"] .source-item[data-kind="mic"]:not(.selected)::before,
+  [data-theme="light"] .source-item[data-kind="speaker"]:not(.selected)::before {
+    background: var(--border);
+  }
 
   /* Legenda das cores de faixa — mostra so cores presentes nos
      dispositivos visiveis. Atualizada toda vez que a lista de devices
@@ -448,17 +490,49 @@
     line-height: 1.3;
   }
   .track-legend-color {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 8px;          /* largura igual pra todos os itens alinharem */
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .track-legend-color::after {
+    content: '';
+    display: block;
     width: 3px;
     height: 14px;
     background: var(--track-color, var(--border));
-    flex-shrink: 0;
   }
-  .track-legend-item[data-track="2"] { --track-color: #3b82f6; }
-  .track-legend-item[data-track="3"] { --track-color: #10b981; }
-  .track-legend-item[data-track="4"] { --track-color: #f59e0b; }
-  .track-legend-item[data-track="5"] { --track-color: #a855f7; }
-  .track-legend-item[data-track="6"] { --track-color: #ef4444; }
+  .track-legend-item[data-track="mix"] { --track-color: var(--text-2); }
+  .track-legend-item[data-track="2"]   { --track-color: #3b82f6; }
+  .track-legend-item[data-track="3"]   { --track-color: #06b6d4; }
+  .track-legend-item[data-track="4"]   { --track-color: #f59e0b; }
+  .track-legend-item[data-track="5"]   { --track-color: #a855f7; }
+  .track-legend-item[data-track="6"]   { --track-color: #f472b6; }
+  /* Item "Sem faixa" (disabled) — mesma cor do indicador no card de
+     device desabilitado. Tema dark: cinza mais claro (#52525b); tema
+     light: --border. Opacity 0.7 igual a do indicador no card. */
+  .track-legend-item[data-track="off"] {
+    --track-color: #52525b;
+    opacity: 0.7;
+  }
+  [data-theme="light"] .track-legend-item[data-track="off"] {
+    --track-color: var(--border);
+  }
+  .track-legend-item[data-track="off"] .track-legend-track {
+    color: var(--text-3, var(--text-2));
+  }
+  /* Item "Dispositivo padrao": substitui o bar vertical por uma bolinha
+     verde igual a usada no card do device. Centro alinhado com a coluna
+     da .track-legend-color via flex parent. */
+  .track-legend-item[data-track="default"] .track-legend-color::after {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 0 4px rgba(34,197,94,0.55);
+  }
   .track-legend-name {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -467,6 +541,8 @@
     flex: 1;
   }
   .track-legend-track {
+    display: inline-block;
+    min-width: 52px;     /* coluna fixa alinhando "Faixa N" / "Padrão" / "Sem faixa" */
     font-weight: 600;
     color: var(--text-2);
     margin-right: 4px;
@@ -565,6 +641,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .source-default-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 0 4px rgba(34,197,94,0.55);
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
   }
   .source-info {
     font-size: 10.5px;
@@ -1985,6 +2072,7 @@ const Bridge = {
       renderRecordings(data.recordings);
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
       hideLoading();
+      updateRecordButtonAvailability();
     },
     init_pending(data) { showLoading(data && data.message); },
     theme(data) { applyTheme(data.theme); },
@@ -2009,6 +2097,7 @@ const Bridge = {
       // pra hot-plug subsequente (user plugou/desplugou dispositivo).
       if (!data.silent)
         Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+      updateRecordButtonAvailability();
     },
     monitor_changed(data) {
       const banner = document.getElementById('monitorRefreshBanner');
@@ -2031,6 +2120,16 @@ const Bridge = {
       const banner = document.getElementById('monitorRefreshBanner');
       if (banner) banner.classList.remove('show');
       Toast.show('Monitores atualizados', '', { warn: true, ttl: 3000 });
+      updateRecordButtonAvailability();
+    },
+    webcams_refreshed(data) {
+      Displays.webcams = data.webcams || [];
+      Displays.render();
+      // Mesmo titulo que audio_sources_refreshed pra que o dedup do
+      // Toast.show coalesce as duas notificacoes quando hot-plug USB
+      // dispara refresh de audio + webcam ao mesmo tempo.
+      Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+      updateRecordButtonAvailability();
     },
     recording_meta(data) { updateRecordingMeta(data); },
     play_pending(data) { Player.showPending(data.id); },
@@ -2318,6 +2417,7 @@ const Displays = {
       enabled: newEnabled
     });
     this._updateCount();
+    updateRecordButtonAvailability();
   },
 
   _updateCount() {
@@ -2351,69 +2451,14 @@ const Displays = {
   }
 };
 
-// Mirror da logica de track-assignment em LibOBSEngine.BuildAndStartRecording:
-// Track 1 = mix (sempre). Tracks 2-6 = isoladas. Se total > 5 sources,
-// agrupa outputs (e mics se ainda exceder). Devolve o track de cada
-// device por indice na lista.
-function computeAudioTrackAssignments(micCount, spkCount) {
-  const groupOutputs = (micCount + spkCount) > 5;
-  const groupMics = groupOutputs && (1 + micCount) > 5;
-  let nextTrack = 2;
-  const micTracks = [];
-  const spkTracks = [];
+// Atribuicao de tracks e calculada exclusivamente no Delphi
+// (LibOBSEngine.ComputeAudioTrackAssignments). UI recebe item.track ja
+// pronto em audio_sources_refreshed e renderiza direto. Sem
+// re-implementacao duplicada aqui — single source of truth.
 
-  if (micCount > 0) {
-    if (groupMics) {
-      for (let i = 0; i < micCount; i++) micTracks.push(nextTrack);
-      nextTrack++;
-    } else {
-      for (let i = 0; i < micCount; i++) micTracks.push(nextTrack++);
-    }
-  }
-  if (spkCount > 0) {
-    if (groupOutputs) {
-      for (let i = 0; i < spkCount; i++) spkTracks.push(nextTrack);
-      nextTrack++;
-    } else {
-      for (let i = 0; i < spkCount; i++) spkTracks.push(nextTrack++);
-    }
-  }
-  // Clamp em 6 (max do OBS).
-  return {
-    mic: micTracks.map(t => Math.min(t, 6)),
-    spk: spkTracks.map(t => Math.min(t, 6))
-  };
-}
-
-// Cache global do ultimo assignment — calculado quando ambos mics/spks
-// chegam (renderSources e chamada uma vez pra cada).
-let LastMicCount = 0, LastSpkCount = 0;
-function getTrackFor(kindShort, idx) {
-  const a = computeAudioTrackAssignments(LastMicCount, LastSpkCount);
-  if (kindShort === 'mic') return a.mic[idx] || 0;
-  if (kindShort === 'spk') return a.spk[idx] || 0;
-  return 0;
-}
-
-// Re-aplica data-track em TODAS as source-items de mic/spk no DOM com
-// base nas contagens atuais. Chamado apos cada renderSources pra
-// garantir consistencia: se mics renderiza antes de spks, a primeira
-// passada nao sabe quantos spks vao ter; o re-pass corrige.
+// Rebuild da legenda a partir do DOM. data-track ja vem aplicado
+// no render via item.track do JSON.
 function refreshTrackColors() {
-  const a = computeAudioTrackAssignments(LastMicCount, LastSpkCount);
-  ['micList', 'spkList'].forEach(listId => {
-    const list = document.getElementById(listId);
-    if (!list) return;
-    const items = list.querySelectorAll('.source-item');
-    items.forEach((el, i) => {
-      const kind = el.dataset.kind === 'mic' ? 'mic' :
-                   el.dataset.kind === 'speaker' ? 'spk' : null;
-      if (!kind) return;
-      const t = kind === 'mic' ? a.mic[i] : a.spk[i];
-      if (t && t > 0) el.dataset.track = String(t);
-      else delete el.dataset.track;
-    });
-  });
   buildTrackLegend();
 }
 
@@ -2428,48 +2473,119 @@ function buildTrackLegend() {
   const legend = document.getElementById('trackLegend');
   if (!legend) return;
 
-  const byTrack = new Map();
+  // Coleta info por track: nomes, se contem default, kind (mic/spk).
+  // trackInfo[t] = { names: [...], hasDefault: bool, kinds: Set }
+  const trackInfo = new Map();
+  const disabledNames = [];
   ['micList', 'spkList'].forEach(listId => {
     const list = document.getElementById(listId);
     if (!list) return;
-    const items = list.querySelectorAll('.source-item[data-track]');
-    items.forEach(el => {
-      const t = parseInt(el.dataset.track, 10);
-      if (!t || t < 2) return;
+    const kindShort = listId === 'micList' ? 'mic' : 'spk';
+    list.querySelectorAll('.source-item').forEach(el => {
       const nameEl = el.querySelector('.source-name');
       const name = nameEl ? (nameEl.textContent || '').trim() : '';
       if (!name) return;
-      if (!byTrack.has(t)) byTrack.set(t, []);
-      byTrack.get(t).push(name);
+      const t = parseInt(el.dataset.track || '0', 10);
+      const isDefault = el.dataset.default === 'true' &&
+                        el.classList.contains('selected');
+      if (t >= 2) {
+        if (!trackInfo.has(t))
+          trackInfo.set(t, { names: [], hasDefault: false, kinds: new Set() });
+        const info = trackInfo.get(t);
+        info.names.push(name);
+        info.kinds.add(kindShort);
+        if (isDefault) info.hasDefault = true;
+      } else if (!el.classList.contains('selected')) {
+        // Sem track + nao selecionado = desabilitado pelo user, fora
+        // de qualquer faixa de gravacao.
+        disabledNames.push(name);
+      }
     });
   });
 
-  const tracks = [...byTrack.keys()].sort((a, b) => a - b);
-  if (tracks.length === 0) {
+  const hasDefault = document.querySelector(
+    '#micList .source-default-dot, #spkList .source-default-dot');
+
+  if (trackInfo.size === 0 && disabledNames.length === 0 && !hasDefault) {
     legend.hidden = true;
     legend.innerHTML = '';
     return;
   }
 
-  let html = '<div class="track-legend-title">Faixas de áudio</div>';
-  tracks.forEach(t => {
-    const names = byTrack.get(t);
+  // Categoriza tracks pela ordem que o user pediu:
+  //   1. Padrão (item explicativo)
+  //   2. Faixa 1 (Mix)
+  //   3. Tracks com dispositivo padrão (mics e outputs misturados)
+  //   4. Tracks de microfone (sem default)
+  //   5. Tracks de output (sem default, inclui agrupadas)
+  //   6. Sem faixa (item explicativo)
+  const allTracks = [...trackInfo.keys()].sort((a, b) => a - b);
+  const defaultTracks = allTracks.filter(t => trackInfo.get(t).hasDefault);
+  const micTracks = allTracks.filter(t =>
+    !trackInfo.get(t).hasDefault &&
+    trackInfo.get(t).kinds.has('mic') &&
+    !trackInfo.get(t).kinds.has('spk'));
+  const spkTracks = allTracks.filter(t =>
+    !trackInfo.get(t).hasDefault &&
+    trackInfo.get(t).kinds.has('spk'));
+
+  function renderTrack(t) {
+    const info = trackInfo.get(t);
+    const names = info.names;
     let label;
-    if (names.length === 1) {
-      label = names[0];
-    } else if (names.length === 2) {
-      label = names.join(', ');
-    } else {
-      label = `${names.length} dispositivos agrupados`;
-    }
-    html += '<div class="track-legend-item" data-track="' + t + '" title="' +
-            escapeHtml(names.join(', ')) + '">' +
+    if (names.length === 1) label = names[0];
+    else if (names.length === 2) label = names.join(', ');
+    else label = `${names.length} dispositivos agrupados`;
+    return '<div class="track-legend-item" data-track="' + t + '" title="' +
+           escapeHtml(names.join(', ')) + '">' +
+           '<span class="track-legend-color"></span>' +
+           '<span class="track-legend-name">' +
+           '<span class="track-legend-track">Faixa ' + t + '</span>' +
+           escapeHtml(label) +
+           '</span></div>';
+  }
+
+  let html = '<div class="track-legend-title">Faixas de áudio</div>';
+
+  // 1. Padrão (explicativo) — quando ha device default visivel.
+  if (hasDefault) {
+    html += '<div class="track-legend-item" data-track="default" ' +
+            'title="Dispositivo definido como padrao no Windows">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
-            '<span class="track-legend-track">Faixa ' + t + '</span>' +
+            '<span class="track-legend-track">Padrão</span>' +
+            'Dispositivo padrão do sistema' +
+            '</span></div>';
+  }
+  // 2. Faixa 1 (Mix) — quando ha alguma track ativa.
+  if (allTracks.length > 0) {
+    html += '<div class="track-legend-item" data-track="mix" ' +
+            'title="Mistura de todos os dispositivos habilitados">' +
+            '<span class="track-legend-color"></span>' +
+            '<span class="track-legend-name">' +
+            '<span class="track-legend-track">Faixa 1</span>' +
+            'Mix (todos)' +
+            '</span></div>';
+  }
+  // 3. Tracks dos dispositivos padrão.
+  defaultTracks.forEach(t => { html += renderTrack(t); });
+  // 4. Tracks de microfone (sem default).
+  micTracks.forEach(t => { html += renderTrack(t); });
+  // 5. Tracks de output (sem default).
+  spkTracks.forEach(t => { html += renderTrack(t); });
+  // 6. Sem faixa (desabilitados).
+  if (disabledNames.length > 0) {
+    const label = disabledNames.length === 1
+      ? disabledNames[0]
+      : `${disabledNames.length} dispositivos desabilitados`;
+    html += '<div class="track-legend-item" data-track="off" title="' +
+            escapeHtml(disabledNames.join(', ')) + '">' +
+            '<span class="track-legend-color"></span>' +
+            '<span class="track-legend-name">' +
+            '<span class="track-legend-track">Sem faixa</span>' +
             escapeHtml(label) +
             '</span></div>';
-  });
+  }
   legend.innerHTML = html;
   legend.hidden = false;
 }
@@ -2478,22 +2594,21 @@ function renderSources(kindShort, listId, countId, items) {
   const list = document.getElementById(listId);
   list.innerHTML = '';
   const arr = items || [];
-  // Atualiza contagens pro calculo de tracks (so mic/spk participam).
-  if (kindShort === 'mic') LastMicCount = arr.length;
-  else if (kindShort === 'spk') LastSpkCount = arr.length;
-  // Re-renderiza tracks de qualquer lista ja desenhada pra refletir
-  // mudancas de contagem (ex: mic chega depois do spk).
+  // Tracks sao re-calculados a partir do estado enabled lido do DOM
+  // (refreshTrackColors no fim). Suporta toggles em tempo real.
   arr.forEach((item, idx) => {
     const div = document.createElement('div');
     div.className = 'source-item' + (item.enabled ? ' selected' : '');
     div.dataset.id = item.id;
+    if (item.isDefault) div.dataset.default = 'true';
     div.dataset.kind = kindShort === 'mon' ? 'monitor'
                      : kindShort === 'mic' ? 'mic'
                      : kindShort === 'cam' ? 'webcam' : 'speaker';
-    // Track-color bar pro lado esquerdo (so mics e speakers).
-    if (kindShort === 'mic' || kindShort === 'spk') {
-      const t = getTrackFor(kindShort, idx);
-      if (t > 0) div.dataset.track = String(t);
+    // Track-color bar pro lado esquerdo (so mics e speakers). O numero
+    // vem direto do JSON — computado no Delphi (single source of truth).
+    if ((kindShort === 'mic' || kindShort === 'spk') &&
+        typeof item.track === 'number' && item.track > 0) {
+      div.dataset.track = String(item.track);
     }
     div.onclick = () => onToggleSource(div);
 
@@ -2511,7 +2626,15 @@ function renderSources(kindShort, listId, countId, items) {
     meta.className = 'source-meta';
     const name = document.createElement('div');
     name.className = 'source-name';
-    name.textContent = item.name || item.id;
+    if (item.isDefault) {
+      const dot = document.createElement('span');
+      dot.className = 'source-default-dot';
+      dot.title = 'Dispositivo padrão do sistema';
+      name.appendChild(dot);
+      name.appendChild(document.createTextNode(item.name || item.id));
+    } else {
+      name.textContent = item.name || item.id;
+    }
     meta.appendChild(name);
     if (item.info) {
       const info = document.createElement('div');
@@ -2571,6 +2694,11 @@ function onToggleSource(el) {
     const sel = section.querySelectorAll('.source-item.selected').length;
     countEl.textContent = `${sel} / ${total}`;
   }
+  // Toggle de mic/speaker reorganiza tracks (agrupamento por numero
+  // de enabled). O recalculo acontece no Delphi: HandleToggleSource
+  // empurra audio_sources_refreshed silencioso → UI re-renderiza com
+  // os novos data-track. Aqui so atualiza visual local imediato.
+  updateRecordButtonAvailability();
 }
 
 function updateCount(listId, countId) {
@@ -3043,8 +3171,23 @@ const Toast = {
   show(title, msg, opts) {
     const stack = document.getElementById('toastStack');
     if (!stack) return;
+    const ttl = (opts && opts.ttl) || 6000;
+    // Dedup: se ja existe um toast com mesmo titulo visivel, renova
+    // o TTL em vez de criar um novo (evita empilhar duas notificacoes
+    // identicas quando hot-plug USB dispara refresh de audio + webcam).
+    const existing = stack.querySelector('.toast[data-title="' +
+      CSS.escape(title || '') + '"]');
+    if (existing) {
+      if (existing._dismissTimer) clearTimeout(existing._dismissTimer);
+      existing._dismissTimer = setTimeout(() => {
+        existing.classList.remove('show');
+        setTimeout(() => existing.remove(), 220);
+      }, ttl);
+      return;
+    }
     const el = document.createElement('div');
     el.className = 'toast' + (opts && opts.warn ? ' warn' : '');
+    el.dataset.title = title || '';
     if (title) {
       const t = document.createElement('div');
       t.className = 'toast-title';
@@ -3059,8 +3202,7 @@ const Toast = {
     }
     stack.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
-    const ttl = (opts && opts.ttl) || 6000;
-    setTimeout(() => {
+    el._dismissTimer = setTimeout(() => {
       el.classList.remove('show');
       setTimeout(() => el.remove(), 220);
     }, ttl);
@@ -3895,6 +4037,30 @@ function applyRecordingState(active, elapsedSec) {
     document.body.classList.remove('recording');
     recStatusText.textContent = '00:00:00';
   }
+  updateRecordButtonAvailability();
+}
+
+// Habilita/desabilita o botao de gravar com base na presenca de algum
+// dispositivo (monitor, webcam, mic ou speaker) habilitado. Durante
+// gravacao ativa o botao fica sempre habilitado pra permitir o stop.
+function updateRecordButtonAvailability() {
+  const btn = document.getElementById('recordBtn');
+  if (!btn) return;
+  if (btn.classList.contains('recording')) {
+    btn.disabled = false;
+    btn.removeAttribute('title');
+    return;
+  }
+  const mons = (Displays.monitors || []).filter(m => m.enabled).length;
+  const cams = (Displays.webcams  || []).filter(c => c.enabled).length;
+  const mics = document.querySelectorAll('#micList .source-item.selected').length;
+  const spks = document.querySelectorAll('#spkList .source-item.selected').length;
+  const anyEnabled = (mons + cams + mics + spks) > 0;
+  btn.disabled = !anyEnabled;
+  if (!anyEnabled)
+    btn.title = 'Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.';
+  else
+    btn.removeAttribute('title');
 }
 
 // =====================================================================

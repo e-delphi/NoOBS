@@ -12,7 +12,7 @@
     1. Startup: HTTP server sobe em 127.0.0.1:porta-livre.
     2. UI pede play -> GetPlayUrl(path):
        a. Calcula path do cache (<localappdata>\NoOBS\cache\<hash>.mp4).
-       b. Se nao existe, chama FFmpegLib.RemuxFile (MKV->MP4 in-process).
+       b. Se nao existe, chama FFmpegOps.RemuxFile (MKV->MP4 in-process).
        c. Devolve "http://127.0.0.1:porta/<token>.mp4".
     3. WebView2 pede o arquivo -> server serve com Range.
 
@@ -85,7 +85,8 @@ uses
   IdGlobal,
   OBSLog,
   OBSProbe,
-  FFmpegLib;
+  FFmpegLib,
+  FFmpegOps;
 
 type
   // OnCommandGet exige method-of-object. Esta classe e um trampolim.

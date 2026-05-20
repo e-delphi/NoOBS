@@ -131,6 +131,11 @@ var
   ThumbThread: TThumbTimerThread = nil;
   LastRecordingPath: string = '';
   LastRecordingDuration: Integer = 0;
+  // Snapshot de monitores capturado no inicio da gravacao. Usado pra
+  // estabilizar os slots de preview enquanto grava — sem isso, se o
+  // user desplugar monitor durante gravacao, os indices da enum mudam
+  // e a UI passa a renderizar conteudo do monitor errado nos slots.
+  RecordingMonitorsSnapshot: TMonitorInfoArray;
 
   RecordDir: string = '';
 
@@ -860,35 +865,68 @@ procedure PushMonitorThumbs;
 // Captura screenshot de cada monitor, armazena JPEG em memoria no
 // OBSPlayer e empurra URLs HTTP pro JS. Sem base64 no IPC — o
 // WebView2 busca o JPEG direto pelo HTTP local.
+//
+// Em gravacao, itera sobre o SNAPSHOT do inicio da gravacao (slots
+// fixos) e matcheia cada slot ao monitor atual por DeviceName. Se o
+// monitor sumiu (foi desplugado), manda thumb vazia pra UI mostrar
+// preto em vez de ficar congelada com a ultima imagem.
+//
+// Fora de gravacao, usa o estado atual direto (DoRefreshMonitors
+// reage a WM_DISPLAYCHANGE e re-renderiza os slots).
 var
-  Mons: TMonitorInfoArray;
+  CurrentMons, WorkMons: TMonitorInfoArray;
+  Recording: Boolean;
 begin
   if IsShuttingDown or ThumbBusy then Exit;
   ThumbBusy := True;
-  Mons := EnumerateMonitors;
+  CurrentMons := EnumerateMonitors;
+  Recording := RecordingActive and (Length(RecordingMonitorsSnapshot) > 0);
+  if Recording then
+    WorkMons := RecordingMonitorsSnapshot
+  else
+    WorkMons := CurrentMons;
 
   TThread.CreateAnonymousThread(
     procedure
     var
-      i: Integer;
-      LocalArr: TArray<TPair<string, string>>;  // id, url
+      i, k, MatchIdx: Integer;
+      LocalArr: TArray<TPair<string, string>>;  // id, url ('' = monitor sumiu)
       Jpeg: TBytes;
       Id, Url: string;
     begin
       try
-        SetLength(LocalArr, Length(Mons));
-        for i := 0 to High(Mons) do
+        SetLength(LocalArr, Length(WorkMons));
+        for i := 0 to High(WorkMons) do
         begin
           if IsShuttingDown then
           begin
             ThumbBusy := False;
             Exit;
           end;
-          Id := MonitorIdFromIndex(Mons[i].Index);
-          Jpeg := CaptureMonitorAsJpeg(Mons[i], 480, 270);
-          if Length(Jpeg) > 0 then
-            SetMonitorThumb(Id, Jpeg);
-          Url := GetMonitorThumbUrl(Id);
+          Id := MonitorIdFromIndex(WorkMons[i].Index);
+
+          // Procura o monitor ATUAL que corresponde a esse slot.
+          // DeviceName (\\.\DISPLAY1 etc) e estavel enquanto o monitor
+          // existe — quando o user desplugar, o nome some da enum.
+          MatchIdx := -1;
+          for k := 0 to High(CurrentMons) do
+            if SameText(CurrentMons[k].DeviceName, WorkMons[i].DeviceName) then
+            begin MatchIdx := k; Break; end;
+
+          if MatchIdx >= 0 then
+          begin
+            // Monitor ainda existe — captura com coords atuais.
+            Jpeg := CaptureMonitorAsJpeg(CurrentMons[MatchIdx], 480, 270);
+            if Length(Jpeg) > 0 then
+              SetMonitorThumb(Id, Jpeg);
+            Url := GetMonitorThumbUrl(Id);
+          end
+          else
+          begin
+            // Monitor sumiu — sinaliza pra UI limpar o preview.
+            // Url vazia + envio explicito do item com thumb=''.
+            Url := '';
+          end;
           LocalArr[i] := TPair<string, string>.Create(Id, Url);
         end;
 
@@ -909,7 +947,8 @@ begin
               Arr := TJSONArray.Create;
               for j := 0 to High(LocalArr) do
               begin
-                if LocalArr[j].Value = '' then Continue;
+                // Inclui mesmo com Url vazia (sinal pro UI de "monitor
+                // sumiu, limpa a imagem").
                 Item := TJSONObject.Create;
                 Item.AddPair('id',    LocalArr[j].Key);
                 Item.AddPair('thumb', LocalArr[j].Value);
@@ -1541,6 +1580,10 @@ begin
     LastRecordingPath := OutputPath;
     LastRecordingDuration := 0;
     RecordingStartTickMs := GetTickCount;
+    // Snapshot dos monitores no inicio da gravacao — usado pelo
+    // PushMonitorThumbs pra manter os slots de preview fixos durante
+    // a gravacao mesmo se o user desplugar/replugar monitor.
+    RecordingMonitorsSnapshot := WinPreview.EnumerateMonitors;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
     PushRecordingState;
     Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);

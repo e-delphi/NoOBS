@@ -2385,9 +2385,18 @@ const Displays = {
     });
     items.forEach(it => {
       const m = this.monitors.find(x => x.id === it.id);
-      if (m && it.thumb) m.thumb = it.thumb;
       const rect = byId[it.id];
-      if (!rect || !it.thumb) return;
+      if (!rect) return;
+      // thumb vazia = backend sinalizou que o monitor sumiu (desplug
+      // durante gravacao). Remove o <img> e o cache pra mostrar
+      // o placeholder/fundo preto em vez da ultima imagem capturada.
+      if (!it.thumb) {
+        if (m) m.thumb = '';
+        const stale = rect.querySelector('img.display-thumb');
+        if (stale) stale.remove();
+        return;
+      }
+      if (m) m.thumb = it.thumb;
       let img = rect.querySelector('img.display-thumb');
       if (!img) {
         img = document.createElement('img');

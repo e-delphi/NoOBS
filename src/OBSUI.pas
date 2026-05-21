@@ -156,6 +156,17 @@ var
   // Lembra se a janela estava maximizada antes de minimizar pra tray —
   // restaura no mesmo estado quando o user reabrir.
   WasMaximized: Boolean = False;
+  // Quando o app sobe via /tray, criamos a janela off-screen com
+  // WS_EX_TOOLWINDOW (oculta da taskbar) e damos SW_SHOWNOACTIVATE
+  // pra WebView2 inicializar corretamente — parent HWND nunca shown
+  // durante init = rendering preto/quebrado. Esses vars guardam a
+  // posicao pretendida e marcam:
+  //   - PendingHideAfterWebViewReady: SW_HIDE quando WebView2 termina init
+  //   - PendingRestorePosition: reposiciona + remove WS_EX_TOOLWINDOW na
+  //     primeira abertura via tray
+  PendingRestoreBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+  PendingRestorePosition:       Boolean = False;
+  PendingHideAfterWebViewReady: Boolean = False;
 
   SetPreferredAppMode:    TSetPreferredAppMode    = nil;
   AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
@@ -380,6 +391,16 @@ begin
   WebView.add_WebMessageReceived(TWebMessageReceivedHandler.Create, Token);
 
   StartNavigate;
+
+  // Se o app subiu via /tray, a janela esta visivel off-screen com
+  // WS_EX_TOOLWINDOW (truque pra WebView2 inicializar com parent visivel).
+  // Agora que o WebView2 esta pronto, escondemos a janela — o icone na
+  // bandeja ja foi instalado.
+  if PendingHideAfterWebViewReady then
+  begin
+    PendingHideAfterWebViewReady := False;
+    ShowWindow(MainWindow, SW_HIDE);
+  end;
 
   // Reduz working set apos warmup do WebView.
   SetProcessWorkingSetSize(GetCurrentProcess, SIZE_T(-1), SIZE_T(-1));
@@ -774,6 +795,23 @@ begin
       // Restaura janela. Se nao havia sido criada ainda (start /tray),
       // mostra agora.
       if MainWindow = 0 then Exit;
+
+      // Se foi start via /tray, a janela esta com WS_EX_TOOLWINDOW e
+      // off-screen (truque pra WebView2 inicializar com parent visivel).
+      // Na 1a abertura via bandeja: remove o style e reposiciona no centro
+      // antes do show. Subsequentes esconde/mostra rodam normais.
+      if PendingRestorePosition then
+      begin
+        PendingRestorePosition := False;
+        SetWindowLongPtr(MainWindow, GWL_EXSTYLE,
+          GetWindowLongPtr(MainWindow, GWL_EXSTYLE) and not NativeInt(WS_EX_TOOLWINDOW));
+        SetWindowPos(MainWindow, 0,
+          PendingRestoreBounds.Left, PendingRestoreBounds.Top,
+          PendingRestoreBounds.Right  - PendingRestoreBounds.Left,
+          PendingRestoreBounds.Bottom - PendingRestoreBounds.Top,
+          SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED or SWP_HIDEWINDOW);
+      end;
+
       if IsIconic(MainWindow) then
         ShowWindow(MainWindow, SW_RESTORE)
       else if WasMaximized then
@@ -878,8 +916,28 @@ begin
 
   if StartInTray then
   begin
-    // Inicia oculto + icone na bandeja. User clica pra abrir.
+    // WebView2 nao inicializa corretamente quando o parent HWND nunca
+    // foi mostrado durante o setup — rendering fica preto/quebrado.
+    // Workaround:
+    //  1) Adiciona WS_EX_TOOLWINDOW (some da taskbar/Alt+Tab durante init).
+    //  2) Posiciona off-screen.
+    //  3) SW_SHOWNOACTIVATE — WebView2 ve o parent visivel e inicializa OK.
+    //  4) Apos a inicializacao do WebView2 terminar (TControllerHandler),
+    //     daremos SW_HIDE — sinalizado por PendingHideAfterWebViewReady.
+    //  5) Na 1a abertura via tray, OnTrayCommandHandler remove o
+    //     WS_EX_TOOLWINDOW e reposiciona a janela no centro.
     WasMaximized := True; // por convencao restaura maximizado depois
+    PendingRestoreBounds := Rect(WinX, WinY, WinX + WinW, WinY + WinH);
+    PendingRestorePosition := True;
+    PendingHideAfterWebViewReady := True;
+
+    SetWindowLongPtr(Wnd, GWL_EXSTYLE,
+      GetWindowLongPtr(Wnd, GWL_EXSTYLE) or WS_EX_TOOLWINDOW);
+    SetWindowPos(Wnd, 0, -32000, -32000, WinW, WinH,
+      SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED);
+    ShowWindow(Wnd, SW_SHOWNOACTIVATE);
+    UpdateWindow(Wnd);
+
     OBSTray.InstallTrayIcon(Wnd, WINDOW_TITLE);
   end
   else

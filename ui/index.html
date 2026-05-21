@@ -1184,6 +1184,40 @@
   }
   .player-stage.zoomed .player-zoom-badge { opacity: 1; }
 
+  /* Indicador visual de pause — circulo com duas barras centrado no
+     stage. Interior do circulo tem fill escuro semi-transparente pra
+     destacar as barras brancas mesmo em videos claros. Halo radial
+     em volta escurece a area imediatamente ao redor pra que o stroke
+     branco do circulo nunca se perca em fundos brancos. */
+  .player-pause-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.85);
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.95);
+    /* Halo radial: escuro no centro, transparente nas pontas. */
+    background: radial-gradient(circle at center,
+      rgba(0, 0, 0, 0.45) 0%,
+      rgba(0, 0, 0, 0.30) 35%,
+      rgba(0, 0, 0, 0)    75%);
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+  .player-pause-indicator svg {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  }
+  .player-pause-indicator.visible {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
   .player-loading {
     position: absolute;
     inset: 0;
@@ -1950,6 +1984,17 @@
       <div class="player-stage" id="playerStage">
         <video id="playerVideo" preload="auto" playsinline></video>
         <div class="player-zoom-badge" id="playerZoomBadge">100%</div>
+        <div class="player-pause-indicator" id="playerPauseIndicator">
+          <svg viewBox="0 0 100 100" width="100" height="100" aria-hidden="true">
+            <!-- Fill escuro semi-transparente dentro do circulo pra
+                 contrastar as barras brancas contra video claro. -->
+            <circle cx="50" cy="50" r="45"
+                    fill="rgba(0,0,0,0.55)"
+                    stroke="currentColor" stroke-width="4"/>
+            <rect x="36" y="30" width="9" height="40" rx="2" fill="currentColor"/>
+            <rect x="55" y="30" width="9" height="40" rx="2" fill="currentColor"/>
+          </svg>
+        </div>
         <div class="player-loading" id="playerLoading">
           <div class="spin"></div>
           <div id="playerLoadingText">Preparando vídeo...</div>
@@ -3658,9 +3703,9 @@ const Player = {
 
     v.addEventListener('timeupdate', () => Player.onTimeUpdate());
     v.addEventListener('loadedmetadata', () => Player.onTimeUpdate());
-    v.addEventListener('play',  () => { Player.updatePlayIcon(); Player.startTimeRaf(); });
-    v.addEventListener('pause', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); });
-    v.addEventListener('ended', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); });
+    v.addEventListener('play',  () => { Player.updatePlayIcon(); Player.startTimeRaf(); Player.updatePauseOverlay(); });
+    v.addEventListener('pause', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); Player.updatePauseOverlay(); });
+    v.addEventListener('ended', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); Player.updatePauseOverlay(); });
     v.addEventListener('volumechange', () => Player.updateVolUi());
     v.addEventListener('canplay', () => {
       document.getElementById('playerLoading').classList.remove('visible');
@@ -3944,7 +3989,10 @@ const Player = {
     document.getElementById('playerTitle').textContent = name || '';
     v.src = url;
     v.load();
-    v.play().catch(() => {});
+    // Esconde indicador de pause durante o load (evita flash se o video
+    // antigo havia ficado pausado). Os eventos play/pause atualizam dai.
+    document.getElementById('playerPauseIndicator').classList.remove('visible');
+    v.play().catch(() => Player.updatePauseOverlay());
     // Sincroniza o icone de volume — o video padrao abre em 1.0 mas
     // nenhum volumechange dispara automaticamente, entao o icone
     // ficava preso no SVG default do HTML.
@@ -4126,6 +4174,17 @@ const Player = {
       ic.innerHTML = '<path d="M8 5v14l11-7z"/>';
     else
       ic.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  },
+  updatePauseOverlay() {
+    // Mostra o circulo de pause sobre o video quando pausado, esconde
+    // ao tocar. "ended" tambem mostra — o video parou no fim.
+    const v = document.getElementById('playerVideo');
+    const ind = document.getElementById('playerPauseIndicator');
+    if (!ind) return;
+    if (v.paused || v.ended)
+      ind.classList.add('visible');
+    else
+      ind.classList.remove('visible');
   },
   toggleMute() {
     this.masterMuted = !this.masterMuted;

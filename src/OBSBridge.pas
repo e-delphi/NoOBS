@@ -108,7 +108,12 @@ type
 const
   // IDs dos atalhos globais (registrados em DoInit via OBSUI).
   // Faixa 100..999 reservada — caller pode usar > 1000 livre.
-  HK_RECORD_TOGGLE = 100;
+  HK_RECORD_TOGGLE     = 100;
+  // Alias do mesmo atalho com VK_CANCEL no lugar de VK_PAUSE. Necessario
+  // porque Windows mapeia Ctrl+Pause -> VK_CANCEL (a tecla Pause vira
+  // "Break" quando Ctrl esta pressionado). Sem isso, Ctrl+Pause nunca
+  // dispara o atalho registrado com VK_PAUSE.
+  HK_RECORD_TOGGLE_ALT = 101;
 
 var
   Engine: TOBSEngine = nil;
@@ -1394,9 +1399,11 @@ var
   Spec: string;
   HK: THotkeySpec;
   Ok: Boolean;
+  Reason: string;
 begin
   // Sempre desregistra antes — handler tolera nao-registrado.
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
+  UnregisterGlobalHotkey(HK_RECORD_TOGGLE_ALT);
 
   // Le do config. Se a chave nunca foi setada, usa default. Se foi
   // explicitamente setada como vazia, nao registra nada.
@@ -1414,12 +1421,67 @@ begin
     Exit;
   end;
 
+  // Bloqueia combinacoes reservadas pelo Windows (RegisterHotKey nunca
+  // dispararia mesmo). Safety net — UI ja bloqueia antes de mandar.
+  if IsReservedHotkey(HK.Modifiers, HK.Vk, Reason) then
+  begin
+    Log('Hotkey: "%s" e reservado pelo Windows (%s) — ignorado.',
+      [Spec, Reason]);
+    Exit;
+  end;
+
   Ok := RegisterGlobalHotkey(HK_RECORD_TOGGLE, HK.Modifiers, HK.Vk);
   if Ok then
     Log('Hotkey: registrado "%s".', [Spec])
   else
     Log('Hotkey: RegisterHotKey falhou pra "%s" (outro app pode estar usando).',
       [Spec]);
+
+  // Pegadinha do Windows: Ctrl+Pause nao gera VK_PAUSE — vira VK_CANCEL
+  // ($03), a funcao "Break" da tecla. Pra atalho Ctrl+Pause funcionar
+  // precisamos registrar TAMBEM com VK_CANCEL num ID alternativo.
+  // OnHotkey trata os dois IDs igual.
+  if (HK.Vk = VK_PAUSE) and ((HK.Modifiers and MOD_CONTROL) <> 0) then
+  begin
+    if RegisterGlobalHotkey(HK_RECORD_TOGGLE_ALT, HK.Modifiers, VK_CANCEL) then
+      Log('Hotkey: alias Ctrl+Break (VK_CANCEL) registrado pra cobrir Ctrl+Pause.')
+    else
+      Log('Hotkey: alias Ctrl+Break (VK_CANCEL) falhou — Ctrl+Pause pode nao disparar.');
+  end;
+end;
+
+procedure HandleValidateHotkey(const ASpec: string);
+// Valida um spec de hotkey e responde pra UI via mensagem
+// 'hotkey_validation_result'. Frontend usa pra mostrar erro antes
+// de fechar o modal de configuracoes. Centraliza a regra (lista de
+// reservados etc) no backend — UI nao precisa saber as combinacoes.
+//
+// Resposta JSON:
+//   { type: 'hotkey_validation_result', hotkey: '...', ok: true/false, reason: '...' }
+var
+  HK: THotkeySpec;
+  Reason, Spec: string;
+  Obj: TJSONObject;
+begin
+  Spec := ASpec.Trim;
+  Reason := '';
+
+  if Spec <> '' then
+  begin
+    HK := ParseHotkey(Spec);
+    if not HK.Valid then
+      Reason := 'Atalho inválido — selecione pelo menos uma tecla principal ' +
+                '(letra, número, F1-F12, Pause, etc).'
+    else
+      IsReservedHotkey(HK.Modifiers, HK.Vk, Reason);
+  end;
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'hotkey_validation_result');
+  Obj.AddPair('hotkey', Spec);
+  Obj.AddPair('ok', TJSONBool.Create(Reason = ''));
+  Obj.AddPair('reason', Reason);
+  PostOwned(Obj);
 end;
 
 procedure HandleSetHotkey(const ASpec: string);
@@ -1428,6 +1490,7 @@ procedure HandleSetHotkey(const ASpec: string);
 var
   HK: THotkeySpec;
   Normalized: string;
+  Reason: string;
 begin
   Normalized := ASpec.Trim;
   if Normalized <> '' then
@@ -1436,6 +1499,15 @@ begin
     if not HK.Valid then
     begin
       Log('HandleSetHotkey: spec invalido "%s" — ignorado.', [Normalized]);
+      Exit;
+    end;
+    // Bloqueia combinacoes reservadas pelo Windows. UI ja deveria ter
+    // bloqueado antes de chegar aqui (espelho do RESERVED_HOTKEYS em
+    // index.html), mas garantimos pra edicao manual de config.json.
+    if IsReservedHotkey(HK.Modifiers, HK.Vk, Reason) then
+    begin
+      Log('HandleSetHotkey: "%s" reservado pelo Windows (%s) — ignorado.',
+        [Normalized, Reason]);
       Exit;
     end;
     // Re-formata canonicamente (Ctrl antes de Shift antes de Alt etc).
@@ -1659,7 +1731,7 @@ procedure OnHotkey(AHotkeyId: Integer);
 begin
   Log('Hotkey: id=%d disparado.', [AHotkeyId]);
   case AHotkeyId of
-    HK_RECORD_TOGGLE:
+    HK_RECORD_TOGGLE, HK_RECORD_TOGGLE_ALT:
       if RecordingActive then HandleRecordStop
       else HandleRecordStart;
   end;
@@ -2227,6 +2299,8 @@ begin
       HandleSetCodec(GetStrField(Obj, 'codec'))
     else if MsgType = 'set_hotkey' then
       HandleSetHotkey(GetStrField(Obj, 'hotkey'))
+    else if MsgType = 'validate_hotkey' then
+      HandleValidateHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'set_autostart' then
       HandleSetAutostart(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_minimize_on_record' then
@@ -2380,6 +2454,7 @@ begin
   SignalShutdown;
   // Atalhos globais — libera a combinacao pra outros apps usarem.
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
+  UnregisterGlobalHotkey(HK_RECORD_TOGGLE_ALT);
   if MainWindowHandle <> 0 then
   begin
     KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);

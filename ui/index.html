@@ -1613,15 +1613,45 @@
     cursor: pointer;
     margin: 0;
   }
-  /* 4 dropdowns de hotkey lado a lado, com "+" entre eles. */
-  .hotkey-slots {
+  /* Hotkey builder: 4 checkboxes (modificadores) + "+" + dropdown (tecla principal). */
+  .hotkey-builder {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .hotkey-mods {
     display: flex;
     align-items: center;
     gap: 6px;
+    flex-wrap: wrap;
   }
-  .hotkey-slot {
+  .hotkey-mod {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-1);
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    transition: background 120ms, border-color 120ms;
+  }
+  .hotkey-mod:hover { background: var(--surface-3); }
+  .hotkey-mod input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--success);
+    cursor: pointer;
+  }
+  .hotkey-mod:has(input:checked) {
+    background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
+    border-color: var(--success);
+  }
+  .hotkey-key {
     flex: 1;
-    min-width: 0;
+    min-width: 120px;
   }
   .hotkey-plus {
     color: var(--text-3);
@@ -1910,24 +1940,21 @@
       </div>
       <div class="settings-field">
         <label>Atalho global para iniciar/parar gravação</label>
-        <div class="hotkey-slots">
-          <select class="settings-input hotkey-slot" id="settingsHotkey1"
-                  onchange="Settings.onHotkeyChange()"></select>
+        <div class="hotkey-builder">
+          <div class="hotkey-mods">
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyCtrl"  onchange="Settings.onHotkeyChange()"><span>Ctrl</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyShift" onchange="Settings.onHotkeyChange()"><span>Shift</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyAlt"   onchange="Settings.onHotkeyChange()"><span>Alt</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyWin"   onchange="Settings.onHotkeyChange()"><span>Win</span></label>
+          </div>
           <span class="hotkey-plus">+</span>
-          <select class="settings-input hotkey-slot" id="settingsHotkey2"
-                  onchange="Settings.onHotkeyChange()"></select>
-          <span class="hotkey-plus">+</span>
-          <select class="settings-input hotkey-slot" id="settingsHotkey3"
-                  onchange="Settings.onHotkeyChange()"></select>
-          <span class="hotkey-plus">+</span>
-          <select class="settings-input hotkey-slot" id="settingsHotkey4"
+          <select class="settings-input hotkey-key" id="settingsHotkeyKey"
                   onchange="Settings.onHotkeyChange()"></select>
         </div>
         <div class="settings-hint" id="settingsHotkeyPreview">
-          Exemplos: <code>Pause</code> (só a tecla Pause/Break) ou
-          <code>Ctrl+Shift+G</code>. Aceita até 4 teclas combinadas —
-          1 tecla principal (letra/F1-F24/etc) + até 3 modificadores
-          (Ctrl, Shift, Alt, Win).
+          Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e
+          escolha uma tecla principal. Exemplos: <code>Pause</code> ou
+          <code>Ctrl+Shift+G</code>.
         </div>
       </div>
       <div class="settings-field">
@@ -2207,6 +2234,15 @@ const Bridge = {
       updateRecordButtonAvailability();
     },
     init_pending(data) { showLoading(data && data.message); },
+    hotkey_validation_result(data) {
+      // Resposta do backend pra validateHotkeyWithBackend(). Resolve a
+      // Promise pendente (se houver) com { ok, reason }.
+      if (_pendingHotkeyValidation) {
+        const cb = _pendingHotkeyValidation;
+        _pendingHotkeyValidation = null;
+        cb({ ok: !!data.ok, reason: data.reason || '' });
+      }
+    },
     theme(data) { applyTheme(data.theme); },
     recordings_loaded(data) {
       renderRecordings(data.recordings);
@@ -3397,11 +3433,11 @@ const Confirm = {
 // =====================================================================
 // Settings modal
 // =====================================================================
-// Lista de teclas disponiveis nos dropdowns de atalho. Os nomes batem
+// Teclas principais disponiveis no dropdown de atalho. Os nomes batem
 // EXATAMENTE com o que OBSHotkey.ParseHotkey/NameToVk espera no Delphi.
-// Mudancas aqui precisam de mudanca correspondente la.
+// Mudancas aqui precisam de mudanca correspondente la. Modificadores
+// (Ctrl/Shift/Alt/Win) sao checkboxes a parte, fora desta lista.
 const HOTKEY_KEY_GROUPS = [
-  { label: 'Modificadores', keys: ['Ctrl','Shift','Alt','Win'] },
   { label: 'Função', keys: [
       'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12']
   },
@@ -3422,6 +3458,29 @@ const HOTKEY_KEY_GROUPS = [
 const HOTKEY_MODIFIERS = ['Ctrl','Shift','Alt','Win'];
 function isHotkeyModifier(k) { return HOTKEY_MODIFIERS.includes(k); }
 
+// Validacao de hotkey e centralizada no backend (OBSHotkey.IsReservedHotkey +
+// HandleValidateHotkey em OBSBridge). Frontend manda 'validate_hotkey' e
+// espera 'hotkey_validation_result' { hotkey, ok, reason }. O backend e
+// a single source of truth — lista de combinacoes reservadas nao se
+// duplica aqui.
+let _pendingHotkeyValidation = null;
+function validateHotkeyWithBackend(hotkey) {
+  return new Promise((resolve) => {
+    // Cancela validacao anterior (se o user clicou Salvar duas vezes).
+    if (_pendingHotkeyValidation) _pendingHotkeyValidation({ ok: true, reason: '' });
+    _pendingHotkeyValidation = resolve;
+    Bridge.send('validate_hotkey', { hotkey });
+    // Timeout safety: se o backend nao responder em 2s, deixa passar
+    // (fail-open). Evita travar a UI se algo der errado.
+    setTimeout(() => {
+      if (_pendingHotkeyValidation === resolve) {
+        _pendingHotkeyValidation = null;
+        resolve({ ok: true, reason: '' });
+      }
+    }, 2000);
+  });
+}
+
 const Settings = {
   currentRecDir: '',
   currentCodec: 'auto',
@@ -3432,7 +3491,7 @@ const Settings = {
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
-    this._loadHotkeyIntoSelects(this.currentHotkey || '');
+    this._loadHotkeyIntoUi(this.currentHotkey || '');
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
@@ -3445,11 +3504,11 @@ const Settings = {
   pickFolder() {
     Bridge.send('pick_record_dir');
   },
-  save() {
+  async save() {
     try {
       const path = document.getElementById('settingsRecDir').value.trim();
       const codec = document.getElementById('settingsCodec').value;
-      const hotkey = this._readHotkeyFromSelects();
+      const hotkey = this._readHotkeyFromUi();
       const autostart = document.getElementById('settingsAutostart').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
@@ -3458,16 +3517,15 @@ const Settings = {
                 autostart: this.currentAutostart, minimizeOnRecord: this.currentMinimizeOnRecord,
                 notifyOnRecord: this.currentNotifyOnRecord } });
 
-      // Validacao: atalho com apenas modificadores e invalido — backend
-      // rejeitaria silenciosamente (logado como "spec invalido"). Avisa
-      // o user e NAO fecha o modal pra ele corrigir.
+      // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
+      // Cobre tanto spec invalido (so modificadores) quanto combinacoes
+      // reservadas pelo Windows. Se rejeitado, mostra Toast e mantem o
+      // modal aberto pro user corrigir.
       if (hotkey !== '') {
-        const parts = hotkey.split('+');
-        const hasMain = parts.some(p => !isHotkeyModifier(p));
-        if (!hasMain) {
-          Toast.show('Atalho inválido',
-            'Um atalho precisa ter pelo menos uma tecla principal (letra, número, F1-F24, Pause, etc). Modificadores sozinhos (Ctrl/Shift/Alt/Win) não funcionam.',
-            { warn: true, ttl: 6000 });
+        const validation = await validateHotkeyWithBackend(hotkey);
+        if (!validation.ok) {
+          Toast.show('Atalho inválido', validation.reason +
+            ' Escolha outra combinação.', { warn: true, ttl: 7000 });
           return;
         }
       }
@@ -3514,7 +3572,7 @@ const Settings = {
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
     if (sel) sel.value = this.currentCodec;
-    this._loadHotkeyIntoSelects(this.currentHotkey);
+    this._loadHotkeyIntoUi(this.currentHotkey);
     const as = document.getElementById('settingsAutostart');
     if (as) as.checked = this.currentAutostart;
     const mr = document.getElementById('settingsMinimizeOnRecord');
@@ -3526,56 +3584,13 @@ const Settings = {
     document.getElementById('settingsRecDir').value = path;
   },
 
-  // -------- Hotkey via dropdowns (4 slots) --------
-  // Cada slot mostra "Nao definido" + grupos de teclas. Regras:
-  //   - Tecla ja selecionada em outro slot nao aparece nos demais
-  //   - So 1 tecla "principal" (nao-modificador) permitida no total
-  //   - Modificadores (Ctrl/Shift/Alt/Win) podem repetir-se entre slots
-  //     so com restricao de duplicacao
-  // Combinacoes validas:
-  //   Pause                  (1 slot)
-  //   Ctrl+Shift+G           (3 slots)
-  //   Ctrl+Shift+Alt+G       (4 slots) — max
+  // -------- Hotkey via checkboxes (modificadores) + dropdown (tecla) --------
+  // 4 checkboxes (Ctrl/Shift/Alt/Win) controlam os modificadores.
+  // 1 dropdown lista as teclas principais (F1-F12, letras, numeros, etc).
+  // Combinacao final: [mods marcados na ordem canonica] + tecla principal.
 
   onHotkeyChange() {
-    // Rebuild apos qualquer mudanca pra refletir o filtro de duplicatas.
-    const vals = this._readHotkeySlotsRaw();
-    this._rebuildHotkeySelects(vals);
-    this._updateHotkeyPreview(vals);
-  },
-
-  _rebuildHotkeySelects(values) {
-    // Verifica se algum slot ja tem tecla nao-modificadora.
-    const nonModSelected = values.some(v => v && !isHotkeyModifier(v));
-    for (let i = 0; i < 4; i++) {
-      const sel = document.getElementById('settingsHotkey' + (i + 1));
-      if (!sel) continue;
-      const myVal = values[i] || '';
-      const others = values.filter((v, j) => j !== i && v);
-      // Tecla principal ja em outro slot (e nao a minha)? Bloqueia
-      // outras nao-modificadoras pra evitar combinacao invalida.
-      const hasOtherNonMod = others.some(v => !isHotkeyModifier(v)) ||
-        (nonModSelected && !isHotkeyModifier(myVal) && myVal === '');
-
-      sel.innerHTML = '';
-      // Item padrao
-      sel.appendChild(this._makeOpt('', 'Não definido'));
-
-      HOTKEY_KEY_GROUPS.forEach(group => {
-        const og = document.createElement('optgroup');
-        og.label = group.label;
-        group.keys.forEach(key => {
-          // Pula se outro slot ja tem essa exata tecla.
-          if (others.includes(key)) return;
-          // Se outra slot ja tem tecla principal, bloqueia mais
-          // teclas principais nesse slot (exceto a propria selecao).
-          if (hasOtherNonMod && !isHotkeyModifier(key) && key !== myVal) return;
-          og.appendChild(this._makeOpt(key, key));
-        });
-        if (og.children.length > 0) sel.appendChild(og);
-      });
-      sel.value = myVal;
-    }
+    this._updateHotkeyPreview();
   },
 
   _makeOpt(val, label) {
@@ -3585,48 +3600,61 @@ const Settings = {
     return o;
   },
 
-  _readHotkeySlotsRaw() {
-    const v = [];
-    for (let i = 0; i < 4; i++) {
-      const sel = document.getElementById('settingsHotkey' + (i + 1));
-      v.push(sel ? sel.value : '');
-    }
-    return v;
+  // Constroi as opcoes do dropdown de tecla principal. Roda 1x quando
+  // o modal abre (ou no _loadHotkeyIntoUi inicial).
+  _buildHotkeyKeyDropdown() {
+    const sel = document.getElementById('settingsHotkeyKey');
+    if (!sel) return;
+    // Preserva selecao atual se ja foi construido antes (re-abrir modal).
+    const prevValue = sel.value;
+    sel.innerHTML = '';
+    sel.appendChild(this._makeOpt('', 'Não definida'));
+    HOTKEY_KEY_GROUPS.forEach(group => {
+      const og = document.createElement('optgroup');
+      og.label = group.label;
+      group.keys.forEach(key => og.appendChild(this._makeOpt(key, key)));
+      sel.appendChild(og);
+    });
+    if (prevValue) sel.value = prevValue;
   },
 
-  // Le slots e monta a spec final no formato canonico do backend:
-  // modificadores primeiro (Ctrl, Shift, Alt, Win), tecla principal por ultimo.
-  _readHotkeyFromSelects() {
-    const vals = this._readHotkeySlotsRaw().filter(v => v);
-    const order = ['Ctrl','Shift','Alt','Win'];
-    const mods = order.filter(m => vals.includes(m));
-    const main = vals.filter(v => !isHotkeyModifier(v));
-    return [...mods, ...main].join('+');
+  // Le checkboxes + dropdown e monta a spec final no formato canonico
+  // do backend: Ctrl+Shift+Alt+Win+Tecla.
+  _readHotkeyFromUi() {
+    const parts = [];
+    if (document.getElementById('settingsHotkeyCtrl').checked)  parts.push('Ctrl');
+    if (document.getElementById('settingsHotkeyShift').checked) parts.push('Shift');
+    if (document.getElementById('settingsHotkeyAlt').checked)   parts.push('Alt');
+    if (document.getElementById('settingsHotkeyWin').checked)   parts.push('Win');
+    const key = document.getElementById('settingsHotkeyKey').value;
+    if (key) parts.push(key);
+    return parts.join('+');
   },
 
-  // Carrega uma spec ("Ctrl+Shift+F9" / "Pause" / "") nos slots.
-  _loadHotkeyIntoSelects(spec) {
-    const parts = (spec || '').split('+').map(s => s.trim()).filter(s => s);
-    // Ordena: modificadores primeiro (mantem ordem visual consistente)
-    const order = ['Ctrl','Shift','Alt','Win'];
-    const mods = order.filter(m => parts.includes(m));
-    const main = parts.filter(p => !isHotkeyModifier(p));
-    const ordered = [...mods, ...main];
-    while (ordered.length < 4) ordered.push('');
-    this._rebuildHotkeySelects(ordered);
-    this._updateHotkeyPreview(ordered);
+  // Carrega uma spec ("Ctrl+Shift+F9" / "Pause" / "") nos controles.
+  _loadHotkeyIntoUi(spec) {
+    const parts = (spec || '').split('+').map(s => s.trim()).filter(Boolean);
+    document.getElementById('settingsHotkeyCtrl').checked  = parts.includes('Ctrl');
+    document.getElementById('settingsHotkeyShift').checked = parts.includes('Shift');
+    document.getElementById('settingsHotkeyAlt').checked   = parts.includes('Alt');
+    document.getElementById('settingsHotkeyWin').checked   = parts.includes('Win');
+    const main = parts.find(p => !isHotkeyModifier(p)) || '';
+    this._buildHotkeyKeyDropdown();
+    document.getElementById('settingsHotkeyKey').value = main;
+    this._updateHotkeyPreview();
   },
 
-  _updateHotkeyPreview(vals) {
-    const spec = this._readHotkeyFromSelects();
+  _updateHotkeyPreview() {
+    const spec = this._readHotkeyFromUi();
     const el = document.getElementById('settingsHotkeyPreview');
     if (!el) return;
     if (spec)
-      el.innerHTML = 'Atalho atual: <code>' + spec + '</code>. Selecione ' +
-        '<b>Não definido</b> em todos os campos para desativar.';
+      el.innerHTML = 'Atalho atual: <code>' + spec + '</code>. ' +
+        'Desmarque todos os modificadores e selecione <b>Não definida</b> ' +
+        'para desativar.';
     else
-      el.innerHTML = 'Nenhum atalho definido. Selecione uma tecla em qualquer ' +
-        'campo para ativar o atalho global.';
+      el.innerHTML = 'Nenhum atalho definido. Selecione uma tecla principal ' +
+        '(e opcionalmente modificadores) para ativar o atalho global.';
   },
   // caps = { av1Hw, hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
   encoderCaps: null,

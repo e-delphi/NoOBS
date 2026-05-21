@@ -39,6 +39,12 @@ function FormatHotkey(AModifiers, AVk: UINT): string;
 function FormatHotkeyFromVk(AVk: UINT;
   ACtrl, AShift, AAlt, AWin: Boolean): string;
 
+// Retorna True se a combinacao e reservada pelo Windows (RegisterHotKey
+// nunca dispara) e preenche AReason com a explicacao. Usado como safety
+// net — a UI ja bloqueia antes de mandar, mas isso pega edicao manual de
+// config.json e combinacoes que escapem.
+function IsReservedHotkey(AModifiers, AVk: UINT; out AReason: string): Boolean;
+
 implementation
 
 uses
@@ -214,6 +220,92 @@ begin
   if AAlt   then Mods := Mods or MOD_ALT;
   if AWin   then Mods := Mods or MOD_WIN;
   Result := FormatHotkey(Mods, AVk);
+end;
+
+function IsReservedHotkey(AModifiers, AVk: UINT; out AReason: string): Boolean;
+// Match exato — Ctrl+Alt+Del bloqueia so a combinacao com esses dois
+// mods (nem mais, nem menos). Mantemos pequeno: so o que sabidamente
+// nunca dispara via RegisterHotKey no Windows 10/11.
+//
+// Espelho do RESERVED_HOTKEYS em ui/index.html. Mudancas devem ser
+// feitas nos dois lugares (a UI ja bloqueia antes de mandar, isso e
+// safety net pra edicao manual de config.json).
+const
+  M_C  = MOD_CONTROL;
+  M_S  = MOD_SHIFT;
+  M_A  = MOD_ALT;
+  M_W  = MOD_WIN;
+begin
+  Result := True;
+  AReason := '';
+
+  // Combinacoes com Ctrl / Alt.
+  if (AModifiers = (M_C or M_A)) and (AVk = VK_DELETE) then
+    AReason := 'Ctrl+Alt+Del é a chamada de atenção segura do Windows.'
+  else if (AModifiers = M_A) and (AVk = VK_TAB) then
+    AReason := 'Alt+Tab é o alternador de tarefas do Windows.'
+  else if (AModifiers = M_A) and (AVk = VK_F4) then
+    AReason := 'Alt+F4 fecha a janela atual no Windows.'
+  else if (AModifiers = M_A) and (AVk = VK_ESCAPE) then
+    AReason := 'Alt+Esc alterna entre janelas no Windows.'
+  else if (AModifiers = M_A) and (AVk = VK_SPACE) then
+    AReason := 'Alt+Space abre o menu de sistema da janela.'
+  else if (AModifiers = M_C) and (AVk = VK_ESCAPE) then
+    AReason := 'Ctrl+Esc abre o menu Iniciar do Windows.'
+
+  // Combinacoes com Win — shell intercepta antes do RegisterHotKey.
+  else if (AModifiers = M_W) and (AVk = Ord('L')) then
+    AReason := 'Win+L bloqueia a estação de trabalho no Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('D')) then
+    AReason := 'Win+D mostra a área de trabalho no Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('E')) then
+    AReason := 'Win+E abre o Explorador de Arquivos no Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('R')) then
+    AReason := 'Win+R abre a caixa Executar do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('I')) then
+    AReason := 'Win+I abre as Configurações do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('X')) then
+    AReason := 'Win+X abre o menu de power user do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('A')) then
+    AReason := 'Win+A abre a Central de Ações do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('S')) then
+    AReason := 'Win+S abre a Pesquisa do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('Q')) then
+    AReason := 'Win+Q abre a Pesquisa do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('M')) then
+    AReason := 'Win+M minimiza todas as janelas no Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('P')) then
+    AReason := 'Win+P abre o seletor de projeção do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('V')) then
+    AReason := 'Win+V abre o histórico da área de transferência do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('G')) then
+    AReason := 'Win+G abre a Game Bar do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('K')) then
+    AReason := 'Win+K abre o Conectar do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('H')) then
+    AReason := 'Win+H abre o ditado por voz do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('U')) then
+    AReason := 'Win+U abre a Central de Facilidade de Acesso do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('B')) then
+    AReason := 'Win+B foca na bandeja do sistema do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('T')) then
+    AReason := 'Win+T foca na barra de tarefas do Windows.'
+  else if (AModifiers = M_W) and (AVk = Ord('W')) then
+    AReason := 'Win+W abre os Widgets do Windows.'
+  else if (AModifiers = M_W) and (AVk = VK_TAB) then
+    AReason := 'Win+Tab abre a Visão de Tarefas do Windows.'
+  else if (AModifiers = M_W) and ((AVk = VK_UP) or (AVk = VK_DOWN) or
+                                  (AVk = VK_LEFT) or (AVk = VK_RIGHT)) then
+    AReason := 'Win+Setas controla o snap de janelas no Windows.'
+  else if (AModifiers = M_W) and (AVk = VK_OEM_PERIOD) then
+    AReason := 'Win+. abre o seletor de emojis do Windows.'
+  else if (AModifiers = M_W) and (AVk = VK_OEM_1) then
+    AReason := 'Win+; abre o seletor de emojis do Windows.'
+  else if (AModifiers = (M_W or M_S)) and (AVk = Ord('S')) then
+    AReason := 'Win+Shift+S abre a Captura de Tela do Windows.'
+
+  else
+    Result := False;
 end;
 
 end.

@@ -80,12 +80,15 @@ Section "NoOBS" SecMain
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
-    ; Atalhos — SetOutPath define o "Start in" do .lnk
+    ; Atalhos do Menu Iniciar (sempre criados — SetOutPath define o "Start in" do .lnk)
     SetOutPath "$INSTDIR\bin\64bit"
     CreateDirectory "$SMPROGRAMS\NoOBS"
     CreateShortcut "$SMPROGRAMS\NoOBS\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
     CreateShortcut "$SMPROGRAMS\NoOBS\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
-    CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+
+    ; Marca primeira execucao — OBSBridge le e abre o modal de Configuracoes
+    ; automaticamente. Sai sozinho do flag depois de aberto.
+    WriteRegDWORD HKCU "Software\NoOBS" "FirstRun" 1
 
     ; Registro - Adicionar/Remover Programas
     WriteRegStr HKCU "Software\NoOBS" "InstallDir" "$INSTDIR"
@@ -98,20 +101,27 @@ Section "NoOBS" SecMain
 SectionEnd
 
 ;--------------------------------
-; Componente opcional: Iniciar com Windows
-; Habilitado por padrao. User pode desmarcar na pagina Componentes.
-; Registra "/tray" — abre minimizado na bandeja ao logar.
+; Componentes opcionais (vem DESMARCADOS por padrao — /o)
+;   - Iniciar com Windows: registra "/tray" no Run do HKCU
+;   - Atalho na area de trabalho
 ;--------------------------------
-Section "Iniciar com o Windows" SecAutostart
+Section /o "Iniciar com o Windows" SecAutostart
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /tray'
 SectionEnd
 
-LangString DESC_SecMain      ${LANG_PORTUGUESEBR} "Arquivos do NoOBS (obrigatorio)."
-LangString DESC_SecAutostart ${LANG_PORTUGUESEBR} "Inicia o NoOBS automaticamente quando o Windows logar, minimizado na bandeja do sistema. Voce pode mudar isso depois nas configuracoes."
+Section /o "Atalho na área de trabalho" SecDesktopShortcut
+    SetOutPath "$INSTDIR\bin\64bit"
+    CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+SectionEnd
+
+LangString DESC_SecMain             ${LANG_PORTUGUESEBR} "Arquivos do NoOBS (obrigatorio)."
+LangString DESC_SecAutostart        ${LANG_PORTUGUESEBR} "Inicia o NoOBS automaticamente quando o Windows logar, minimizado na bandeja do sistema. Voce pode mudar isso depois nas configuracoes."
+LangString DESC_SecDesktopShortcut  ${LANG_PORTUGUESEBR} "Cria um atalho do NoOBS na area de trabalho."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain}      $(DESC_SecMain)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart} $(DESC_SecAutostart)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain}            $(DESC_SecMain)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart}       $(DESC_SecAutostart)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktopShortcut} $(DESC_SecDesktopShortcut)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ;--------------------------------

@@ -66,6 +66,14 @@ var
 // ativo, ou pelo WM_CLOSE quando o fluxo manda esconder.
 procedure HideToTray;
 
+// Instala o icone na bandeja SEM esconder a janela. Usado quando o user
+// ativa "Iniciar com Windows" — esperamos o icone visivel imediato.
+// Idempotente (no-op se ja instalado).
+procedure EnsureTrayIcon;
+
+// Remove o icone da bandeja. Idempotente.
+procedure RemoveTrayIcon;
+
 // Registra atalho global do Windows. AModifiers e combinacao de
 // MOD_ALT/MOD_CONTROL/MOD_SHIFT/MOD_WIN (Winapi.Windows). AVk e o
 // virtual-key (VK_F9, etc). Retorna True se registrado com sucesso.
@@ -87,7 +95,8 @@ uses
   OBSConfig,
   OBSLog,
   OBSStartupCheck,
-  OBSTray;
+  OBSTray,
+  OBSAutostart;
 
 // ---------------------------------------------------------------------
 // Fallback de ICoreWebView2Settings3 pra Delphi 11
@@ -787,6 +796,17 @@ begin
   OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
 end;
 
+procedure EnsureTrayIcon;
+begin
+  if MainWindow = 0 then Exit;
+  OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+end;
+
+procedure RemoveTrayIcon;
+begin
+  OBSTray.RemoveTrayIcon;
+end;
+
 procedure OnTrayCommandHandler(ACommand: Integer);
 begin
   case ACommand of
@@ -819,7 +839,12 @@ begin
       else
         ShowWindow(MainWindow, SW_SHOW);
       SetForegroundWindow(MainWindow);
-      OBSTray.RemoveTrayIcon;
+      // Mantem o icone na bandeja quando o user vai usar tray-mode pra
+      // valer (autostart ON). Aberturas/fechamentos via [X] vao ficar
+      // todas alternando, e ter o icone visivel ajuda a entender que o
+      // app continua "vivo" mesmo com a janela escondida.
+      if not IsAutoStartEnabled then
+        OBSTray.RemoveTrayIcon;
     end;
     OBSTray.ID_TRAY_QUIT:
     begin

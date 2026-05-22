@@ -40,7 +40,9 @@ function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>
 // (5 slots). So devices enabled recebem track isolada — disabled
 // retornam 0. Quando ha excedente, agrupa outputs primeiro (parcial);
 // se outputs sozinhos nao bastarem, agrupa mics tambem. Default sempre
-// preservado individual quando possivel.
+// preservado individual quando possivel. **A faixa agrupada (com 2+
+// devices) fica sempre na ultima posicao usada (track 6 quando todos
+// os 5 slots isolados sao preenchidos).**
 //
 // Esta funcao e o "single source of truth" do agrupamento — tanto
 // BuildAndStartRecording (gravacao real) quanto BuildAudioJsonWithTracks
@@ -180,13 +182,13 @@ procedure ComputeAudioTrackAssignments(
 //   Track 1 = Mix (sempre)
 //   Track 2 = mic default (se habilitado)
 //   Track 3 = output default (se habilitado)
-//   Track 4..N = outros mics (com grupo se nao couber individual)
-//   Track N+1..6 = outros outputs (com grupo se nao couber individual)
+//   Track 4..N = outros mics individuais
+//   Track N+1..5 = outros outputs individuais
+//   Track 6 = faixa agrupada (quando ha mais devices do que slots)
 //
 // Defaults sempre individuais — agrupamento so atinge nao-defaults.
-// Se "outros mics" excederem os slots disponiveis, agrupamento volta
-// pros outros mics tambem (todos num unico grupo). Mics agrupam por
-// ultimo (depois de exaurir todas as opcoes de output).
+// A faixa agrupada ocupa SEMPRE a posicao 6 (ultima) quando existe —
+// individuais ficam em 2..5, sobra apenas se nao houver agrupamento.
 const
   ISOLATED_SLOTS = 5;  // tracks 2-6
 var
@@ -198,6 +200,11 @@ var
   OutputGroupSize: Integer;
   GroupOtherMics: Boolean;
   MicGroupTrack, OutGroupTrack: Integer;
+  // Vars do post-processing (faixa agrupada vai pro final)
+  TrackCount: array[0..6] of Integer;
+  Remap: array[0..6] of Integer;
+  Individuals, Groups: TArray<Integer>;
+  t, NewTrack, HasGroup: Integer;
 begin
   SetLength(AMicTracks, Length(AMicEnabled));
   SetLength(AOutTracks, Length(AOutEnabled));
@@ -328,6 +335,70 @@ begin
 
   ATotalTracks := NextTrack - 1;
   if ATotalTracks > 6 then ATotalTracks := 6;
+
+  // ===================================================================
+  // Post-processing: faixa(s) agrupada(s) ao FINAL.
+  //
+  // A logica anterior atribui tracks na ordem que faz sentido pra
+  // priorizacao (defaults primeiro, mics individuais, outputs com
+  // grupo no meio se necessario). Mas o user pediu que a faixa
+  // agrupada (track com >1 device) fique sempre na ULTIMA posicao
+  // usada — ex: com 5 individuais + 1 grupo, o grupo vai pra track 6.
+  //
+  // Estrategia: conta devices por track; separa em "individuais"
+  // (count=1) e "grupos" (count>=2) preservando a ordem original;
+  // remapeia pra que individuais venham primeiro (tracks 2..) e
+  // grupos depois (tracks ..6).
+  // ===================================================================
+  for t := 0 to 6 do begin TrackCount[t] := 0; Remap[t] := t; end;
+  for j := 0 to High(AMicTracks) do
+    if (AMicTracks[j] >= 2) and (AMicTracks[j] <= 6) then
+      Inc(TrackCount[AMicTracks[j]]);
+  for j := 0 to High(AOutTracks) do
+    if (AOutTracks[j] >= 2) and (AOutTracks[j] <= 6) then
+      Inc(TrackCount[AOutTracks[j]]);
+
+  HasGroup := 0;
+  SetLength(Individuals, 0);
+  SetLength(Groups, 0);
+  for t := 2 to 6 do
+  begin
+    if TrackCount[t] = 1 then
+    begin
+      SetLength(Individuals, Length(Individuals) + 1);
+      Individuals[High(Individuals)] := t;
+    end
+    else if TrackCount[t] >= 2 then
+    begin
+      SetLength(Groups, Length(Groups) + 1);
+      Groups[High(Groups)] := t;
+      Inc(HasGroup);
+    end;
+  end;
+
+  // So remapeia se ha pelo menos um grupo (caso comum sem grouping
+  // nao precisa de remap).
+  if HasGroup > 0 then
+  begin
+    // Reconstroi a numeracao: individuais 2..N, grupos N+1..M.
+    NewTrack := 2;
+    for j := 0 to High(Individuals) do
+    begin
+      Remap[Individuals[j]] := NewTrack;
+      Inc(NewTrack);
+    end;
+    for j := 0 to High(Groups) do
+    begin
+      Remap[Groups[j]] := NewTrack;
+      Inc(NewTrack);
+    end;
+
+    // Aplica o remap em todos os devices.
+    for j := 0 to High(AMicTracks) do
+      if AMicTracks[j] > 0 then AMicTracks[j] := Remap[AMicTracks[j]];
+    for j := 0 to High(AOutTracks) do
+      if AOutTracks[j] > 0 then AOutTracks[j] := Remap[AOutTracks[j]];
+  end;
 end;
 
 function BuildTrackNames(ATotalTracks: Integer;

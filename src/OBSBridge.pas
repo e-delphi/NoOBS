@@ -45,6 +45,8 @@ uses
   System.IOUtils,
   System.Classes,
   System.NetEncoding,
+  Vcl.Graphics,
+  Vcl.Imaging.PngImage,
   OBSUI,
   OBSLog,
   OBSScene,
@@ -134,6 +136,12 @@ var
   RecordingStartTickMs: Cardinal = 0;
   ThumbBusy: Boolean = False;       // evita pile-up se o tick anterior atrasar
   ThumbThread: TThumbTimerThread = nil;
+  // True enquanto o modal de player de video esta aberto. UI envia o
+  // estado via mensagem 'player_state'. Quando aberto, suspendemos os
+  // audio meters e a captura de thumbs de monitor — a sidebar do app
+  // esta escondida atras do modal, esses updates so geram reflow
+  // desperdicado e roubam GPU/CPU do video player.
+  PlayerOpen: Boolean = False;
   LastRecordingPath: string = '';
   LastRecordingDuration: Integer = 0;
   // Snapshot de monitores capturado no inicio da gravacao. Usado pra
@@ -672,6 +680,45 @@ begin
   SetConfigStr('theme', ATheme);
 end;
 
+function ConsumeFirstRunFlag: Boolean;
+// Le HKCU\Software\NoOBS\FirstRun (escrito pelo instalador na 1a
+// instalacao). Se = 1, retorna True e apaga o valor — assim so abre
+// o modal de Configuracoes uma unica vez.
+const
+  REG_KEY = 'Software\NoOBS';
+  REG_NAME = 'FirstRun';
+var
+  Key: HKEY;
+  DataType, DataSize, Value: DWORD;
+begin
+  Result := False;
+  if RegOpenKeyExW(HKEY_CURRENT_USER, REG_KEY, 0,
+    KEY_QUERY_VALUE or KEY_SET_VALUE, Key) <> ERROR_SUCCESS then Exit;
+  try
+    DataSize := SizeOf(Value);
+    if (RegQueryValueExW(Key, REG_NAME, nil, @DataType, @Value, @DataSize) =
+        ERROR_SUCCESS) and (DataType = REG_DWORD) and (Value = 1) then
+    begin
+      Result := True;
+      RegDeleteValueW(Key, REG_NAME);
+    end;
+  finally
+    RegCloseKey(Key);
+  end;
+end;
+
+procedure PushOpenSettings;
+// Solicita que a UI abra o modal de Configuracoes (1a execucao apos instalacao).
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'open_settings');
+  PostOwned(Obj);
+end;
+
+procedure PushAppIcon; forward;
+
 procedure PushInitPending;
 var
   Obj: TJSONObject;
@@ -832,9 +879,35 @@ end;
 procedure TThumbTimerThread.Execute;
 var
   Step, Slept: Cardinal;
+  WasSuspended: Boolean;
 begin
+  WasSuspended := False;
   while not Terminated do
   begin
+    if Terminated or IsShuttingDown then Break;
+
+    // Captura PRIMEIRO, dorme DEPOIS — assim a 1a thumb aparece quase
+    // instantaneo (em vez de esperar 500ms antes de qualquer captura).
+    // Suspende enquanto o player de video esta aberto (BitBlt + JPEG
+    // encode e caro e os previews estao escondidos atras do modal).
+    if PlayerOpen then
+    begin
+      if not WasSuspended then
+      begin
+        Log('ThumbThread: SUSPENSO (player aberto)');
+        WasSuspended := True;
+      end;
+    end
+    else
+    begin
+      if WasSuspended then
+      begin
+        Log('ThumbThread: RETOMADO (player fechado)');
+        WasSuspended := False;
+      end;
+      try PushMonitorThumbs; except end;
+    end;
+
     // Sleep em pedacos de 100ms pra terminar rapido no shutdown.
     Slept := 0;
     while (Slept < FIntervalMs) and (not Terminated) do
@@ -844,9 +917,6 @@ begin
       Sleep(Step);
       Inc(Slept, Step);
     end;
-    if Terminated or IsShuttingDown then Break;
-
-    try PushMonitorThumbs; except end;
   end;
 end;
 
@@ -1531,6 +1601,7 @@ begin
   Log('DoInit: inicio');
 
   PushTheme;
+  PushAppIcon;
 
   try StartPlayerServer; except on E: Exception do
     Log('Player: falha ao subir servidor: %s', [E.Message]); end;
@@ -1616,6 +1687,20 @@ begin
 
   Initialized := True;
   Log('DoInit: pronto (sem OBS — sobe na hora da gravacao).');
+
+  // Se "Iniciar com Windows" esta ativo, garante o icone na bandeja
+  // mesmo com a janela aberta (sinaliza que o app vai pra bandeja ao
+  // fechar). Em modo /tray o icone ja foi instalado em OBSUI.Run.
+  if OBSAutostart.IsAutoStartEnabled then
+    OBSUI.EnsureTrayIcon;
+
+  // 1a execucao apos instalacao: abre o modal de Configuracoes pra
+  // o user ajustar preferencias antes de comecar a usar.
+  if ConsumeFirstRunFlag then
+  begin
+    Log('DoInit: primeira execucao detectada — abrindo Configuracoes.');
+    PushOpenSettings;
+  end;
 end;
 
 // =====================================================================
@@ -1852,6 +1937,19 @@ begin
     Exit;
   end;
   ShellExecute(0, 'open', PChar(APath), nil, nil, SW_SHOW);
+end;
+
+procedure HandleOpenUrl(const AUrl: string);
+// Abre URL no browser padrao via ShellExecute. So aceita http(s) pra
+// evitar abuso (UI poderia mandar file:// etc).
+begin
+  if (AUrl = '') then Exit;
+  if not (AUrl.StartsWith('http://') or AUrl.StartsWith('https://')) then
+  begin
+    Log('HandleOpenUrl: URL rejeitada (nao http/https): %s', [AUrl]);
+    Exit;
+  end;
+  ShellExecute(0, 'open', PChar(AUrl), nil, nil, SW_SHOWNORMAL);
 end;
 
 procedure PushPlayPending(const APath: string);
@@ -2109,6 +2207,18 @@ procedure HandleSetAutostart(AEnable: Boolean);
 begin
   OBSAutostart.SetAutoStart(AEnable);
   Log('Autostart: %s', [BoolToStr(AEnable, True)]);
+  // Reflete na bandeja imediato: com autostart ON queremos icone visivel
+  // mesmo com a janela aberta (sinaliza que o app vai voltar pra bandeja
+  // ao fechar). Com autostart OFF e janela aberta, nao precisa do icone.
+  if AEnable then
+    OBSUI.EnsureTrayIcon
+  else if MainWindowHandle <> 0 then
+  begin
+    // So remove se a janela esta visivel (caso contrario o app esta
+    // minimizado na bandeja e tirar o icone deixaria o user sem acesso).
+    if IsWindowVisible(MainWindowHandle) then
+      OBSUI.RemoveTrayIcon;
+  end;
 end;
 
 procedure HandleSetMinimizeOnRecord(AEnable: Boolean);
@@ -2279,6 +2389,8 @@ begin
       HandleRenameRecording(GetStrField(Obj, 'id'), GetStrField(Obj, 'newName'))
     else if MsgType = 'open_recording' then
       HandleOpenRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'open_url' then
+      HandleOpenUrl(GetStrField(Obj, 'url'))
     else if MsgType = 'open_record_dir' then
       HandleOpenRecordDir
     else if MsgType = 'play_recording' then
@@ -2312,10 +2424,147 @@ begin
     else if MsgType = 'set_theme' then
       HandleSetTheme(GetStrField(Obj, 'theme'))
     else if MsgType = 'toggle_fullscreen' then
-      OBSUI.ToggleFullscreen;
+      OBSUI.ToggleFullscreen
+    else if MsgType = 'player_state' then
+    begin
+      // UI avisa que o modal de player abriu/fechou. Suspende audio
+      // meters e thumb capture enquanto aberto pra evitar trabalho
+      // desnecessario competindo com o video player.
+      PlayerOpen := GetBoolField(Obj, 'open');
+      Log('PlayerOpen=%s', [BoolToStr(PlayerOpen, True)]);
+    end;
   finally
     Obj.Free;
   end;
+end;
+
+procedure PushAppIcon;
+// Envia o icone do app como data URL. Extrai o HICON do recurso
+// MAINICON (criado automaticamente pelo Delphi a partir do icon.ico
+// vinculado ao projeto) e converte pra PNG com canal alpha explicito.
+//
+// Pegadinhas evitadas:
+//  1. Nao usar DrawIconEx — escreve pixels pre-multiplicados (alpha
+//     misturado no RGB), o PNG resultante fica com a base escurecida.
+//  2. Nao usar TPngImage.Assign(TBitmap) — perde o canal alpha mesmo
+//     com pf32bit + afDefined.
+//
+// Abordagem correta: GetIconInfo retorna o hbmColor (bitmap interno
+// do icone com BGRA cru). GetDIBits le os bytes diretos sem mexer
+// no alpha. Copia pra TPngImage criado como COLOR_RGBALPHA, com a
+// Scanline (RGB) e AlphaScanline (canal alpha) preenchidas separadas.
+const
+  REQUESTED_SIZE = 256;  // .ico tem 256 — pedimos esse pra qualidade maxima
+var
+  HIco: HICON;
+  IconInfo: TIconInfo;
+  BmInfo: Winapi.Windows.TBitmap;
+  Dib: TBitmapInfo;
+  Pixels: array of TRGBQuad;
+  W, H, X, Y: Integer;
+  ScreenDC: HDC;
+  Png: TPngImage;
+  PngRow: PRGBTriple;
+  AlphaRow: PByteArray;
+  Src: PRGBQuad;
+  Stream: TMemoryStream;
+  Bytes: TBytes;
+  Base64: string;
+  Obj: TJSONObject;
+begin
+  HIco := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
+    REQUESTED_SIZE, REQUESTED_SIZE, LR_DEFAULTCOLOR);
+  if HIco = 0 then HIco := LoadIcon(HInstance, 'MAINICON');
+  if HIco = 0 then
+  begin
+    Log('PushAppIcon: MAINICON nao encontrado.');
+    Exit;
+  end;
+
+  try
+    ZeroMemory(@IconInfo, SizeOf(IconInfo));
+    if not GetIconInfo(HIco, IconInfo) then Exit;
+    try
+      if IconInfo.hbmColor = 0 then Exit;  // icone monocromatico — ignora
+
+      // Descobre o tamanho real do bitmap de cor do icone.
+      ZeroMemory(@BmInfo, SizeOf(BmInfo));
+      if GetObject(IconInfo.hbmColor, SizeOf(BmInfo), @BmInfo) = 0 then Exit;
+      W := BmInfo.bmWidth;
+      H := BmInfo.bmHeight;
+      if (W <= 0) or (H <= 0) then Exit;
+
+      // Configura DIB de destino: 32-bit, top-down (biHeight negativo),
+      // sem compressao. GetDIBits copia exatamente os bytes BGRA do
+      // bitmap do icone — pra icones 32-bit modernos, o byte de alpha
+      // (rgbReserved) ja vem com os valores corretos do .ico, sem
+      // pre-multiplicacao.
+      ZeroMemory(@Dib, SizeOf(Dib));
+      Dib.bmiHeader.biSize        := SizeOf(TBitmapInfoHeader);
+      Dib.bmiHeader.biWidth       := W;
+      Dib.bmiHeader.biHeight      := -H;  // negativo = top-down
+      Dib.bmiHeader.biPlanes      := 1;
+      Dib.bmiHeader.biBitCount    := 32;
+      Dib.bmiHeader.biCompression := BI_RGB;
+
+      SetLength(Pixels, W * H);
+      ScreenDC := GetDC(0);
+      try
+        if GetDIBits(ScreenDC, IconInfo.hbmColor, 0, H,
+             @Pixels[0], Dib, DIB_RGB_COLORS) = 0 then Exit;
+      finally
+        ReleaseDC(0, ScreenDC);
+      end;
+
+      // Cria PNG com canal alpha explicito (COLOR_RGBALPHA).
+      Png := TPngImage.CreateBlank(COLOR_RGBALPHA, 8, W, H);
+      try
+        for Y := 0 to H - 1 do
+        begin
+          PngRow   := PRGBTriple(Png.Scanline[Y]);
+          AlphaRow := PByteArray(Png.AlphaScanline[Y]);
+          Src      := @Pixels[Y * W];
+          for X := 0 to W - 1 do
+          begin
+            PngRow^.rgbtBlue  := Src^.rgbBlue;
+            PngRow^.rgbtGreen := Src^.rgbGreen;
+            PngRow^.rgbtRed   := Src^.rgbRed;
+            AlphaRow^[X]      := Src^.rgbReserved;
+            Inc(PngRow);
+            Inc(Src);
+          end;
+        end;
+
+        Stream := TMemoryStream.Create;
+        try
+          Png.SaveToStream(Stream);
+          Stream.Position := 0;
+          SetLength(Bytes, Stream.Size);
+          if Stream.Size > 0 then
+            Stream.ReadBuffer(Bytes[0], Stream.Size);
+          Base64 := TNetEncoding.Base64.EncodeBytesToString(Bytes);
+          Base64 := StringReplace(Base64, #13#10, '', [rfReplaceAll]);
+          Base64 := StringReplace(Base64, #10,    '', [rfReplaceAll]);
+        finally
+          Stream.Free;
+        end;
+      finally
+        Png.Free;
+      end;
+    finally
+      // GetIconInfo aloca hbmColor e hbmMask — temos que liberar.
+      if IconInfo.hbmColor <> 0 then DeleteObject(IconInfo.hbmColor);
+      if IconInfo.hbmMask  <> 0 then DeleteObject(IconInfo.hbmMask);
+    end;
+  finally
+    DestroyIcon(HIco);
+  end;
+
+  if Base64 = '' then Exit;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'app_icon');
+  Obj.AddPair('dataUrl', 'data:image/png;base64,' + Base64);
+  PostOwned(Obj);
 end;
 
 function LoadResourceAsDataUrl(const AResName, AMime: string): string;
@@ -2414,7 +2663,11 @@ begin
   end
   else if ATimerId = TIMER_AUDIO_METER then
   begin
-    PushAudioMetersFromWin;
+    // Suspende meters quando o player de video esta aberto — a sidebar
+    // com os bars de nivel esta escondida atras do modal e atualiza-la
+    // so gera reflow inutil + concorre por CPU com o video.
+    if not PlayerOpen then
+      PushAudioMetersFromWin;
   end
   else if ATimerId = TIMER_OBS_WARMUP then
   begin

@@ -72,6 +72,14 @@
     user-select: text;
     -webkit-user-select: text;
   }
+  /* Bloqueia drag-and-save de imagens (logo do app, thumbs de gravacao,
+     logos de GPU, etc). Sem isso o usuario pode arrastar pra fora do
+     app e salvar. Listener JS global complementa pra cobrir edge cases. */
+  img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    -webkit-touch-callout: none;
+  }
   /* Margem externa fica vermelha durante a gravacao */
   body.recording {
     background: var(--danger-2);
@@ -104,11 +112,6 @@
     transition: all 0.12s;
   }
   .icon-btn:hover { background: var(--panel-2); color: var(--text); }
-
-  /* Mostra o sol quando esta no dark (clicar troca pra light); lua no light. */
-  .theme-icon { display: none; }
-  [data-theme="dark"]  .theme-sun  { display: block; }
-  [data-theme="light"] .theme-moon { display: block; }
 
   /* === Main === */
   .main {
@@ -1561,7 +1564,10 @@
   .settings-overlay.visible { opacity: 1; visibility: visible; }
   .settings-modal {
     width: 100%;
-    max-width: 520px;
+    max-width: 760px;
+    /* Limita altura pra caber em telas 1366x768 (descontando taskbar +
+       titlebar). Body rola se passar disso. */
+    max-height: min(92vh, 660px);
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -1571,11 +1577,12 @@
     flex-direction: column;
   }
   .settings-header {
-    padding: 14px 18px;
+    padding: 10px 18px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-shrink: 0;
   }
   .settings-header h3 {
     margin: 0;
@@ -1584,11 +1591,133 @@
     color: var(--text);
     flex: 1;
   }
-  .settings-body { padding: 18px; }
+  /* Theme toggle no header: espacamento extra antes dos botoes. */
+  .settings-header .theme-toggle { margin-right: 8px; }
+  /* Botao "?" de ajuda/sobre no header das configuracoes. */
+  .settings-help-btn {
+    background: transparent;
+    border: 0;
+    color: var(--text-2);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    transition: background 120ms, color 120ms;
+  }
+  .settings-help-btn:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+  }
+  /* About modal — variante mais estreita do settings modal. */
+  .about-modal { max-width: 460px; }
+  .about-body { padding: 18px; }
+  .about-logo {
+    text-align: center;
+    padding-bottom: 14px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border-1);
+  }
+  .about-icon {
+    width: 48px;
+    height: 48px;
+    display: block;
+    margin: 0 auto 8px;
+    color: var(--danger, #ef4444);
+  }
+  .about-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-1);
+  }
+  .about-tagline {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+  .about-info { display: flex; flex-direction: column; gap: 8px; }
+  .about-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .about-label {
+    flex-shrink: 0;
+    width: 96px;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  .about-value { color: var(--text-1); }
+  .about-link {
+    color: var(--success);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .about-link:hover { text-decoration: underline; }
+  .about-footer-note {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-1);
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+  /* Body rola quando os campos nao cabem na altura maxima do modal. */
+  .settings-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  /* Compacta gap entre campos pra economizar altura. */
+  .settings-body > .settings-field + .settings-field,
+  .settings-body > .settings-divider + .settings-field,
+  .settings-body > .settings-field + .settings-divider {
+    margin-top: 10px;
+  }
   .settings-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+  /* Divisor sutil entre campos de configuracao. */
+  .settings-divider {
+    border: 0;
+    border-top: 1px solid var(--border-1);
+    margin: 6px 0;
+  }
+  /* Toggle de tema: 2 botoes segmentados (Claro / Escuro). */
+  .theme-toggle {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border-1);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+    align-self: flex-start;
+  }
+  .theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 120ms, color 120ms;
+  }
+  .theme-toggle-btn:hover { color: var(--text-1); }
+  .theme-toggle-btn.active {
+    background: var(--surface-1);
+    color: var(--text-1);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
   }
   .settings-field label {
     font-size: 12px;
@@ -1692,12 +1821,17 @@
     color: var(--text-3);
     line-height: 1.4;
   }
+  /* Logo do fabricante da GPU ao lado direito do dropdown de codec.
+     Mora dentro do mesmo .settings-input-row do dropdown — assim o gap
+     label-para-row fica identico aos outros campos. Logo centralizado
+     no eixo cross sem afetar a altura da row (dropdown define a altura). */
   .settings-gpu-logo {
-    width: 128px;
-    height: 128px;
+    height: 32px;
+    width: auto;
+    max-width: 80px;
     object-fit: contain;
+    flex-shrink: 0;
     align-self: center;
-    margin-top: 4px;
     display: none;  /* so aparece quando data-show=1 (vendor detectado). */
   }
   .settings-gpu-logo[data-show="1"] { display: block; }
@@ -1719,12 +1853,13 @@
   }
   .settings-btn.primary:hover { filter: brightness(1.1); }
   .settings-footer {
-    padding: 12px 18px;
+    padding: 10px 18px;
     border-top: 1px solid var(--border);
     display: flex;
     justify-content: flex-end;
     gap: 8px;
     background: var(--panel-2);
+    flex-shrink: 0;
   }
 
   /* ===== Confirm modal ===== */
@@ -1911,6 +2046,36 @@
   <div class="settings-modal">
     <div class="settings-header">
       <h3>Configurações</h3>
+      <div class="theme-toggle" id="settingsTheme">
+        <button type="button" class="theme-toggle-btn" data-theme="light"
+                onclick="Settings.setTheme('light')" title="Tema claro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+          <span>Claro</span>
+        </button>
+        <button type="button" class="theme-toggle-btn" data-theme="dark"
+                onclick="Settings.setTheme('dark')" title="Tema escuro">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <span>Escuro</span>
+        </button>
+      </div>
+      <button class="settings-help-btn" onclick="About.open()" title="Sobre o NoOBS">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </button>
       <button class="player-close" onclick="Settings.close()" title="Fechar">×</button>
     </div>
     <div class="settings-body">
@@ -1923,20 +2088,22 @@
       </div>
       <div class="settings-field">
         <label>Codec de vídeo</label>
-        <select class="settings-input" id="settingsCodec">
-          <option value="auto">Automático (recomendado)</option>
-          <option value="av1-hw">AV1 — hardware</option>
-          <option value="hevc-hw">HEVC / H.265 — hardware</option>
-          <option value="h264-hw">H.264 — hardware</option>
-          <option value="h264-sw">H.264 — software (x264, CPU)</option>
-        </select>
+        <div class="settings-input-row">
+          <select class="settings-input" id="settingsCodec">
+            <option value="auto">Automático (recomendado)</option>
+            <option value="av1-hw">AV1 — hardware</option>
+            <option value="hevc-hw">HEVC / H.265 — hardware</option>
+            <option value="h264-hw">H.264 — hardware</option>
+            <option value="h264-sw">H.264 — software (x264, CPU)</option>
+          </select>
+          <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
+        </div>
         <div class="settings-hint" id="settingsCodecHint">
           Automático escolhe a melhor opção disponível na ordem
           AV1 hardware → HEVC hardware → H.264 hardware → H.264
           software. Use uma escolha manual só se souber o que está
           fazendo.
         </div>
-        <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
       </div>
       <div class="settings-field">
         <label>Atalho global para iniciar/parar gravação</label>
@@ -1957,17 +2124,18 @@
           <code>Ctrl+Shift+G</code>.
         </div>
       </div>
+      <hr class="settings-divider">
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutostart">
           <span>Iniciar com o Windows (abre minimizado na bandeja)</span>
         </label>
         <div class="settings-hint">
-          O NoOBS adiciona uma entrada no auto-start do Windows
-          (HKCU\Run). Ao logar, o app sobe escondido na bandeja
+          Ao logar no Windows, o NoOBS sobe escondido na bandeja
           do sistema — clique no ícone pra abrir.
         </div>
       </div>
+      <hr class="settings-divider">
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsMinimizeOnRecord">
@@ -1980,6 +2148,7 @@
           continua funcionando pra parar.
         </div>
       </div>
+      <hr class="settings-divider">
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsNotifyOnRecord">
@@ -1996,6 +2165,48 @@
     <div class="settings-footer">
       <button class="settings-btn" onclick="Settings.close()">Cancelar</button>
       <button class="settings-btn primary" onclick="Settings.save()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== About modal ===== -->
+<div class="settings-overlay" id="aboutOverlay">
+  <div class="settings-modal about-modal">
+    <div class="settings-header">
+      <h3>Sobre o NoOBS</h3>
+      <button class="player-close" onclick="About.close()" title="Fechar">×</button>
+    </div>
+    <div class="settings-body about-body">
+      <div class="about-logo">
+        <img id="aboutAppIcon" class="about-icon" alt="NoOBS"
+             style="display:none">
+        <svg id="aboutAppIconFallback" class="about-icon"
+             viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="12" r="4" fill="currentColor"/>
+        </svg>
+        <div class="about-name">NoOBS</div>
+        <div class="about-tagline">Gravador de tela simples — OBS embarcado</div>
+      </div>
+      <div class="about-info">
+        <div class="about-row">
+          <span class="about-label">Autor</span>
+          <span class="about-value">Eduardo (e-delphi)</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">Repositório</span>
+          <span class="about-link" role="link" tabindex="0"
+                onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
+            github.com/e-delphi/NoOBS
+          </span>
+        </div>
+      </div>
+      <div class="about-footer-note">
+        Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
+        e WebView2 da Microsoft.
+      </div>
     </div>
   </div>
 </div>
@@ -2163,19 +2374,6 @@
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
-        <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Alternar tema">
-          <svg class="theme-icon theme-sun" width="15" height="15" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-          </svg>
-          <svg class="theme-icon theme-moon" width="15" height="15" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-        </button>
         </div>
       </div>
 
@@ -2234,6 +2432,22 @@ const Bridge = {
       updateRecordButtonAvailability();
     },
     init_pending(data) { showLoading(data && data.message); },
+    app_icon(data) {
+      // Backend extraiu o icon.ico do exe e mandou como data URL.
+      // Mostra no modal "Sobre" e esconde o SVG fallback.
+      const img = document.getElementById('aboutAppIcon');
+      const fb  = document.getElementById('aboutAppIconFallback');
+      if (img && data && data.dataUrl) {
+        img.src = data.dataUrl;
+        img.style.display = '';
+        if (fb) fb.style.display = 'none';
+      }
+    },
+    open_settings() {
+      // Pedido do backend (1a execucao apos instalacao). Pequeno delay
+      // pra modal abrir depois dos pushes iniciais terem renderizado.
+      setTimeout(() => Settings.open(), 200);
+    },
     hotkey_validation_result(data) {
       // Resposta do backend pra validateHotkeyWithBackend(). Resolve a
       // Promise pendente (se houver) com { ok, reason }.
@@ -3481,6 +3695,26 @@ function validateHotkeyWithBackend(hotkey) {
   });
 }
 
+// =====================================================================
+// About modal
+// =====================================================================
+const About = {
+  open()  { document.getElementById('aboutOverlay').classList.add('visible'); },
+  close() { document.getElementById('aboutOverlay').classList.remove('visible'); },
+  openUrl(url) { Bridge.send('open_url', { url }); },
+};
+// Fecha o About clicando fora do modal ou com Esc.
+document.getElementById('aboutOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'aboutOverlay') About.close();
+});
+document.addEventListener('keydown', (e) => {
+  const ov = document.getElementById('aboutOverlay');
+  if (ov.classList.contains('visible') && e.key === 'Escape') {
+    e.preventDefault();
+    About.close();
+  }
+});
+
 const Settings = {
   currentRecDir: '',
   currentCodec: 'auto',
@@ -3495,6 +3729,7 @@ const Settings = {
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
+    this._updateThemeButtons();
     document.getElementById('settingsOverlay').classList.add('visible');
     Bridge.send('get_settings');
   },
@@ -3503,6 +3738,21 @@ const Settings = {
   },
   pickFolder() {
     Bridge.send('pick_record_dir');
+  },
+  // Aplica o tema imediato (preview) e persiste no backend. Sem botao
+  // Salvar — tema sempre commita na hora pra dar feedback instantaneo.
+  setTheme(theme) {
+    if (theme !== 'dark' && theme !== 'light') return;
+    document.documentElement.setAttribute('data-theme', theme);
+    notifyTitlebarTheme(theme);
+    Bridge.send('set_theme', { theme });
+    this._updateThemeButtons();
+  },
+  _updateThemeButtons() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.theme === current);
+    });
   },
   async save() {
     try {
@@ -3986,10 +4236,16 @@ const Player = {
     if (ldt) ldt.textContent = 'Preparando vídeo...';
     ld.classList.add('visible');
     ov.classList.add('visible');
+    // Avisa o backend pra suspender audio meters e thumb capture
+    // enquanto o player estiver visivel — a UI atras esta escondida.
+    Bridge.send('player_state', { open: true });
   },
   play(url, name, mode, id) {
     const ov = document.getElementById('playerOverlay');
     if (!ov.classList.contains('visible')) ov.classList.add('visible');
+    // Idempotente — caso play() seja chamado sem showPending antes
+    // (backend pode pular pending pra videos ja prontos no cache).
+    Bridge.send('player_state', { open: true });
     const changed = (this.currentId !== id);
     if (changed) {
       this.triedTranscode = false;
@@ -4055,6 +4311,8 @@ const Player = {
     this.trackVolumes = null;
     const player = document.querySelector('.player');
     if (player) player.classList.remove('idle');
+    // Retoma os updates de meter/thumb que tinham sido suspendidos.
+    Bridge.send('player_state', { open: false });
   },
 
   // -- Painel lateral de informacoes (ffprobe) --
@@ -4476,14 +4734,8 @@ function notifyTitlebarTheme(theme) {
   // barra de titulo do Windows (DwmSetWindowAttribute).
   try { window.chrome.webview.postMessage(theme); } catch (e) {}
 }
-function toggleTheme() {
-  const root = document.documentElement;
-  const cur = root.getAttribute('data-theme') || 'dark';
-  const next = cur === 'dark' ? 'light' : 'dark';
-  root.setAttribute('data-theme', next);
-  notifyTitlebarTheme(next);
-  Bridge.send('set_theme', { theme: next });
-}
+// Aplica o tema vindo do backend (pull inicial em DoInit/PushTheme).
+// Trocas vem do toggle dentro do modal de Configuracoes (Settings.setTheme).
 function applyTheme(theme) {
   if (theme !== 'dark' && theme !== 'light') return;
   document.documentElement.setAttribute('data-theme', theme);
@@ -4615,6 +4867,14 @@ document.addEventListener('DOMContentLoaded', () => {
   Player.init();
   Displays.init();
   Bridge.init();
+});
+
+// Bloqueia drag-and-save de imagens em qualquer lugar do app
+// (complementa o CSS user-drag: none). Captura no document pra
+// pegar elementos criados dinamicamente (thumbs de gravacao,
+// previews de monitor, logos, etc).
+document.addEventListener('dragstart', (e) => {
+  if (e.target && e.target.tagName === 'IMG') e.preventDefault();
 });
 </script>
 

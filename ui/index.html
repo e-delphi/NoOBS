@@ -112,6 +112,28 @@
     transition: all 0.12s;
   }
   .icon-btn:hover { background: var(--panel-2); color: var(--text); }
+  .icon-btn:disabled,
+  .icon-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .icon-btn:disabled:hover,
+  .icon-btn[disabled]:hover {
+    background: var(--panel);
+    color: var(--text-2);
+  }
+  /* Botao de excluir selecionadas: estrutura visual identica aos
+     outros botoes da header (borda/fundo iguais), so o icone (SVG
+     stroke via currentColor) muda de cor pra vermelho quando
+     habilitado. Comunica "destrutivo" sem dominar a header. Hover
+     pinta o fundo bem de leve em vermelho. */
+  .delete-selected-btn:not([disabled]) {
+    color: var(--danger-2, #ef4444);
+  }
+  .delete-selected-btn:not([disabled]):hover {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--danger-2, #ef4444);
+  }
 
   /* === Main === */
   .main {
@@ -125,142 +147,281 @@
   .sources {
     position: relative;
     border-right: 1px solid var(--border);
-    overflow-y: auto;
-    padding: 14px 12px;
+    overflow: hidden;          /* o scroll vive so na .sources-scroll */
+    padding: 14px 12px 0;      /* padding-bottom: 0 — .sources-scroll cuida */
     background: var(--panel);
-    /* Flex column pra que a .track-legend possa usar margin-top:auto
-       e ser empurrada pro rodape quando o conteudo cabe na viewport. */
+    /* Flex column: record-block (topo, fixo) + sources-scroll (rolavel,
+       flex:1). Sem isso o scroll cobriria a lateral inteira incluindo
+       o cartao de gravacao, que deve permanecer sempre visivel. */
     display: flex;
     flex-direction: column;
   }
 
-  /* Big record button at top — sticky pra ficar sempre visivel.
-     Margem negativa + padding compensam o padding do .sources,
-     fazendo o fundo opaco cobrir toda a largura da sidebar. */
+  /* Area rolavel da sidebar — engloba as listas de dispositivos
+     (microfones, alto-falantes) e a legenda de faixas. O cartao de
+     gravacao fica FORA dela (acima), sempre visivel.
+     Flex column pra que a `.track-legend` (margin-top:auto) seja
+     empurrada pro rodape quando o conteudo cabe. Quando nao cabe, a
+     legenda vai naturalmente pro fim do scroll-content e fica abaixo
+     da fold (user precisa rolar pra ver). */
+  .sources-scroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;             /* permite o flex item encolher */
+    padding-bottom: 14px;      /* substitui o padding-bottom da .sources */
+    margin: 0 -12px;           /* extende ate a borda da sidebar */
+    padding-left: 12px;
+    padding-right: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Cartao de gravacao no topo — fixo (nao rolavel). Margem negativa
+     + padding compensam o padding do .sources, fazendo o fundo cobrir
+     toda a largura da sidebar. */
   .record-block {
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     border-radius: 0;
-    padding: 14px 12px;
-    margin: -14px -12px 0;
-    position: sticky;
-    top: -14px;
-    z-index: 5;
-  }
-  .record-block-inner {
-    background: var(--panel-2);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px;
-  }
-  /* Linha do botao de gravar + icone de configuracoes ao lado. */
-  .record-row {
-    display: flex;
-    gap: 8px;
-    align-items: stretch;
-  }
-  .record-row .record-btn {
-    flex: 1;
-    width: auto;
-  }
-  .record-settings-btn {
-    width: 42px;
-    height: 42px;
+    padding: 0 12px 14px;
+    margin: 0 -12px 14px;
     flex-shrink: 0;
   }
-  .record-btn {
-    width: 100%;
-    height: 42px;
-    border: 1px solid rgba(0,0,0,0.15);
-    border-radius: 8px;
-    background: #b1322f;
-    color: rgba(255,255,255,0.95);
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    cursor: pointer;
-    display: inline-flex;
+  /* ===== Record card — cartao com header + timer + botao circular =====
+     Inspirado no design SIGNAL/REC mas com a paleta atual do NoOBS.
+     Estado de gravacao adiciona .recording ao .record-card, que
+     dispara mudancas em cor da borda, glow vermelho de fundo, pulse
+     do dot, e animacao do botao. */
+  .record-card {
+    position: relative;
+    background: linear-gradient(135deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 16px;
+    overflow: hidden;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .record-card.recording {
+    border-color: var(--danger-2, #ef4444);
+    background: linear-gradient(135deg, #2a1816, var(--panel));
+  }
+  .record-card.recording::before {
+    /* halo vermelho sutil que vem do topo. */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(239,68,68,0.18), transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Linha superior: status (esquerda) + icone de configuracoes (direita). */
+  .rec-header {
+    position: relative;
+    z-index: 1;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: background 0.15s, transform 0.1s;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-bottom: 10px;
+  }
+  .rec-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .rec-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .record-card.recording .rec-state {
+    color: var(--danger-2, #ef4444);
+    font-weight: 600;
+  }
+  .record-card.recording .rec-state-dot {
+    background: var(--danger-2, #ef4444);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .record-settings-btn {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+
+  /* Timer com centesimos. Fonte monospace, tabular-nums pra largura
+     estavel dos digitos. Atualizado por JS interval (~50ms) — vide
+     startRecordingAnimation. */
+  .rec-timer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 38px;
+    font-weight: 300;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-1);
+    margin: 4px 0 14px;
+  }
+  .rec-timer-ms {
+    font-size: 22px;
+    color: var(--text-3);
+    margin-left: 1px;
+  }
+  .record-card.recording .rec-timer { color: var(--text-1); }
+
+  /* Botao circular grande. .recording troca cor + adiciona pulse no
+     box-shadow + transforma o glyph em quadrado (stop). */
+  .record-btn {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 3px solid var(--panel);
+    background: #b1322f;
+    cursor: pointer;
+    transition: transform 0.12s, background 0.2s;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.08),
-      0 1px 2px rgba(0,0,0,0.25);
+      0 0 0 2px #b1322f,
+      0 0 26px rgba(177, 50, 47, 0.35),
+      0 6px 16px rgba(0, 0, 0, 0.35);
   }
-  .record-btn:hover {
-    background: #c43a37;
+  .record-btn:hover { background: #c43a37; box-shadow:
+      0 0 0 2px #c43a37,
+      0 0 32px rgba(196, 58, 55, 0.45),
+      0 6px 16px rgba(0, 0, 0, 0.35); }
+  .record-btn:active { transform: scale(0.94); }
+  .record-btn .icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 50%;
+    transition: width 0.2s, height 0.2s, border-radius 0.2s;
   }
-  .record-btn:active { transform: translateY(1px); }
+  .record-btn.recording {
+    background: #ef4444;
+    box-shadow:
+      0 0 0 2px #ef4444,
+      0 0 36px rgba(239, 68, 68, 0.55),
+      0 6px 18px rgba(0, 0, 0, 0.4);
+    animation: recBtnPulse 1.8s ease-in-out infinite;
+  }
+  .record-btn.recording:hover { background: #f87171; }
+  .record-btn.recording .icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+  @keyframes recBtnPulse {
+    0%, 100% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 24px rgba(239, 68, 68, 0.4),
+        0 6px 18px rgba(0, 0, 0, 0.4);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 48px rgba(239, 68, 68, 0.65),
+        0 6px 18px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  /* Estado desabilitado (sem nenhuma source ativada). */
   .record-btn:disabled,
   .record-btn[disabled] {
     background: var(--surface-2, #3a3a3a);
-    color: var(--text-3, rgba(255,255,255,0.4));
+    box-shadow:
+      0 0 0 2px var(--border),
+      0 4px 10px rgba(0, 0, 0, 0.25);
     cursor: not-allowed;
-    box-shadow: none;
-    border-color: var(--border);
+    animation: none;
   }
   .record-btn:disabled:hover,
-  .record-btn[disabled]:hover {
-    background: var(--surface-2, #3a3a3a);
-  }
+  .record-btn[disabled]:hover { background: var(--surface-2, #3a3a3a); }
   .record-btn:disabled:active,
   .record-btn[disabled]:active { transform: none; }
   .record-btn:disabled .icon,
   .record-btn[disabled] .icon { background: var(--text-3, rgba(255,255,255,0.3)); }
-  .record-btn .icon {
-    width: 11px; height: 11px;
-    background: rgba(255,255,255,0.9);
-    border-radius: 50%;
-    transition: border-radius 0.15s;
-  }
-  .record-btn.recording {
-    background: #2a2a2e;
-    border-color: rgba(255,255,255,0.04);
-    box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.05),
-      0 1px 2px rgba(0,0,0,0.3);
-  }
-  .record-btn.recording:hover { background: #34343a; }
-  .record-btn.recording .icon { border-radius: 2px; }
-  /* Light theme: dark text variant of recording state */
-  [data-theme="light"] .record-btn.recording {
-    background: #27272a;
-    color: white;
-  }
 
-  .rec-status {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    margin-top: 9px;
-    height: 16px;
-    font-size: 12px;
+  .record-label {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    margin-top: 12px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
     color: var(--text-2);
     font-weight: 500;
   }
-  .rec-status .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--success);
-    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-    flex-shrink: 0;
+  .record-card.recording .record-label { color: var(--text-1); }
+
+  /* ===== Tema claro: ajustes do record-card =====
+     As cores acima (especialmente o `#2a1816` no fundo da gravacao e
+     as box-shadows com rgba(0,0,0,0.35..0.4)) sao calibradas pro dark.
+     No light precisamos:
+       - Fundo da gravacao: red wash claro (red-50/100 do Tailwind) em
+         vez do marrom escuro
+       - Halo radial menos intenso (rgba reduzida)
+       - Box-shadows do botao mais leves (light theme sombras suaves) */
+  [data-theme="light"] .record-card.recording {
+    background: linear-gradient(135deg, #fee2e2, var(--panel));
   }
-  .rec-status.recording {
-    color: var(--danger-2);
-    font-weight: 600;
+  [data-theme="light"] .record-card.recording::before {
+    background: radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.08), transparent 70%);
   }
-  .rec-status.recording .dot {
-    background: var(--danger-2);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
-    animation: pulse 1.2s ease-in-out infinite;
+  [data-theme="light"] .record-btn {
+    box-shadow:
+      0 0 0 2px #b1322f,
+      0 0 18px rgba(177, 50, 47, 0.20),
+      0 4px 10px rgba(0, 0, 0, 0.12);
   }
-  .rec-status .text {
-    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-    font-variant-numeric: tabular-nums;
-    font-size: 12px;
-    letter-spacing: 0.04em;
+  [data-theme="light"] .record-btn:hover {
+    box-shadow:
+      0 0 0 2px #c43a37,
+      0 0 22px rgba(196, 58, 55, 0.28),
+      0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+  [data-theme="light"] .record-btn.recording {
+    box-shadow:
+      0 0 0 2px #ef4444,
+      0 0 24px rgba(239, 68, 68, 0.30),
+      0 4px 12px rgba(0, 0, 0, 0.15);
+    /* sobrescreve o keyframe pra que o pulse fique mais suave no light */
+    animation: recBtnPulseLight 1.8s ease-in-out infinite;
+  }
+  @keyframes recBtnPulseLight {
+    0%, 100% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 18px rgba(239, 68, 68, 0.25),
+        0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 32px rgba(239, 68, 68, 0.45),
+        0 4px 12px rgba(0, 0, 0, 0.15);
+    }
   }
 
   /* Section */
@@ -2527,14 +2688,16 @@
         <div>A lista será atualizada assim que você parar a gravação.</div>
       </div>
 
-      <!-- Botão de gravar + atalho pras configurações ao lado -->
+      <!-- Cartao de gravacao: status + timer + botao circular + label.
+           Inspirado no design SIGNAL/REC — timer com centesimos atualizado
+           via JS (interval ~50ms) sincronizado a cada tick do backend. -->
       <div class="record-block">
-        <div class="record-block-inner">
-          <div class="record-row">
-            <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
-              <span class="icon"></span>
-              <span id="recordLabel">Iniciar gravação</span>
-            </button>
+        <div class="record-card" id="recCard">
+          <div class="rec-header">
+            <div class="rec-state">
+              <span class="rec-state-dot"></span>
+              <span id="recStatusText">Pronto para gravar</span>
+            </div>
             <button class="icon-btn record-settings-btn" id="settingsBtn"
                     onclick="Settings.open()" title="Configurações">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
@@ -2545,33 +2708,43 @@
               </svg>
             </button>
           </div>
-          <div class="rec-status" id="recStatus">
-            <span class="dot"></span>
-            <span class="text" id="recStatusText">00:00:00</span>
+
+          <div class="rec-timer">
+            <span id="recTimerMain">00:00:00</span><span class="rec-timer-ms" id="recTimerMs">.00</span>
           </div>
+
+          <button class="record-btn" id="recordBtn" onclick="toggleRecord()"
+                  aria-label="Gravar">
+            <span class="icon"></span>
+          </button>
+          <div class="record-label" id="recordLabel">Iniciar gravação</div>
         </div>
       </div>
 
-      <div class="section" data-kind="mic">
-        <div class="section-title">
-          <h3>Microfones</h3>
-          <span class="count" id="micCount">— / —</span>
+      <!-- Area rolavel: tudo que vem aqui tem scroll proprio (sources-scroll).
+           O cartao de gravacao acima fica fora desse wrapper, sempre visivel. -->
+      <div class="sources-scroll">
+        <div class="section" data-kind="mic">
+          <div class="section-title">
+            <h3>Microfones</h3>
+            <span class="count" id="micCount">— / —</span>
+          </div>
+          <div id="micList"></div>
         </div>
-        <div id="micList"></div>
-      </div>
 
-      <div class="section" data-kind="speaker">
-        <div class="section-title">
-          <h3>Alto-falantes</h3>
-          <span class="count" id="spkCount">— / —</span>
+        <div class="section" data-kind="speaker">
+          <div class="section-title">
+            <h3>Alto-falantes</h3>
+            <span class="count" id="spkCount">— / —</span>
+          </div>
+          <div id="spkList"></div>
         </div>
-        <div id="spkList"></div>
-      </div>
 
-      <!-- Legenda dinamica: mostra so cores das faixas usadas pelos
-           dispositivos atualmente listados. Atualizada por
-           buildTrackLegend() apos cada renderSources/refreshTrackColors. -->
-      <div class="track-legend" id="trackLegend" hidden></div>
+        <!-- Legenda dinamica: mostra so cores das faixas usadas pelos
+             dispositivos atualmente listados. Atualizada por
+             buildTrackLegend() apos cada renderSources/refreshTrackColors. -->
+        <div class="track-legend" id="trackLegend" hidden></div>
+      </div>
 
     </aside>
 
@@ -2601,6 +2774,18 @@
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <button class="icon-btn delete-selected-btn" id="deleteSelectedBtn"
+                onclick="bulkDeleteSelected()" disabled
+                title="Excluir gravações selecionadas">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6M14 11v6"/>
+            <path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/>
           </svg>
         </button>
         </div>
@@ -3509,8 +3694,49 @@ const RecSelection = {
   },
   _syncMode() {
     document.body.classList.toggle('rec-select-mode', this.ids.size > 0);
+    // Habilita/desabilita o botao de "excluir selecionadas" na header
+    // de Gravacoes — vermelho quando ha 1+ selecionado.
+    const delBtn = document.getElementById('deleteSelectedBtn');
+    if (delBtn) {
+      const n = this.ids.size;
+      delBtn.disabled = (n === 0);
+      delBtn.title = n === 0
+        ? 'Selecione gravações para excluir'
+        : (n === 1 ? 'Excluir 1 gravação selecionada'
+                   : `Excluir ${n} gravações selecionadas`);
+    }
   }
 };
+
+// Bulk delete reutilizado pelo menu de contexto (item "Excluir" em
+// modo selecao) e pelo botao da header de Gravacoes. Otimistic UI: tira
+// os cards do DOM agora pra evitar "piscadas" enquanto o backend
+// processa um delete por vez. Pushes 'recording_removed' que chegam
+// depois sao no-op (card ja nao existe).
+function bulkDeleteSelected() {
+  const ids = RecSelection.all();
+  if (ids.length === 0) return;
+  Confirm.open({
+    title: 'Excluir gravações',
+    message: ids.length === 1
+      ? 'Mover esta gravação para a Lixeira do Windows?'
+      : `Mover ${ids.length} gravações para a Lixeira do Windows?`,
+    okLabel: 'Excluir',
+    onOk: () => {
+      ids.forEach(rid => {
+        const card = document.querySelector(
+          `#recGrid .rec-card[data-id="${cssEscape(rid)}"]`);
+        if (!card) return;
+        const group = card.closest('.rec-group');
+        card.remove();
+        if (group && !group.querySelector('.rec-card')) group.remove();
+      });
+      RecSelection.clear();
+      recalcRecMetaFromDom();
+      ids.forEach(rid => Bridge.send('delete_recording', { id: rid }));
+    }
+  });
+}
 
 function buildRecCard(item) {
   const card = document.createElement('div');
@@ -5130,25 +5356,62 @@ function fmtTime(s) {
   return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
 }
 
+// Timer com centesimos animado por JS. Backend so manda elapsed em
+// segundos a cada tick (~1s), mas pra o display ficar fluido renderizamos
+// localmente baseado em Date.now() - startTime. A cada 'recording_state'
+// vindo do backend re-sincronizamos startTime, evitando drift.
+let _recAnimStart = 0;
+let _recAnimInterval = null;
+
+function _renderTimer(ms) {
+  const total = Math.floor(ms / 1000);
+  const h = String(Math.floor(total / 3600)).padStart(2, '0');
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const s = String(total % 60).padStart(2, '0');
+  const cs = String(Math.floor((ms % 1000) / 10)).padStart(2, '0');
+  const main = document.getElementById('recTimerMain');
+  const msEl = document.getElementById('recTimerMs');
+  if (main) main.textContent = `${h}:${m}:${s}`;
+  if (msEl) msEl.textContent = `.${cs}`;
+}
+
+function startRecordingAnimation(elapsedSec) {
+  _recAnimStart = Date.now() - (Math.max(0, elapsedSec) * 1000);
+  if (_recAnimInterval) clearInterval(_recAnimInterval);
+  _renderTimer(Date.now() - _recAnimStart);
+  _recAnimInterval = setInterval(() => {
+    _renderTimer(Date.now() - _recAnimStart);
+  }, 50);
+}
+
+function stopRecordingAnimation() {
+  if (_recAnimInterval) {
+    clearInterval(_recAnimInterval);
+    _recAnimInterval = null;
+  }
+  _renderTimer(0);
+}
+
 function applyRecordingState(active, elapsedSec) {
   const btn = document.getElementById('recordBtn');
   const label = document.getElementById('recordLabel');
-  const recStatus = document.getElementById('recStatus');
-  const recStatusText = document.getElementById('recStatusText');
-  const fmt = formatDuration(elapsedSec || 0);
+  const card = document.getElementById('recCard');
+  const statusText = document.getElementById('recStatusText');
 
   if (active) {
     btn.classList.add('recording');
-    label.textContent = 'Parar gravação';
-    recStatus.classList.add('recording');
+    card.classList.add('recording');
     document.body.classList.add('recording');
-    recStatusText.textContent = (fmt && fmt.length === 5 ? '00:' + fmt : (fmt || '00:00:00'));
+    label.textContent = 'Parar gravação';
+    statusText.textContent = 'Gravando';
+    startRecordingAnimation(elapsedSec || 0);
   } else {
     btn.classList.remove('recording');
-    label.textContent = 'Iniciar gravação';
-    recStatus.classList.remove('recording');
+    card.classList.remove('recording');
     document.body.classList.remove('recording');
-    recStatusText.textContent = '00:00:00';
+    label.textContent = 'Iniciar gravação';
+    statusText.textContent = 'Pronto para gravar';
+    stopRecordingAnimation();
   }
   updateRecordButtonAvailability();
 }
@@ -5256,32 +5519,8 @@ function initCtxMenu() {
     const bulk = menu.dataset.bulk === '1';
     hideCtxMenu();
     if (bulk) {
-      const ids = RecSelection.all();
-      if (ids.length === 0) return;
-      Confirm.open({
-        title: 'Excluir gravações',
-        message: `Mover ${ids.length} gravações para a Lixeira do Windows?`,
-        okLabel: 'Excluir',
-        onOk: () => {
-          // Optimistic UI: tira TODOS os cards do DOM agora, e recalcula
-          // o resumo uma vez so. Sem isso o backend confirma um delete
-          // de cada vez (~30-80ms entre eles) e a UI faz um reflow por
-          // confirmacao — efeito visual feio de cards "piscando" pra
-          // fora um a um. Os pushes 'recording_removed' que chegam
-          // depois sao no-op (card ja nao existe).
-          ids.forEach(rid => {
-            const card = document.querySelector(
-              `#recGrid .rec-card[data-id="${cssEscape(rid)}"]`);
-            if (!card) return;
-            const group = card.closest('.rec-group');
-            card.remove();
-            if (group && !group.querySelector('.rec-card')) group.remove();
-          });
-          RecSelection.clear();
-          recalcRecMetaFromDom();
-          ids.forEach(rid => Bridge.send('delete_recording', { id: rid }));
-        }
-      });
+      // Mesma logica do botao da header (header → bulkDeleteSelected).
+      bulkDeleteSelected();
       return;
     }
     if (!id) return;

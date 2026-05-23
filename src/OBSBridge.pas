@@ -693,15 +693,74 @@ end;
 // Init: garante OBS rodando, conecta, monta scene
 // =====================================================================
 
+function DetectSystemTheme: string;
+// Le a preferencia "Apps mode" do Windows 10+ pra resolver o tema
+// quando o config esta em modo 'system' (default na 1a execucao).
+// Registry: HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\
+//   Personalize\AppsUseLightTheme (DWORD)
+//   0 = dark, 1 = light
+// Fallback 'light' em Windows < 10, registry corrompido, etc.
+const
+  KEY_PATH = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';
+  VAL_NAME = 'AppsUseLightTheme';
+var
+  Key: HKEY;
+  DataType, DataSize, Value: DWORD;
+begin
+  Result := 'light';
+  if RegOpenKeyExW(HKEY_CURRENT_USER, KEY_PATH, 0, KEY_QUERY_VALUE, Key)
+     <> ERROR_SUCCESS then Exit;
+  try
+    DataSize := SizeOf(Value);
+    if (RegQueryValueExW(Key, VAL_NAME, nil, @DataType, @Value, @DataSize)
+        = ERROR_SUCCESS) and (DataType = REG_DWORD) then
+    begin
+      if Value = 0 then Result := 'dark';
+    end;
+  finally
+    RegCloseKey(Key);
+  end;
+end;
+
 procedure PushTheme;
+// Valores possiveis em config.json -> "theme":
+//   'system' = segue o tema do SO (resolvido em runtime pela registry)
+//   'dark'   = escolha explicita do user (gravado pelo HandleSetTheme)
+//   'light'  = escolha explicita do user
+//
+// 1a execucao: sem 'theme' no config -> grava 'system' (marcador
+// "estou seguindo o Windows, nao foi escolha do user") e empurra o
+// tema resolvido pra UI. Se user trocar pelo Settings, vira 'dark' ou
+// 'light' explicito (HandleSetTheme).
 var
   Obj: TJSONObject;
-  Theme: string;
+  ThemeCfg, Resolved: string;
 begin
-  Theme := GetConfigStr('theme', 'dark');
+  ThemeCfg := GetConfigStr('theme', '');
+  if ThemeCfg = '' then
+  begin
+    // 1a execucao — registra 'system' pra deixar claro no config
+    // que NAO foi uma escolha do user.
+    SetConfigStr('theme', 'system');
+    ThemeCfg := 'system';
+    Log('PushTheme: 1a execucao, marcado theme="system" no config.');
+  end;
+
+  if ThemeCfg = 'system' then
+    Resolved := DetectSystemTheme
+  else if (ThemeCfg = 'dark') or (ThemeCfg = 'light') then
+    Resolved := ThemeCfg
+  else
+  begin
+    // Valor invalido (edicao manual? versao futura?) — usa SO.
+    Log('PushTheme: theme="%s" invalido — fallback pro SO.', [ThemeCfg]);
+    Resolved := DetectSystemTheme;
+  end;
+  Log('PushTheme: cfg="%s" resolved="%s"', [ThemeCfg, Resolved]);
+
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'theme');
-  Obj.AddPair('theme', Theme);
+  Obj.AddPair('theme', Resolved);
   PostOwned(Obj);
 end;
 
@@ -2385,10 +2444,20 @@ begin
 end;
 
 function DeleteToRecycleBin(const APath: string): Boolean;
+// Retry com backoff curto pra cobrir o caso comum: logo apos uma
+// gravacao terminar, a worker thread de thumbnail (ScanSingleRecordingMeta)
+// abre o arquivo via libav com FILE_SHARE_READ — bloqueia DELETE
+// ate fechar. SHFileOperation falha com sharing violation e o user
+// veria "Falha ao excluir". Geracao de thumb dura ~200-500ms; 1.5s
+// de retry cobre praticamente todos os casos sem virar UI travada.
+const
+  MAX_RETRIES = 6;
+  RETRY_DELAY_MS = 250;
 var
   ShOp: TSHFileOpStructW;
   Buf: array of WideChar;
-  Len: Integer;
+  Len, Attempt: Integer;
+  Rc: Integer;
 begin
   // pFrom de SHFileOperation exige path duplo-NUL-terminado.
   Len := Length(APath);
@@ -2398,15 +2467,34 @@ begin
   Buf[Len]     := #0;
   Buf[Len + 1] := #0;
 
-  ZeroMemory(@ShOp, SizeOf(ShOp));
-  ShOp.Wnd    := 0;
-  ShOp.wFunc  := FO_DELETE;
-  ShOp.pFrom  := @Buf[0];
-  // ALLOWUNDO = vai pra Lixeira (recuperavel) em vez de delete permanente.
-  // SILENT/NOCONFIRMATION/NOERRORUI = sem dialogos do shell.
-  ShOp.fFlags := FOF_ALLOWUNDO or FOF_NOCONFIRMATION
-              or FOF_SILENT or FOF_NOERRORUI;
-  Result := SHFileOperationW(ShOp) = 0;
+  Result := False;
+  for Attempt := 0 to MAX_RETRIES - 1 do
+  begin
+    ZeroMemory(@ShOp, SizeOf(ShOp));
+    ShOp.Wnd    := 0;
+    ShOp.wFunc  := FO_DELETE;
+    ShOp.pFrom  := @Buf[0];
+    // ALLOWUNDO = vai pra Lixeira (recuperavel) em vez de delete permanente.
+    // SILENT/NOCONFIRMATION/NOERRORUI = sem dialogos do shell.
+    ShOp.fFlags := FOF_ALLOWUNDO or FOF_NOCONFIRMATION
+                or FOF_SILENT or FOF_NOERRORUI;
+    Rc := SHFileOperationW(ShOp);
+    if Rc = 0 then
+    begin
+      Result := True;
+      if Attempt > 0 then
+        Log('DeleteToRecycleBin: ok apos %d retries (%dms).',
+          [Attempt, Attempt * RETRY_DELAY_MS]);
+      Exit;
+    end;
+    // Falhou — provavelmente sharing violation enquanto worker thread
+    // ainda processa o arquivo. Tenta de novo em RETRY_DELAY_MS.
+    if Attempt = 0 then
+      Log('DeleteToRecycleBin: 1a tentativa falhou (rc=%d) — retrying.', [Rc]);
+    Sleep(RETRY_DELAY_MS);
+  end;
+  Log('DeleteToRecycleBin: desistiu apos %d tentativas (rc=%d).',
+    [MAX_RETRIES, Rc]);
 end;
 
 procedure PushSettings;
@@ -2668,33 +2756,60 @@ begin
 end;
 
 procedure HandleDeleteRecording(const APath: string);
+// Async pra nao travar a UI: DeleteToRecycleBin pode bloquear ate ~1.5s
+// se o arquivo estiver sendo lido pela worker de thumbnail (sharing
+// violation com retry interno). Bulk-delete de varios arquivos
+// rodando sync na main thread = UI freeze inaceitavel (10 arquivos =
+// 15s). Spawn worker, faz a deleta com retry, e o push de
+// 'recording_removed' (+ GC + freeBytes) volta pra main via Queue.
+//
+// A UI ja removeu o card otimisticamente quando o user clicou —
+// nao tem nada visivel pendente esperando essa promise.
 var
-  Obj: TJSONObject;
+  PathCopy: string;
 begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    // Pode ser race: bulk-delete chamou pra um arquivo que outro
+    // delete (ou GC ou shell) ja removeu. Trata como sucesso silencioso.
+    Log('HandleDeleteRecording: arquivo ja nao existe: %s', [APath]);
     Exit;
   end;
-  if not DeleteToRecycleBin(APath) then
-  begin
-    PostError('Falha ao excluir o arquivo.');
-    Exit;
-  end;
+  PathCopy := APath;
 
-  // Limpa cache desse arquivo agora — GC pegaria no proximo start, mas
-  // sem custo fazer aqui.
-  try
-    GarbageCollectCache(ListRecordings(RecordDir));
-  except end;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Ok: Boolean;
+    begin
+      Ok := DeleteToRecycleBin(PathCopy);
+      TThread.Queue(nil,
+        procedure
+        var
+          Obj: TJSONObject;
+        begin
+          if IsShuttingDown then Exit;
+          if not Ok then
+          begin
+            PostError('Falha ao excluir o arquivo: ' +
+              ExtractFileName(PathCopy));
+            Exit;
+          end;
+          // Limpa cache desse arquivo agora — GC pegaria no proximo
+          // start, mas sem custo fazer aqui.
+          try
+            GarbageCollectCache(ListRecordings(RecordDir));
+          except end;
 
-  Obj := TJSONObject.Create;
-  Obj.AddPair('type', 'recording_removed');
-  Obj.AddPair('id', APath);
-  // Delete liberou espaco — refresh do indicador na UI.
-  Obj.AddPair('freeBytes', TJSONNumber.Create(GetRecordDirFreeBytes));
-  PostOwned(Obj);
+          Obj := TJSONObject.Create;
+          Obj.AddPair('type', 'recording_removed');
+          Obj.AddPair('id', PathCopy);
+          // Delete liberou espaco — refresh do indicador na UI.
+          Obj.AddPair('freeBytes', TJSONNumber.Create(GetRecordDirFreeBytes));
+          PostOwned(Obj);
+        end);
+    end).Start;
 end;
 
 // =====================================================================

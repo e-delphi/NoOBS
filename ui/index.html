@@ -1840,6 +1840,33 @@
     padding-right: 28px;
     cursor: pointer;
   }
+  /* Slider de qualidade de gravacao — 5 posicoes (-2 a +2). */
+  .quality-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .quality-slider-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--success);
+    cursor: pointer;
+  }
+  .quality-end-label {
+    font-size: 11px;
+    color: var(--text-2);
+    min-width: 44px;
+  }
+  .quality-end-label:last-of-type { text-align: right; }
+  .quality-ticks {
+    display: flex;
+    justify-content: space-between;
+    padding: 0 50px;  /* aprox. largura dos labels Menor/Maior */
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
   .settings-hint {
     font-size: 11px;
     color: var(--text-3);
@@ -2151,6 +2178,24 @@
           Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e
           escolha uma tecla principal. Exemplos: <code>Pause</code> ou
           <code>Ctrl+Shift+G</code>.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label>Qualidade da gravação</label>
+        <div class="quality-slider-row">
+          <span class="quality-end-label">Menor</span>
+          <input type="range" id="settingsRecordingQuality"
+                 min="-2" max="2" step="1" value="0"
+                 oninput="Settings.onQualityChange()">
+          <span class="quality-end-label">Maior</span>
+        </div>
+        <div class="quality-ticks">
+          <span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
+        </div>
+        <div class="settings-hint" id="settingsQualityHint">
+          Padrão — mesma qualidade do encoder, balanceado entre tamanho
+          do arquivo e qualidade visual.
         </div>
       </div>
       <hr class="settings-divider">
@@ -3877,6 +3922,7 @@ const Settings = {
   currentNotifyOnRecord: false,
   currentScrollLockIndicator: false,
   currentHibernate: true,
+  currentRecordingQuality: 0,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
@@ -3887,6 +3933,8 @@ const Settings = {
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
     document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
+    document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
+    this._syncQualityHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._updateThemeButtons();
@@ -3925,14 +3973,16 @@ const Settings = {
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
       const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
+      const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
-        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
+        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate, recordingQuality,
         prev: { recDir: this.currentRecDir, codec: this.currentCodec, hotkey: this.currentHotkey,
                 autostart: this.currentAutostart, closeToTray: this.currentCloseToTray,
                 minimizeOnRecord: this.currentMinimizeOnRecord,
                 notifyOnRecord: this.currentNotifyOnRecord,
                 scrollLockIndicator: this.currentScrollLockIndicator,
-                hibernate: this.currentHibernate } });
+                hibernate: this.currentHibernate,
+                recordingQuality: this.currentRecordingQuality } });
 
       // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
       // Cobre tanto spec invalido (so modificadores) quanto combinacoes
@@ -3967,6 +4017,8 @@ const Settings = {
         Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
+      if (recordingQuality !== this.currentRecordingQuality)
+        Bridge.send('set_recording_quality', { level: recordingQuality });
       // Atualiza cache local imediato pra evitar reenvio de uma mesma
       // mudanca na proxima save (e evitar flash de valor antigo num
       // re-open antes da resposta do get_settings).
@@ -3979,6 +4031,7 @@ const Settings = {
       this.currentNotifyOnRecord = notifyOnRecord;
       this.currentScrollLockIndicator = scrollLockIndicator;
       this.currentHibernate = hibernate;
+      this.currentRecordingQuality = recordingQuality;
       this.close();
       Toast.show('Configurações salvas', '', { ttl: 2000 });
     } catch (err) {
@@ -3998,6 +4051,12 @@ const Settings = {
     this.currentScrollLockIndicator = !!data.scrollLockIndicator;
     // hibernate: default true (precisa !== undefined porque !!undefined = false)
     this.currentHibernate = (data.hibernate === undefined) ? true : !!data.hibernate;
+    // recordingQuality: -2..+2, default 0
+    let rq = parseInt(data.recordingQuality, 10);
+    if (!Number.isFinite(rq)) rq = 0;
+    if (rq < -2) rq = -2;
+    if (rq > 2)  rq = 2;
+    this.currentRecordingQuality = rq;
     const inp = document.getElementById('settingsRecDir');
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
@@ -4015,6 +4074,9 @@ const Settings = {
     if (sl) sl.checked = this.currentScrollLockIndicator;
     const hb = document.getElementById('settingsHibernate');
     if (hb) hb.checked = this.currentHibernate;
+    const rqEl = document.getElementById('settingsRecordingQuality');
+    if (rqEl) rqEl.value = String(this.currentRecordingQuality);
+    this._syncQualityHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
   },
@@ -4032,6 +4094,26 @@ const Settings = {
   onMinimizeOnRecordChange() {
     this._syncNotifyOnRecordEnabled();
   },
+  onQualityChange() {
+    this._syncQualityHint();
+  },
+  _syncQualityHint() {
+    const el = document.getElementById('settingsRecordingQuality');
+    const hint = document.getElementById('settingsQualityHint');
+    if (!el || !hint) return;
+    const v = parseInt(el.value, 10) | 0;
+    let txt;
+    switch (v) {
+      case -2: txt = 'Compactação agressiva — arquivos bem menores, qualidade visível abaixo do normal.'; break;
+      case -1: txt = 'Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal.'; break;
+      case  0: txt = 'Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.'; break;
+      case  1: txt = 'Qualidade alta — arquivos maiores, vídeo mais nítido.'; break;
+      case  2: txt = 'Qualidade máxima — arquivos grandes, próximo de lossless visual.'; break;
+      default: txt = '';
+    }
+    hint.textContent = txt;
+  },
+
   _syncMinimizeOnRecordLabel() {
     const tray = document.getElementById('settingsCloseToTray').checked;
     const lbl = document.getElementById('settingsMinimizeOnRecordLabel');
@@ -4078,8 +4160,10 @@ const Settings = {
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
         document.getElementById('settingsHibernate').checked = true;
+        document.getElementById('settingsRecordingQuality').value = '0';
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
+        this._syncQualityHint();
         Toast.show('Campos restaurados',
           'Clique Salvar pra aplicar as mudanças.', { ttl: 4000 });
       },

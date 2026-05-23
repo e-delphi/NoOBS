@@ -463,19 +463,33 @@ const
 var
   Folder: string;
   WV3: ICoreWebView2_3;
+  HR: HRESULT;
 begin
-  if WebView = nil then Exit;
+  if WebView = nil then
+  begin
+    Log('StartNavigate: WebView=nil — abortando.');
+    Exit;
+  end;
   Folder := ExtractUiHtmlToDisk;
-  if Folder = '' then Exit;
+  if Folder = '' then
+  begin
+    Log('StartNavigate: ExtractUiHtmlToDisk retornou vazio — abortando.');
+    Exit;
+  end;
+  Log('StartNavigate: UI folder="%s".', [Folder]);
 
   // Mapeia o virtual host pra pasta com o index.html. ALLOW: WebView2
   // serve qualquer recurso do folder. Origin no JS vira "https://noobs.app".
   if Succeeded(WebView.QueryInterface(IID_ICoreWebView2_3, WV3)) and (WV3 <> nil) then
-    WV3.SetVirtualHostNameToFolderMapping(UI_HOST, PWideChar(Folder),
-      COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)
+  begin
+    HR := WV3.SetVirtualHostNameToFolderMapping(UI_HOST, PWideChar(Folder),
+      COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+    Log('StartNavigate: SetVirtualHostNameToFolderMapping HR=$%.8x', [HR]);
+  end
   else
     Log('UI: ICoreWebView2_3 nao disponivel — Notification API pode nao funcionar.');
 
+  Log('StartNavigate: Navigate("https://%s/index.html") chamado.', [UI_HOST]);
   WebView.Navigate(PWideChar('https://' + UI_HOST + '/index.html'));
 end;
 
@@ -493,8 +507,11 @@ var
   Settings: ICoreWebView2Settings;
   Settings3: ICoreWebView2Settings3;
 begin
+  Log('TControllerHandler.Invoke: errorCode=$%.8x controller=%s',
+    [errorCode, BoolToStr(createdController <> nil, True)]);
   if Failed(errorCode) or (createdController = nil) then
   begin
+    Log('TControllerHandler.Invoke: ABORT (controller falhou).');
     Result := errorCode;
     Exit;
   end;
@@ -541,8 +558,11 @@ end;
 
 function TEnvironmentHandler.Invoke(errorCode: HRESULT; const createdEnvironment: ICoreWebView2Environment): HRESULT;
 begin
+  Log('TEnvironmentHandler.Invoke: errorCode=$%.8x env=%s',
+    [errorCode, BoolToStr(createdEnvironment <> nil, True)]);
   if Failed(errorCode) or (createdEnvironment = nil) then
   begin
+    Log('TEnvironmentHandler.Invoke: ABORT (env falhou).');
     Result := errorCode;
     Exit;
   end;
@@ -574,7 +594,10 @@ begin
     if (S = 'dark') or (S = 'light') then
       SetDarkMode(MainWindow, S = 'dark')
     else if Assigned(OnUIMessage) then
+    begin
+      Log('WebMessage: dispatching "%s"', [Copy(S, 1, 120)]);
       OnUIMessage(S);
+    end;
   end;
   Result := S_OK;
 end;

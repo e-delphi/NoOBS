@@ -36,6 +36,9 @@ procedure SetConfigStr(const AKey, AValue: string);
 function GetConfigBool(const AKey: string; ADefault: Boolean): Boolean;
 procedure SetConfigBool(const AKey: string; AValue: Boolean);
 
+function GetConfigInt(const AKey: string; ADefault: Integer): Integer;
+procedure SetConfigInt(const AKey: string; AValue: Integer);
+
 // Toggle de source: ACategory = 'monitors'/'mics'/'speakers'/'webcams',
 // AId = indice (monitor) ou nome do dispositivo.
 function GetSourceBool(const ACategory, AId: string;
@@ -245,6 +248,39 @@ begin
     Pair := CachedJson.RemovePair(AKey);
     if Pair <> nil then Pair.Free;
     CachedJson.AddPair(AKey, TJSONBool.Create(AValue));
+    WriteToDisk;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+function GetConfigInt(const AKey: string; ADefault: Integer): Integer;
+var
+  V: TJSONValue;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    V := CachedJson.GetValue(AKey);
+    if V is TJSONNumber then
+      Result := TJSONNumber(V).AsInt
+    else
+      Result := ADefault;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+procedure SetConfigInt(const AKey: string; AValue: Integer);
+var
+  Pair: TJSONPair;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    Pair := CachedJson.RemovePair(AKey);
+    if Pair <> nil then Pair.Free;
+    CachedJson.AddPair(AKey, TJSONNumber.Create(AValue));
     WriteToDisk;
   finally
     ConfigLock.Leave;

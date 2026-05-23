@@ -1679,6 +1679,7 @@ procedure DoInit;
 // nativas. Enumeracao WASAPI roda em worker thread porque maquinas
 // sem mic / com audio driver mal podem fazer COM calls levarem 30s+.
 begin
+  Log('DoInit: chamado (Initialized=%s)', [BoolToStr(Initialized, True)]);
   if Initialized then
   begin
     PushInit;
@@ -2400,6 +2401,8 @@ begin
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
   Obj.AddPair('hibernate',
     TJSONBool.Create(GetConfigBool('hibernate', True)));
+  Obj.AddPair('recordingQuality',
+    TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
   PostOwned(Obj);
 end;
 
@@ -2444,6 +2447,16 @@ procedure HandleSetNotifyOnRecord(AEnable: Boolean);
 begin
   SetConfigBool('notifyOnRecord', AEnable);
   Log('NotifyOnRecord: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetRecordingQuality(ALevel: Integer);
+begin
+  // Clampa pra range valido — UI envia -2..+2 mas defensivo contra
+  // edicao manual de config.json ou mensagem malformada.
+  if ALevel < -2 then ALevel := -2;
+  if ALevel >  2 then ALevel :=  2;
+  SetConfigInt('recordingQuality', ALevel);
+  Log('RecordingQuality: %d', [ALevel]);
 end;
 
 procedure HandleSetHibernate(AEnable: Boolean);
@@ -2666,12 +2679,15 @@ begin
   Root := TJSONObject.ParseJSONValue(AJsonMsg);
   if not (Root is TJSONObject) then
   begin
+    Log('Dispatch: payload nao e JSON object — descartado.');
     if Root <> nil then Root.Free;
     Exit;
   end;
   Obj := TJSONObject(Root);
   try
     MsgType := GetStrField(Obj, 'type');
+    if (MsgType <> 'ui_log') and (MsgType <> 'player_state') then
+      Log('Dispatch: type="%s"', [MsgType]);
     if MsgType = 'ui_log' then
       Log('UI: %s', [GetStrField(Obj, 'message')])
     else if MsgType = 'ready' then
@@ -2722,6 +2738,8 @@ begin
       HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_hibernate' then
       HandleSetHibernate(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_recording_quality' then
+      HandleSetRecordingQuality(GetIntField(Obj, 'level'))
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then

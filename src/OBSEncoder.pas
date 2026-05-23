@@ -128,9 +128,36 @@ begin
   end;
 end;
 
+function QualityLevelToBitrate(ALevel: Integer): Integer;
+// Mapa de nivel de qualidade (config 'recordingQuality') pra bitrate
+// em kbps. Nivel 0 = nao seta nada (usa default do encoder), permitindo
+// "modo padrao" identico ao comportamento antes do recurso existir.
+// Niveis estendem ate +/-2 — 5 pontos no slider total.
+//
+// Valores escolhidos pra 1080p H.264:
+//   -2: 2500 kbps  (compressao agressiva, arquivo bem pequeno)
+//   -1: 4000 kbps
+//    0: 0 (= sem override, usa default do encoder)
+//   +1: 10000 kbps (visivelmente melhor)
+//   +2: 20000 kbps (proximo de lossless visual)
+//
+// Em resolucoes/codecs diferentes a percepcao de qualidade muda mas
+// a escala relativa (mais baixo = pior, mais alto = melhor) se preserva.
+begin
+  case ALevel of
+    -2: Result := 2500;
+    -1: Result := 4000;
+    +1: Result := 10000;
+    +2: Result := 20000;
+  else
+    Result := 0;  // = nao setar, usar default do encoder
+  end;
+end;
+
 function TryCreateVideoEncoder(const AId: AnsiString): obs_encoder_t;
 var
   Settings: obs_data_t;
+  QLevel, Bitrate: Integer;
 begin
   // OBS recente retorna "phantom" encoder pra IDs nao registrados — checar
   // existencia via obs_enum_encoder_types antes de criar.
@@ -138,6 +165,20 @@ begin
 
   Settings := obs_data_create;
   try
+    // Quality slider — so seta bitrate se nivel != 0 (modo padrao).
+    // Bitrate funciona com TODOS os encoders (NVENC, AMF, QSV, x264).
+    // Outras chaves (cqp/crf) variam por encoder e nao valem a complexidade
+    // pro escopo "5 niveis".
+    QLevel := GetConfigInt('recordingQuality', 0);
+    Bitrate := QualityLevelToBitrate(QLevel);
+    if Bitrate > 0 then
+    begin
+      obs_data_set_int(Settings, 'bitrate', Bitrate);
+      Log('Encoder quality: nivel=%d bitrate=%d kbps', [QLevel, Bitrate]);
+    end
+    else
+      Log('Encoder quality: nivel=0 (usando default do encoder).');
+
     Result := obs_video_encoder_create(PAnsiChar(AId),
       'NoOBS Video Encoder', Settings, nil);
   finally

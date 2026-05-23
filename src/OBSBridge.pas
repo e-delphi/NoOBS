@@ -64,6 +64,7 @@ uses
   OBSHotkey,
   OBSAutostart,
   OBSTray,
+  OBSScrollLock,
   WinPreview,
   WinAudioMeter,
   WinWebcam;
@@ -88,6 +89,18 @@ const
   WEBCAM_REFRESH_DEBOUNCE_MS = 800;
 
   TIMER_OBS_WARMUP      = 7006;
+  // Apos N ms sem janela visivel + sem gravacao em curso, o app se
+  // re-spawna em modo /hibernate (~5MB RAM vs ~150MB). Disparado por
+  // HideToTray/MinimizeToTaskbar; cancelado por qualquer interacao
+  // (restore, record start). 1 minuto e suficiente pra evitar
+  // re-spawn durante uso ativo via tray.
+  TIMER_HIBERNATE_IDLE      = 7008;
+  // Pisca o LED de Scroll Lock como indicador de gravacao em curso.
+  // 1s aceso / 1s apagado = blink visivel sem ser irritante. Ativado
+  // pela config 'scrollLockIndicator' (default false).
+  TIMER_SCROLL_LOCK_BLINK     = 7009;
+  SCROLL_LOCK_BLINK_INTERVAL_MS = 1000;
+  HIBERNATE_IDLE_DELAY_MS   = 60_000;
   OBS_WARMUP_DELAY_MS   = 1500;  // tempo pra UI renderizar antes do init
 
   PFX_MONITOR = 'NoOBS Monitor ';
@@ -134,6 +147,11 @@ var
 
   RecordingActive: Boolean = False;
   RecordingStartTickMs: Cardinal = 0;
+  // True a partir do momento que o JS sobe e manda 'ready'. Antes
+  // disso o `show_notification` pra UI nao funciona — usa fallback
+  // de tray balloon (NIF_INFO). Caso classico: /start-record vindo
+  // da hibernacao, gravacao comeca antes do WebView2 finalizar init.
+  UIReady: Boolean = False;
   // True se a janela estava visivel quando o auto-minimize on record
   // disparou. Usado pra restaurar a janela quando a gravacao parar
   // (via hotkey ou tray menu). Caso o user tenha minimizado manual
@@ -1668,6 +1686,11 @@ begin
   end;
   Log('DoInit: inicio');
 
+  // Marca que a UI JS esta viva — daqui pra frente, push de
+  // 'show_notification' pra UI funciona. Antes disso usa NIF_INFO
+  // balloon como fallback.
+  UIReady := True;
+
   PushTheme;
   PushAppIcon;
 
@@ -1836,6 +1859,10 @@ var
 begin
   if RecordingActive then Exit;
 
+  // Desarma idle hibernate — gravacao em curso = nao hibernar.
+  if MainWindowHandle <> 0 then
+    KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+
   T0 := GetTickCount64;
   Log('HandleRecordStart: inicio.');
   PushRefreshBusy(True, 'starting');
@@ -1887,6 +1914,20 @@ begin
     end;
     // Notificacao na bandeja (so dispara se o tray esta visivel).
     MaybeNotifyRecord('NoOBS', 'Gravação iniciada.');
+
+    // Indicador via LED Scroll Lock — opcional, default off. Pisca a
+    // 1Hz enquanto a gravacao ativa. Util quando o app esta na bandeja
+    // e o user nao tem feedback visual da UI. Apagamos sempre ao parar
+    // (em HandleRecordStop), independente do estado em que estava no
+    // momento que ligamos.
+    if GetConfigBool('scrollLockIndicator', False) then
+    begin
+      Log('HandleRecordStart: ativando blink do Scroll Lock.');
+      OBSScrollLock.SetScrollLockState(True);  // comeca aceso
+      SetTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK,
+        SCROLL_LOCK_BLINK_INTERVAL_MS, nil);
+    end;
+
     Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);
   except
     on E: Exception do
@@ -1915,14 +1956,56 @@ begin
   end;
 end;
 
+procedure OnWindowHiddenForHibernate;
+// Disparado por OBSUI.HideToTray ou .MinimizeToTaskbar. Arma o timer
+// de idle hibernate — apos HIBERNATE_IDLE_DELAY_MS sem interacao, o
+// app se re-spawna em /hibernate pra liberar recursos. Skip se:
+//   - Gravando (durante gravacao janela pode estar minimizada mas
+//     NAO queremos hibernar)
+//   - Config 'hibernate' desativada (master switch — user prefere
+//     manter full mode em segundo plano)
+begin
+  if RecordingActive then Exit;
+  if MainWindowHandle = 0 then Exit;
+  if not GetConfigBool('hibernate', True) then
+  begin
+    Log('OnWindowHidden: hibernate desativada no config — skip.');
+    Exit;
+  end;
+  Log('OnWindowHidden: armando timer de idle hibernate (%dms).',
+    [HIBERNATE_IDLE_DELAY_MS]);
+  KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+  SetTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE,
+    HIBERNATE_IDLE_DELAY_MS, nil);
+end;
+
+procedure OnWindowRestoredForHibernate;
+// Disparado por OBSUI.RestoreFromTray. Cancela o timer de idle —
+// user voltou a interagir com a janela, nao queremos hibernar.
+begin
+  if MainWindowHandle = 0 then Exit;
+  KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+end;
+
 procedure HandleRecordStop;
 var
   OutputPath: string;
   Elapsed: Integer;
 begin
-  if not RecordingActive then Exit;
+  if not RecordingActive then
+  begin
+    Log('HandleRecordStop: chamado mas RecordingActive=False — no-op.');
+    Exit;
+  end;
+  Log('HandleRecordStop: inicio.');
 
   KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
+
+  // Para o blink do Scroll Lock e garante LED apagado, independente
+  // do estado em que estava nesse instante do ciclo de piscar.
+  KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
+  if GetConfigBool('scrollLockIndicator', False) then
+    OBSScrollLock.SetScrollLockState(False);
   Elapsed := Integer((GetTickCount - RecordingStartTickMs) div 1000);
 
   OutputPath := '';
@@ -1953,6 +2036,13 @@ begin
   begin
     WindowWasVisibleBeforeRecord := False;
     OBSUI.RestoreFromTray;
+  end
+  else
+  begin
+    // Janela continua escondida apos gravacao — arma idle hibernate.
+    // Sem isso, app fica em modo full em segundo plano consumindo RAM
+    // ate o user reabrir manualmente.
+    OnWindowHiddenForHibernate;
   end;
 
   if PendingAudioRefresh then
@@ -1970,6 +2060,7 @@ begin
     PendingWebcamRefresh := False;
     DoRefreshWebcams;
   end;
+  Log('HandleRecordStop: fim (retornando ao message loop).');
 end;
 
 procedure HandleRenameRecording(const AOldPath, ANewName: string);
@@ -2305,6 +2396,10 @@ begin
     TJSONBool.Create(GetConfigBool('minimizeOnRecord', False)));
   Obj.AddPair('notifyOnRecord',
     TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
+  Obj.AddPair('scrollLockIndicator',
+    TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
+  Obj.AddPair('hibernate',
+    TJSONBool.Create(GetConfigBool('hibernate', True)));
   PostOwned(Obj);
 end;
 
@@ -2351,6 +2446,50 @@ begin
   Log('NotifyOnRecord: %s', [BoolToStr(AEnable, True)]);
 end;
 
+procedure HandleSetHibernate(AEnable: Boolean);
+begin
+  SetConfigBool('hibernate', AEnable);
+  Log('Hibernate: %s', [BoolToStr(AEnable, True)]);
+  if not AEnable then
+  begin
+    // Desativando: cancela qualquer timer idle pendente — janela
+    // escondida agora continua escondida sem virar hibernate.
+    if MainWindowHandle <> 0 then
+      KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+  end
+  else
+  begin
+    // Ativando: se a janela ja esta escondida + nao gravando, arma
+    // imediato (caso contrario user teria que reabrir+esconder pra
+    // disparar). Reusa OnWindowHiddenForHibernate que ja checa esses
+    // estados.
+    if (MainWindowHandle <> 0) and
+       (not IsWindowVisible(MainWindowHandle) or
+        IsIconic(MainWindowHandle)) then
+      OnWindowHiddenForHibernate;
+  end;
+end;
+
+procedure HandleSetScrollLockIndicator(AEnable: Boolean);
+begin
+  SetConfigBool('scrollLockIndicator', AEnable);
+  Log('ScrollLockIndicator: %s', [BoolToStr(AEnable, True)]);
+  // Se gravando agora, aplica/remove o blink imediatamente em vez
+  // de esperar a proxima gravacao.
+  if not RecordingActive then Exit;
+  if AEnable then
+  begin
+    OBSScrollLock.SetScrollLockState(True);
+    SetTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK,
+      SCROLL_LOCK_BLINK_INTERVAL_MS, nil);
+  end
+  else
+  begin
+    KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
+    OBSScrollLock.SetScrollLockState(False);
+  end;
+end;
+
 procedure MaybeNotifyRecord(const ATitle, AMessage: string);
 // Mostra notificacao via Web Notifications API (`new Notification(...)`
 // no JS da UI) se o user pediu (config notifyOnRecord = True). A UI
@@ -2367,6 +2506,19 @@ var
   Obj: TJSONObject;
 begin
   if not GetConfigBool('notifyOnRecord', False) then Exit;
+
+  // UI ainda nao subiu — caso classico do /start-record vindo da
+  // hibernacao, onde a gravacao comeca antes do WebView2 terminar
+  // init. Fallback: balloon de tray icon (NIF_INFO). Requer que o
+  // icone de tray exista; OBSUI instala on-demand quando vai
+  // hibernar/minimizar pra tray, mas no /start-record talvez nao
+  // tenha. ShowBalloon e idempotente — se sem tray, e no-op.
+  if not UIReady then
+  begin
+    OBSTray.ShowBalloon(ATitle, AMessage);
+    Exit;
+  end;
+
   Obj := TJSONObject.Create;
   Obj.AddPair('type',  'show_notification');
   Obj.AddPair('title', ATitle);
@@ -2566,6 +2718,10 @@ begin
       HandleSetMinimizeOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_notify_on_record' then
       HandleSetNotifyOnRecord(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_scroll_lock_indicator' then
+      HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_hibernate' then
+      HandleSetHibernate(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then
@@ -2845,6 +3001,52 @@ begin
         end;
       end;
     end;
+
+    // /start-record: o hibernate spawnou esse processo apos o user
+    // apertar a hotkey de gravacao. Dispara o start agora que libobs
+    // esta warmed up. Se warmup falhou, HandleRecordStart fara init
+    // sob demanda — paga ~300ms mas funciona.
+    if OBSUI.StartRecordRequested and (not RecordingActive) then
+    begin
+      Log('TIMER_OBS_WARMUP: /start-record — disparando gravacao.');
+      HandleRecordStart;
+    end;
+  end
+  else if ATimerId = TIMER_HIBERNATE_IDLE then
+  begin
+    // 1 min sem janela visivel + sem gravacao: re-spawna em modo
+    // /hibernate pra liberar RAM/GPU. One-shot — KillTimer antes
+    // pra nao re-disparar caso o spawn demore.
+    KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+    if RecordingActive then
+    begin
+      Log('TIMER_HIBERNATE_IDLE: gravando, hibernacao adiada.');
+      Exit;
+    end;
+    if OBSUI.MainWindowHandle <> 0 then
+    begin
+      if IsWindowVisible(OBSUI.MainWindowHandle) and
+         not IsIconic(OBSUI.MainWindowHandle) then
+      begin
+        Log('TIMER_HIBERNATE_IDLE: janela visivel, ignorando.');
+        Exit;
+      end;
+    end;
+    Log('TIMER_HIBERNATE_IDLE: respawning como /hibernate.');
+    OBSUI.SpawnHibernateAndExit;
+  end
+  else if ATimerId = TIMER_SCROLL_LOCK_BLINK then
+  begin
+    // Pisca o LED enquanto gravando. Se nao esta gravando mais (race
+    // com HandleRecordStop), apaga e desarma. Sem log no toggle pra
+    // nao poluir — 1 entry por segundo seria muito.
+    if not RecordingActive then
+    begin
+      KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
+      OBSScrollLock.SetScrollLockState(False);
+      Exit;
+    end;
+    OBSScrollLock.ToggleScrollLock;
   end;
 end;
 
@@ -2867,7 +3069,11 @@ begin
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
     KillTimer(MainWindowHandle, TIMER_AUDIO_METER);
     KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
+    KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+    KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
   end;
+  // Garante que o LED nao fique aceso se o app crashar/fechar mid-blink.
+  try OBSScrollLock.SetScrollLockState(False); except end;
   Log('Shutdown: timers off');
 
   if ThumbThread <> nil then
@@ -2937,6 +3143,8 @@ initialization
   OBSUI.OnUIDeviceChange      := OnDeviceNodeChange;
   OBSUI.OnUIHotkey            := OnHotkey;
   OBSUI.OnUIShouldHideOnClose := ShouldHideOnClose;
+  OBSUI.OnUIWindowHidden      := OnWindowHiddenForHibernate;
+  OBSUI.OnUIWindowRestored    := OnWindowRestoredForHibernate;
   // Tray menu — item "Iniciar/Parar gravacao" usa esses callbacks.
   OBSTray.OnToggleRecord      := ToggleRecordFromTray;
   OBSTray.OnIsRecording       := IsRecording;

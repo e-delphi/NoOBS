@@ -40,6 +40,13 @@ procedure InstallTrayIcon(AWnd: HWND; const ATooltip: string);
 procedure RemoveTrayIcon;
 function IsTrayInstalled: Boolean;
 
+// Mostra um balloon tip (NIF_INFO) no icone da bandeja. Fallback pra
+// notificacao do Windows quando a UI HTML nao esta pronta (caso
+// classico: /start-record vindo da hibernacao — gravacao comeca antes
+// do WebView2 ter terminado de inicializar). Falha silenciosa se o
+// icone ainda nao esta instalado.
+procedure ShowBalloon(const ATitle, AMessage: string);
+
 // Chamado pela window proc quando recebe WM_TRAYICON.
 procedure HandleTrayMessage(AWnd: HWND; AParam: LPARAM);
 
@@ -88,6 +95,38 @@ begin
   if not TrayAdded then Exit;
   Shell_NotifyIconW(NIM_DELETE, @TrayIcon);
   TrayAdded := False;
+end;
+
+procedure ShowBalloon(const ATitle, AMessage: string);
+// Reusa o icone instalado: faz NIM_MODIFY com NIF_INFO setado e os
+// campos szInfo/szInfoTitle preenchidos. Windows mostra balloon (W10)
+// ou toast nativo "wrapped" (W11). NIIF_USER + dwInfoFlags tenta usar
+// o icone do tray como icone do balloon.
+var
+  Data: TNotifyIconData;
+  TLen, MLen: Integer;
+begin
+  if not TrayAdded then Exit;
+  ZeroMemory(@Data, SizeOf(Data));
+  Data.cbSize := SizeOf(Data);
+  Data.Wnd    := TrayIcon.Wnd;
+  Data.uID    := TrayIcon.uID;
+  Data.uFlags := NIF_INFO;
+
+  TLen := Length(ATitle);
+  if TLen > 63 then TLen := 63;
+  if TLen > 0 then
+    Move(PWideChar(ATitle)^, Data.szInfoTitle[0], TLen * SizeOf(WideChar));
+  Data.szInfoTitle[TLen] := #0;
+
+  MLen := Length(AMessage);
+  if MLen > 255 then MLen := 255;
+  if MLen > 0 then
+    Move(PWideChar(AMessage)^, Data.szInfo[0], MLen * SizeOf(WideChar));
+  Data.szInfo[MLen] := #0;
+
+  Data.dwInfoFlags := NIIF_USER or NIIF_LARGE_ICON;
+  Shell_NotifyIconW(NIM_MODIFY, @Data);
 end;
 
 procedure ShowTrayMenu(AWnd: HWND);

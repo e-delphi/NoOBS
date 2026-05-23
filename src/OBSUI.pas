@@ -51,6 +51,7 @@ type
   // Returna True se WM_CLOSE deve esconder na bandeja em vez de fechar
   // de verdade. OBSBridge implementa: True se autostart OU gravando.
   TUIShouldHideOnCloseFunc = function: Boolean;
+  TUIVisibilityProc = procedure;
 
 // Callbacks que o OBSBridge registra na sua initialization.
 // Mantem OBSUI sem dependencia direta de OBSBridge, evitando ciclos.
@@ -61,6 +62,11 @@ var
   OnUIDeviceChange:      TUIDeviceChangeProc      = nil;
   OnUIHotkey:            TUIHotkeyProc            = nil;
   OnUIShouldHideOnClose: TUIShouldHideOnCloseFunc = nil;
+  // Disparados de HideToTray/MinimizeToTaskbar e RestoreFromTray
+  // respectivamente. OBSBridge usa pra armar/desarmar o timer de idle
+  // hibernate. Ambos sao opcionais (nil-safe).
+  OnUIWindowHidden:      TUIVisibilityProc        = nil;
+  OnUIWindowRestored:    TUIVisibilityProc        = nil;
 
 // Esconde a janela principal pra bandeja (instala icone se ainda nao
 // estiver). Chamado por OBSBridge quando "minimizar ao gravar" esta
@@ -94,6 +100,17 @@ procedure RemoveTrayIcon;
 function RegisterGlobalHotkey(AId: Integer; AModifiers: UINT; AVk: UINT): Boolean;
 procedure UnregisterGlobalHotkey(AId: Integer);
 
+// True se o exe foi lancado com /start-record (a hibernacao spawna o
+// full com esse flag quando o user aperta a hotkey). OBSBridge consulta
+// no fim do warmup do libobs pra iniciar gravacao automaticamente.
+function StartRecordRequested: Boolean;
+
+// Sai do modo full e re-spawna o exe em /hibernate. Chamado pelo
+// OBSBridge quando o idle timer (1min sem janela visivel) dispara.
+// Fluxo: spawna NoOBS.exe /hibernate + DestroyWindow (-> WM_DESTROY ->
+// PostQuitMessage -> finalizacao limpa via Shutdown).
+procedure SpawnHibernateAndExit;
+
 implementation
 
 uses
@@ -102,13 +119,15 @@ uses
   Winapi.WebView2,
   Winapi.DwmApi,
   Winapi.MultiMon,
+  Winapi.ShellAPI,
   System.Classes,
   System.Math,
   System.SysUtils,
   OBSConfig,
   OBSLog,
   OBSStartupCheck,
-  OBSTray;
+  OBSTray,
+  OBSHibernate;
 
 // ---------------------------------------------------------------------
 // Fallback de ICoreWebView2Settings3 pra Delphi 11
@@ -188,6 +207,12 @@ var
   PendingRestoreBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
   PendingRestorePosition:       Boolean = False;
   PendingHideAfterWebViewReady: Boolean = False;
+
+  // True se este processo foi spawnado por OBSHibernate.Run com o flag
+  // /start-record (o user apertou a hotkey de gravacao enquanto no
+  // modo hibernate). OBSBridge consulta em TIMER_OBS_WARMUP pra iniciar
+  // gravacao automaticamente assim que libobs esta pronto.
+  FStartRecordRequested: Boolean = False;
 
   SetPreferredAppMode:    TSetPreferredAppMode    = nil;
   AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
@@ -566,6 +591,59 @@ begin
   Result := MainWindow;
 end;
 
+function StartRecordRequested: Boolean;
+begin
+  Result := FStartRecordRequested;
+end;
+
+procedure SpawnHibernateAndExit;
+// Spawna NoOBS.exe /hibernate e dispara o shutdown limpo do processo
+// atual. Usado pelo OBSBridge quando o idle timer (1min sem janela
+// visivel + sem gravacao) dispara — libera ~150MB pra dar lugar aos
+// ~5MB do modo hibernate.
+//
+// Ordem critica:
+//   1. CloseHandle(mutex) — libera ANTES do spawn pra que o novo
+//      processo /hibernate nao detecte ERROR_ALREADY_EXISTS e desista.
+//   2. ShellExecute (fire-and-forget) — novo processo sobe em paralelo.
+//   3. DestroyWindow -> WM_DESTROY -> PostQuitMessage.
+//   4. GetMessage loop sai, OBSUI.Run retorna.
+//   5. Unit finalizations rodam — OBSBridge.Shutdown faz cleanup
+//      completo (timers, threads, libobs, watchers).
+//
+// Brevemente nenhum processo segura o mutex (entre passos 1 e o
+// CreateMutex do hibernate). Single-instance ainda funciona pq:
+//   - 3a tentativa de subir durante esse intervalo pegaria o mutex,
+//     entao o novo /hibernate veria ERROR_ALREADY_EXISTS e sairia.
+//   - Caso raro o suficiente pra nao valer protecao.
+var
+  ExePath: array[0..MAX_PATH - 1] of WideChar;
+  HInst: THandle;
+begin
+  GetModuleFileNameW(0, ExePath, MAX_PATH);
+  Log('SpawnHibernate: respawning como /hibernate (exe="%s").', [string(ExePath)]);
+
+  if SingleInstanceMutex <> 0 then
+  begin
+    CloseHandle(SingleInstanceMutex);
+    SingleInstanceMutex := 0;
+    Log('SpawnHibernate: mutex liberado.');
+  end;
+
+  HInst := ShellExecuteW(0, nil, PWideChar(@ExePath[0]),
+    '/hibernate', nil, SW_SHOWNORMAL);
+  if NativeUInt(HInst) <= 32 then
+    Log('SpawnHibernate: ShellExecuteW FALHOU (codigo=%d, LastError=%d).',
+      [NativeUInt(HInst), GetLastError])
+  else
+    Log('SpawnHibernate: ShellExecuteW OK (HINST=%d).', [NativeUInt(HInst)]);
+
+  // Marca quit "de verdade" pra WM_CLOSE nao tentar minimizar pra tray.
+  RealQuitRequested := True;
+  if MainWindow <> 0 then
+    DestroyWindow(MainWindow);
+end;
+
 var
   FsActive: Boolean = False;
   FsSavedStyle: NativeInt = 0;
@@ -904,6 +982,7 @@ begin
   PostJSON('{"type":"window_hidden"}');
   ShowWindow(MainWindow, SW_HIDE);
   OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+  if Assigned(OnUIWindowHidden) then OnUIWindowHidden;
 end;
 
 procedure MinimizeToTaskbar;
@@ -915,6 +994,7 @@ begin
   // deveria continuar reproduzindo audio "fantasma" do player.
   PostJSON('{"type":"window_hidden"}');
   ShowWindow(MainWindow, SW_MINIMIZE);
+  if Assigned(OnUIWindowHidden) then OnUIWindowHidden;
 end;
 
 procedure EnsureTrayIcon;
@@ -1000,6 +1080,8 @@ begin
   // visivel pra facilitar a alternancia.
   if not GetConfigBool('closeToTray', False) then
     OBSTray.RemoveTrayIcon;
+
+  if Assigned(OnUIWindowRestored) then OnUIWindowRestored;
 end;
 
 procedure OnTrayCommandHandler(ACommand: Integer);
@@ -1032,17 +1114,38 @@ var
 begin
   SetCurrentDir(ExtractFilePath(ParamStr(0)));
 
-  // Detecta se foi lancado pelo autostart do Windows (flag /autostart
-  // — marcador de origem, NAO de comportamento). Mantem /tray como
-  // alias por compat com entradas antigas no Run do HKCU.
-  // Comportamento (tray vs visivel) sai do config 'closeToTray':
-  //   /autostart present + closeToTray=ON  → StartInTray=True
-  //   /autostart present + closeToTray=OFF → StartInTray=False (visivel)
-  //   sem flag (manual launch) → StartInTray=False (sempre visivel)
   CmdLine := LowerCase(string(GetCommandLine));
+  Log('OBSUI.Run: cmdline="%s"', [CmdLine]);
+  // /autostart = lancado pelo logon do Windows. /tray = alias antigo.
   IsAutostartLaunch := (Pos('/autostart', CmdLine) > 0) or
                        (Pos('/tray',      CmdLine) > 0);
-  StartInTray := IsAutostartLaunch and GetConfigBool('closeToTray', False);
+  Log('OBSUI.Run: IsAutostartLaunch=%s, closeToTray=%s',
+    [BoolToStr(IsAutostartLaunch, True),
+     BoolToStr(GetConfigBool('closeToTray', False), True)]);
+
+  // /autostart + closeToTray + hibernate=ON: respawna em modo hibernate.
+  // Mais leve que carregar tudo aqui e esconder na bandeja — libobs,
+  // WebView2, FFmpeg, watchers ficam sem inicializar enquanto o user
+  // nao interagir. Se 'hibernate' esta OFF no config, sobe full mode
+  // direto e fica em segundo plano consumindo RAM normalmente.
+  if IsAutostartLaunch and
+     GetConfigBool('closeToTray', False) and
+     GetConfigBool('hibernate', True) then
+  begin
+    Log('OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra OBSHibernate.Run.');
+    OBSHibernate.Run;
+    Log('OBSUI.Run: OBSHibernate.Run retornou — saindo.');
+    Exit;
+  end;
+  // Outros casos de /autostart: cai no fluxo normal (janela visivel).
+  StartInTray := False;
+
+  // /start-record: hibernate spawnou esse processo porque o user
+  // apertou a hotkey de gravacao. Marca pra OBSBridge consultar em
+  // TIMER_OBS_WARMUP e iniciar gravacao apos libobs estar pronto.
+  FStartRecordRequested := Pos('/start-record', CmdLine) > 0;
+  if FStartRecordRequested then
+    Log('OBSUI.Run: /start-record detectado — gravacao iniciara apos warmup.');
 
   WM_SHOW_INSTANCE := RegisterWindowMessage(SHOW_MSG_NAME);
   SingleInstanceMutex := CreateMutex(nil, False, MUTEX_NAME);
@@ -1053,7 +1156,13 @@ begin
     // user — a 1a continua como esta (autostart e silencioso por design).
     if not IsAutostartLaunch then
     begin
+      // Tenta achar tanto a janela do modo full quanto a do hibernate.
+      // Se hibernate esta rodando, ele trata WM_SHOW_INSTANCE
+      // promovendo a si mesmo pra full (spawn + exit). Ver
+      // OBSHibernate.WindowProc.
       Existing := FindWindow(CLASS_NAME, nil);
+      if Existing = 0 then
+        Existing := FindWindow('TNoOBSHibernate', nil);
       if Existing <> 0 then
         PostMessage(Existing, WM_SHOW_INSTANCE, 0, 0);
     end;
@@ -1110,7 +1219,11 @@ begin
   // Liga o handler de comandos do tray (Abrir / Fechar).
   OBSTray.OnTrayCommand := OnTrayCommandHandler;
 
-  if StartInTray then
+  // /start-record: user apertou hotkey enquanto na hibernacao.
+  // App sobe pra gravar sem mostrar UI. Reusamos o caminho "off-screen
+  // pra WebView2 init + SW_HIDE depois" — mesma logica do antigo
+  // StartInTray (que nao e mais ativado por /autostart).
+  if StartInTray or FStartRecordRequested then
   begin
     // WebView2 nao inicializa corretamente quando o parent HWND nunca
     // foi mostrado durante o setup — rendering fica preto/quebrado.

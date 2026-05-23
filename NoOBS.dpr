@@ -24,6 +24,8 @@ program NoOBS;
 {$R *.dres}
 
 uses
+  Winapi.Windows,
+  System.SysUtils,
   NoOBSTypes in 'src\NoOBSTypes.pas',
   FFmpegLib in 'src\FFmpegLib.pas',
   FFmpegOps in 'src\FFmpegOps.pas',
@@ -35,12 +37,14 @@ uses
   OBSBridge in 'src\OBSBridge.pas',
   OBSConfig in 'src\OBSConfig.pas',
   OBSEncoder in 'src\OBSEncoder.pas',
+  OBSHibernate in 'src\OBSHibernate.pas',
   OBSHotkey in 'src\OBSHotkey.pas',
   OBSLog in 'src\OBSLog.pas',
   OBSPlayer in 'src\OBSPlayer.pas',
   OBSProbe in 'src\OBSProbe.pas',
   OBSRecordWatch in 'src\OBSRecordWatch.pas',
   OBSScene in 'src\OBSScene.pas',
+  OBSScrollLock in 'src\OBSScrollLock.pas',
   OBSStartupCheck in 'src\OBSStartupCheck.pas',
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',
@@ -48,6 +52,26 @@ uses
   WinPreview in 'src\WinPreview.pas',
   WinWebcam in 'src\WinWebcam.pas';
 
+// Dispatch entre modo "full" (UI completa + libobs + watchers) e
+// modo "hibernate" (so tray icon + hotkey, ~5MB RAM). Flag de linha de
+// comando — modo full ou hibernate roda no MESMO exe pra simplificar
+// distribuicao. Veja OBSHibernate.pas pro design.
+var
+  CmdLine: string;
 begin
-  OBSUI.Run;
+  CmdLine := LowerCase(string(GetCommandLine));
+  OBSLog.Log('===== NoOBS startup =====');
+  OBSLog.Log('Dispatcher: cmdline="%s"', [CmdLine]);
+  if Pos('/hibernate', CmdLine) > 0 then
+  begin
+    OBSLog.Log('Dispatcher: rota -> OBSHibernate.Run (modo minimo).');
+    OBSHibernate.Run;
+    OBSLog.Log('Dispatcher: OBSHibernate.Run retornou — processo encerrando.');
+  end
+  else
+  begin
+    OBSLog.Log('Dispatcher: rota -> OBSUI.Run (modo full).');
+    OBSUI.Run;
+    OBSLog.Log('Dispatcher: OBSUI.Run retornou — processo encerrando.');
+  end;
 end.

@@ -153,6 +153,21 @@
     border-radius: 10px;
     padding: 10px;
   }
+  /* Linha do botao de gravar + icone de configuracoes ao lado. */
+  .record-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .record-row .record-btn {
+    flex: 1;
+    width: auto;
+  }
+  .record-settings-btn {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+  }
   .record-btn {
     width: 100%;
     height: 42px;
@@ -2188,6 +2203,34 @@
           é visível na própria janela.
         </div>
       </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsScrollLockIndicator">
+          <span>Piscar LED de Scroll Lock durante gravação</span>
+        </label>
+        <div class="settings-hint">
+          Pisca o LED de Scroll Lock do teclado (1Hz) enquanto a
+          gravação está ativa — indicador discreto e sempre visível,
+          útil quando o app está na bandeja. Apaga automaticamente ao
+          parar a gravação.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsHibernate">
+          <span>Hibernar quando inativo</span>
+        </label>
+        <div class="settings-hint">
+          Quando a janela fica escondida na bandeja por mais de 1 minuto
+          sem gravação em curso, o app entra em modo hibernação — libera
+          libobs, WebView2, FFmpeg e watchers, deixando só um ícone na
+          bandeja + a tecla de atalho ativos (~5MB RAM vs ~150MB). Volta
+          ao normal automaticamente quando você clica no ícone ou aperta
+          o atalho de gravar.
+        </div>
+      </div>
     </div>
     <div class="settings-footer">
       <button class="settings-btn" onclick="Settings.restoreDefaults()"
@@ -2334,13 +2377,24 @@
         <div>A lista será atualizada assim que você parar a gravação.</div>
       </div>
 
-      <!-- Botão de gravar -->
+      <!-- Botão de gravar + atalho pras configurações ao lado -->
       <div class="record-block">
         <div class="record-block-inner">
-          <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
-            <span class="icon"></span>
-            <span id="recordLabel">Iniciar gravação</span>
-          </button>
+          <div class="record-row">
+            <button class="record-btn" id="recordBtn" onclick="toggleRecord()">
+              <span class="icon"></span>
+              <span id="recordLabel">Iniciar gravação</span>
+            </button>
+            <button class="icon-btn record-settings-btn" id="settingsBtn"
+                    onclick="Settings.open()" title="Configurações">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
           <div class="rec-status" id="recStatus">
             <span class="dot"></span>
             <span class="text" id="recStatusText">00:00:00</span>
@@ -2397,14 +2451,6 @@
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          </svg>
-        </button>
-        <button class="icon-btn" id="settingsBtn" onclick="Settings.open()" title="Configurações">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
         </button>
         </div>
@@ -3829,6 +3875,8 @@ const Settings = {
   currentCloseToTray: false,
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
+  currentScrollLockIndicator: false,
+  currentHibernate: true,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
@@ -3837,6 +3885,8 @@ const Settings = {
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
+    document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
+    document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._updateThemeButtons();
@@ -3873,12 +3923,16 @@ const Settings = {
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
+      const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
+      const hibernate = document.getElementById('settingsHibernate').checked;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
-        minimizeOnRecord, notifyOnRecord,
+        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
         prev: { recDir: this.currentRecDir, codec: this.currentCodec, hotkey: this.currentHotkey,
                 autostart: this.currentAutostart, closeToTray: this.currentCloseToTray,
                 minimizeOnRecord: this.currentMinimizeOnRecord,
-                notifyOnRecord: this.currentNotifyOnRecord } });
+                notifyOnRecord: this.currentNotifyOnRecord,
+                scrollLockIndicator: this.currentScrollLockIndicator,
+                hibernate: this.currentHibernate } });
 
       // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
       // Cobre tanto spec invalido (so modificadores) quanto combinacoes
@@ -3909,6 +3963,10 @@ const Settings = {
         Bridge.send('set_minimize_on_record', { enabled: minimizeOnRecord });
       if (notifyOnRecord !== this.currentNotifyOnRecord)
         Bridge.send('set_notify_on_record', { enabled: notifyOnRecord });
+      if (scrollLockIndicator !== this.currentScrollLockIndicator)
+        Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
+      if (hibernate !== this.currentHibernate)
+        Bridge.send('set_hibernate', { enabled: hibernate });
       // Atualiza cache local imediato pra evitar reenvio de uma mesma
       // mudanca na proxima save (e evitar flash de valor antigo num
       // re-open antes da resposta do get_settings).
@@ -3919,6 +3977,8 @@ const Settings = {
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
+      this.currentScrollLockIndicator = scrollLockIndicator;
+      this.currentHibernate = hibernate;
       this.close();
       Toast.show('Configurações salvas', '', { ttl: 2000 });
     } catch (err) {
@@ -3935,6 +3995,9 @@ const Settings = {
     this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
+    this.currentScrollLockIndicator = !!data.scrollLockIndicator;
+    // hibernate: default true (precisa !== undefined porque !!undefined = false)
+    this.currentHibernate = (data.hibernate === undefined) ? true : !!data.hibernate;
     const inp = document.getElementById('settingsRecDir');
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
@@ -3948,6 +4011,10 @@ const Settings = {
     if (mr) mr.checked = this.currentMinimizeOnRecord;
     const nr = document.getElementById('settingsNotifyOnRecord');
     if (nr) nr.checked = this.currentNotifyOnRecord;
+    const sl = document.getElementById('settingsScrollLockIndicator');
+    if (sl) sl.checked = this.currentScrollLockIndicator;
+    const hb = document.getElementById('settingsHibernate');
+    if (hb) hb.checked = this.currentHibernate;
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
   },
@@ -4009,6 +4076,8 @@ const Settings = {
         document.getElementById('settingsCloseToTray').checked = false;
         document.getElementById('settingsMinimizeOnRecord').checked = false;
         document.getElementById('settingsNotifyOnRecord').checked = false;
+        document.getElementById('settingsScrollLockIndicator').checked = false;
+        document.getElementById('settingsHibernate').checked = true;
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
         Toast.show('Campos restaurados',

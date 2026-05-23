@@ -49,6 +49,11 @@ begin
   if Length(Buf) > 0 then
     LogStream.WriteBuffer(Buf[0], Length(Buf));
   LogStream.WriteBuffer(CRLF[0], 2);
+  // FlushFileBuffers forca grava em disco IMEDIATAMENTE. Sem isso o
+  // OS cacheia e em caso de crash perdemos as ultimas linhas (que
+  // tipicamente sao as mais importantes pra debug). Custo: ~50us
+  // por log, aceitavel pra arquivo de log small/infrequente.
+  FlushFileBuffers(LogStream.Handle);
 end;
 
 procedure DoLog(const AMsg: string);
@@ -205,10 +210,46 @@ end;
 function AddVectoredExceptionHandler(First: ULONG; Handler: Pointer): Pointer;
   stdcall; external 'kernel32.dll';
 
+function SetUnhandledExceptionFilter(lpTopLevelExceptionFilter: Pointer): Pointer;
+  stdcall; external 'kernel32.dll';
+
+// Handler de ULTIMA chance — chamado pelo Windows logo antes de matar
+// o processo, depois que TODOS os outros handlers (Delphi RTL, SEH,
+// VectoredExceptionHandler) ja passaram. Aqui logamos a excecao fatal
+// pra ter o ultimo rastro antes do "processo sumiu sem aviso".
+function UnhandledExceptionFilter_NoOBS(ExceptionInfo: PExceptionPointers): LONG; stdcall;
+const
+  EXCEPTION_EXECUTE_HANDLER = 1;
+var
+  Rec: PExceptionRecord;
+begin
+  // EXECUTE_HANDLER = "permite o processo morrer com codigo dessa
+  // excecao". Mesmo se voltassemos CONTINUE_SEARCH, nao tem mais
+  // ninguem pra capturar — Windows vai matar de qualquer jeito.
+  Result := EXCEPTION_EXECUTE_HANDLER;
+  if ExceptionInfo = nil then Exit;
+  Rec := PExceptionRecord(ExceptionInfo.ExceptionRecord);
+  if Rec = nil then Exit;
+  try
+    Log('===== FATAL UNHANDLED EXCEPTION =====');
+    Log('FATAL: code=$%.8x addr=$%p — processo sera terminado pelo Windows.',
+      [Rec.ExceptionCode, Rec.ExceptionAddress]);
+    Log('FATAL: TID=%d', [GetCurrentThreadId]);
+    // Forca flush — FlushFileBuffers ja roda dentro de WriteLineRaw,
+    // mas garantido aqui antes do processo morrer.
+    if LogStream <> nil then
+      try FlushFileBuffers(LogStream.Handle); except end;
+  except end;
+end;
+
 initialization
   InitLog;
   // Registra handler nativo — first-chance, primeira posicao.
   AddVectoredExceptionHandler(1, @VectoredExceptionHandler);
+  // Handler de ultima chance — captura a excecao fatal antes do
+  // Windows matar o processo. Sem isso, em crashes silenciosos
+  // (sem dialog de "stopped working"), o log nao mostra a causa.
+  SetUnhandledExceptionFilter(@UnhandledExceptionFilter_NoOBS);
 
 finalization
   DoneLog;

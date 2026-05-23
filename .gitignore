@@ -16,4 +16,3 @@ exe/bin/*
 !exe/bin/64bit/
 exe/bin/64bit/*
 !exe/bin/64bit/WebView2Loader.dll
-!exe/bin/64bit/NoOBS.exe

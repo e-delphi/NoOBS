@@ -723,6 +723,16 @@
     letter-spacing: -0.01em;
   }
   .recordings-title .meta { font-size: 11px; color: var(--text-3); }
+  /* Separador visivel entre os pedacos de info no recMeta (arquivos /
+     total / livres). Pipe vertical mais espacado, sutilmente colorido
+     pra destacar sem competir com o texto. */
+  .meta-sep {
+    display: inline-block;
+    margin: 0 8px;
+    color: var(--border-2, rgba(255,255,255,0.2));
+    font-weight: 400;
+    user-select: none;
+  }
   /* Grupo "input de busca + botoes de acao" — wrappa pra 2.a linha
      quando nao cabe junto do titulo na mesma linha. */
   .recordings-actions {
@@ -1627,9 +1637,27 @@
     background: var(--surface-2);
     color: var(--text-1);
   }
-  /* About modal — variante mais estreita do settings modal. */
+  /* About modal — variante mais estreita do settings modal.
+     Layout column: header + logo/desc (fixos) + scroll area + footer
+     fixo. Sobrescreve o overflow-y:auto herdado de .settings-body —
+     o scroll vive so na .about-scroll, footer fica sempre visivel. */
   .about-modal { max-width: 460px; }
-  .about-body { padding: 18px; }
+  .about-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;          /* anula o auto do .settings-body */
+  }
+  .about-scroll {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;             /* permite o flex item encolher */
+    margin: 0 -6px 0 0;        /* compensa visual da scrollbar */
+    padding-right: 6px;
+  }
+  .about-fixed-footer {
+    flex-shrink: 0;
+  }
   .about-logo {
     text-align: center;
     padding-bottom: 14px;
@@ -1680,6 +1708,47 @@
     font-size: 11px;
     color: var(--text-3);
     line-height: 1.5;
+  }
+  /* Paragrafo descritivo + listas (recursos / tecnologia) no About. */
+  .about-desc {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-2);
+    margin-bottom: 14px;
+  }
+  .about-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin: 12px 0 6px;
+    font-weight: 600;
+  }
+  .about-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .about-list li {
+    padding: 1px 0 1px 14px;
+    position: relative;
+  }
+  .about-list li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .about-list b {
+    color: var(--text-1);
+    font-weight: 600;
   }
   /* Body rola quando os campos nao cabem na altura maxima do modal. */
   .settings-body {
@@ -2309,24 +2378,60 @@
           <circle cx="12" cy="12" r="4" fill="currentColor"/>
         </svg>
         <div class="about-name">NoOBS</div>
-        <div class="about-tagline">Gravador de tela simples — OBS embarcado</div>
+        <div class="about-tagline">Gravador de tela leve com OBS Studio embarcado</div>
       </div>
-      <div class="about-info">
-        <div class="about-row">
-          <span class="about-label">Autor</span>
-          <span class="about-value">Eduardo (e-delphi)</span>
-        </div>
-        <div class="about-row">
-          <span class="about-label">Repositório</span>
-          <span class="about-link" role="link" tabindex="0"
-                onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
-            github.com/e-delphi/NoOBS
-          </span>
-        </div>
+
+      <p class="about-desc">
+        O NoOBS roda o motor do OBS Studio (libobs) <b>dentro do próprio
+        processo</b> — sem subprocessos, sem WebSocket, sem servidor.
+        Resultado: inicialização rápida, uso baixo de memória, e uma UI
+        limpa pensada só pra gravar — nada de cenas, transições ou
+        plugins de streaming.
+      </p>
+
+      <div class="about-scroll">
+        <div class="about-section-title">Principais recursos</div>
+        <ul class="about-list">
+          <li><b>Multi-monitor</b> e <b>webcam</b> gravados simultaneamente</li>
+          <li><b>Faixas de áudio separadas</b> — mic e cada saída como track própria no MKV</li>
+          <li><b>Aceleração de GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) com fallback CPU x264</li>
+          <li><b>Atalho global</b> configurável pra iniciar/parar de qualquer lugar</li>
+          <li><b>Modo hibernação</b>: ~5 MB de RAM quando inativo na bandeja</li>
+          <li><b>Container MKV</b> — gravação recuperável mesmo após queda de energia</li>
+          <li><b>Player embutido</b> com thumbnails, busca e exclusão direto na UI</li>
+        </ul>
+
+        <div class="about-section-title">Construído com</div>
+        <ul class="about-list">
+          <li>Delphi 12 (RAD Studio) — target Win64 nativo</li>
+          <li>libobs (OBS Studio core) — gravação, encoder e captura</li>
+          <li>FFmpeg — remux, extração de faixas e thumbnails</li>
+          <li>WebView2 (Chromium) — interface HTML/CSS/JS</li>
+        </ul>
       </div>
-      <div class="about-footer-note">
-        Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
-        e WebView2 da Microsoft.
+
+      <div class="about-fixed-footer">
+        <div class="about-info">
+          <div class="about-row">
+            <span class="about-label">Autor</span>
+            <span class="about-value">Eduardo (e-delphi)</span>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Co-autoria</span>
+            <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.7 <span style="color: var(--text-3)">1M</span></span>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Repositório</span>
+            <span class="about-link" role="link" tabindex="0"
+                  onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
+              github.com/e-delphi/NoOBS
+            </span>
+          </div>
+        </div>
+        <div class="about-footer-note">
+          Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
+          e WebView2 da Microsoft.
+        </div>
       </div>
     </div>
   </div>
@@ -2550,6 +2655,8 @@ const Bridge = {
       Displays.render();
       renderSources('mic', 'micList', 'micCount', data.mics);
       renderSources('spk', 'spkList', 'spkCount', data.speakers);
+      // freeBytes antes de renderRecordings — updateRecMeta usa.
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
       renderRecordings(data.recordings);
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
       hideLoading();
@@ -2656,6 +2763,9 @@ const Bridge = {
     },
     theme(data) { applyTheme(data.theme); },
     recordings_loaded(data) {
+      // Espaco livre vem ANTES de renderRecordings pra que updateRecMeta
+      // (chamada dentro do render) ja pegue o valor novo.
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
       renderRecordings(data.recordings);
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
     },
@@ -2717,9 +2827,15 @@ const Bridge = {
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
-    recording_added(data) { addRecordingCard(data.item); },
+    recording_added(data) {
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      addRecordingCard(data.item);
+    },
     recording_renamed(data) { renameRecordingCard(data.oldId, data.newId, data.newName); },
-    recording_removed(data) { removeRecordingCard(data.id); },
+    recording_removed(data) {
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      removeRecordingCard(data.id);
+    },
     error(data) {
       console.error('Bridge error:', data.message);
       // Toast nao-bloqueante. loadingText nao serve porque o loading
@@ -3633,15 +3749,39 @@ function removeRecordingCard(id) {
   recalcRecMetaFromDom();
 }
 
+// Espaco livre no disco da pasta de gravacoes — empurrado pelo backend
+// junto com 'recordings_loaded'. -1 = nao foi possivel ler. Guardamos
+// como state global pra que recalcRecMetaFromDom (disparado em deletes
+// individuais) tambem renderize esse campo.
+let _lastFreeBytes = -1;
+const LOW_DISK_THRESHOLD = 5 * 1024 * 1024 * 1024; // 5 GB
+
+// SVG inline do icone de aviso (triangulo laranja com !). Tamanho 13px
+// pra casar com a altura da linha do meta.
+const LOW_DISK_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" ' +
+  'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
+  'aria-label="Pouco espaço em disco"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+
+function buildRecMetaHtml(fileCount, totalBytes, freeBytes) {
+  const sep = '<span class="meta-sep">|</span>';
+  let html = `${fileCount} ${fileCount === 1 ? 'arquivo' : 'arquivos'}`;
+  if (totalBytes > 0) html += `${sep}${formatBytes(totalBytes)} usados`;
+  if (freeBytes >= 0) {
+    html += `${sep}${formatBytes(freeBytes)} livres`;
+    if (freeBytes < LOW_DISK_THRESHOLD) html += LOW_DISK_ICON;
+  }
+  return html;
+}
+
 function updateRecMeta(arr) {
   const meta = document.getElementById('recMeta');
   if (!meta) return;
   const n = arr && arr.length ? arr.length : 0;
   let total = 0;
   if (Array.isArray(arr)) arr.forEach(it => { if (it && it.size) total += it.size; });
-  let txt = `${n} ${n === 1 ? 'arquivo' : 'arquivos'}`;
-  if (total > 0) txt += ` · ${formatBytes(total)}`;
-  meta.textContent = txt;
+  meta.innerHTML = buildRecMetaHtml(n, total, _lastFreeBytes);
 }
 
 function recalcRecMetaFromDom() {
@@ -3650,9 +3790,7 @@ function recalcRecMetaFromDom() {
   cards.forEach(c => { total += parseInt(c.dataset.size || '0', 10) || 0; });
   const meta = document.getElementById('recMeta');
   if (!meta) return;
-  let txt = `${cards.length} ${cards.length === 1 ? 'arquivo' : 'arquivos'}`;
-  if (total > 0) txt += ` · ${formatBytes(total)}`;
-  meta.textContent = txt;
+  meta.innerHTML = buildRecMetaHtml(cards.length, total, _lastFreeBytes);
 }
 
 function formatBytes(b) {

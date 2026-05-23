@@ -586,6 +586,9 @@ end;
 // Push de estado
 // =====================================================================
 
+// Forward — definida mais abaixo, mas chamada por PushInit/PushRecordings.
+function GetRecordDirFreeBytes: Int64; forward;
+
 procedure PushInit(AIncludeAudio: Boolean = True);
 var
   Init: TJSONObject;
@@ -611,6 +614,7 @@ begin
   Init.AddPair('webcams',    BuildWebcamsFromWin);
   Init.AddPair('recordings', BuildRecordingsArray);
   Init.AddPair('recordDir',  RecordDir);
+  Init.AddPair('freeBytes',  TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Init);
 end;
 
@@ -674,6 +678,10 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recording_added');
   Obj.AddPair('item', Item);
+  // Re-envia espaco livre — gravacao nova consumiu disco, UI deve
+  // atualizar o "X GB livre" + acender o icone de aviso se cruzou
+  // o limite (5GB).
+  Obj.AddPair('freeBytes', TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Obj);
 
   // Gera thumb (duracao ja temos) em background — chega depois via
@@ -1055,6 +1063,26 @@ begin
     end).Start;
 end;
 
+function GetRecordDirFreeBytes: Int64;
+// Espaco livre no volume onde RecordDir esta. -1 se nao conseguiu ler
+// (caminho invalido, sem permissao, drive removivel desconectado).
+// GetDiskFreeSpaceExW retorna espaco disponivel pro USUARIO atual
+// (respeita cotas) — mais util que o total free.
+var
+  FreeAvail: TULargeInteger;
+  Probe: string;
+begin
+  Result := -1;
+  if RecordDir = '' then Exit;
+  // GetDiskFreeSpaceExW aceita qualquer caminho dentro do volume —
+  // usamos o proprio RecordDir. Adiciona trailing slash pra ser seguro
+  // com APIs que querem path-de-diretorio. Overload com pointers:
+  // passamos nil pros campos que nao usamos (total e total free).
+  Probe := IncludeTrailingPathDelimiter(RecordDir);
+  if GetDiskFreeSpaceExW(PWideChar(Probe), @FreeAvail, nil, nil) then
+    Result := Int64(FreeAvail);
+end;
+
 procedure PushRecordings;
 // Envia so a lista de gravacoes — UI ja popula o painel direito
 // enquanto o OBS ainda esta subindo.
@@ -1065,6 +1093,7 @@ begin
   Obj.AddPair('type', 'recordings_loaded');
   Obj.AddPair('recordings', BuildRecordingsArray);
   Obj.AddPair('recordDir',  RecordDir);
+  Obj.AddPair('freeBytes',  TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Obj);
 end;
 
@@ -2663,6 +2692,8 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recording_removed');
   Obj.AddPair('id', APath);
+  // Delete liberou espaco — refresh do indicador na UI.
+  Obj.AddPair('freeBytes', TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Obj);
 end;
 

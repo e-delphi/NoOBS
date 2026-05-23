@@ -2,8 +2,12 @@
   OBSAutostart - controla a entrada do NoOBS no auto-start do Windows
   via HKCU\Software\Microsoft\Windows\CurrentVersion\Run.
 
-  Quando habilitado, o registry guarda o path do exe + flag "/tray" pra
-  que ao logar o user a janela suba minimizada na bandeja.
+  Comando registrado: '"<exe>" /autostart'.
+  O flag "/autostart" e apenas um MARCADOR de origem (= "fui lancado
+  pelo logon do Windows"), nao dita comportamento. Quem decide se vai
+  pra bandeja ou abre visivel e o app em runtime, lendo o config
+  'closeToTray'. Manual launches (Start Menu, atalho, etc) NAO tem
+  o flag e sempre abrem com janela visivel.
 *)
 unit OBSAutostart;
 
@@ -53,8 +57,9 @@ begin
     if AEnable then
     begin
       // Aspas no path pra suportar instalacao com espacos.
-      // /tray = inicia minimizado na bandeja (sem janela visivel).
-      Value := '"' + GetExePath + '" /tray';
+      // /autostart = marcador "fui lancado pelo logon" — comportamento
+      // (tray vs visivel) e decidido pelo app em runtime via config.
+      Value := '"' + GetExePath + '" /autostart';
       RegSetValueExW(Key, REG_VALUE, 0, REG_SZ, PWideChar(Value),
         (Length(Value) + 1) * SizeOf(WideChar));
     end

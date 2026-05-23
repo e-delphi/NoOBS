@@ -1742,6 +1742,15 @@
     cursor: pointer;
     margin: 0;
   }
+  /* Estado desabilitado: checkbox cinza, label esmaecido, cursor padrao.
+     Aplicado via JS quando dependencias (master switch) nao satisfeitas. */
+  .settings-check-row.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .settings-check-row.disabled input[type="checkbox"] {
+    cursor: not-allowed;
+  }
   /* Hotkey builder: 4 checkboxes (modificadores) + "+" + dropdown (tecla principal). */
   .hotkey-builder {
     display: flex;
@@ -1856,10 +1865,15 @@
     padding: 10px 18px;
     border-top: 1px solid var(--border);
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     gap: 8px;
     background: var(--panel-2);
     flex-shrink: 0;
+  }
+  .settings-footer-right {
+    display: flex;
+    gap: 8px;
   }
 
   /* ===== Confirm modal ===== */
@@ -2128,43 +2142,62 @@
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutostart">
-          <span>Iniciar com o Windows (abre minimizado na bandeja)</span>
+          <span>Iniciar com o Windows</span>
         </label>
         <div class="settings-hint">
-          Ao logar no Windows, o NoOBS sobe escondido na bandeja
-          do sistema — clique no ícone pra abrir.
+          O NoOBS sobe automaticamente quando você loga no Windows.
         </div>
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
         <label class="settings-check-row">
-          <input type="checkbox" id="settingsMinimizeOnRecord">
-          <span>Minimizar para a bandeja ao iniciar a gravação</span>
+          <input type="checkbox" id="settingsCloseToTray"
+                 onchange="Settings.onTrayChange()">
+          <span>Minimizar para bandeja</span>
         </label>
         <div class="settings-hint">
-          Ao começar uma gravação, a janela do NoOBS some
-          automaticamente — útil para gravar a tela sem
-          a própria janela aparecer no vídeo. O atalho global
-          continua funcionando pra parar.
+          Permite ao NoOBS usar o ícone na bandeja do sistema. Com
+          esta opção ativa, o botão X da janela manda pra bandeja
+          em vez de encerrar — clique no ícone pra reabrir, ou use
+          o menu do ícone pra fechar de verdade.
         </div>
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
         <label class="settings-check-row">
+          <input type="checkbox" id="settingsMinimizeOnRecord"
+                 onchange="Settings.onMinimizeOnRecordChange()">
+          <span id="settingsMinimizeOnRecordLabel">Minimizar ao iniciar a gravação</span>
+        </label>
+        <div class="settings-hint" id="settingsMinimizeOnRecordHint">
+          Ao começar uma gravação, a janela do NoOBS é minimizada
+          — útil para gravar a tela sem a própria janela aparecer
+          no vídeo. O atalho global continua funcionando pra parar.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label class="settings-check-row" id="settingsNotifyOnRecordRow">
           <input type="checkbox" id="settingsNotifyOnRecord">
           <span>Notificar no Windows ao iniciar/parar gravação</span>
         </label>
         <div class="settings-hint">
-          Mostra uma notificação rápida do Windows com o ícone
-          do NoOBS quando começa ou termina uma gravação. Aparece
-          só quando o app está minimizado na bandeja (caso contrário
-          o estado da gravação já é visível na própria janela).
+          Mostra uma notificação do Windows quando começa ou termina
+          uma gravação. Só faz sentido quando a janela é minimizada
+          automaticamente — caso contrário o estado da gravação já
+          é visível na própria janela.
         </div>
       </div>
     </div>
     <div class="settings-footer">
-      <button class="settings-btn" onclick="Settings.close()">Cancelar</button>
-      <button class="settings-btn primary" onclick="Settings.save()">Salvar</button>
+      <button class="settings-btn" onclick="Settings.restoreDefaults()"
+              title="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
+        Restaurar padrão
+      </button>
+      <div class="settings-footer-right">
+        <button class="settings-btn" onclick="Settings.close()">Cancelar</button>
+        <button class="settings-btn primary" onclick="Settings.save()">Salvar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -2432,9 +2465,82 @@ const Bridge = {
       updateRecordButtonAvailability();
     },
     init_pending(data) { showLoading(data && data.message); },
+    window_hidden() {
+      // Backend escondeu a janela main (minimize pra bandeja, etc).
+      // Fecha o player se estiver aberto — quando o user reabrir o
+      // app, comeca limpo em vez de reencontrar o player fantasma.
+      const ov = document.getElementById('playerOverlay');
+      if (ov && ov.classList.contains('visible')) {
+        try { Player.close(); } catch (e) {}
+      }
+    },
+    // Notificacao do Windows pedida pelo Delphi (gravacao iniciou/parou).
+    //
+    // Usa a Web Notifications API do Chromium (WebView2 expoe nativamente
+    // e o host ja aprovou a permissao via TPermissionRequestedHandler).
+    // O Chromium se vira com AUMID + Action Center, sem precisarmos
+    // mexer com WinRT em Delphi.
+    //
+    // tag fixa "noobs-record": notificacoes novas SUBSTITUEM a anterior
+    // (em vez de empilhar na Central). renotify: true forca o popup a
+    // reaparecer mesmo com mesma tag.
+    //
+    // setTimeout + close(): remove a notificacao da Central de
+    // Notificacoes depois do popup ter sumido — usuario nao quer ver
+    // historico de "Gravacao iniciada/parou" se acumulando ali.
+    // (Inspirado no padrao do conversa-web/sound.ts.)
+    show_notification(data) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') {
+        // Permissao deveria estar 'granted' pelo handler do host. Se
+        // por algum motivo nao estiver, pede agora (no-op se 'denied').
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') Bridge.handlers.show_notification(data);
+        });
+        return;
+      }
+      try {
+        if (Bridge._lastNotif) {
+          try { Bridge._lastNotif.onclose = null; Bridge._lastNotif.close(); } catch (e) {}
+        }
+        const opts = {
+          body: data.body || '',
+          tag: 'noobs-record',
+          renotify: true,
+          silent: false,
+        };
+        // Icone do app (data URL ja recebido via app_icon push do
+        // backend). Aparece tanto no popup quanto na Central. Se ainda
+        // nao chegou, o toast sai sem icone — sem fallback de URL
+        // remota, que poderia atrasar/falhar o display.
+        if (Bridge._appIconDataUrl) opts.icon = Bridge._appIconDataUrl;
+
+        const n = new Notification(data.title || 'NoOBS', opts);
+        Bridge._lastNotif = n;
+
+        // Clique no popup (ou na entrada na Central) restaura a janela
+        // principal — usuario espera "clicou na notificacao, app abre".
+        n.onclick = () => {
+          try { n.close(); } catch (e) {}
+          Bridge.send('tray_show');
+        };
+
+        // Auto-fecha apos 5s pra nao acumular na Central de Notificacoes.
+        setTimeout(() => {
+          try { n.close(); } catch (e) {}
+          if (Bridge._lastNotif === n) Bridge._lastNotif = null;
+        }, 5000);
+      } catch (e) {
+        console.warn('show_notification falhou:', e);
+      }
+    },
     app_icon(data) {
       // Backend extraiu o icon.ico do exe e mandou como data URL.
-      // Mostra no modal "Sobre" e esconde o SVG fallback.
+      // Guarda no Bridge pra reuso (modal Sobre + icone das notificacoes
+      // do Windows). Esconde o SVG fallback no modal.
+      if (data && data.dataUrl) {
+        Bridge._appIconDataUrl = data.dataUrl;
+      }
       const img = document.getElementById('aboutAppIcon');
       const fb  = document.getElementById('aboutAppIconFallback');
       if (img && data && data.dataUrl) {
@@ -3720,15 +3826,19 @@ const Settings = {
   currentCodec: 'auto',
   currentHotkey: '',
   currentAutostart: false,
+  currentCloseToTray: false,
   currentMinimizeOnRecord: false,
-  currentNotifyOnRecord: true,
+  currentNotifyOnRecord: false,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
     this._loadHotkeyIntoUi(this.currentHotkey || '');
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
+    document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
+    this._syncMinimizeOnRecordLabel();
+    this._syncNotifyOnRecordEnabled();
     this._updateThemeButtons();
     document.getElementById('settingsOverlay').classList.add('visible');
     Bridge.send('get_settings');
@@ -3760,11 +3870,14 @@ const Settings = {
       const codec = document.getElementById('settingsCodec').value;
       const hotkey = this._readHotkeyFromUi();
       const autostart = document.getElementById('settingsAutostart').checked;
+      const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
-      console.log('[Settings.save]', { path, codec, hotkey, autostart, minimizeOnRecord, notifyOnRecord,
+      console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
+        minimizeOnRecord, notifyOnRecord,
         prev: { recDir: this.currentRecDir, codec: this.currentCodec, hotkey: this.currentHotkey,
-                autostart: this.currentAutostart, minimizeOnRecord: this.currentMinimizeOnRecord,
+                autostart: this.currentAutostart, closeToTray: this.currentCloseToTray,
+                minimizeOnRecord: this.currentMinimizeOnRecord,
                 notifyOnRecord: this.currentNotifyOnRecord } });
 
       // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
@@ -3780,13 +3893,18 @@ const Settings = {
         }
       }
 
-      if (path) Bridge.send('set_record_dir', { path });
+      // path vazio = restaurar pro default (USERPROFILE\Videos). So
+      // envia se mudou — evita rebuild desnecessario da lista de gravacoes.
+      if (path !== this.currentRecDir)
+        Bridge.send('set_record_dir', { path });
       if (codec) Bridge.send('set_codec', { codec });
       // Hotkey: salva sempre (string vazia = desativa atalho).
       if (hotkey !== this.currentHotkey)
         Bridge.send('set_hotkey', { hotkey });
       if (autostart !== this.currentAutostart)
         Bridge.send('set_autostart', { enabled: autostart });
+      if (closeToTray !== this.currentCloseToTray)
+        Bridge.send('set_close_to_tray', { enabled: closeToTray });
       if (minimizeOnRecord !== this.currentMinimizeOnRecord)
         Bridge.send('set_minimize_on_record', { enabled: minimizeOnRecord });
       if (notifyOnRecord !== this.currentNotifyOnRecord)
@@ -3798,6 +3916,7 @@ const Settings = {
       if (codec) this.currentCodec = codec;
       this.currentHotkey = hotkey;
       this.currentAutostart = autostart;
+      this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
       this.close();
@@ -3813,11 +3932,9 @@ const Settings = {
     this.currentCodec = data.codec || 'auto';
     this.currentHotkey = data.hotkey || '';
     this.currentAutostart = !!data.autostart;
+    this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
-    // notifyOnRecord default = true (notifica por padrao). Tratamento
-    // explicito: undefined vira true, qualquer outra coisa preserva.
-    this.currentNotifyOnRecord =
-      (data.notifyOnRecord === undefined) ? true : !!data.notifyOnRecord;
+    this.currentNotifyOnRecord = !!data.notifyOnRecord;
     const inp = document.getElementById('settingsRecDir');
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
@@ -3825,13 +3942,79 @@ const Settings = {
     this._loadHotkeyIntoUi(this.currentHotkey);
     const as = document.getElementById('settingsAutostart');
     if (as) as.checked = this.currentAutostart;
+    const ct = document.getElementById('settingsCloseToTray');
+    if (ct) ct.checked = this.currentCloseToTray;
     const mr = document.getElementById('settingsMinimizeOnRecord');
     if (mr) mr.checked = this.currentMinimizeOnRecord;
     const nr = document.getElementById('settingsNotifyOnRecord');
     if (nr) nr.checked = this.currentNotifyOnRecord;
+    this._syncMinimizeOnRecordLabel();
+    this._syncNotifyOnRecordEnabled();
   },
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
+  },
+  // Cascata de dependencias:
+  //   closeToTray (master tray) → muda label do minimizeOnRecord
+  //                              (vai pra bandeja vs minimiza taskbar)
+  //   minimizeOnRecord → habilita/desabilita notifyOnRecord
+  //                      (notify so faz sentido se app fica escondido)
+  onTrayChange() {
+    this._syncMinimizeOnRecordLabel();
+  },
+  onMinimizeOnRecordChange() {
+    this._syncNotifyOnRecordEnabled();
+  },
+  _syncMinimizeOnRecordLabel() {
+    const tray = document.getElementById('settingsCloseToTray').checked;
+    const lbl = document.getElementById('settingsMinimizeOnRecordLabel');
+    const hint = document.getElementById('settingsMinimizeOnRecordHint');
+    if (lbl) lbl.textContent = tray
+      ? 'Minimizar para a bandeja ao iniciar a gravação'
+      : 'Minimizar ao iniciar a gravação';
+    if (hint) hint.textContent = tray
+      ? 'Ao começar uma gravação, a janela do NoOBS é enviada pra bandeja do sistema — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar.'
+      : 'Ao começar uma gravação, a janela do NoOBS é minimizada — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar.';
+  },
+  _syncNotifyOnRecordEnabled() {
+    const minOnRec = document.getElementById('settingsMinimizeOnRecord').checked;
+    const notif = document.getElementById('settingsNotifyOnRecord');
+    const row = document.getElementById('settingsNotifyOnRecordRow');
+    if (!notif || !row) return;
+    notif.disabled = !minOnRec;
+    row.classList.toggle('disabled', !minOnRec);
+    // Forca uncheck quando desabilitado pra evitar estado "ON mas oculto".
+    if (!minOnRec) notif.checked = false;
+  },
+  restoreDefaults() {
+    // Reseta APENAS os campos do modal (UI) — nao salva nada. User
+    // revisa e clica Salvar pra confirmar, ou Cancelar pra descartar.
+    // Pede confirmacao antes pra evitar reset acidental.
+    // Tema fica de fora — ja eh aplicado/salvo instantaneo via os
+    // botoes de toggle no header, nao faz parte do fluxo de Salvar.
+    Confirm.open({
+      title: 'Restaurar padrão',
+      message: 'Isso vai redefinir todos os campos pros valores padrão. ' +
+        'Você ainda precisa clicar em Salvar pra aplicar. Continuar?',
+      okLabel: 'Restaurar',
+      cancelLabel: 'Cancelar',
+      danger: false,
+      onOk: () => {
+        // Defaults (espelhados do backend OBSConfig.GetConfigBool/Str
+        // e do OBSBridge HandleSet*).
+        document.getElementById('settingsRecDir').value = '';
+        document.getElementById('settingsCodec').value = 'auto';
+        this._loadHotkeyIntoUi('Pause');
+        document.getElementById('settingsAutostart').checked = false;
+        document.getElementById('settingsCloseToTray').checked = false;
+        document.getElementById('settingsMinimizeOnRecord').checked = false;
+        document.getElementById('settingsNotifyOnRecord').checked = false;
+        this._syncMinimizeOnRecordLabel();
+        this._syncNotifyOnRecordEnabled();
+        Toast.show('Campos restaurados',
+          'Clique Salvar pra aplicar as mudanças.', { ttl: 4000 });
+      },
+    });
   },
 
   // -------- Hotkey via checkboxes (modificadores) + dropdown (tecla) --------

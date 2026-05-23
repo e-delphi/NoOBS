@@ -134,6 +134,11 @@ var
 
   RecordingActive: Boolean = False;
   RecordingStartTickMs: Cardinal = 0;
+  // True se a janela estava visivel quando o auto-minimize on record
+  // disparou. Usado pra restaurar a janela quando a gravacao parar
+  // (via hotkey ou tray menu). Caso o user tenha minimizado manual
+  // antes de gravar, esse flag fica False e nao restauramos.
+  WindowWasVisibleBeforeRecord: Boolean = False;
   ThumbBusy: Boolean = False;       // evita pile-up se o tick anterior atrasar
   ThumbThread: TThumbTimerThread = nil;
   // True enquanto o modal de player de video esta aberto. UI envia o
@@ -1060,6 +1065,36 @@ var
   LastMonitorCount: Integer = -1;     // pra detectar mudanca real
   MonitorRetryAttempts: Integer = 0;  // tentativas extras pos-evento
 
+  // Signature determinista do estado de audio que a UI conhece. Usado
+  // pra deduplicar refreshes — eventos de IMMNotificationClient vem em
+  // rajada (mic + speaker do mesmo headset, varios papeis default,
+  // OnDeviceStateChanged sem mudanca real, etc), e nao queremos mostrar
+  // o banner "dispositivos alterados" se a lista visivel pela UI segue
+  // identica. So atualiza quando push 'audio_sources_refreshed' vai pra
+  // UI — durante gravacao continua "antiga" ate o stop aplicar o
+  // refresh adiado. Vazia ate o DoInit popular.
+  LastAppliedAudioSig: string = '';
+
+function BuildAudioSignature(const ADevs: TAudioDeviceInfoArray): string;
+// Composicao determinista do estado de audio. Inclui IsDefault pra
+// detectar troca de default sem mudanca de lista (user altera o
+// dispositivo padrao no Windows -> IsDefault muda pra outro device).
+// Ordena por (Kind, DeviceId) pra que ordem de enumeracao do WASAPI
+// nao afete a comparacao.
+var
+  Tmp: TArray<string>;
+  i: Integer;
+begin
+  if Length(ADevs) = 0 then Exit('');
+  SetLength(Tmp, Length(ADevs));
+  for i := 0 to High(ADevs) do
+    Tmp[i] := Format('%d|%s|%d|%s',
+      [Integer(ADevs[i].Kind), ADevs[i].DeviceId,
+       Ord(ADevs[i].IsDefault), ADevs[i].Name]);
+  TArray.Sort<string>(Tmp);
+  Result := string.Join(';', Tmp);
+end;
+
 procedure PushRefreshBusy(ABusy: Boolean; const AWhat: string);
 // Mostra/esconde overlay de loading na sidebar enquanto um refresh
 // (audio ou monitores) esta acontecendo. Como a chamada websocket
@@ -1241,6 +1276,11 @@ begin
   end;
 end;
 
+// Forward — definida mais abaixo, mas chamada de dentro da queued
+// procedure de DoRefreshAudio quando o user esta gravando (sinaliza
+// banner "dispositivos alterados").
+procedure PushAudioDeviceChanged(APending: Boolean); forward;
+
 procedure DoRefreshAudio;
 // Re-enumera audio devices via WASAPI e empurra a lista atualizada
 // pra UI. Disparado por OBSAudioWatch ao detectar hot-plug (USB
@@ -1267,6 +1307,7 @@ begin
       Init: TJSONObject;
       T0, TPhase: UInt64;
       Devs: TAudioDeviceInfoArray;
+      NewSig: string;
     begin
       T0 := GetTickCount64;
       try
@@ -1298,6 +1339,8 @@ begin
           LogDeviceSnapshot('DoRefreshAudio', Devs);
           if IsShuttingDown then Exit;
 
+          NewSig := BuildAudioSignature(Devs);
+
           TThread.Queue(nil,
             procedure
             var
@@ -1305,12 +1348,43 @@ begin
             begin
               if IsShuttingDown then Exit;
               try
+                // Dedup: se a lista (incluindo defaults) e identica ao que
+                // a UI ja conhece, ignora — o evento que disparou esse
+                // refresh nao trouxe nada relevante. Cobre os casos
+                // espurios (state change interno, role secundario, etc).
+                if NewSig = LastAppliedAudioSig then
+                begin
+                  Log('DoRefreshAudio: signature inalterada, sem push pra UI.');
+                  // Se o banner ja estava marcado durante gravacao mas a
+                  // mudanca foi revertida, limpa o flag — UI ja reflete
+                  // o estado atual, nao precisa refresh pos-stop.
+                  if PendingAudioRefresh then PendingAudioRefresh := False;
+                  Exit;
+                end;
+
+                // Durante gravacao nao atualiza a lista de audio na UI —
+                // o user ta no meio de uma gravacao, ver a lista mudando
+                // confunde. So mostra o banner "dispositivos alterados,
+                // refresh apos parar". Aplicacao real fica adiada pra
+                // depois do stop (que chama DoRefreshAudio novamente).
+                if RecordingActive then
+                begin
+                  if not PendingAudioRefresh then
+                  begin
+                    PendingAudioRefresh := True;
+                    PushAudioDeviceChanged(True);
+                  end;
+                  Exit;
+                end;
+
                 Init := TJSONObject.Create;
                 Init.AddPair('type', 'audio_sources_refreshed');
                 BuildAudioJsonWithTracks(MicsJ, SpksJ);
                 Init.AddPair('mics',     MicsJ);
                 Init.AddPair('speakers', SpksJ);
                 PostOwned(Init);
+                LastAppliedAudioSig := NewSig;
+                if PendingAudioRefresh then PendingAudioRefresh := False;
               except
                 on E: Exception do
                   Log('DoRefreshAudio (UI): %s', [E.Message]);
@@ -1368,23 +1442,17 @@ begin
   else
     Log('AudioWatch: %s id="%s"', [KIND_NAMES[AKind], ShortId]);
 
-  if AKind = adcDefaultChanged then Exit;
+  // Sempre debounce — independente do kind (incluindo adcDefaultChanged,
+  // disparado quando o user troca o dispositivo padrao no Painel de Som
+  // do Windows) e independente de estar gravando. A decisao "banner vs
+  // refresh vs nada" e tomada em DoRefreshAudio depois do worker
+  // enumerar e comparar signature com LastAppliedAudioSig — assim nao
+  // notificamos quando nada relevante mudou (state change interno do
+  // WASAPI, property change espuria, role secundario do mesmo device,
+  // etc).
   TThread.Queue(nil,
     procedure
     begin
-      // Mostra banner imediato se em gravacao; refresh fica adiado
-      // pra depois do stop. Sem gravacao, agenda timer pra disparar
-      // o refresh apos a rajada de eventos.
-      if RecordingActive then
-      begin
-        if not PendingAudioRefresh then
-        begin
-          PendingAudioRefresh := True;
-          PushAudioDeviceChanged(True);
-        end;
-        Exit;
-      end;
-      // Reagenda — KillTimer + SetTimer com mesmo ID reseta o relogio.
       if MainWindowHandle <> 0 then
       begin
         KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
@@ -1629,13 +1697,19 @@ begin
     procedure
     var
       Init: TJSONObject;
+      Devs: TAudioDeviceInfoArray;
+      InitSig: string;
     begin
       if IsShuttingDown then Exit;
       try InitAudio; except end;
       if IsShuttingDown then Exit;
       try
-        LogDeviceSnapshot('DoInit', EnumerateAudioDevices);
-      except end; // forca cache (pode demorar)
+        Devs := EnumerateAudioDevices;
+        LogDeviceSnapshot('DoInit', Devs);
+        InitSig := BuildAudioSignature(Devs);
+      except
+        on E: Exception do Log('DoInit: erro ao enumerar audio: %s', [E.Message]);
+      end;
       if IsShuttingDown then Exit;
       TThread.Queue(nil, procedure
       var
@@ -1652,6 +1726,10 @@ begin
           Init.AddPair('mics',     MicsJ);
           Init.AddPair('speakers', SpksJ);
           PostOwned(Init);
+          // Captura signature inicial pra dedup de eventos futuros —
+          // sem isso o 1o hot-plug compararia contra '' e sempre
+          // mostraria banner mesmo que o estado fosse identico.
+          LastAppliedAudioSig := InitSig;
           Log('DoInit: audio enumeration completa');
         except
           on E: Exception do
@@ -1688,10 +1766,10 @@ begin
   Initialized := True;
   Log('DoInit: pronto (sem OBS — sobe na hora da gravacao).');
 
-  // Se "Iniciar com Windows" esta ativo, garante o icone na bandeja
-  // mesmo com a janela aberta (sinaliza que o app vai pra bandeja ao
-  // fechar). Em modo /tray o icone ja foi instalado em OBSUI.Run.
-  if OBSAutostart.IsAutoStartEnabled then
+  // Se "Minimizar pra bandeja ao fechar" esta ativo, garante o icone
+  // na bandeja mesmo com a janela aberta (sinaliza que [X] vai pra
+  // bandeja). Em modo /tray o icone ja foi instalado em OBSUI.Run.
+  if GetConfigBool('closeToTray', False) then
     OBSUI.EnsureTrayIcon;
 
   // 1a execucao apos instalacao: abre o modal de Configuracoes pra
@@ -1787,11 +1865,26 @@ begin
     RecordingMonitorsSnapshot := WinPreview.EnumerateMonitors;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
     PushRecordingState;
-    // Auto-minimizar pra bandeja se o user pediu — UI da lugar pra
-    // outras janelas durante a gravacao. Hotkey global continua
-    // funcionando pra parar.
+    // Auto-minimizar se o user pediu — UI da lugar pra outras janelas
+    // durante a gravacao. Hotkey global continua funcionando pra parar.
+    // Destino depende do master 'closeToTray':
+    //   closeToTray=ON  → some pra bandeja (HideToTray)
+    //   closeToTray=OFF → minimiza pra taskbar (visivel na barra)
+    // Lembra se a janela estava visivel pra restaurar no stop (se o
+    // user ja tinha minimizado manualmente, nao queremos forcar abrir).
+    WindowWasVisibleBeforeRecord := False;
     if GetConfigBool('minimizeOnRecord', False) then
-      OBSUI.HideToTray;
+    begin
+      WindowWasVisibleBeforeRecord :=
+        (MainWindowHandle <> 0) and IsWindowVisible(MainWindowHandle);
+      if WindowWasVisibleBeforeRecord then
+      begin
+        if GetConfigBool('closeToTray', False) then
+          OBSUI.HideToTray
+        else
+          OBSUI.MinimizeToTaskbar;
+      end;
+    end;
     // Notificacao na bandeja (so dispara se o tray esta visivel).
     MaybeNotifyRecord('NoOBS', 'Gravação iniciada.');
     Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);
@@ -1851,6 +1944,16 @@ begin
   // Notifica fim da gravacao (so se em tray e config permite).
   MaybeNotifyRecord('NoOBS',
     Format('Gravação finalizada (%dm %ds).', [Elapsed div 60, Elapsed mod 60]));
+
+  // Se o auto-minimize escondeu a janela na hora do start, restaura.
+  // O user esperava continuar olhando o NoOBS apos parar a gravacao
+  // (via hotkey ou tray menu). Caso o user ja tivesse minimizado
+  // manual, esse flag esta False e a janela continua na bandeja.
+  if WindowWasVisibleBeforeRecord then
+  begin
+    WindowWasVisibleBeforeRecord := False;
+    OBSUI.RestoreFromTray;
+  end;
 
   if PendingAudioRefresh then
   begin
@@ -2196,20 +2299,32 @@ begin
   Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
   Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
+  Obj.AddPair('closeToTray',
+    TJSONBool.Create(GetConfigBool('closeToTray', False)));
   Obj.AddPair('minimizeOnRecord',
     TJSONBool.Create(GetConfigBool('minimizeOnRecord', False)));
   Obj.AddPair('notifyOnRecord',
-    TJSONBool.Create(GetConfigBool('notifyOnRecord', True)));
+    TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
   PostOwned(Obj);
 end;
 
 procedure HandleSetAutostart(AEnable: Boolean);
 begin
+  // Registro guarda apenas o flag /autostart como marcador de origem
+  // — comportamento (tray vs visivel) e decidido pelo app em runtime
+  // lendo 'closeToTray'. Toggle do closeToTray nao precisa reescrever
+  // a entrada do Run.
   OBSAutostart.SetAutoStart(AEnable);
   Log('Autostart: %s', [BoolToStr(AEnable, True)]);
-  // Reflete na bandeja imediato: com autostart ON queremos icone visivel
-  // mesmo com a janela aberta (sinaliza que o app vai voltar pra bandeja
-  // ao fechar). Com autostart OFF e janela aberta, nao precisa do icone.
+end;
+
+procedure HandleSetCloseToTray(AEnable: Boolean);
+begin
+  SetConfigBool('closeToTray', AEnable);
+  Log('CloseToTray: %s', [BoolToStr(AEnable, True)]);
+  // Reflete na bandeja imediato: com closeToTray ON queremos icone
+  // visivel mesmo com a janela aberta (sinaliza que [X] vai pra bandeja).
+  // Com OFF e janela visivel, remove o icone.
   if AEnable then
     OBSUI.EnsureTrayIcon
   else if MainWindowHandle <> 0 then
@@ -2219,6 +2334,9 @@ begin
     if IsWindowVisible(MainWindowHandle) then
       OBSUI.RemoveTrayIcon;
   end;
+  // Autostart NAO precisa ser re-escrito — a entrada do Run guarda
+  // apenas /autostart (marcador), e o comportamento e lido daqui no
+  // proximo boot.
 end;
 
 procedure HandleSetMinimizeOnRecord(AEnable: Boolean);
@@ -2234,14 +2352,26 @@ begin
 end;
 
 procedure MaybeNotifyRecord(const ATitle, AMessage: string);
-// So mostra balloon se:
-//   1. User pediu (config notifyOnRecord = True)
-//   2. Tray esta ativo (janela escondida) — senao a notificacao
-//      seria redundante, o user esta olhando a UI mesmo.
+// Mostra notificacao via Web Notifications API (`new Notification(...)`
+// no JS da UI) se o user pediu (config notifyOnRecord = True). A UI
+// se encarrega de criar o toast, dar setTimeout(close, N) pra remover
+// da Central de Notificacoes, e usar tag fixa pra que notificacoes
+// novas substituam as antigas em vez de empilhar.
+//
+// Por que WebView2 e nao WinRT direto: o Chromium ja gerencia AUMID
+// e Action Center nativamente, e `notification.close()` remove da
+// Central de forma deterministica — coisa que WinRT toast em Delphi
+// (vtable manual, IReference<DateTime>) e fragil. Mesma abordagem
+// usada pelo conversa-web/Vue rodando dentro do WebView2.
+var
+  Obj: TJSONObject;
 begin
-  if not GetConfigBool('notifyOnRecord', True) then Exit;
-  if not OBSTray.IsTrayInstalled then Exit;
-  OBSTray.ShowBalloon(ATitle, AMessage);
+  if not GetConfigBool('notifyOnRecord', False) then Exit;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type',  'show_notification');
+  Obj.AddPair('title', ATitle);
+  Obj.AddPair('body',  AMessage);
+  PostOwned(Obj);
 end;
 
 procedure HandleSetCodec(const ACodec: string);
@@ -2310,8 +2440,23 @@ begin
 end;
 
 procedure HandleSetRecordDir(const APath: string);
+var
+  NewPath: string;
 begin
-  if APath = '' then Exit;
+  // String vazia = restaurar pro default (USERPROFILE\Videos).
+  // Usado pelo botao "Restaurar padrao" das configuracoes.
+  if APath = '' then
+  begin
+    NewPath := GetEnvironmentVariable('USERPROFILE') + '\Videos';
+    SetConfigStr('recordDir', '');
+    RecordDir := NewPath;
+    Log('Pasta de gravacao restaurada pro padrao: %s', [NewPath]);
+    PushSettings;
+    PushRecordings;
+    ScanRecordingsMeta;
+    try OBSRecordWatch.UpdateDir(NewPath); except end;
+    Exit;
+  end;
   if not DirectoryExists(APath) then
   begin
     PostError('Pasta nao existe: ' + APath);
@@ -2415,6 +2560,8 @@ begin
       HandleValidateHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'set_autostart' then
       HandleSetAutostart(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_close_to_tray' then
+      HandleSetCloseToTray(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_minimize_on_record' then
       HandleSetMinimizeOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_notify_on_record' then
@@ -2425,6 +2572,11 @@ begin
       HandleSetTheme(GetStrField(Obj, 'theme'))
     else if MsgType = 'toggle_fullscreen' then
       OBSUI.ToggleFullscreen
+    else if MsgType = 'tray_show' then
+      // Disparado pelo clique numa notificacao do Windows (handler
+      // show_notification no UI). Restaura a janela esteja ela na
+      // bandeja ou minimizada na taskbar.
+      OBSUI.RestoreFromTray
     else if MsgType = 'player_state' then
     begin
       // UI avisa que o modal de player abriu/fechou. Suspende audio
@@ -2757,11 +2909,11 @@ end;
 function ShouldHideOnClose: Boolean;
 // WM_CLOSE chama esse callback pra decidir entre minimizar pra bandeja
 // ou fechar de verdade. Regras:
-//   - Autostart ON: user quer manter o app rodando sempre
+//   - 'closeToTray' ON: user pediu pra app ficar rodando na bandeja
 //   - Gravando: nunca interromper a gravacao por engano
 //   - Caso contrario: fecha normal
 begin
-  Result := OBSAutostart.IsAutoStartEnabled or RecordingActive;
+  Result := GetConfigBool('closeToTray', False) or RecordingActive;
 end;
 
 // Toggle de gravacao usado pelo menu do tray (item "Iniciar/Parar

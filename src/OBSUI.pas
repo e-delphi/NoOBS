@@ -13,10 +13,11 @@
     - Retry de navegacao com timer (HTML e local; falha = bug nosso).
     - Handler de permission (UI nao pede camera/mic).
 
-  Tray icon (OBSTray) e auto-start (OBSAutostart) controlam minimizacao
-  pra bandeja, start with Windows e /tray command line. WM_CLOSE da
-  janela e interceptada pra minimizar pra bandeja em vez de matar o
-  processo (so o item "Fechar" do menu tray realmente fecha).
+  Tray icon (OBSTray) e a config 'closeToTray' controlam minimizacao
+  pra bandeja. WM_CLOSE da janela e interceptada e o callback
+  OnUIShouldHideOnClose (registrado por OBSBridge) decide se minimiza
+  ou fecha de verdade. Auto-start com Windows (OBSAutostart) e
+  independente — so registra entrada no HKCU\Run sem afetar bandeja.
 
   HTML carregado direto da resource embutida no exe (sem dependencia de arquivo).
 }
@@ -63,8 +64,20 @@ var
 
 // Esconde a janela principal pra bandeja (instala icone se ainda nao
 // estiver). Chamado por OBSBridge quando "minimizar ao gravar" esta
-// ativo, ou pelo WM_CLOSE quando o fluxo manda esconder.
+// ativo + closeToTray ON, ou pelo WM_CLOSE quando o fluxo manda
+// esconder.
 procedure HideToTray;
+
+// Minimiza a janela principal pra TASKBAR (sem ir pra bandeja). Usado
+// quando 'minimizeOnRecord' esta ativo mas 'closeToTray' nao —
+// minimize visivel na barra de tarefas em vez de sumir.
+procedure MinimizeToTaskbar;
+
+// Restaura a janela principal da bandeja OU da taskbar (mostra + traz
+// pra frente). Reusa o estado WasMaximized do ultimo HideToTray/
+// MinimizeToTaskbar pra restaurar no mesmo modo que estava. Idempotente
+// — no-op se ja visivel e nao minimizada.
+procedure RestoreFromTray;
 
 // Instala o icone na bandeja SEM esconder a janela. Usado quando o user
 // ativa "Iniciar com Windows" — esperamos o icone visivel imediato.
@@ -95,8 +108,7 @@ uses
   OBSConfig,
   OBSLog,
   OBSStartupCheck,
-  OBSTray,
-  OBSAutostart;
+  OBSTray;
 
 // ---------------------------------------------------------------------
 // Fallback de ICoreWebView2Settings3 pra Delphi 11
@@ -308,6 +320,19 @@ type
     function Invoke(const sender: ICoreWebView2; const args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
   end;
 
+  // Aprova automaticamente toda permissao que o WebView2 pedir. Em
+  // particular precisamos de NOTIFICATIONS (kind=4) pra que o JS possa
+  // chamar `new Notification(...)` — usado pelo Bridge handler
+  // 'show_notification' (avisos de inicio/fim de gravacao). Como o
+  // conteudo HTML e RCDATA empacotado no proprio binario (sem origem
+  // remota), liberar tudo nao tem risco — nao tem terceiro carregando
+  // pagina ali.
+  TPermissionRequestedHandler = class(TInterfacedObject, ICoreWebView2PermissionRequestedEventHandler)
+  public
+    function Invoke(const sender: ICoreWebView2;
+      const args: ICoreWebView2PermissionRequestedEventArgs): HRESULT; stdcall;
+  end;
+
 procedure SetSizeWindow(Window: HWND; Ctrl: ICoreWebView2Controller);
 var
   r: tagRECT;
@@ -344,18 +369,89 @@ begin
   Result := TEncoding.UTF8.GetString(Bytes);
 end;
 
-procedure StartNavigate;
+// Onde a UI HTML extraida fica em disco. Usada como source pro
+// SetVirtualHostNameToFolderMapping — WebView2 le do disco quando
+// navegamos pra https://noobs.app/index.html.
+//
+// Por que disco e nao NavigateToString:
+// NavigateToString seta origin pra "about:blank" (origem opaca). A Web
+// Notifications API exige contexto seguro (HTTPS / localhost / virtual
+// host). Sem origin real, `new Notification(...)` falha silencioso —
+// permissao ate pode ser concedida mas a notificacao nunca dispara.
+// SetVirtualHostNameToFolderMapping da pra UI um origin https:// real,
+// e a Notification API passa a funcionar como num navegador comum.
+function GetUiFolderPath: string;
 var
-  Html: string;
+  AppData: string;
 begin
-  if WebView = nil then Exit;
+  AppData := GetEnvironmentVariable('LOCALAPPDATA');
+  if AppData = '' then AppData := GetEnvironmentVariable('TEMP');
+  Result := IncludeTrailingPathDelimiter(AppData) + 'NoOBS\ui';
+end;
+
+function ExtractUiHtmlToDisk: string;
+// Escreve o RCDATA 'UI' em <ui-folder>\index.html. Retorna o folder
+// (sem o nome do arquivo). String vazia se algo falhar.
+var
+  Folder, FilePath, Html: string;
+  Bytes: TBytes;
+  Stream: TFileStream;
+begin
+  Result := '';
   Html := LoadHtmlFromResource('UI');
   if Html = '' then
   begin
     Log('UI: resource "UI" RCDATA nao encontrada no exe.');
     Exit;
   end;
-  WebView.NavigateToString(PWideChar(Html));
+
+  Folder := GetUiFolderPath;
+  if not ForceDirectories(Folder) then
+  begin
+    Log('UI: nao consegui criar pasta "%s".', [Folder]);
+    Exit;
+  end;
+
+  FilePath := IncludeTrailingPathDelimiter(Folder) + 'index.html';
+  try
+    Bytes := TEncoding.UTF8.GetBytes(Html);
+    Stream := TFileStream.Create(FilePath, fmCreate);
+    try
+      if Length(Bytes) > 0 then
+        Stream.WriteBuffer(Bytes[0], Length(Bytes));
+    finally
+      Stream.Free;
+    end;
+    Result := Folder;
+  except
+    on E: Exception do
+      Log('UI: falha escrevendo index.html: %s', [E.Message]);
+  end;
+end;
+
+procedure StartNavigate;
+const
+  // Virtual host arbitrario. Nao resolve DNS — WebView2 intercepta
+  // requests pra esse host e serve do folder mapeado. "https://" da
+  // contexto seguro pra Notification API + outras features modernas.
+  UI_HOST = 'noobs.app';
+var
+  Folder: string;
+  WV3: ICoreWebView2_3;
+begin
+  if WebView = nil then Exit;
+  Folder := ExtractUiHtmlToDisk;
+  if Folder = '' then Exit;
+
+  // Mapeia o virtual host pra pasta com o index.html. ALLOW: WebView2
+  // serve qualquer recurso do folder. Origin no JS vira "https://noobs.app".
+  if Succeeded(WebView.QueryInterface(IID_ICoreWebView2_3, WV3)) and (WV3 <> nil) then
+    WV3.SetVirtualHostNameToFolderMapping(UI_HOST, PWideChar(Folder),
+      COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW)
+  else
+    Log('UI: ICoreWebView2_3 nao disponivel — Notification API pode nao funcionar.');
+
+  WebView.Navigate(PWideChar('https://' + UI_HOST + '/index.html'));
 end;
 
 procedure SetDarkMode(Wnd: HWND; Enable: Boolean);
@@ -398,6 +494,7 @@ begin
   Controller.Set_ZoomFactor(1.0);
 
   WebView.add_WebMessageReceived(TWebMessageReceivedHandler.Create, Token);
+  WebView.add_PermissionRequested(TPermissionRequestedHandler.Create, Token);
 
   StartNavigate;
 
@@ -425,6 +522,14 @@ begin
     Exit;
   end;
   createdEnvironment.CreateCoreWebView2Controller(MainWindow, TControllerHandler.Create);
+  Result := S_OK;
+end;
+
+function TPermissionRequestedHandler.Invoke(const sender: ICoreWebView2;
+  const args: ICoreWebView2PermissionRequestedEventArgs): HRESULT;
+begin
+  if args <> nil then
+    args.Set_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
   Result := S_OK;
 end;
 
@@ -792,8 +897,24 @@ begin
   if MainWindow = 0 then Exit;
   if not IsWindowVisible(MainWindow) then Exit;
   WasMaximized := IsZoomed(MainWindow);
+  // Avisa o JS antes de esconder — pode querer fechar o player de
+  // video (caso contrario fica reproduzindo "fantasma" atras da
+  // janela escondida, sem o user poder ver/controlar).
+  // PostJSON e idempotente — se a UI nao tem handler, e no-op.
+  PostJSON('{"type":"window_hidden"}');
   ShowWindow(MainWindow, SW_HIDE);
   OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+end;
+
+procedure MinimizeToTaskbar;
+begin
+  if MainWindow = 0 then Exit;
+  if not IsWindowVisible(MainWindow) then Exit;
+  WasMaximized := IsZoomed(MainWindow);
+  // Player de video tambem deve fechar — janela minimizada nao
+  // deveria continuar reproduzindo audio "fantasma" do player.
+  PostJSON('{"type":"window_hidden"}');
+  ShowWindow(MainWindow, SW_MINIMIZE);
 end;
 
 procedure EnsureTrayIcon;
@@ -807,45 +928,85 @@ begin
   OBSTray.RemoveTrayIcon;
 end;
 
+procedure RestoreFromTray;
+var
+  FgWnd: HWND;
+  FgThreadId, MyThreadId: DWORD;
+  Attached: Boolean;
+begin
+  if MainWindow = 0 then Exit;
+
+  // Se foi start via /tray, a janela esta com WS_EX_TOOLWINDOW e
+  // off-screen (truque pra WebView2 inicializar com parent visivel).
+  // Na 1a abertura via bandeja: remove o style e reposiciona no centro
+  // antes do show. Subsequentes esconde/mostra rodam normais.
+  if PendingRestorePosition then
+  begin
+    PendingRestorePosition := False;
+    SetWindowLongPtr(MainWindow, GWL_EXSTYLE,
+      GetWindowLongPtr(MainWindow, GWL_EXSTYLE) and not NativeInt(WS_EX_TOOLWINDOW));
+    SetWindowPos(MainWindow, 0,
+      PendingRestoreBounds.Left, PendingRestoreBounds.Top,
+      PendingRestoreBounds.Right  - PendingRestoreBounds.Left,
+      PendingRestoreBounds.Bottom - PendingRestoreBounds.Top,
+      SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED or SWP_HIDEWINDOW);
+  end;
+
+  // SW_RESTORE serve tanto pra janela escondida (SW_HIDE) quanto
+  // minimizada (SW_MINIMIZE) — em ambos os casos volta pro estado
+  // anterior (normal/maximizado). Pra maximizada explicitamente
+  // usamos SW_SHOWMAXIMIZED pra forcar.
+  if WasMaximized then
+    ShowWindow(MainWindow, SW_SHOWMAXIMIZED)
+  else
+    ShowWindow(MainWindow, SW_RESTORE);
+
+  // ---- Bypass do anti-focus-stealing do Windows ----
+  //
+  // Cenario: usuario clica numa notificacao do Windows. O JS dispara
+  // onclick -> Bridge.send('tray_show') -> nossa Dispatch chama
+  // RestoreFromTray. Nesse momento o "foreground process" do sistema
+  // e o shell (que ja dispensou o toast), nao a gente. Como Windows
+  // bloqueia SetForegroundWindow vindo de processo nao-foreground
+  // (anti-focus-stealing), a janela aparece mas fica atras com o icone
+  // da taskbar piscando — sintoma exato do bug que vimos.
+  //
+  // Workaround padrao: AttachThreadInput temporariamente compartilha
+  // o input state com a thread da janela foreground. Nesse modo o
+  // Windows permite SetForegroundWindow pq tecnicamente "ja temos
+  // input compartilhado". BringWindowToTop reforca o z-order.
+  // Detach no finally pra nao deixar a thread amarrada.
+  FgWnd      := GetForegroundWindow;
+  MyThreadId := GetCurrentThreadId;
+  FgThreadId := 0;
+  Attached   := False;
+  if (FgWnd <> 0) and (FgWnd <> MainWindow) then
+  begin
+    FgThreadId := GetWindowThreadProcessId(FgWnd, nil);
+    if (FgThreadId <> 0) and (FgThreadId <> MyThreadId) then
+      Attached := AttachThreadInput(MyThreadId, FgThreadId, True);
+  end;
+  try
+    BringWindowToTop(MainWindow);
+    SetForegroundWindow(MainWindow);
+    SetFocus(MainWindow);
+  finally
+    if Attached then
+      AttachThreadInput(MyThreadId, FgThreadId, False);
+  end;
+
+  // Mantem o icone na bandeja quando 'closeToTray' esta ativo —
+  // o user vai voltar pra bandeja via [X], entao deixa o icone
+  // visivel pra facilitar a alternancia.
+  if not GetConfigBool('closeToTray', False) then
+    OBSTray.RemoveTrayIcon;
+end;
+
 procedure OnTrayCommandHandler(ACommand: Integer);
 begin
   case ACommand of
     OBSTray.ID_TRAY_SHOW:
-    begin
-      // Restaura janela. Se nao havia sido criada ainda (start /tray),
-      // mostra agora.
-      if MainWindow = 0 then Exit;
-
-      // Se foi start via /tray, a janela esta com WS_EX_TOOLWINDOW e
-      // off-screen (truque pra WebView2 inicializar com parent visivel).
-      // Na 1a abertura via bandeja: remove o style e reposiciona no centro
-      // antes do show. Subsequentes esconde/mostra rodam normais.
-      if PendingRestorePosition then
-      begin
-        PendingRestorePosition := False;
-        SetWindowLongPtr(MainWindow, GWL_EXSTYLE,
-          GetWindowLongPtr(MainWindow, GWL_EXSTYLE) and not NativeInt(WS_EX_TOOLWINDOW));
-        SetWindowPos(MainWindow, 0,
-          PendingRestoreBounds.Left, PendingRestoreBounds.Top,
-          PendingRestoreBounds.Right  - PendingRestoreBounds.Left,
-          PendingRestoreBounds.Bottom - PendingRestoreBounds.Top,
-          SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED or SWP_HIDEWINDOW);
-      end;
-
-      if IsIconic(MainWindow) then
-        ShowWindow(MainWindow, SW_RESTORE)
-      else if WasMaximized then
-        ShowWindow(MainWindow, SW_SHOWMAXIMIZED)
-      else
-        ShowWindow(MainWindow, SW_SHOW);
-      SetForegroundWindow(MainWindow);
-      // Mantem o icone na bandeja quando o user vai usar tray-mode pra
-      // valer (autostart ON). Aberturas/fechamentos via [X] vao ficar
-      // todas alternando, e ter o icone visivel ajuda a entender que o
-      // app continua "vivo" mesmo com a janela escondida.
-      if not IsAutoStartEnabled then
-        OBSTray.RemoveTrayIcon;
-    end;
+      RestoreFromTray;
     OBSTray.ID_TRAY_QUIT:
     begin
       // Saida real (nao minimiza pra tray).
@@ -866,21 +1027,31 @@ var
   WorkArea: TRect;
   WinX, WinY, WinW, WinH: Integer;
   StartInTray: Boolean;
+  CmdLine: string;
+  IsAutostartLaunch: Boolean;
 begin
   SetCurrentDir(ExtractFilePath(ParamStr(0)));
 
-  // "/tray" no command line = abre direto minimizado na bandeja
-  // (usado pelo auto-start com Windows).
-  StartInTray := Pos('/tray', LowerCase(string(GetCommandLine))) > 0;
+  // Detecta se foi lancado pelo autostart do Windows (flag /autostart
+  // — marcador de origem, NAO de comportamento). Mantem /tray como
+  // alias por compat com entradas antigas no Run do HKCU.
+  // Comportamento (tray vs visivel) sai do config 'closeToTray':
+  //   /autostart present + closeToTray=ON  → StartInTray=True
+  //   /autostart present + closeToTray=OFF → StartInTray=False (visivel)
+  //   sem flag (manual launch) → StartInTray=False (sempre visivel)
+  CmdLine := LowerCase(string(GetCommandLine));
+  IsAutostartLaunch := (Pos('/autostart', CmdLine) > 0) or
+                       (Pos('/tray',      CmdLine) > 0);
+  StartInTray := IsAutostartLaunch and GetConfigBool('closeToTray', False);
 
   WM_SHOW_INSTANCE := RegisterWindowMessage(SHOW_MSG_NAME);
   SingleInstanceMutex := CreateMutex(nil, False, MUTEX_NAME);
   if GetLastError = ERROR_ALREADY_EXISTS then
   begin
     // Outra instancia ja esta rodando: traz pra frente e sai. Excecao:
-    // se a 2a instancia veio com /tray (auto-start), nao incomoda o user
-    // — a 1a continua como esta.
-    if not StartInTray then
+    // se a 2a instancia veio do autostart do Windows, nao incomoda o
+    // user — a 1a continua como esta (autostart e silencioso por design).
+    if not IsAutostartLaunch then
     begin
       Existing := FindWindow(CLASS_NAME, nil);
       if Existing <> 0 then

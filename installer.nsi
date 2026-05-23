@@ -102,11 +102,16 @@ SectionEnd
 
 ;--------------------------------
 ; Componentes opcionais (vem DESMARCADOS por padrao — /o)
-;   - Iniciar com Windows: registra "/tray" no Run do HKCU
+;   - Iniciar com Windows: registra entrada no Run do HKCU (sem /tray
+;     no install — o flag e adicionado depois pelo app se o user
+;     ligar "Minimizar para bandeja" nas configuracoes).
 ;   - Atalho na area de trabalho
 ;--------------------------------
 Section /o "Iniciar com o Windows" SecAutostart
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /tray'
+    ; Flag /autostart e MARCADOR de origem (= "fui lancado pelo logon").
+    ; Comportamento (bandeja vs janela visivel) e decidido pelo app
+    ; em runtime, lendo o config 'closeToTray'.
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /autostart'
 SectionEnd
 
 Section /o "Atalho na área de trabalho" SecDesktopShortcut
@@ -115,7 +120,7 @@ Section /o "Atalho na área de trabalho" SecDesktopShortcut
 SectionEnd
 
 LangString DESC_SecMain             ${LANG_PORTUGUESEBR} "Arquivos do NoOBS (obrigatorio)."
-LangString DESC_SecAutostart        ${LANG_PORTUGUESEBR} "Inicia o NoOBS automaticamente quando o Windows logar, minimizado na bandeja do sistema. Voce pode mudar isso depois nas configuracoes."
+LangString DESC_SecAutostart        ${LANG_PORTUGUESEBR} "Inicia o NoOBS automaticamente quando o Windows logar. Voce pode mudar isso depois nas configuracoes."
 LangString DESC_SecDesktopShortcut  ${LANG_PORTUGUESEBR} "Cria um atalho do NoOBS na area de trabalho."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN

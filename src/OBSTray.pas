@@ -40,11 +40,6 @@ procedure InstallTrayIcon(AWnd: HWND; const ATooltip: string);
 procedure RemoveTrayIcon;
 function IsTrayInstalled: Boolean;
 
-// Mostra notificacao tipo "balloon tip" na bandeja (Shell_NotifyIcon
-// com NIF_INFO). Aparece como toast no Win10/11 quando o app esta
-// minimizado. No-op se o icone ainda nao foi instalado.
-procedure ShowBalloon(const ATitle, AMessage: string);
-
 // Chamado pela window proc quando recebe WM_TRAYICON.
 procedure HandleTrayMessage(AWnd: HWND; AParam: LPARAM);
 
@@ -56,12 +51,6 @@ implementation
 uses
   System.SysUtils, OBSAutostart;
 
-const
-  // Constantes do Shell_NotifyIcon nao expostas no Winapi.ShellApi
-  // do RAD Studio antigo. Valores oficiais da MSDN.
-  NIF_INFO_LOCAL  = $00000010;
-  NIIF_INFO_LOCAL = $00000001;
-
 var
   TrayIcon: TNotifyIconData;
   TrayAdded: Boolean = False;
@@ -69,39 +58,6 @@ var
 function IsTrayInstalled: Boolean;
 begin
   Result := TrayAdded;
-end;
-
-procedure ShowBalloon(const ATitle, AMessage: string);
-var
-  Nid: TNotifyIconData;
-  TitleLen, MsgLen: Integer;
-begin
-  if not TrayAdded then Exit;
-
-  // Cria um struct separado pra nao mexer no TrayIcon principal
-  // (que pode ser re-usado depois pra remover, etc).
-  ZeroMemory(@Nid, SizeOf(Nid));
-  Nid.cbSize := SizeOf(Nid);
-  Nid.Wnd    := TrayIcon.Wnd;
-  Nid.uID    := TrayIcon.uID;
-  Nid.uFlags := NIF_INFO_LOCAL;
-
-  // szInfoTitle = 64 chars, szInfo = 256 chars (incluindo terminador).
-  TitleLen := Length(ATitle);
-  if TitleLen > 63 then TitleLen := 63;
-  if TitleLen > 0 then
-    Move(PWideChar(ATitle)^, Nid.szInfoTitle[0], TitleLen * SizeOf(WideChar));
-  Nid.szInfoTitle[TitleLen] := #0;
-
-  MsgLen := Length(AMessage);
-  if MsgLen > 255 then MsgLen := 255;
-  if MsgLen > 0 then
-    Move(PWideChar(AMessage)^, Nid.szInfo[0], MsgLen * SizeOf(WideChar));
-  Nid.szInfo[MsgLen] := #0;
-
-  Nid.dwInfoFlags := NIIF_INFO_LOCAL;  // icone "info" pequeno + sem som irritante
-
-  Shell_NotifyIconW(NIM_MODIFY, @Nid);
 end;
 
 procedure InstallTrayIcon(AWnd: HWND; const ATooltip: string);
@@ -176,13 +132,9 @@ begin
 end;
 
 procedure HandleTrayMessage(AWnd: HWND; AParam: LPARAM);
-const
-  // Mensagens de balloon — clique do user no toast/balloon dispara
-  // NIN_BALLOONUSERCLICK. Tratar igual ao clique no icone (restaura a janela).
-  NIN_BALLOONUSERCLICK = $0405;
 begin
   case AParam of
-    WM_LBUTTONUP, WM_LBUTTONDBLCLK, NIN_BALLOONUSERCLICK:
+    WM_LBUTTONUP, WM_LBUTTONDBLCLK:
       if Assigned(OnTrayCommand) then OnTrayCommand(ID_TRAY_SHOW);
     WM_RBUTTONUP:
       ShowTrayMenu(AWnd);

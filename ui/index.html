@@ -3036,7 +3036,9 @@ const Bridge = {
       // silent=true vem do load inicial do app; toast so faz sentido
       // pra hot-plug subsequente (user plugou/desplugou dispositivo).
       if (!data.silent)
-        Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+        Toast.show('Dispositivos atualizados',
+          formatDeviceChanges(data.changes),
+          { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
     },
     monitor_changed(data) {
@@ -3059,7 +3061,14 @@ const Bridge = {
       Displays.render();
       const banner = document.getElementById('monitorRefreshBanner');
       if (banner) banner.classList.remove('show');
-      Toast.show('Monitores atualizados', '', { warn: true, ttl: 3000 });
+      // So mostra toast se houve mudanca real (lista de changes nao vazia)
+      // — refresh pode ter sido disparado por WM_DISPLAYCHANGE sem
+      // mudanca visivel (ex.: troca de orientacao reportada como evento).
+      const changes = data.changes || [];
+      if (changes.length > 0)
+        Toast.show('Monitores atualizados',
+          formatDeviceChanges(changes),
+          { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
     },
     webcams_refreshed(data) {
@@ -3068,7 +3077,11 @@ const Bridge = {
       // Mesmo titulo que audio_sources_refreshed pra que o dedup do
       // Toast.show coalesce as duas notificacoes quando hot-plug USB
       // dispara refresh de audio + webcam ao mesmo tempo.
-      Toast.show('Dispositivos atualizados', '', { warn: true, ttl: 3000 });
+      const changes = data.changes || [];
+      if (changes.length > 0)
+        Toast.show('Dispositivos atualizados',
+          formatDeviceChanges(changes),
+          { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
     },
     recording_meta(data) { updateRecordingMeta(data); },
@@ -4091,6 +4104,18 @@ function formatBytes(b) {
   if (b >= MB) return Math.round(b / MB) + ' MB';
   if (b >= KB) return Math.round(b / KB) + ' KB';
   return b + ' B';
+}
+
+// Junta a lista de mudancas (pre-formatadas em portugues pelo backend
+// — vide Build*ChangesArray em OBSBridge.pas) em uma string compacta
+// pra exibir no body do toast "Dispositivos atualizados". Mostra ate
+// 3 itens; o resto vira "…e mais N".
+function formatDeviceChanges(changes) {
+  if (!Array.isArray(changes) || changes.length === 0) return '';
+  const MAX = 3;
+  if (changes.length <= MAX) return changes.join(' · ');
+  return changes.slice(0, MAX).join(' · ') +
+    ` · …e mais ${changes.length - MAX}`;
 }
 
 function formatBitrate(bps) {

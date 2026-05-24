@@ -1180,6 +1180,152 @@ var
   // UI — durante gravacao continua "antiga" ate o stop aplicar o
   // refresh adiado. Vazia ate o DoInit popular.
   LastAppliedAudioSig: string = '';
+  // Snapshots dos ultimos pushes — usados pra calcular o diff de
+  // mudancas (adicionado / removido / padrao trocado) e incluir
+  // detalhes na notificacao "Dispositivos atualizados" da UI.
+  LastAppliedAudioDevs:    TAudioDeviceInfoArray;
+  LastAppliedMonitorsArr:  TMonitorInfoArray;
+  LastAppliedWebcamsArr:   TWebcamInfoArray;
+
+function BuildAudioChangesArray(const AOld, ANew: TAudioDeviceInfoArray): TJSONArray;
+// Compara duas snapshots de dispositivos de audio e produz uma lista de
+// strings em portugues descrevendo o que mudou. Comparacao por DeviceId.
+//   "Microfone adicionado: <nome>"
+//   "Microfone removido: <nome>"
+//   "Padrao de microfone: <nome>"     (so se ambas snapshots tem default
+//                                       da mesma categoria e o id mudou)
+//   ... idem pra Alto-falante
+//
+// Devices recem-adicionados que ja sao default geram so o "adicionado"
+// (mais natural — implicito que e novo default).
+var
+  i: Integer;
+  Found: Boolean;
+  function KindWord(K: TAudioDeviceKind): string;
+  begin
+    if K = adkInput then Result := 'Microfone' else Result := 'Alto-falante';
+  end;
+  function FindByIdAndKind(const AArr: TAudioDeviceInfoArray;
+    const AId: string; AKind: TAudioDeviceKind): Integer;
+  var k: Integer;
+  begin
+    for k := 0 to High(AArr) do
+      if (AArr[k].Kind = AKind) and SameText(AArr[k].DeviceId, AId) then Exit(k);
+    Result := -1;
+  end;
+  function DefaultIdOf(const AArr: TAudioDeviceInfoArray;
+    AKind: TAudioDeviceKind): string;
+  var k: Integer;
+  begin
+    for k := 0 to High(AArr) do
+      if (AArr[k].Kind = AKind) and AArr[k].IsDefault then
+        Exit(AArr[k].DeviceId);
+    Result := '';
+  end;
+  function NameOfId(const AArr: TAudioDeviceInfoArray;
+    const AId: string; AKind: TAudioDeviceKind): string;
+  var k: Integer;
+  begin
+    k := FindByIdAndKind(AArr, AId, AKind);
+    if k >= 0 then Result := AArr[k].Name else Result := '';
+  end;
+  procedure CheckDefaultOf(AKind: TAudioDeviceKind);
+  var OldId, NewId, NewName: string;
+  begin
+    OldId := DefaultIdOf(AOld, AKind);
+    NewId := DefaultIdOf(ANew, AKind);
+    if (OldId = '') or (NewId = '') then Exit;
+    if SameText(OldId, NewId) then Exit;
+    // Se o novo default e um device recem-adicionado, ja foi reportado
+    // como "adicionado" — pula pra evitar duplicidade.
+    if FindByIdAndKind(AOld, NewId, AKind) < 0 then Exit;
+    NewName := NameOfId(ANew, NewId, AKind);
+    Result.Add('Padrão de ' + LowerCase(KindWord(AKind)) + ': ' + NewName);
+  end;
+begin
+  Result := TJSONArray.Create;
+
+  // Removidos: em AOld mas nao em ANew (mesmo Kind+DeviceId).
+  for i := 0 to High(AOld) do
+  begin
+    Found := FindByIdAndKind(ANew, AOld[i].DeviceId, AOld[i].Kind) >= 0;
+    if not Found then
+      Result.Add(KindWord(AOld[i].Kind) + ' removido: ' + AOld[i].Name);
+  end;
+
+  // Adicionados: em ANew mas nao em AOld.
+  for i := 0 to High(ANew) do
+  begin
+    Found := FindByIdAndKind(AOld, ANew[i].DeviceId, ANew[i].Kind) >= 0;
+    if not Found then
+      Result.Add(KindWord(ANew[i].Kind) + ' adicionado: ' + ANew[i].Name);
+  end;
+
+  // Default trocado (so se o novo default ja existia em AOld — devices
+  // adicionados ja foram reportados acima).
+  CheckDefaultOf(adkInput);
+  CheckDefaultOf(adkOutput);
+end;
+
+function BuildMonitorChangesArray(const AOld, ANew: TMonitorInfoArray): TJSONArray;
+// Compara snapshots de monitores. Identificador unico = DeviceName
+// (string do Windows tipo "\\.\DISPLAY1"). Nome amigavel via FriendlyName.
+var
+  i, j: Integer;
+  Found: Boolean;
+  function NameFor(const M: TMonitorInfo): string;
+  begin
+    if M.FriendlyName <> '' then Result := M.FriendlyName
+    else Result := M.DeviceName;
+  end;
+begin
+  Result := TJSONArray.Create;
+  for i := 0 to High(AOld) do
+  begin
+    Found := False;
+    for j := 0 to High(ANew) do
+      if SameText(AOld[i].DeviceName, ANew[j].DeviceName) then
+      begin Found := True; Break; end;
+    if not Found then
+      Result.Add('Monitor removido: ' + NameFor(AOld[i]));
+  end;
+  for i := 0 to High(ANew) do
+  begin
+    Found := False;
+    for j := 0 to High(AOld) do
+      if SameText(ANew[i].DeviceName, AOld[j].DeviceName) then
+      begin Found := True; Break; end;
+    if not Found then
+      Result.Add('Monitor adicionado: ' + NameFor(ANew[i]));
+  end;
+end;
+
+function BuildWebcamChangesArray(const AOld, ANew: TWebcamInfoArray): TJSONArray;
+// Compara snapshots de webcams. Identificador = DeviceId (moniker).
+var
+  i, j: Integer;
+  Found: Boolean;
+begin
+  Result := TJSONArray.Create;
+  for i := 0 to High(AOld) do
+  begin
+    Found := False;
+    for j := 0 to High(ANew) do
+      if SameText(AOld[i].DeviceId, ANew[j].DeviceId) then
+      begin Found := True; Break; end;
+    if not Found then
+      Result.Add('Webcam removida: ' + AOld[i].Name);
+  end;
+  for i := 0 to High(ANew) do
+  begin
+    Found := False;
+    for j := 0 to High(AOld) do
+      if SameText(ANew[i].DeviceId, AOld[j].DeviceId) then
+      begin Found := True; Break; end;
+    if not Found then
+      Result.Add('Webcam adicionada: ' + ANew[i].Name);
+  end;
+end;
 
 function BuildAudioSignature(const ADevs: TAudioDeviceInfoArray): string;
 // Composicao determinista do estado de audio. Inclui IsDefault pra
@@ -1246,7 +1392,11 @@ begin
       Init := TJSONObject.Create;
       Init.AddPair('type', 'monitors_refreshed');
       Init.AddPair('monitors', BuildMonitorsFromWin);
+      // Diff vs snapshot anterior pra UI detalhar o que mudou no toast.
+      Init.AddPair('changes',
+        BuildMonitorChangesArray(LastAppliedMonitorsArr, Mons));
       PostOwned(Init);
+      LastAppliedMonitorsArr := Mons;
     except
       on E: Exception do
       begin
@@ -1303,12 +1453,19 @@ procedure DoRefreshWebcams;
 // pra UI. Disparado por WM_DEVICECHANGE (USB plug/unplug).
 var
   Init: TJSONObject;
+  Cams: TWebcamInfoArray;
 begin
   try
+    Cams := EnumerateWebcams;
     Init := TJSONObject.Create;
     Init.AddPair('type', 'webcams_refreshed');
     Init.AddPair('webcams', BuildWebcamsFromWin);
+    // Diff vs snapshot anterior — UI usa pra mostrar "Webcam adicionada:
+    // <nome>" / "Webcam removida: <nome>" no toast.
+    Init.AddPair('changes',
+      BuildWebcamChangesArray(LastAppliedWebcamsArr, Cams));
     PostOwned(Init);
+    LastAppliedWebcamsArr := Cams;
     Log('DoRefreshWebcams: pushed.');
   except
     on E: Exception do
@@ -1488,8 +1645,14 @@ begin
                 BuildAudioJsonWithTracks(MicsJ, SpksJ);
                 Init.AddPair('mics',     MicsJ);
                 Init.AddPair('speakers', SpksJ);
+                // Diff vs snapshot anterior — descreve em portugues o
+                // que mudou (adicionado / removido / padrao trocado).
+                // UI usa pra montar o body do toast.
+                Init.AddPair('changes',
+                  BuildAudioChangesArray(LastAppliedAudioDevs, Devs));
                 PostOwned(Init);
                 LastAppliedAudioSig := NewSig;
+                LastAppliedAudioDevs := Devs;
                 if PendingAudioRefresh then PendingAudioRefresh := False;
               except
                 on E: Exception do
@@ -1803,6 +1966,10 @@ begin
   // Quando terminar, push refresh.
   PushInit(False);
   PushRecordingState;
+  // Snapshots iniciais — sem isso o 1o hot-plug de monitor/webcam
+  // compararia contra lista vazia e reportaria "todos adicionados".
+  try LastAppliedMonitorsArr := EnumerateMonitors; except end;
+  try LastAppliedWebcamsArr  := EnumerateWebcams;  except end;
   Log('DoInit: UI pushed');
 
   TThread.CreateAnonymousThread(
@@ -1838,10 +2005,12 @@ begin
           Init.AddPair('mics',     MicsJ);
           Init.AddPair('speakers', SpksJ);
           PostOwned(Init);
-          // Captura signature inicial pra dedup de eventos futuros —
-          // sem isso o 1o hot-plug compararia contra '' e sempre
-          // mostraria banner mesmo que o estado fosse identico.
-          LastAppliedAudioSig := InitSig;
+          // Captura signature + lista inicial pra dedup e diff de
+          // eventos futuros. Sem isso, o 1o hot-plug compararia contra
+          // estado vazio e reportaria "todos os dispositivos atuais
+          // foram adicionados".
+          LastAppliedAudioSig  := InitSig;
+          LastAppliedAudioDevs := Devs;
           Log('DoInit: audio enumeration completa');
         except
           on E: Exception do

@@ -10,6 +10,10 @@ pensada pra ser fácil de usar que aproveita toda a potência do OBS
 — você não precisa instalar nem configurar o OBS, tudo já vem pronto.
 Só abrir e gravar.
 
+> **Premium e leve.** Modo hibernação que cai pra ~5 MB de RAM
+> enquanto não está gravando. Tema acompanha o Windows na primeira
+> execução. UI focada só em gravar.
+
 ---
 
 ## Recursos
@@ -21,26 +25,32 @@ Só abrir e gravar.
 | Webcam | Detecta suas webcams automaticamente e permite adicionar na gravação |
 | Áudio separado por dispositivo | Cada microfone e alto-falante em faixas independentes, facilitando edição depois |
 | Gravação só de áudio | Se nenhum monitor ou webcam estiver selecionado, o áudio ainda é gravado |
-| Detecção em tempo real | Reconhece quando você conecta ou desconecta microfones, alto-falantes, monitores e webcams |
+| Detecção em tempo real | Reconhece quando você conecta ou desconecta microfones, alto-falantes, monitores e webcams — inclusive troca de dispositivo padrão no Painel de Som |
 | Codec automático | Detecta sua placa de vídeo e usa o melhor encoder disponível (AV1 → HEVC → H.264 → x264) |
+| Qualidade ajustável | Slider de 5 níveis pra balancear tamanho de arquivo e qualidade visual |
 | Faixa "Mix" + isoladas | Faixa 1 é o mix de tudo; faixas 2–6 individuais por dispositivo (até 6 no total) |
 | Dispositivo padrão preservado | O microfone e alto-falante padrão do Windows sempre ficam em faixas individuais quando possível |
 
 ### Interface
 | Recurso | Descrição |
 |---|---|
-| Tema claro/escuro | Alterna entre os dois temas |
+| Tema claro/escuro | Segue o tema do sistema na primeira execução; alternável depois nas Configurações |
+| Botão de gravação cinematográfico | Botão circular com halo pulsante, timer com centésimos de segundo e onda radial vermelha ao iniciar |
 | Preview ao vivo | Miniaturas dos monitores e webcams atualizando a 2 FPS, identifica facilmente o que será gravado |
 | Legenda de faixas de áudio | Mostra qual dispositivo está em qual faixa do vídeo, com cores distintas |
 | Indicador de dispositivo padrão | Bolinha verde nos dispositivos definidos como padrão no Windows |
-| Notificações nativas | Avisa no Windows quando inicia/para gravação (se o app estiver minimizado) |
+| Espaço em disco visível | Painel de gravações mostra quanto disco está usado e quanto sobra — alerta laranja abaixo de 5 GB |
+| Notificações detalhadas | Avisa o que mudou (dispositivo adicionado, removido, padrão trocado) com o nome do dispositivo |
+| Tela "Sobre" via F1 | Informações do projeto e link do repositório com um atalho |
 
 ### Atalhos e automação
 | Recurso | Descrição |
 |---|---|
 | Atalho global configurável | Padrão: tecla `Pause`. Configurável com até 4 teclas (Ctrl+Shift+Alt+G, etc.) |
+| Indicador no LED Scroll Lock | Opção pra piscar o LED de Scroll Lock do teclado enquanto grava — útil quando o app está na bandeja |
 | Bandeja do sistema | Ícone próximo ao relógio com menu para iniciar/parar gravação, abrir e fechar |
 | Iniciar com Windows | Abre minimizado na bandeja ao logar, gravação fica pronta no atalho global |
+| Modo hibernação | Após 1 min na bandeja (ou cold-start via autostart), o app libera todos os recursos e fica em ~5 MB de RAM, só com tray icon + hotkey. Volta automaticamente ao normal quando precisar |
 | Minimizar ao gravar | Opção pra esconder a janela automaticamente quando a gravação começa |
 | Fechamento inteligente | Botão [X] minimiza pra bandeja se estiver gravando ou se "iniciar com Windows" estiver ativo |
 
@@ -51,7 +61,7 @@ Só abrir e gravar.
 | Volume por faixa | Ajuste o volume de cada microfone e alto-falante separadamente ao assistir |
 | Informações do vídeo | Detalhes técnicos da gravação: resolução, duração, codec, bitrate, faixas de áudio |
 | Lista com miniaturas | Cards com thumbnail, duração e tamanho de cada gravação |
-| Busca e gerenciamento | Filtrar, renomear, excluir em lote |
+| Busca e gerenciamento | Filtrar, renomear, excluir em lote (botão de exclusão na header fica vermelho quando há seleção) |
 | Compatível com editores | MKV padrão com metadata correta de nome de faixa — abre direto no DaVinci, Premiere, etc. |
 
 ---
@@ -60,9 +70,12 @@ Só abrir e gravar.
 
 Baixe a versão mais recente em [Releases](https://github.com/e-delphi/NoOBS/releases).
 
-O instalador oferece a opção **Iniciar com o Windows** durante a
-instalação — marcado por padrão, faz o NoOBS subir minimizado na
-bandeja ao logar.
+O instalador inclui opções (desmarcadas por padrão):
+
+- **Iniciar com o Windows** — sobe o NoOBS automaticamente no logon. Combinado com a opção "Minimizar para bandeja", o app inicia em modo hibernação consumindo só ~5 MB.
+- **Atalho na área de trabalho** — cria um atalho do NoOBS no Desktop.
+
+Na **primeira execução** após instalação, o app abre direto na tela de Configurações pra você ajustar pasta de gravação, atalho e demais opções antes da primeira gravação.
 
 ---
 

@@ -144,8 +144,8 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.289;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Build>289</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.317;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Build>317</VerInfo_Build>
         <Icon_MainIcon>icon.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">

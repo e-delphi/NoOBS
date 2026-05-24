@@ -114,7 +114,7 @@ Section /o "Iniciar com o Windows" SecAutostart
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /autostart'
 SectionEnd
 
-Section /o "Atalho na área de trabalho" SecDesktopShortcut
+Section /o "Atalho na Area de Trabalho" SecDesktopShortcut
     SetOutPath "$INSTDIR\bin\64bit"
     CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
 SectionEnd

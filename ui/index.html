@@ -62,7 +62,6 @@
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    padding: 3px;
     transition: background 0.25s, color 0.2s;
     user-select: none;
     -webkit-user-select: none;
@@ -79,10 +78,6 @@
     -webkit-user-drag: none;
     user-drag: none;
     -webkit-touch-callout: none;
-  }
-  /* Margem externa fica vermelha durante a gravacao */
-  body.recording {
-    background: var(--danger-2);
   }
 
   .app {
@@ -374,6 +369,43 @@
     font-weight: 500;
   }
   .record-card.recording .record-label { color: var(--text-1); }
+
+  /* ===== Ripple ao iniciar gravacao =====
+     Onda radial vermelha que comeca exatamente no centro do botao de
+     gravar e expande ate cobrir a tela inteira. Criado via JS
+     (triggerRecordRipple) no momento do click.
+     - position: fixed + posicionado por inline style left/top
+     - transform: translate(-50%,-50%) mantem centrado durante o scale
+     - radial-gradient transparente nos cantos -> o "ricochete" nos
+       limites da tela e visualmente impossivel (gradiente ja some)
+     - will-change pra GPU layer
+     - pointer-events: none pra nao bloquear clicks subsequentes
+     - z-index 9998 fica atras do overlay de loading (9999) mas
+       acima de tudo na UI */
+  .record-ripple {
+    position: fixed;
+    z-index: 9998;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    pointer-events: none;
+    /* Anel definido via BORDER em vez de gradient — a borda escala
+       junto com o elemento (scale uniforme), produzindo um anel sharp
+       que sempre tem espessura proporcional. Sem fundo: o "interior"
+       do anel e literalmente vazio (background: transparent). */
+    background: transparent;
+    border: 4px solid #ef4444;
+    box-shadow:
+      0 0 30px rgba(239, 68, 68, 0.6),
+      inset 0 0 12px rgba(239, 68, 68, 0.4);
+    /* Estado inicial — sera sobrescrito imediatamente pela WAAPI no
+       JS (triggerRecordRipple). Manter scale(0) aqui evita um flash
+       de elemento full-size caso a animacao demore 1 frame pra
+       comecar. */
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 1;
+    will-change: transform, opacity;
+  }
 
   /* ===== Tema claro: ajustes do record-card =====
      As cores acima (especialmente o `#2a1816` no fundo da gravacao e
@@ -1802,17 +1834,39 @@
      Layout column: header + logo/desc (fixos) + scroll area + footer
      fixo. Sobrescreve o overflow-y:auto herdado de .settings-body —
      o scroll vive so na .about-scroll, footer fica sempre visivel. */
-  .about-modal { max-width: 460px; }
+  .about-modal {
+    max-width: 460px;
+    /* Sobrescreve o `max-height: 660px` do .settings-modal — o About
+       precisa de mais altura pra caber Logo + descricao + info +
+       Recursos (7) + Construido com (4) + licenca sem scrollar.
+       Em telas pequenas (<92vh < 800) o min(92vh, 800) ainda cai pro
+       92vh, evitando que o modal extrapole o viewport. */
+    max-height: min(92vh, 800px);
+  }
   .about-body {
     padding: 18px;
     display: flex;
     flex-direction: column;
     overflow: hidden;          /* anula o auto do .settings-body */
   }
+  /* Especificidade dupla (.settings-body.about-body) pra ganhar da
+     regra `.settings-body { flex: 1 1 auto }` que vem depois no CSS
+     e dominaria com mesma specificity. Sem isso o body estica ate o
+     max-height do modal e sobra espaco vazio entre as listas e o
+     footer de licenca. flex:0 1 auto = tamanho do conteudo (modal
+     acompanha). */
+  .settings-body.about-body {
+    flex: 0 1 auto;
+  }
   .about-scroll {
     overflow-y: auto;
-    flex: 1 1 auto;
-    min-height: 0;             /* permite o flex item encolher */
+    /* flex:0 1 auto — nao crescer alem do conteudo (o footer fica
+       colado embaixo). So encolhe (+ scroll aparece) se o conteudo
+       passar do espaco disponivel no modal. Antes era flex:1 1 auto,
+       que fazia o area de scroll esticar e deixar um gap vazio
+       grande entre os recursos e o footer de licenca. */
+    flex: 0 1 auto;
+    min-height: 0;
     margin: 0 -6px 0 0;        /* compensa visual da scrollbar */
     padding-right: 6px;
   }
@@ -1821,9 +1875,8 @@
   }
   .about-logo {
     text-align: center;
-    padding-bottom: 14px;
-    margin-bottom: 14px;
-    border-bottom: 1px solid var(--border-1);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
   }
   .about-icon {
     width: 48px;
@@ -1842,7 +1895,14 @@
     color: var(--text-3);
     margin-top: 2px;
   }
-  .about-info { display: flex; flex-direction: column; gap: 8px; }
+  .about-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* Separa visualmente do bloco de recursos abaixo. */
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
   .about-row {
     display: flex;
     align-items: baseline;
@@ -1863,32 +1923,35 @@
   }
   .about-link:hover { text-decoration: underline; }
   .about-footer-note {
-    margin-top: 14px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-1);
+    margin-top: 4px;
+    padding-top: 4px;
     font-size: 11px;
     color: var(--text-3);
     line-height: 1.5;
   }
-  /* Paragrafo descritivo + listas (recursos / tecnologia) no About. */
+  /* Paragrafo descritivo + listas (recursos / tecnologia) no About.
+     .about-desc agora e container de varios <p>; gap entre eles cria
+     respiro visual entre os 3 momentos da descricao (origem, proposta,
+     posicionamento). */
   .about-desc {
     font-size: 12.5px;
     line-height: 1.55;
     color: var(--text-2);
-    margin-bottom: 14px;
+    margin-bottom: 8px;
   }
+  .about-desc p + p { margin-top: 8px; }
   .about-section-title {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-3);
-    margin: 12px 0 6px;
+    margin: 4px 0 4px;
     font-weight: 600;
   }
   .about-list {
     list-style: none;
     padding: 0;
-    margin: 0 0 8px;
+    margin: 0 0 4px;
     font-size: 12px;
     color: var(--text-2);
     line-height: 1.55;
@@ -2542,13 +2605,33 @@
         <div class="about-tagline">Gravador de tela leve com OBS Studio embarcado</div>
       </div>
 
-      <p class="about-desc">
-        O NoOBS roda o motor do OBS Studio (libobs) <b>dentro do próprio
-        processo</b> — sem subprocessos, sem WebSocket, sem servidor.
-        Resultado: inicialização rápida, uso baixo de memória, e uma UI
-        limpa pensada só pra gravar — nada de cenas, transições ou
-        plugins de streaming.
-      </p>
+      <div class="about-desc">
+        <p>O NoOBS nasceu da frustração com a complexidade do OBS Studio
+        — configurar cenas, fontes e dispositivos a cada gravação.</p>
+        <p>A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar,
+        está gravando. Telas, webcam, microfones e áudio do sistema são
+        detectados e ficam prontos automaticamente.</p>
+        <p><b>Leve, rápido, intuitivo</b> — um produto premium pensado
+        pra que sua gravação sempre funcione.</p>
+      </div>
+
+      <div class="about-info">
+        <div class="about-row">
+          <span class="about-label">Autor</span>
+          <span class="about-value">Eduardo Rodrigues</span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">Co-autoria</span>
+          <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.7 <span style="color: var(--text-3)">1M</span></span>
+        </div>
+        <div class="about-row">
+          <span class="about-label">Repositório</span>
+          <span class="about-link" role="link" tabindex="0"
+                onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
+            github.com/e-delphi/NoOBS
+          </span>
+        </div>
+      </div>
 
       <div class="about-scroll">
         <div class="about-section-title">Principais recursos</div>
@@ -2572,23 +2655,6 @@
       </div>
 
       <div class="about-fixed-footer">
-        <div class="about-info">
-          <div class="about-row">
-            <span class="about-label">Autor</span>
-            <span class="about-value">Eduardo (e-delphi)</span>
-          </div>
-          <div class="about-row">
-            <span class="about-label">Co-autoria</span>
-            <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.7 <span style="color: var(--text-3)">1M</span></span>
-          </div>
-          <div class="about-row">
-            <span class="about-label">Repositório</span>
-            <span class="about-link" role="link" tabindex="0"
-                  onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
-              github.com/e-delphi/NoOBS
-            </span>
-          </div>
-        </div>
         <div class="about-footer-note">
           Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
           e WebView2 da Microsoft.
@@ -4094,8 +4160,67 @@ function editName(event, el, id) {
 // =====================================================================
 // Gravacao (start/stop)
 // =====================================================================
+// Onda radial vermelha que sai do centro do botao de gravar e cobre
+// a tela inteira. Disparada apenas ao INICIAR gravacao (nao no stop)
+// — feedback visual imediato pra o click. Independe do backend
+// confirmar, entao se a gravacao falhar o efeito ja rolou (toast de
+// erro aparece logo depois explicando).
+function triggerRecordRipple() {
+  const btn = document.getElementById('recordBtn');
+  if (!btn) {
+    Bridge.send('ui_log', { message: 'ripple: recordBtn nao encontrado' });
+    return;
+  }
+  const r = btn.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top  + r.height / 2;
+
+  const dx = Math.max(cx, window.innerWidth  - cx);
+  const dy = Math.max(cy, window.innerHeight - cy);
+  const maxRadius = Math.hypot(dx, dy);
+  // Anel posicionado em ~94% do raio (94px no nao-escalado).
+  // scale = maxRadius / 94 pra anel chegar ate o canto + 1 de margem.
+  const scale = (maxRadius / 94) + 1;
+
+  Bridge.send('ui_log', { message:
+    `ripple: cx=${cx.toFixed(0)} cy=${cy.toFixed(0)} maxR=${maxRadius.toFixed(0)} scale=${scale.toFixed(2)}` });
+
+  const ripple = document.createElement('div');
+  ripple.className = 'record-ripple';
+  ripple.style.left = cx + 'px';
+  ripple.style.top  = cy + 'px';
+  document.body.appendChild(ripple);
+
+  // Web Animations API — mais explicito que CSS transition/animation.
+  // Sem depender de reflow timing nem de var() em scale() (que tinha
+  // problemas em algumas versoes do WebView2). Os keyframes recebem
+  // o scale calculado direto como valor literal.
+  if (typeof ripple.animate === 'function') {
+    const anim = ripple.animate(
+      [
+        { transform: 'translate(-50%, -50%) scale(0)',   opacity: 1 },
+        { transform: 'translate(-50%, -50%) scale(' + scale.toFixed(2) + ')', opacity: 0 }
+      ],
+      {
+        duration: 1800,
+        easing:   'cubic-bezier(0.16, 1, 0.3, 1)',
+        fill:     'forwards'
+      }
+    );
+    anim.onfinish = () => { if (ripple.parentNode) ripple.remove(); };
+  } else {
+    // Fallback ultra-defensivo — WebView2 modernos tem WAAPI. Aqui so
+    // pra nao deixar o elemento orfao se Algo Estranho™ acontecer.
+    Bridge.send('ui_log', { message: 'ripple: WAAPI indisponivel, removendo' });
+    setTimeout(() => ripple.remove(), 100);
+  }
+}
+
 function toggleRecord() {
   const isRecording = document.body.classList.contains('recording');
+  // Ripple so no start. No stop nao faz sentido visualmente — a UI
+  // ja sinaliza fim removendo o pulse vermelho.
+  if (!isRecording) triggerRecordRipple();
   Bridge.send(isRecording ? 'record_stop' : 'record_start');
 }
 
@@ -4273,6 +4398,20 @@ document.addEventListener('keydown', (e) => {
   if (ov.classList.contains('visible') && e.key === 'Escape') {
     e.preventDefault();
     About.close();
+    return;
+  }
+  // F1 abre a tela "Sobre". Ignora se o foco esta num input editavel
+  // (ex.: caixa de busca, campo de pasta) pra nao roubar o atalho do
+  // navegador embutido (que normalmente nao faz nada aqui de qualquer
+  // jeito, mas e' a higiene certa).
+  if (e.key === 'F1' && !ov.classList.contains('visible')) {
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' ||
+      (document.activeElement && document.activeElement.isContentEditable);
+    if (!isEditable) {
+      e.preventDefault();
+      About.open();
+    }
   }
 });
 

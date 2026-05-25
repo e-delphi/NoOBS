@@ -2787,17 +2787,19 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
-        <label class="settings-check-row">
+        <label class="settings-check-row" id="settingsHibernateRow">
           <input type="checkbox" id="settingsHibernate">
           <span>Hibernar quando inativo</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" id="settingsHibernateHint">
           Quando a janela fica escondida na bandeja por mais de 1 minuto
           sem gravação em curso, o app entra em modo hibernação — libera
           libobs, WebView2, FFmpeg e watchers, deixando só um ícone na
           bandeja + a tecla de atalho ativos (~5MB RAM vs ~150MB). Volta
           ao normal automaticamente quando você clica no ícone ou aperta
-          o atalho de gravar.
+          o atalho de gravar. Só fica disponível se "Minimizar para
+          bandeja" estiver ativo — sem bandeja não há cenário pra
+          hibernar.
         </div>
       </div>
     </div>
@@ -4718,7 +4720,7 @@ const Settings = {
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
   currentScrollLockIndicator: false,
-  currentHibernate: true,
+  currentHibernate: false,
   currentRecordingQuality: 0,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
@@ -4734,6 +4736,7 @@ const Settings = {
     this._syncQualityHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
+    this._syncHibernateEnabled();
     this._updateThemeButtons();
     document.getElementById('settingsOverlay').classList.add('visible');
     Bridge.send('get_settings');
@@ -4846,8 +4849,10 @@ const Settings = {
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
     this.currentScrollLockIndicator = !!data.scrollLockIndicator;
-    // hibernate: default true (precisa !== undefined porque !!undefined = false)
-    this.currentHibernate = (data.hibernate === undefined) ? true : !!data.hibernate;
+    // hibernate: default false — so faz sentido com closeToTray ON, e
+    // gateamos a UI pra forcar isso. !!data.hibernate cobre o caso
+    // undefined naturalmente (resulta em false).
+    this.currentHibernate = !!data.hibernate;
     // recordingQuality: -2..+2, default 0
     let rq = parseInt(data.recordingQuality, 10);
     if (!Number.isFinite(rq)) rq = 0;
@@ -4876,6 +4881,7 @@ const Settings = {
     this._syncQualityHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
+    this._syncHibernateEnabled();
   },
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
@@ -4883,10 +4889,13 @@ const Settings = {
   // Cascata de dependencias:
   //   closeToTray (master tray) → muda label do minimizeOnRecord
   //                              (vai pra bandeja vs minimiza taskbar)
+  //                            → habilita/desabilita hibernate
+  //                              (hibernar so faz sentido com bandeja ON)
   //   minimizeOnRecord → habilita/desabilita notifyOnRecord
   //                      (notify so faz sentido se app fica escondido)
   onTrayChange() {
     this._syncMinimizeOnRecordLabel();
+    this._syncHibernateEnabled();
   },
   onMinimizeOnRecordChange() {
     this._syncNotifyOnRecordEnabled();
@@ -4932,6 +4941,18 @@ const Settings = {
     // Forca uncheck quando desabilitado pra evitar estado "ON mas oculto".
     if (!minOnRec) notif.checked = false;
   },
+  // Hibernate so faz sentido com closeToTray ON — sem bandeja, fechar
+  // a janela ja encerra o app e nao tem cenario pra hibernar. Mesma
+  // logica do notifyOnRecord (uncheck forcado pra evitar estado oculto).
+  _syncHibernateEnabled() {
+    const tray = document.getElementById('settingsCloseToTray').checked;
+    const hib = document.getElementById('settingsHibernate');
+    const row = document.getElementById('settingsHibernateRow');
+    if (!hib || !row) return;
+    hib.disabled = !tray;
+    row.classList.toggle('disabled', !tray);
+    if (!tray) hib.checked = false;
+  },
   restoreDefaults() {
     // Reseta APENAS os campos do modal (UI) — nao salva nada. User
     // revisa e clica Salvar pra confirmar, ou Cancelar pra descartar.
@@ -4956,10 +4977,11 @@ const Settings = {
         document.getElementById('settingsMinimizeOnRecord').checked = false;
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
-        document.getElementById('settingsHibernate').checked = true;
+        document.getElementById('settingsHibernate').checked = false;
         document.getElementById('settingsRecordingQuality').value = '0';
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
+        this._syncHibernateEnabled();
         this._syncQualityHint();
         Toast.show('Campos restaurados',
           'Clique Salvar pra aplicar as mudanças.', { ttl: 4000 });

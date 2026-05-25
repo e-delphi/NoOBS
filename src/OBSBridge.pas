@@ -2225,7 +2225,11 @@ procedure OnWindowHiddenForHibernate;
 begin
   if RecordingActive then Exit;
   if MainWindowHandle = 0 then Exit;
-  if not GetConfigBool('hibernate', True) then
+  // Default False: hibernar so faz sentido com closeToTray ON (janela
+  // some pra bandeja). Sem isso, fechar a janela ja encerra o app e
+  // nao tem cenario pra hibernar. UI gateia o toggle (so habilita com
+  // closeToTray ON), mas defensivo aqui tambem.
+  if not GetConfigBool('hibernate', False) then
   begin
     Log('OnWindowHidden: hibernate desativada no config — skip.');
     Exit;
@@ -2733,7 +2737,7 @@ begin
   Obj.AddPair('scrollLockIndicator',
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
   Obj.AddPair('hibernate',
-    TJSONBool.Create(GetConfigBool('hibernate', True)));
+    TJSONBool.Create(GetConfigBool('hibernate', False)));
   Obj.AddPair('recordingQuality',
     TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
   PostOwned(Obj);

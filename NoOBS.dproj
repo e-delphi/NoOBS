@@ -192,6 +192,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
     <DCCReference Include="src\OBSRecordWatch.pas" />
     <DCCReference Include="src\OBSScene.pas" />
     <DCCReference Include="src\OBSScrollLock.pas" />
+    <DCCReference Include="src\OBSSingleInstance.pas" />
     <DCCReference Include="src\OBSStartupCheck.pas" />
     <DCCReference Include="src\OBSTray.pas" />
     <DCCReference Include="src\OBSUI.pas" />

@@ -85,6 +85,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSAudioTracks`    | `ComputeAudioTrackAssignments` (single source of truth) + `BuildTrackNames` + enum de devices via obs_properties |
 | `OBSScene`          | Tipos puros (TOBSMonitor, TAudioDevice) + `ComputeCanvas` + `FilterEnabledMonitors`|
 | `OBSStartupCheck`   | Valida presença de obs.dll, libav, WebView2 antes de criar janela                  |
+| `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets) |
 | `FFmpegOps`         | **Wrappers altos**: `RemuxFile`, `ExtractAudioTracks`, `ExtractFrameJpeg`          |
@@ -565,6 +566,28 @@ SetExceptionMask(exAllArithmeticExceptions);
 `System.Math` precisa estar nas uses. Roda antes de qualquer chamada
 pra obs.dll/libav (initialization de unit roda antes do `begin` do
 .dpr). Mesma máscara cobre todas as threads do processo.
+
+### 36. **Single-instance entre modos full e hibernate — strings devem casar**
+
+NoOBS roda em dois modos no mesmo exe (full e `/hibernate`). Pra
+que um modo enxergue o outro (single-instance + WM_SHOW_INSTANCE pra
+promover hibernate→full), os dois precisam usar **exatamente os
+mesmos literais** em:
+
+- `CreateMutex(nil, False, MUTEX_NAME)` — nomes diferentes = dois
+  kernel objects diferentes = mutex não detecta a outra instância.
+- `RegisterWindowMessage(SHOW_MSG_NAME)` — strings diferentes
+  retornam UINTs diferentes = mensagem enviada por um modo é
+  ignorada pelo outro.
+
+Já aconteceu: o `CLASS_NAME` do OBSUI foi renomeado de
+`TNoOBSWindow` pra `TNoOBS`, mas o `MUTEX_NAME` literal em
+`OBSHibernate.pas` continuou com o nome antigo. Resultado: full e
+hibernate coexistiam (mutex distinto), e a hotkey/tray de um não
+acordava o outro.
+
+**Solução**: `OBSSingleInstance.pas` exporta as constantes; ambas as
+units fazem `uses OBSSingleInstance`. Nunca duplicar esses literais.
 
 ---
 

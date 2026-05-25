@@ -45,6 +45,7 @@ uses
   OBSRecordWatch in 'src\OBSRecordWatch.pas',
   OBSScene in 'src\OBSScene.pas',
   OBSScrollLock in 'src\OBSScrollLock.pas',
+  OBSSingleInstance in 'src\OBSSingleInstance.pas',
   OBSStartupCheck in 'src\OBSStartupCheck.pas',
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',

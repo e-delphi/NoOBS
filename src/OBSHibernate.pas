@@ -42,12 +42,14 @@ implementation
 uses
   Winapi.Windows, Winapi.ShellAPI, Winapi.Messages,
   System.SysUtils, System.Classes,
-  OBSConfig, OBSHotkey, OBSLog;
+  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance;
 
 const
-  // Compartilhado com OBSUI — garante exclusao mutua entre os dois modos.
-  MUTEX_NAME    = 'NoOBS.SingleInstance.TNoOBSWindow';
-  SHOW_MSG_NAME = 'NoOBS.ShowInstance.TNoOBSWindow';
+  // MUTEX_NAME e SHOW_MSG_NAME vem de OBSSingleInstance — compartilhados
+  // com OBSUI. ANTES estavam duplicados aqui ('TNoOBSWindow'), derivaram
+  // de um nome antigo do OBSUI ('TNoOBSWindow' -> 'TNoOBS') e os dois
+  // modos paravam de detectar um ao outro: mutex distinto + UINT da
+  // window message distinto = full e hibernate rodavam simultaneamente.
   CLASS_NAME    = 'TNoOBSHibernate';
   TOOLTIP_TXT   = 'NoOBS (hibernando)';
 

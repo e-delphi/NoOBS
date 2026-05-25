@@ -125,6 +125,7 @@ uses
   System.SysUtils,
   OBSConfig,
   OBSLog,
+  OBSSingleInstance,
   OBSStartupCheck,
   OBSTray,
   OBSHibernate;
@@ -158,8 +159,11 @@ const
   CLASS_NAME    = 'TNoOBS';
   WINDOW_TITLE  = 'NoOBS';
 
-  MUTEX_NAME    = 'NoOBS.SingleInstance.' + CLASS_NAME;
-  SHOW_MSG_NAME = 'NoOBS.ShowInstance.'   + CLASS_NAME;
+  // MUTEX_NAME e SHOW_MSG_NAME ficam em OBSSingleInstance pra serem
+  // compartilhados com OBSHibernate — single-instance precisa funcionar
+  // ENTRE os dois modos (full e hibernate), e antes os literais estavam
+  // duplicados aqui e la, ficaram fora de sincronia e os dois processos
+  // coexistiam sem se ver.
 
   CSIDL_LOCAL_APPDATA                 = $001C;
   SE_FILE_OBJECT                      = 1;
@@ -1153,7 +1157,7 @@ begin
   // direto e fica em segundo plano consumindo RAM normalmente.
   if IsAutostartLaunch and
      GetConfigBool('closeToTray', False) and
-     GetConfigBool('hibernate', True) then
+     GetConfigBool('hibernate', False) then
   begin
     Log('OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra OBSHibernate.Run.');
     OBSHibernate.Run;

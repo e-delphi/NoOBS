@@ -49,6 +49,36 @@ type
   end;
   TObsAudioDevArray = TArray<TObsAudioDev>;
 
+  // ---------------------------------------------------------------------
+  // Layout / metadata da gravacao
+  // ---------------------------------------------------------------------
+
+  // Uma regiao do canvas final ocupada por um source (monitor ou webcam).
+  // Posicao e tamanho em PIXELS do canvas (vide TRecordingLayout.CanvasW/H).
+  // Usado no player pra permitir "zoom" em um monitor especifico.
+  TRecordingRegion = record
+    Name: string;     // friendly name visivel no menu do player
+    Kind: string;     // 'monitor' | 'webcam'
+    X, Y, W, H: Integer;
+  end;
+  TRecordingRegionArray = TArray<TRecordingRegion>;
+
+  // Layout do canvas no momento da gravacao. Capturado por OBSEngine
+  // durante BuildAndStartRecording e persistido em <hash>.json na cache.
+  TRecordingLayout = record
+    CanvasW, CanvasH: Integer;
+    Regions: TRecordingRegionArray;
+  end;
+
+  // Metadata completa de uma gravacao — duracao + layout. E o que vai
+  // em disco no arquivo <hash>.json. Em gravacoes antigas (que so tinham
+  // o .dur legado) o Layout fica zerado/vazio e a UI cai pro modo "tela
+  // cheia" sem seletor de monitor.
+  TRecordingMeta = record
+    DurationSec: Integer;
+    Layout: TRecordingLayout;
+  end;
+
 implementation
 
 end.

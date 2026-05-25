@@ -25,7 +25,8 @@ unit OBSPlayer;
 interface
 
 uses
-  System.SysUtils;
+  System.SysUtils,
+  NoOBSTypes;
 
 procedure StartPlayerServer;
 procedure StopPlayerServer;
@@ -57,6 +58,15 @@ function EnsureRecordingMeta(const APath: string;
 procedure GetCachedMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string);
 
+// ---- Metadata unificada (.json em <hash>.json) ----
+// Le/escreve duracao + layout (canvas + regions de cada monitor/webcam).
+// Bridge salva o layout em HandleRecordStop; player le via
+// HandleRequestVideoInfo pra construir o seletor de monitor.
+function LoadRecordingMeta(const APath: string;
+  out AMeta: TRecordingMeta): Boolean;
+procedure SaveRecordingMeta(const APath: string;
+  const AMeta: TRecordingMeta);
+
 // Remove arquivos de cache que nao pertencem a nenhuma das gravacoes
 // listadas. ALivePaths sao os paths das gravacoes que ainda existem.
 procedure GarbageCollectCache(const ALivePaths: TArray<string>);
@@ -77,6 +87,7 @@ uses
   System.IOUtils,
   System.Hash,
   System.StrUtils,
+  System.JSON,
   System.Generics.Collections,
   System.SyncObjs,
   IdContext,
@@ -258,14 +269,137 @@ end;
 // ParseDurationFromFFmpeg removida — duracao agora vem do Probe()
 // (libavformat), sem precisar parsear stderr.
 
+function MetaFilePath(const APath: string): string;
+begin
+  Result := IncludeTrailingPathDelimiter(CacheDirFor(APath)) +
+    HashName(APath) + '.json';
+end;
+
+function LoadRecordingMeta(const APath: string;
+  out AMeta: TRecordingMeta): Boolean;
+// Le <hash>.json. True se conseguiu parsear.
+var
+  MetaFile, Content: string;
+  Root, V: TJSONValue;
+  Obj, CanvasObj, RegObj: TJSONObject;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  Result := False;
+  AMeta := Default(TRecordingMeta);
+
+  MetaFile := MetaFilePath(APath);
+  if not FileExists(MetaFile) then Exit;
+
+  try
+    Content := TFile.ReadAllText(MetaFile, TEncoding.UTF8);
+    Root := TJSONObject.ParseJSONValue(Content);
+    if Root is TJSONObject then
+    try
+      Obj := TJSONObject(Root);
+      V := Obj.GetValue('duration');
+      if V is TJSONNumber then
+        AMeta.DurationSec := TJSONNumber(V).AsInt;
+      V := Obj.GetValue('canvas');
+      if V is TJSONObject then
+      begin
+        CanvasObj := TJSONObject(V);
+        if CanvasObj.GetValue('w') is TJSONNumber then
+          AMeta.Layout.CanvasW := TJSONNumber(CanvasObj.GetValue('w')).AsInt;
+        if CanvasObj.GetValue('h') is TJSONNumber then
+          AMeta.Layout.CanvasH := TJSONNumber(CanvasObj.GetValue('h')).AsInt;
+      end;
+      V := Obj.GetValue('monitors');
+      if V is TJSONArray then
+      begin
+        Arr := TJSONArray(V);
+        SetLength(AMeta.Layout.Regions, Arr.Count);
+        for i := 0 to Arr.Count - 1 do
+        begin
+          if not (Arr.Items[i] is TJSONObject) then Continue;
+          RegObj := TJSONObject(Arr.Items[i]);
+          if RegObj.GetValue('name') is TJSONString then
+            AMeta.Layout.Regions[i].Name := TJSONString(RegObj.GetValue('name')).Value;
+          if RegObj.GetValue('kind') is TJSONString then
+            AMeta.Layout.Regions[i].Kind := TJSONString(RegObj.GetValue('kind')).Value;
+          if RegObj.GetValue('x') is TJSONNumber then
+            AMeta.Layout.Regions[i].X := TJSONNumber(RegObj.GetValue('x')).AsInt;
+          if RegObj.GetValue('y') is TJSONNumber then
+            AMeta.Layout.Regions[i].Y := TJSONNumber(RegObj.GetValue('y')).AsInt;
+          if RegObj.GetValue('w') is TJSONNumber then
+            AMeta.Layout.Regions[i].W := TJSONNumber(RegObj.GetValue('w')).AsInt;
+          if RegObj.GetValue('h') is TJSONNumber then
+            AMeta.Layout.Regions[i].H := TJSONNumber(RegObj.GetValue('h')).AsInt;
+        end;
+      end;
+      Result := True;
+    finally
+      Root.Free;
+    end
+    else if Root <> nil then Root.Free;
+  except
+    on E: Exception do
+      Log('LoadRecordingMeta: erro lendo %s: %s',
+        [ExtractFileName(MetaFile), E.Message]);
+  end;
+end;
+
+procedure SaveRecordingMeta(const APath: string;
+  const AMeta: TRecordingMeta);
+var
+  MetaFile: string;
+  Obj, CanvasObj, RegObj: TJSONObject;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  MetaFile := MetaFilePath(APath);
+  try
+    ForceDirectories(ExtractFilePath(MetaFile));
+    Obj := TJSONObject.Create;
+    try
+      Obj.AddPair('duration', TJSONNumber.Create(AMeta.DurationSec));
+      if (AMeta.Layout.CanvasW > 0) and (AMeta.Layout.CanvasH > 0) then
+      begin
+        CanvasObj := TJSONObject.Create;
+        CanvasObj.AddPair('w', TJSONNumber.Create(AMeta.Layout.CanvasW));
+        CanvasObj.AddPair('h', TJSONNumber.Create(AMeta.Layout.CanvasH));
+        Obj.AddPair('canvas', CanvasObj);
+      end;
+      if Length(AMeta.Layout.Regions) > 0 then
+      begin
+        Arr := TJSONArray.Create;
+        for i := 0 to High(AMeta.Layout.Regions) do
+        begin
+          RegObj := TJSONObject.Create;
+          RegObj.AddPair('name', AMeta.Layout.Regions[i].Name);
+          RegObj.AddPair('kind', AMeta.Layout.Regions[i].Kind);
+          RegObj.AddPair('x', TJSONNumber.Create(AMeta.Layout.Regions[i].X));
+          RegObj.AddPair('y', TJSONNumber.Create(AMeta.Layout.Regions[i].Y));
+          RegObj.AddPair('w', TJSONNumber.Create(AMeta.Layout.Regions[i].W));
+          RegObj.AddPair('h', TJSONNumber.Create(AMeta.Layout.Regions[i].H));
+          Arr.AddElement(RegObj);
+        end;
+        Obj.AddPair('monitors', Arr);
+      end;
+      TFile.WriteAllText(MetaFile, Obj.ToJSON, TEncoding.UTF8);
+    finally
+      Obj.Free;
+    end;
+  except
+    on E: Exception do
+      Log('SaveRecordingMeta: erro escrevendo %s: %s',
+        [ExtractFileName(MetaFile), E.Message]);
+  end;
+end;
+
 function EnsureRecordingMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string): Boolean;
 // Duracao + thumbnail via libavformat/libavcodec — sem ffmpeg.exe.
 // Duracao vem do Probe() (ja usa libav). Thumb extraido via
 // ExtractFrameJpeg() (decode + swscale + mjpeg encode).
 var
-  CacheDir, ThumbFile, DurFile, Token: string;
-  Lines: TStringList;
+  CacheDir, ThumbFile, Token: string;
+  Meta: TRecordingMeta;
   SeekTs: Integer;
   Report: TProbeReport;
 begin
@@ -278,28 +412,19 @@ begin
   CacheDir := CacheDirFor(APath);
   Token := HashName(APath);
   ThumbFile := IncludeTrailingPathDelimiter(CacheDir) + Token + '.jpg';
-  DurFile   := IncludeTrailingPathDelimiter(CacheDir) + Token + '.dur';
 
-  if FileExists(DurFile) then
-  begin
-    Lines := TStringList.Create;
-    try
-      try
-        Lines.LoadFromFile(DurFile);
-        if Lines.Count > 0 then
-          ADurationSec := StrToIntDef(Trim(Lines[0]), 0);
-      except end;
-    finally
-      Lines.Free;
-    end;
-  end;
+  LoadRecordingMeta(APath, Meta);
+  ADurationSec := Meta.DurationSec;
 
   if ADurationSec = 0 then
   begin
     if Probe(APath, Report) then
       ADurationSec := Round(Report.Duration);
     if ADurationSec > 0 then
-      try TFile.WriteAllText(DurFile, IntToStr(ADurationSec)); except end;
+    begin
+      Meta.DurationSec := ADurationSec;
+      SaveRecordingMeta(APath, Meta);
+    end;
   end;
 
   // Remove thumb cacheado se ficou vazio/quebrado de uma corrida
@@ -335,8 +460,8 @@ end;
 procedure GetCachedMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string);
 var
-  CacheDir, ThumbFile, DurFile, Token: string;
-  Lines: TStringList;
+  CacheDir, ThumbFile, Token: string;
+  Meta: TRecordingMeta;
 begin
   ADurationSec := 0;
   AThumbUrl := '';
@@ -346,19 +471,9 @@ begin
 
   Token := HashName(APath);
   ThumbFile := IncludeTrailingPathDelimiter(CacheDir) + Token + '.jpg';
-  DurFile   := IncludeTrailingPathDelimiter(CacheDir) + Token + '.dur';
 
-  if FileExists(DurFile) then
-  begin
-    Lines := TStringList.Create;
-    try
-      try Lines.LoadFromFile(DurFile); except end;
-      if Lines.Count > 0 then
-        ADurationSec := StrToIntDef(Trim(Lines[0]), 0);
-    finally
-      Lines.Free;
-    end;
-  end;
+  LoadRecordingMeta(APath, Meta);
+  ADurationSec := Meta.DurationSec;
 
   if FileExists(ThumbFile) and (Server <> nil) then
     AThumbUrl := MakeUrl('-thumb', ThumbFile, '.jpg');

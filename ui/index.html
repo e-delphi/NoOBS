@@ -1389,6 +1389,31 @@
     transition: none;
     will-change: transform;
   }
+  /* Canvas de composicao multi-regiao — sobreposto ao video quando o
+     user seleciona 2+ regioes. Video continua tocando "atras" (audio
+     + decode), so escondido visualmente. */
+  .player-composite {
+    position: absolute;
+    /* centralizado no stage; tamanho fica limitado por max-* + aspect-ratio
+       inline (set no JS) — isso replica "object-fit: contain", que nao
+       funciona em <canvas>. Usamos a propriedade CSS `translate` (nao o
+       `transform`) pro centering, pra nao colidir com o transform inline
+       que o JS de zoom/pan aplica. */
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    transform-origin: center center;
+    max-width: 100%;
+    max-height: 100%;
+    background: #000;
+    pointer-events: none;  /* clicks atravessam pro video underneath */
+    z-index: 1;
+  }
+  .player-composite[hidden] { display: none; }
+  /* Quando o canvas esta ativo, escondemos o video visualmente mas
+     mantemos a area do layout — visibility:hidden nao pausa playback
+     nem corta o audio. */
+  .player-stage.compositing video { visibility: hidden; }
   .player-zoom-badge {
     position: absolute;
     top: 10px;
@@ -1615,6 +1640,47 @@
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
+  /* Botao de mutar/desmutar uma faixa. Click toggla; estado mutado
+     muda o icone (speaker -> speaker-x) e zera o slider (guarda o
+     volume anterior em data-restore pra restaurar no unmute). */
+  .player-info-mute {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.12s, background 0.12s;
+  }
+  .player-info-mute:hover {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+  }
+  .player-info-mute.muted { color: var(--danger-2, #ef4444); }
+  .player-info-mute.muted:hover { background: rgba(239,68,68,0.12); }
+  .player-info-mute svg { width: 14px; height: 14px; }
+  /* Aparencia da faixa mutada: tudo levemente apagado pra reforcar
+     que ela nao esta soando. */
+  .player-info-track.muted {
+    opacity: 0.55;
+  }
+  .player-info-track.muted .player-info-track-title {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+  [data-theme="light"] .player-info-mute {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-mute:hover {
+    background: rgba(0,0,0,0.06);
+    color: rgba(0,0,0,0.85);
+  }
   [data-theme="light"] .player-info-vol-row {
     border-top: 1px solid rgba(0,0,0,0.06);
   }
@@ -1629,6 +1695,102 @@
   [data-theme="light"] .player-info-vol-val {
     color: rgba(0,0,0,0.6);
   }
+  /* Seletor de visualizacao (monitor/webcam) no painel de info do
+     player. Aparece com check estilo radio (so um selecionado por vez)
+     + icone monitor/webcam + nome do dispositivo. Click aplica zoom
+     via object-view-box no <video>. */
+  .player-view-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    margin-bottom: 4px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .player-view-option:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .player-view-option.selected {
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.45);
+  }
+  .player-view-check {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 4px;
+    position: relative;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  /* Variante radio (circular) — usada na opcao "Tela cheia". Visual
+     diferente dos checkboxes (quadrados) pra deixar claro: "ou tela
+     cheia, ou combinacao de monitores". */
+  .player-view-check.radio {
+    border-radius: 50%;
+  }
+  .player-view-option.selected .player-view-check {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  /* Checkmark SVG centralizado (sem aproximacoes de translate em
+     elementos rotacionados). Aparece so quando o item esta selecionado. */
+  .player-view-check::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: no-repeat center/65% url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .player-view-option.selected .player-view-check::after { opacity: 1; }
+  /* No radio (Tela cheia), o "selecionado" e o ponto cheio centralizado,
+     nao um check. Sobrescreve o ::after acima. */
+  .player-view-check.radio::after {
+    background: none;
+    inset: auto;
+    left: 50%; top: 50%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background-color: #fff;
+    transform: translate(-50%, -50%);
+  }
+  .player-view-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: rgba(255,255,255,0.55);
+  }
+  .player-view-option.selected .player-view-icon { color: var(--success); }
+  .player-view-icon svg { width: 18px; height: 18px; }
+  .player-view-label {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  [data-theme="light"] .player-view-option {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-view-option:hover {
+    background: rgba(0,0,0,0.06);
+  }
+  [data-theme="light"] .player-view-option.selected {
+    background: rgba(16,185,129,0.10);
+  }
+  [data-theme="light"] .player-view-check {
+    border-color: rgba(0,0,0,0.35);
+  }
+  [data-theme="light"] .player-view-icon { color: rgba(0,0,0,0.45); }
+
   .player-info-btn { color: rgba(255,255,255,0.85); }
   .player-info-btn.active {
     background: rgba(16,185,129,0.18);
@@ -1762,6 +1924,75 @@
     border-radius: 50%;
     background: #fff;
     cursor: pointer;
+  }
+
+  /* ===== Speed selector ===== */
+  .player-speed-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .player-speed-btn {
+    min-width: 42px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    padding: 0 8px;
+  }
+  .player-speed-btn:hover { color: #fff; }
+  .player-speed-btn.active {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+  }
+  .player-speed-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 22, 0.96);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 76px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .player-speed-menu[hidden] { display: none; }
+  .player-speed-option {
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    color: var(--text-1);
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .player-speed-option:hover { background: rgba(255,255,255,0.08); }
+  .player-speed-option.selected {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+    font-weight: 600;
+  }
+  /* Tema claro: o player permanece em fundo escuro (chrome do video),
+     mas o popup do speed flutua FORA da area do video — entao precisa
+     casar com o resto da UI em light. Usamos surface clara + texto
+     escuro pra contraste. */
+  [data-theme="light"] .player-speed-menu {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.10);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  }
+  [data-theme="light"] .player-speed-option { color: #1f2937; }
+  [data-theme="light"] .player-speed-option:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  [data-theme="light"] .player-speed-option.selected {
+    background: rgba(16, 185, 129, 0.14);
+    color: #047857;
   }
 
   /* ===== Settings modal ===== */
@@ -2674,6 +2905,12 @@
     <div class="player-body">
       <div class="player-stage" id="playerStage">
         <video id="playerVideo" preload="auto" playsinline></video>
+        <!-- Canvas overlay pra modo "multi-monitor selecionado":
+             quando 2+ regioes do canvas estao ativas, hidemos o video
+             visualmente (mantem decode + audio) e pintamos as regioes
+             lado a lado aqui via RAF + drawImage. Buracos entre
+             monitores nao-contiguos somem nesse modo. -->
+        <canvas id="playerComposite" class="player-composite" hidden></canvas>
         <div class="player-zoom-badge" id="playerZoomBadge">100%</div>
         <div class="player-pause-indicator" id="playerPauseIndicator">
           <svg viewBox="0 0 100 100" width="100" height="100" aria-hidden="true">
@@ -2715,6 +2952,19 @@
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
         </button>
         <input type="range" class="player-volume" id="playerVolume" min="0" max="100" value="100">
+      </div>
+      <div class="player-speed-wrap">
+        <button class="player-btn player-speed-btn" id="playerSpeedBtn" title="Velocidade de execução">
+          <span id="playerSpeedLabel">1×</span>
+        </button>
+        <div class="player-speed-menu" id="playerSpeedMenu" hidden>
+          <div class="player-speed-option" data-speed="0.25">0,25×</div>
+          <div class="player-speed-option" data-speed="0.5">0,5×</div>
+          <div class="player-speed-option selected" data-speed="1">1×</div>
+          <div class="player-speed-option" data-speed="1.5">1,5×</div>
+          <div class="player-speed-option" data-speed="2">2×</div>
+          <div class="player-speed-option" data-speed="3">3×</div>
+        </div>
       </div>
       <button class="player-btn player-info-btn" id="playerInfo" title="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
@@ -4125,6 +4375,25 @@ function formatBitrate(bps) {
   return bps + ' bps';
 }
 
+// SVG do botao de mutar/desmutar uma faixa de audio do player.
+// Quando muted=true mostra speaker-X (cortado); senao speaker-com-ondas.
+function MUTE_ICON_SVG(muted) {
+  if (muted) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" ' +
+      'fill="currentColor" stroke="none"/>' +
+      '<line x1="23" y1="9" x2="17" y2="15"/>' +
+      '<line x1="17" y1="9" x2="23" y2="15"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" ' +
+    'fill="currentColor" stroke="none"/>' +
+    '<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>' +
+    '<path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -4828,6 +5097,9 @@ const Player = {
   dragStartY: 0,
   dragStartPanX: 0,
   dragStartPanY: 0,
+  // Velocidade de execucao do video — sincronizada com os audio slaves
+  // via 'ratechange' listener (applyRateAudios).
+  playbackSpeed: 1,
   init() {
     const v   = document.getElementById('playerVideo');
     const ov  = document.getElementById('playerOverlay');
@@ -4842,6 +5114,33 @@ const Player = {
     document.getElementById('playerInfo').onclick = () => Player.toggleInfoPanel();
     document.getElementById('playerInfoClose').onclick = () => Player.closeInfoPanel();
     document.getElementById('playerFs').onclick = () => Player.toggleFullscreen();
+
+    // Speed selector: botao toggla menu; click numa opcao aplica
+    // playbackRate e fecha. Click fora do wrap fecha sem aplicar.
+    const speedBtn  = document.getElementById('playerSpeedBtn');
+    const speedMenu = document.getElementById('playerSpeedMenu');
+    speedBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = !speedMenu.hidden;
+      speedMenu.hidden = open;
+      speedBtn.classList.toggle('active', !open);
+    });
+    speedMenu.querySelectorAll('.player-speed-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rate = parseFloat(opt.dataset.speed);
+        Player.setPlaybackSpeed(rate);
+        speedMenu.hidden = true;
+        speedBtn.classList.remove('active');
+      });
+    });
+    // Click em qualquer outro lugar fecha o menu.
+    document.addEventListener('click', () => {
+      if (!speedMenu.hidden) {
+        speedMenu.hidden = true;
+        speedBtn.classList.remove('active');
+      }
+    });
 
     v.addEventListener('timeupdate', () => Player.onTimeUpdate());
     v.addEventListener('loadedmetadata', () => Player.onTimeUpdate());
@@ -5016,7 +5315,13 @@ const Player = {
   applyTransform() {
     const v = document.getElementById('playerVideo');
     if (!v) return;
-    v.style.transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    const tf = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    v.style.transform = tf;
+    // Em modo composite (2+ regioes), o video esta escondido e o canvas
+    // e que aparece — aplicar o mesmo transform pra zoom/pan funcionarem
+    // visualmente.
+    const c = document.getElementById('playerComposite');
+    if (c) c.style.transform = tf;
     const stage = document.getElementById('playerStage');
     const badge = document.getElementById('playerZoomBadge');
     if (stage) stage.classList.toggle('zoomed', this.zoom > 1.001);
@@ -5089,6 +5394,54 @@ const Player = {
     this.zoom = 1; this.panX = 0; this.panY = 0;
     this.applyTransform();
   },
+
+  // Aplica taxa de reproducao no <video> — listener 'ratechange' propaga
+  // pros audio slaves. Atualiza o label do botao e marca a opcao ativa
+  // no menu pra refletir o estado atual.
+  setPlaybackSpeed(rate) {
+    if (!isFinite(rate) || rate <= 0) return;
+    this.playbackSpeed = rate;
+    const v = document.getElementById('playerVideo');
+    if (v) v.playbackRate = rate;
+    // Label: 1× / 0,5× / 1,5× — virgula como separador decimal (pt-BR).
+    const lbl = document.getElementById('playerSpeedLabel');
+    if (lbl) {
+      lbl.textContent = (rate === 1)
+        ? '1×'
+        : String(rate).replace('.', ',') + '×';
+    }
+    // Marca opcao selecionada no menu.
+    document.querySelectorAll('.player-speed-option').forEach(o => {
+      o.classList.toggle('selected',
+        Math.abs(parseFloat(o.dataset.speed) - rate) < 0.001);
+    });
+  },
+
+  // Calcula display size do canvas composite preservando aspect ratio
+  // dentro do stage (object-fit:contain manual). Chamado quando o
+  // composite e (re)montado e em window resize.
+  _fitCompositeToStage() {
+    const c = document.getElementById('playerComposite');
+    const stage = document.getElementById('playerStage');
+    if (!c || !stage || c.hidden) return;
+    if (!c.width || !c.height) return;
+    const r = stage.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+    const stageAspect = r.width / r.height;
+    const canvasAspect = c.width / c.height;
+    let w, h;
+    if (canvasAspect > stageAspect) {
+      // canvas mais "wide" que stage — limita pela largura
+      w = r.width;
+      h = r.width / canvasAspect;
+    } else {
+      // canvas mais "tall" — limita pela altura
+      h = r.height;
+      w = r.height * canvasAspect;
+    }
+    c.style.width  = w + 'px';
+    c.style.height = h + 'px';
+  },
   showPending(id) {
     this.pendingId = id;
     const ov = document.getElementById('playerOverlay');
@@ -5121,6 +5474,11 @@ const Player = {
       this.audiosRequested = false;
       this.audiosReadyForId = null;
       this.trackVolumes = null;
+      // Reseta seletor de visualizacao — gravacao nova abre em "Tela
+      // cheia" por padrao mesmo se a anterior estava em zoom.
+      this.currentLayout = null;
+      this.selectedRegionIndex = -1;
+      this.applyRegionView();
       // Re-aplica volumes com o estado zerado (defaults) — sem isso
       // o video.volume mantem o valor da gravacao anterior, daria
       // mismatch com o slider que mostra 100% na nova gravacao.
@@ -5159,6 +5517,9 @@ const Player = {
     this.triedTranscode = false;
     this.closeInfoPanel();
     this.resetZoom();
+    // Reseta velocidade pra 1x — novo video comeca em ritmo normal
+    // mesmo se o ultimo ficou em 2x ou 0.5x.
+    this.setPlaybackSpeed(1);
     // Sai de fullscreen se estiver — fechar player em fullscreen
     // deixaria a janela borderless toda preta sem onde clicar.
     if (document.body.dataset.fs === '1') this.toggleFullscreen();
@@ -5254,6 +5615,33 @@ const Player = {
       html += '</div>';
     }
 
+    // Visualizacao — seletor multi-select de monitor / webcam.
+    // "Tela cheia" e um radio (limpa tudo). Cada regiao e um checkbox
+    // que pode combinar com outras. Layout vem do <hash>.json salvo
+    // no fim da gravacao. Gravacoes antigas sem .json: secao nao aparece.
+    this.currentLayout = (data.layout && Array.isArray(data.layout.regions) &&
+      data.layout.regions.length > 0) ? data.layout : null;
+    if (!(this.selectedRegions instanceof Set)) this.selectedRegions = new Set();
+    if (this.currentLayout) {
+      const regs = this.currentLayout.regions;
+      // Limpa indices que nao existem mais (ex.: regravou com menos monitores).
+      this.selectedRegions.forEach(i => { if (i >= regs.length) this.selectedRegions.delete(i); });
+      const isFullscreen = this.selectedRegions.size === 0;
+      html += '<div class="player-info-section">';
+      html += '<div class="player-info-section-title">Visualização</div>';
+      // "Tela cheia" — radio. Selecionado quando NAO ha regiao escolhida.
+      html += this._renderViewOption(-1, 'Tela cheia', 'full',
+        isFullscreen, /*isRadio*/ true);
+      regs.forEach((r, i) => {
+        html += this._renderViewOption(i, r.name || ('Região ' + (i+1)),
+          r.kind || 'monitor',
+          this.selectedRegions.has(i), /*isRadio*/ false);
+      });
+      html += '</div>';
+    } else {
+      this.selectedRegions.clear();
+    }
+
     // Audio (multi-track) com volume slider por faixa
     if (audioStreams.length > 0) {
       html += '<div class="player-info-section">';
@@ -5268,10 +5656,12 @@ const Player = {
       }
       audioStreams.forEach((s, idx) => {
         const volPct = Math.round((this.trackVolumes[idx] || 0) * 100);
+        const isMuted = volPct === 0;
         // Usa o title gravado nos metadata se houver; fallback "Faixa N".
         const label = (s.title && s.title.length > 0) ? s.title :
           ('Faixa ' + (idx + 1) + (idx === 0 ? ' (mix)' : ''));
-        html += '<div class="player-info-track">';
+        html += '<div class="player-info-track' +
+                (isMuted ? ' muted' : '') + '" data-track-row="' + idx + '">';
         html += '<div class="player-info-track-title">' +
                 escapeHtml(label) + '</div>';
         html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
@@ -5284,8 +5674,13 @@ const Player = {
             (s.sampleRate / 1000).toFixed(1) + ' kHz');
         if (s.bitrate > 0)
           html += infoRow('Bitrate', formatBitrate(s.bitrate));
-        // Slider de volume da faixa.
+        // Slider de volume da faixa + botao de mutar.
         html += '<div class="player-info-vol-row">';
+        html += '<button class="player-info-mute' +
+                (isMuted ? ' muted' : '') + '" ' +
+                'data-track-mute="' + idx + '" ' +
+                'title="' + (isMuted ? 'Desmutar' : 'Mutar') + '">' +
+                MUTE_ICON_SVG(isMuted) + '</button>';
         html += '<input type="range" class="player-info-vol" ' +
                 'data-track="' + idx + '" min="0" max="100" ' +
                 'value="' + volPct + '">';
@@ -5300,6 +5695,19 @@ const Player = {
     body.innerHTML = html;
 
     // Sliders de volume por faixa — wire-up apos render.
+    // Mantem o slider sincronizado com a classe .muted da row pai
+    // (quando user arrasta de/pra zero pelo proprio slider, sem clicar
+    // no botao de mutar).
+    const syncMuteState = (idx, isMuted) => {
+      const row    = body.querySelector('[data-track-row="' + idx + '"]');
+      const muteBt = body.querySelector('[data-track-mute="' + idx + '"]');
+      if (row) row.classList.toggle('muted', isMuted);
+      if (muteBt) {
+        muteBt.classList.toggle('muted', isMuted);
+        muteBt.title = isMuted ? 'Desmutar' : 'Mutar';
+        muteBt.innerHTML = MUTE_ICON_SVG(isMuted);
+      }
+    };
     body.querySelectorAll('.player-info-vol').forEach(slider => {
       const idx = parseInt(slider.dataset.track, 10);
       slider.style.setProperty('--vp', slider.value + '%');
@@ -5310,9 +5718,185 @@ const Player = {
           '[data-track-val="' + idx + '"]');
         if (label) label.textContent = slider.value + '%';
         Player.setTrackVolume(idx, vol);
+        syncMuteState(idx, vol === 0);
+        // User arrastando o slider apaga o "volume restaurado" do
+        // mute button — proximo unmute via botao volta pra 100, nao
+        // pro valor que o user acabou de mexer.
+        if (vol > 0) delete slider.dataset.preMute;
       });
     });
+
+    // Botoes de mutar — toggle: muta zera volume guardando o valor
+    // anterior em data-preMute; desmuta restaura pra preMute ou 100%.
+    body.querySelectorAll('.player-info-mute').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const idx = parseInt(btn.dataset.trackMute, 10);
+        const slider = body.querySelector(
+          '.player-info-vol[data-track="' + idx + '"]');
+        if (!slider) return;
+        const curVol = parseInt(slider.value, 10);
+        let nextVol;
+        if (curVol > 0) {
+          // Mutar: guarda volume atual e zera.
+          slider.dataset.preMute = String(curVol);
+          nextVol = 0;
+        } else {
+          // Desmutar: restaura pre-mute, ou 100 se nunca foi setado.
+          nextVol = parseInt(slider.dataset.preMute || '100', 10);
+          delete slider.dataset.preMute;
+        }
+        slider.value = String(nextVol);
+        slider.style.setProperty('--vp', nextVol + '%');
+        const label = body.querySelector(
+          '[data-track-val="' + idx + '"]');
+        if (label) label.textContent = nextVol + '%';
+        Player.setTrackVolume(idx, nextVol / 100);
+        syncMuteState(idx, nextVol === 0);
+      });
+    });
+
+    // Wire-up das opcoes de "Visualizacao". Click no "Tela cheia"
+    // (idx=-1) limpa o set. Click numa regiao (idx>=0) toggla — se
+    // o set ficar vazio, "Tela cheia" auto-ativa.
+    body.querySelectorAll('.player-view-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        const idx = parseInt(opt.dataset.viewIdx, 10);
+        if (!(Player.selectedRegions instanceof Set))
+          Player.selectedRegions = new Set();
+        if (idx === -1) {
+          Player.selectedRegions.clear();
+        } else {
+          if (Player.selectedRegions.has(idx)) Player.selectedRegions.delete(idx);
+          else Player.selectedRegions.add(idx);
+        }
+        // Refresca visual dos checks + radio.
+        const fullSelected = Player.selectedRegions.size === 0;
+        body.querySelectorAll('.player-view-option').forEach(o => {
+          const i = parseInt(o.dataset.viewIdx, 10);
+          o.classList.toggle('selected',
+            i === -1 ? fullSelected : Player.selectedRegions.has(i));
+        });
+        // Mudou a area visivel — zoom/pan anterior nao faz mais sentido.
+        Player.resetZoom();
+        Player.applyRegionView();
+      });
+    });
+    // Reaplica view (caso video tenha sido recarregado e o estado
+    // precise ser persistido).
+    this.applyRegionView();
   },
+
+  // Renderiza um item da lista "Visualizacao". `idx` = -1 pra tela
+  // cheia ou 0+ pra index em currentLayout.regions. `kind` controla
+  // o icone (monitor / webcam / full). `isRadio` muda o estilo do
+  // indicador (circulo vs check).
+  _renderViewOption(idx, label, kind, selected, isRadio) {
+    const iconSvg =
+      kind === 'webcam'  ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><circle cx="12" cy="12" r="9"/></svg>' :
+      kind === 'monitor' ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="22" x2="16" y2="22"/><line x1="12" y1="18" x2="12" y2="22"/></svg>' :
+      /* full */          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+    return '<div class="player-view-option' +
+      (selected ? ' selected' : '') + '" data-view-idx="' + idx + '">' +
+      '<span class="player-view-check' + (isRadio ? ' radio' : '') + '"></span>' +
+      '<span class="player-view-icon">' + iconSvg + '</span>' +
+      '<span class="player-view-label">' + escapeHtml(label) + '</span>' +
+      '</div>';
+  },
+
+  // Aplica o modo de visualizacao no player. Tres caminhos:
+  //   0 regioes  → tela cheia (object-view-box: none, sem canvas)
+  //   1 regiao   → object-view-box CSS (nativo, zero overhead)
+  //   2+ regioes → composicao via <canvas> RAF (sem buracos entre monitores)
+  applyRegionView() {
+    const v = document.getElementById('playerVideo');
+    const stage = document.getElementById('playerStage');
+    if (!v) return;
+    const set = this.selectedRegions instanceof Set ? this.selectedRegions : new Set();
+    const regs = this.currentLayout ? this.currentLayout.regions : null;
+
+    // Para qualquer mudanca, cancela RAF se rodando (sera recriado abaixo se preciso).
+    if (this.compositeRaf) {
+      cancelAnimationFrame(this.compositeRaf);
+      this.compositeRaf = null;
+    }
+
+    if (!regs || set.size === 0) {
+      // Modo tela cheia.
+      v.style.objectViewBox = '';
+      v.style.objectFit = 'contain';
+      stage.classList.remove('compositing');
+      const c = document.getElementById('playerComposite');
+      if (c) c.hidden = true;
+      return;
+    }
+
+    if (set.size === 1) {
+      // Single region — usa object-view-box (nativo).
+      const i = set.values().next().value;
+      const reg = regs[i];
+      const cw = this.currentLayout.canvasW;
+      const ch = this.currentLayout.canvasH;
+      if (reg && cw && ch) {
+        const top    = (reg.y                / ch * 100).toFixed(2);
+        const right  = ((cw - reg.x - reg.w) / cw * 100).toFixed(2);
+        const bottom = ((ch - reg.y - reg.h) / ch * 100).toFixed(2);
+        const left   = (reg.x                / cw * 100).toFixed(2);
+        v.style.objectViewBox = `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+        v.style.objectFit = 'contain';
+      }
+      stage.classList.remove('compositing');
+      const c1 = document.getElementById('playerComposite');
+      if (c1) c1.hidden = true;
+      return;
+    }
+
+    // 2+ regioes — canvas mode.
+    v.style.objectViewBox = '';   // limpa object-view-box do video escondido
+    stage.classList.add('compositing');
+    const c = document.getElementById('playerComposite');
+    if (!c) return;
+    c.hidden = false;
+
+    // Ordena por X (left-to-right) pra ficar previsivel.
+    const ordered = [...set].map(i => regs[i]).filter(Boolean)
+      .sort((a, b) => a.x - b.x);
+    // Composite: lado a lado horizontalmente. Largura = soma das ws,
+    // altura = max das hs. Monitores menores ficam centralizados verticalmente
+    // (letterbox preto natural por causa do clear).
+    const sumW = ordered.reduce((s, r) => s + r.w, 0);
+    const maxH = ordered.reduce((s, r) => Math.max(s, r.h), 0);
+    if (c.width !== sumW)  c.width  = sumW;
+    if (c.height !== maxH) c.height = maxH;
+    // Letterbox manual: object-fit:contain nao funciona em <canvas>,
+    // entao computamos o tamanho display pra preservar aspect dentro do
+    // stage. fitCompositeToStage e chamado tambem em resize do window.
+    this._fitCompositeToStage();
+    const ctx = c.getContext('2d');
+
+    const draw = () => {
+      // Se o video ainda nao tem dados suficientes pra desenhar, pula
+      // o frame — readyState >= 2 (HAVE_CURRENT_DATA).
+      if (v.readyState >= 2) {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, c.width, c.height);
+        let dx = 0;
+        for (const r of ordered) {
+          // Webcam: alinha no topo (dy=0) pra preservar a geometria
+          // original da gravacao (webcam costuma ficar no topo do canvas
+          // junto ao monitor principal). Monitor: centraliza vertical
+          // pra letterbox simetrico quando alturas diferem.
+          const dy = (r.kind === 'webcam') ? 0
+                                           : Math.round((maxH - r.h) / 2);
+          ctx.drawImage(v, r.x, r.y, r.w, r.h, dx, dy, r.w, r.h);
+          dx += r.w;
+        }
+      }
+      this.compositeRaf = requestAnimationFrame(draw);
+    };
+    this.compositeRaf = requestAnimationFrame(draw);
+  },
+
   togglePlay() {
     const v = document.getElementById('playerVideo');
     if (v.paused || v.ended) v.play(); else v.pause();
@@ -5402,6 +5986,14 @@ const Player = {
   audiosRequested: false,       // ja pediu extracao pro Delphi?
   audiosReadyForId: null,       // id pra qual ja temos URLs
   driftRaf: null,
+  // Seletor de visualizacao (monitor/webcam) — layout vem do .json
+  // salvo no fim da gravacao. Set vazio = "tela cheia"; com 1+ indices
+  // ativa o modo regiao.
+  //   1 indice  → object-view-box (recorte CSS nativo, zero CPU)
+  //   2+ indices → composicao via <canvas> + RAF + drawImage (sem buracos)
+  currentLayout: null,
+  selectedRegions: null,        // Set<number> | null
+  compositeRaf: null,           // requestAnimationFrame handle
 
   setTrackVolume(idx, vol) {
     if (!Array.isArray(this.trackVolumes)) this.trackVolumes = [];
@@ -5716,6 +6308,8 @@ function initCtxMenu() {
   // Fecha em scroll/resize pra nao ficar flutuando
   window.addEventListener('resize', hideCtxMenu);
   document.addEventListener('scroll', hideCtxMenu, true);
+  // Re-fit do canvas composite quando a janela redimensiona.
+  window.addEventListener('resize', () => Player._fitCompositeToStage());
 }
 
 // =====================================================================

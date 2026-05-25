@@ -2280,7 +2280,26 @@ begin
   LastRecordingDuration := Elapsed;
   PushRecordingState;
   if OutputPath <> '' then
+  begin
+    // Persiste layout (canvas + monitores/webcams posicionados) +
+    // duracao em <hash>.json antes de PushRecordingAdded — assim o
+    // ScanSingleRecordingMeta (worker) ja encontra o layout pronto
+    // quando vai cachear a thumb. Sem o engine (raro: falha pre-stop)
+    // pulamos — fica so o que EnsureRecordingMeta puder probar.
+    if Engine <> nil then
+    begin
+      var Meta := Default(TRecordingMeta);
+      Meta.DurationSec := Elapsed;
+      Meta.Layout := Engine.CurrentLayout;
+      try
+        OBSPlayer.SaveRecordingMeta(OutputPath, Meta);
+      except
+        on E: Exception do
+          Log('SaveRecordingMeta falhou: %s', [E.Message]);
+      end;
+    end;
     PushRecordingAdded(OutputPath, Elapsed);
+  end;
 
   // Notifica fim da gravacao (so se em tray e config permite).
   MaybeNotifyRecord('NoOBS',
@@ -2563,6 +2582,34 @@ begin
         Streams.AddElement(StreamObj);
       end;
       Obj.AddPair('streams', Streams);
+
+      // Layout (canvas + regioes de monitor/webcam) salvo em <hash>.json.
+      // UI usa pra montar o seletor "Visualizacao" no painel de info do
+      // player — permite zoom em um monitor especifico ao tocar.
+      // Gravacoes antigas sem .json: Meta vem zerado, UI cai pro modo
+      // "Tela cheia" sem seletor.
+      var Meta := Default(TRecordingMeta);
+      if OBSPlayer.LoadRecordingMeta(APath, Meta) and
+         (Length(Meta.Layout.Regions) > 0) then
+      begin
+        var LayoutObj := TJSONObject.Create;
+        LayoutObj.AddPair('canvasW', TJSONNumber.Create(Meta.Layout.CanvasW));
+        LayoutObj.AddPair('canvasH', TJSONNumber.Create(Meta.Layout.CanvasH));
+        var RegArr := TJSONArray.Create;
+        for i := 0 to High(Meta.Layout.Regions) do
+        begin
+          var R := TJSONObject.Create;
+          R.AddPair('name', Meta.Layout.Regions[i].Name);
+          R.AddPair('kind', Meta.Layout.Regions[i].Kind);
+          R.AddPair('x', TJSONNumber.Create(Meta.Layout.Regions[i].X));
+          R.AddPair('y', TJSONNumber.Create(Meta.Layout.Regions[i].Y));
+          R.AddPair('w', TJSONNumber.Create(Meta.Layout.Regions[i].W));
+          R.AddPair('h', TJSONNumber.Create(Meta.Layout.Regions[i].H));
+          RegArr.AddElement(R);
+        end;
+        LayoutObj.AddPair('regions', RegArr);
+        Obj.AddPair('layout', LayoutObj);
+      end;
 
       TThread.Queue(nil, procedure begin PostOwned(Obj); end);
     end).Start;

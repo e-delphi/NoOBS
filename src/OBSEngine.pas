@@ -27,6 +27,11 @@ type
     FExeDir: string;
     FObsPluginBinDir: string;
     FObsPluginDataDir: string;
+    // Layout do canvas atual — preenchido durante BuildAndStartRecording
+    // conforme cada monitor/webcam vai sendo posicionado. Bridge le
+    // depois do start pra persistir em <hash>.json (player usa pra
+    // seletor de monitor / zoom).
+    FCurrentLayout: TRecordingLayout;
     procedure ResolvePaths;
     procedure LoadModules;
     procedure ReleaseRecordingObjects;
@@ -40,6 +45,7 @@ type
     procedure SetSourceMuted(const ASourceName: string; AMuted: Boolean);
     procedure Teardown;
     property Initialized: Boolean read FInitialized;
+    property CurrentLayout: TRecordingLayout read FCurrentLayout;
   end;
 
 // Tipos publicos (TGpuVendor, TEncoderCaps, TObsAudioDev) ficam em
@@ -556,6 +562,12 @@ begin
     raise Exception.CreateFmt('obs_reset_video %dx%d falhou (code=%d).',
       [CanvasW, CanvasH, Ret]);
 
+  // Zera + grava canvas no layout — regions sao adicionados conforme
+  // os sources sao posicionados na scene mais abaixo.
+  FCurrentLayout := Default(TRecordingLayout);
+  FCurrentLayout.CanvasW := CanvasW;
+  FCurrentLayout.CanvasH := CanvasH;
+
   // Scale final dos sources.
   if RawBoundingW > 0 then
     Scale := CanvasW / RawBoundingW
@@ -592,6 +604,20 @@ begin
 
     Log('   %s -> canvas (%.0f, 0) scale=%.3f monitor_id=%s',
       [string(SourceName), PosX, Scale, string(MonId)]);
+
+    // Registra a regiao no layout (player usa pra seletor de monitor).
+    SetLength(FCurrentLayout.Regions, Length(FCurrentLayout.Regions) + 1);
+    var RegIdx := High(FCurrentLayout.Regions);
+    FCurrentLayout.Regions[RegIdx].Name := Monitors[i].Name;
+    if FCurrentLayout.Regions[RegIdx].Name = '' then
+      FCurrentLayout.Regions[RegIdx].Name :=
+        Format('Monitor %d', [Monitors[i].Index]);
+    FCurrentLayout.Regions[RegIdx].Kind := 'monitor';
+    FCurrentLayout.Regions[RegIdx].X    := Round(PosX);
+    FCurrentLayout.Regions[RegIdx].Y    := 0;
+    FCurrentLayout.Regions[RegIdx].W    := Round(Monitors[i].Width  * Scale);
+    FCurrentLayout.Regions[RegIdx].H    := Round(Monitors[i].Height * Scale);
+
     PosX := PosX + Monitors[i].Width * Scale;
   end;
 
@@ -627,6 +653,17 @@ begin
     Log('   %s -> canvas (%.0f, 0) bounds=%dx%d',
       [string(SourceName), PosX,
        Round(Cams[i].Width * Scale), Round(Cams[i].Height * Scale)]);
+
+    // Registra a webcam no layout pra player oferecer "zoom" nela.
+    SetLength(FCurrentLayout.Regions, Length(FCurrentLayout.Regions) + 1);
+    var CamRegIdx := High(FCurrentLayout.Regions);
+    FCurrentLayout.Regions[CamRegIdx].Name := 'Webcam — ' + Cams[i].Name;
+    FCurrentLayout.Regions[CamRegIdx].Kind := 'webcam';
+    FCurrentLayout.Regions[CamRegIdx].X    := Round(PosX);
+    FCurrentLayout.Regions[CamRegIdx].Y    := 0;
+    FCurrentLayout.Regions[CamRegIdx].W    := Round(Cams[i].Width  * Scale);
+    FCurrentLayout.Regions[CamRegIdx].H    := Round(Cams[i].Height * Scale);
+
     PosX := PosX + Cams[i].Width * Scale;
   end;
 

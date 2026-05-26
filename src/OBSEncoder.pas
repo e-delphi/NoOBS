@@ -28,6 +28,16 @@ function DetectEncoderCaps: TEncoderCaps;
 // nenhum encoder estiver disponivel (caso impossivel se obs-x264 carregou).
 function SelectVideoEncoder: obs_encoder_t;
 
+// Retorna a maior dimensao (W ou H) de canvas que o codec preferido
+// pelo user consegue aceitar. Usado pelo OBSEngine pra clampar o
+// bounding antes de obs_reset_video.
+//
+// H.264 hardware tem limite de 4096 em GPUs mais antigas (NVENC pre-
+// Turing, AMD pre-RDNA3, Intel QSV legacy). HEVC/AV1 hardware
+// suportam 8192 em todas as GPUs com esse encoder. x264 (CPU) nao
+// tem limite pratico — 8192 e so sanity check.
+function GetEncoderMaxDimension: Integer;
+
 implementation
 
 uses
@@ -244,7 +254,10 @@ var
   Pref: string;
 begin
   // Le preferencia do usuario. Valores: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
-  Pref := LowerCase(GetConfigStr('codec', 'auto'));
+  // Default h264-hw: H.264 e o codec mais compatible com players e
+  // editores; quando o hardware nao suporta, o fallback chain (logo
+  // abaixo) cai em H.264 software (x264) que sempre funciona.
+  Pref := LowerCase(GetConfigStr('codec', 'h264-hw'));
   Log('Codec preferido: %s', [Pref]);
 
   if Pref = 'av1-hw' then
@@ -273,13 +286,48 @@ begin
   end;
 
   // Auto (ou fallback de qualquer escolha que falhou):
-  // AV1 hw -> HEVC hw -> H.264 hw -> H.264 sw.
-  Result := TryAv1Hw;   if Result <> nil then Exit;
-  Result := TryHevcHw;  if Result <> nil then Exit;
+  // H.264 hw -> H.264 sw -> AV1 hw -> HEVC hw.
+  // Ordem priorizando compatibilidade: H.264 abre em qualquer player
+  // ou editor sem dor de cabeca. Cai em x264 (sempre presente) antes
+  // de tentar AV1/HEVC, que requerem hw moderno e podem ter problemas
+  // de playback em editores legados.
   Result := TryH264Hw;  if Result <> nil then Exit;
   Result := TryH264Sw;  if Result <> nil then Exit;
+  Result := TryAv1Hw;   if Result <> nil then Exit;
+  Result := TryHevcHw;  if Result <> nil then Exit;
 
   raise Exception.Create('Nenhum encoder de video disponivel.');
+end;
+
+function GetEncoderMaxDimension: Integer;
+const
+  // H.264 hardware (NVENC/AMF/QSV) e limitado a 4096 por dimensao em
+  // TODAS as geracoes de GPU — nao e uma limitacao "legacy", e uma
+  // decisao dos fabricantes pra manter o encoder H.264 dentro do Level
+  // 5.2 do padrao. NVIDIA NVENC, AMD AMF e Intel QSV mantem 4096 pra
+  // H.264 mesmo nas placas mais novas (Ada/RDNA3/Arc). HEVC e AV1 dos
+  // mesmos chips sobem pra 8192 sem problema.
+  MAX_H264_HW = 4096;
+  // HEVC/AV1 hw: 8192 universal nas GPUs com esses encoders.
+  // x264 CPU: sem limite real, 8192 e so sanity.
+  MAX_OTHER = 8192;
+var
+  Pref: string;
+  Caps: TEncoderCaps;
+begin
+  Pref := LowerCase(GetConfigStr('codec', 'h264-hw'));
+
+  if Pref = 'h264-hw' then Exit(MAX_H264_HW);
+  if (Pref = 'h264-sw') or (Pref = 'hevc-hw') or (Pref = 'av1-hw') then
+    Exit(MAX_OTHER);
+
+  // 'auto' (ou valor desconhecido): a chain priorizada e H.264 hw →
+  // x264 → AV1 → HEVC. Se h264-hw esta disponivel, vai bater nele
+  // primeiro e o limite efetivo e MAX_H264_HW. Sem h264-hw, cai em
+  // x264 que aceita o canvas maior.
+  Caps := DetectEncoderCaps;
+  if Caps.H264Hw then Exit(MAX_H264_HW);
+  Result := MAX_OTHER;
 end;
 
 end.

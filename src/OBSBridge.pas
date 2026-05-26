@@ -2725,7 +2725,7 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'settings');
   Obj.AddPair('recordDir', RecordDir);
-  Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
+  Obj.AddPair('codec', GetConfigStr('codec', 'h264-hw'));
   Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
   Obj.AddPair('closeToTray',

@@ -248,14 +248,38 @@ A captura é por referência. Quando a queued proc roda, `i` já foi
 avançado. **Solução**: chamar uma procedure separada que recebe
 `const APath: string` (novo stack frame = nova captura).
 
-### 7. **NVENC tem limite hard de 8192 por dimensão**
+### 7. **Limites de canvas variam por encoder, não são todos 8192**
 
 GPUs Turing+ (NVENC HEVC moderno) rejeitam canvas > 8192 com
-`NV_ENC_ERR_INVALID_PARAM "Width greater than supported value"`.
+`NV_ENC_ERR_INVALID_PARAM "Width greater than supported value"`. Mas
+o limite NÃO é uniforme:
 
-**Solução** em `OBSEngine` (via `ENCODER_MAX_DIM = 8192`):
-clampa canvas proporcionalmente antes de `obs_reset_video`.
-Dimensões ímpares ajustadas com `if Odd then Dec`.
+| Encoder                               | Max dimensão |
+|---------------------------------------|--------------|
+| H.264 hardware (NVENC/AMF/QSV)        | **4096**     |
+| HEVC / AV1 hardware                   | 8192         |
+| x264 (CPU)                            | sem limite prático |
+
+H.264 hw em **todas** as GPUs (NVIDIA, AMD, Intel — qualquer geração)
+não encoda > 4096 em nenhuma dimensão. Não é "legacy" — é decisão
+dos fabricantes pra manter o encoder dentro do Level 5.2 do padrão
+H.264. NVENC em RTX 40xx, AMF em RDNA3 e QSV em Arc mantém o
+mesmo 4096. Só HEVC e AV1 dos mesmos chips sobem pra 8192.
+
+Sintoma visto: AMD com 2 monitores 4K lado a lado (bounding
+8960×2160) tentando h264-hw → erros `amf_avc_create_texencode failed`
+em sequência e `obs_output_start` retorna falha sem mensagem clara.
+
+**Solução** em `OBSEngine`: clamp dinâmico baseado no codec preferido
+via `OBSEncoder.GetEncoderMaxDimension`. Função lê `config.codec`,
+mapeia pra max dim (`h264-hw` → 4096, `hevc-hw`/`av1-hw`/`h264-sw` →
+8192, `auto` → 4096 se caps tem H.264 hw, senão 8192) e o clamp
+proporcional roda como antes. Dimensões ímpares ajustadas com
+`if Odd then Dec`.
+
+Trade-off: em monitor multi-4K com `auto` ou `h264-hw`, o canvas
+desce pra 4096-wide (qualidade reduzida mas grava). Pra full res
+nessa máquina, user precisa escolher `hevc-hw` ou `av1-hw` manualmente.
 
 ### 8. **Audio-only: canvas preto 800×600**
 
@@ -692,8 +716,9 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
   deadlock).
 - **NÃO use** `file://` no WebView — bloqueado.
 - **NÃO chame** funções libobs de worker thread — main thread only.
-- **NÃO permita** canvas > 8192 — NVENC rejeita. Clamp obrigatório
-  via `ENCODER_MAX_DIM` em `OBSEngine`.
+- **NÃO permita** canvas além do limite do encoder — H.264 hw rejeita
+  > 4096, HEVC/AV1/x264 rejeitam > 8192. Clamp obrigatório via
+  `OBSEncoder.GetEncoderMaxDimension` (consultado em `OBSEngine`).
 - **NÃO esqueça** o BOM em `.pas` novos.
 - **NÃO bloqueie** a main thread por mais de ~1s sem mostrar overlay
   via `PushRefreshBusy(True, ...)` antes.

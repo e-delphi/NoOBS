@@ -73,7 +73,11 @@ uses
   WinWebcam;
 
 const
-  ENCODER_MAX_DIM = 8192;
+  // ENCODER_MAX_DIM agora vem dinamico de OBSEncoder.GetEncoderMaxDimension
+  // (variavel por codec — H.264 hw = 4096, HEVC/AV1 = 8192). Pegadinha
+  // #7: ANTES era hardcoded 8192 que so funcionava em NVENC. AMD H.264
+  // batia em "amf_avc_create_texencode failed" quando o canvas passava
+  // de 4096 pixels (multi-monitor lado a lado em telas 4K).
   SCENE_NAME = 'NoOBS';
   MANAGED_PREFIX = 'NoOBS ';
 
@@ -520,12 +524,14 @@ begin
 
   RawBoundingW := BoundingW;
 
-  // Clamp NVENC 8192.
+  // Clamp baseado no encoder que sera usado. H.264 hw em AMD/Intel/NVENC
+  // pre-Turing = 4096; HEVC/AV1 hw = 8192; x264 = 8192.
+  var EncoderMaxDim: Integer := GetEncoderMaxDimension;
   EncoderScale := 1.0;
-  if (BoundingW > ENCODER_MAX_DIM) or (BoundingH > ENCODER_MAX_DIM) then
+  if (BoundingW > EncoderMaxDim) or (BoundingH > EncoderMaxDim) then
   begin
-    var Sx: Double := ENCODER_MAX_DIM / BoundingW;
-    var Sy: Double := ENCODER_MAX_DIM / BoundingH;
+    var Sx: Double := EncoderMaxDim / BoundingW;
+    var Sy: Double := EncoderMaxDim / BoundingH;
     EncoderScale := Sx;
     if Sy < EncoderScale then EncoderScale := Sy;
     BoundingW := Round(BoundingW * EncoderScale);
@@ -533,7 +539,7 @@ begin
     if Odd(BoundingW) then Dec(BoundingW);
     if Odd(BoundingH) then Dec(BoundingH);
     Log('   Bounding clamped: %dx%d (limite %d, scale=%.3f).',
-      [BoundingW, BoundingH, ENCODER_MAX_DIM, EncoderScale]);
+      [BoundingW, BoundingH, EncoderMaxDim, EncoderScale]);
   end;
   CanvasW := BoundingW;
   CanvasH := BoundingH;

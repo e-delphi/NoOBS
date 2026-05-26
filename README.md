@@ -26,7 +26,7 @@ Só abrir e gravar.
 | Áudio separado por dispositivo | Cada microfone e alto-falante em faixas independentes, facilitando edição depois |
 | Gravação só de áudio | Se nenhum monitor ou webcam estiver selecionado, o áudio ainda é gravado |
 | Detecção em tempo real | Reconhece quando você conecta ou desconecta microfones, alto-falantes, monitores e webcams — inclusive troca de dispositivo padrão no Painel de Som |
-| Codec automático | Detecta sua placa de vídeo e usa o melhor encoder disponível (AV1 → HEVC → H.264 → x264) |
+| Codec automático | Detecta sua placa de vídeo e usa o melhor encoder disponível (H.264 hardware → x264 → AV1 → HEVC) — priorizando compatibilidade. Default é H.264 hardware |
 | Qualidade ajustável | Slider de 5 níveis pra balancear tamanho de arquivo e qualidade visual |
 | Faixa "Mix" + isoladas | Faixa 1 é o mix de tudo; faixas 2–6 individuais por dispositivo (até 6 no total) |
 | Dispositivo padrão preservado | O microfone e alto-falante padrão do Windows sempre ficam em faixas individuais quando possível |

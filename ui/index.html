@@ -810,18 +810,36 @@
     position: absolute;
     left: 0; right: 0;
     height: 3px;
-    background: var(--panel-3);
     border-radius: 1.5px;
     overflow: hidden;
+    /* Gradient fixo em largura total — cores ABSOLUTAS por posicao,
+       nao por percentual do fill. Assim a "borda" vermelha so aparece
+       quando o sinal real passa de ~85%; nivel baixo so mostra verde.
+       Cores:
+         0–60% : verde (audio normal)
+         60–75%: transicao verde -> laranja (#f59e0b — mesmo amber dos
+                 outros avisos da UI, ex: low-disk + codec-limit)
+         75–95%: transicao laranja -> vermelho
+         95–100%: vermelho solido (clipping iminente) */
+    background: linear-gradient(to right,
+      var(--success) 0%,
+      var(--success) 60%,
+      #f59e0b 75%,
+      var(--danger-2) 95%,
+      var(--danger-2) 100%);
   }
   .source-meter-track[data-ch="l"] { top: 0; }
   .source-meter-track[data-ch="r"] { bottom: 0; }
   .source-meter-fill {
+    /* Apesar do nome "fill", este elemento e na verdade o COVER da
+       parte NAO-preenchida do meter. Cobre tudo por default e desliza
+       pra direita conforme o sinal sobe — left: 0% = sinal zero (cover
+       tudo); left: 100% = clipping (cover colapsado, gradient inteiro
+       visivel). updateAudioMeters() seta o left em pixels relativos. */
     position: absolute;
-    inset: 0 100% 0 0;
-    background: linear-gradient(to right,
-      var(--success) 0%, var(--success) 70%, #facc15 85%, var(--danger-2) 100%);
-    transition: right 90ms linear;
+    inset: 0;
+    background: var(--panel-3);
+    transition: left 90ms linear;
   }
   /* Mono: esconde a track R, expande L pra ocupar tudo. */
   .source-meter[data-channels="1"] .source-meter-track[data-ch="r"] { display: none; }
@@ -829,8 +847,10 @@
     top: 0; bottom: 0;
     height: auto;
   }
-  /* Source desativada: meter quase invisivel */
-  .source-item:not(.selected) .source-meter-fill { opacity: 0.25; }
+  /* Source desativada: meter quase invisivel. Dimma a TRACK (gradient)
+     em vez do fill (cover) — invertido por causa da troca de onde a
+     cor vive. */
+  .source-item:not(.selected) .source-meter-track { opacity: 0.25; }
   .source-thumb {
     width: 110px;
     height: 62px;
@@ -2656,7 +2676,6 @@
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </button>
-      <button class="player-close" onclick="Settings.close()" title="Fechar">×</button>
     </div>
     <div class="settings-body">
       <div class="settings-field">
@@ -2669,19 +2688,23 @@
       <div class="settings-field">
         <label>Codec de vídeo</label>
         <div class="settings-input-row">
-          <select class="settings-input" id="settingsCodec">
-            <option value="auto">Automático (recomendado)</option>
+          <select class="settings-input" id="settingsCodec"
+                  onchange="Settings.onCodecChange()">
+            <option value="auto">Automático</option>
+            <option value="h264-hw">H.264 — hardware (recomendado)</option>
+            <option value="h264-sw">H.264 — software (x264, CPU)</option>
             <option value="av1-hw">AV1 — hardware</option>
             <option value="hevc-hw">HEVC / H.265 — hardware</option>
-            <option value="h264-hw">H.264 — hardware</option>
-            <option value="h264-sw">H.264 — software (x264, CPU)</option>
           </select>
           <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
         </div>
+        <div class="settings-hint" id="settingsCodecMaxRes">
+          Resolução máxima do codec: 4096 × 4096
+        </div>
         <div class="settings-hint" id="settingsCodecHint">
           Automático escolhe a melhor opção disponível na ordem
-          AV1 hardware → HEVC hardware → H.264 hardware → H.264
-          software. Use uma escolha manual só se souber o que está
+          H.264 hardware → H.264 software → AV1 hardware → HEVC
+          hardware. Use uma escolha manual só se souber o que está
           fazendo.
         </div>
       </div>
@@ -3425,8 +3448,10 @@ function updateAudioMeters(items) {
     const vL = ampToBar(typeof it.left  === 'number' ? it.left  : it.level);
     const vR = ampToBar(typeof it.right === 'number' ? it.right : it.level);
 
-    if (fillL) fillL.style.right = ((1 - vL) * 100) + '%';
-    if (fillR) fillR.style.right = ((1 - vR) * 100) + '%';
+    // Cover desliza da esquerda (sinal zero = cobre tudo) pra direita
+    // (sinal 1.0 = cover colapsado, gradient inteiro visivel).
+    if (fillL) fillL.style.left = (vL * 100) + '%';
+    if (fillR) fillR.style.left = (vR * 100) + '%';
   });
 }
 
@@ -3651,6 +3676,10 @@ const Displays = {
     // do BuildRecordingScene/canvas). Layout side-by-side: largura =
     // soma das larguras, altura = max das alturas. Mostra "—" se nada
     // selecionado.
+    //
+    // Quando a resolucao agregada excede o limite do codec atual,
+    // injeta um icone de aviso (triangulo laranja) com tooltip via
+    // <title> explicando que o canvas vai ser reduzido.
     const meta = document.getElementById('monMeta');
     if (meta) {
       let w = 0, h = 0;
@@ -3666,7 +3695,16 @@ const Displays = {
         const ch = Number(c.height) || 0;
         if (ch > h) h = ch;
       });
-      meta.textContent = (w > 0 && h > 0) ? `${w}×${h}` : '';
+      if (w > 0 && h > 0) {
+        let html = `${w}×${h}`;
+        const codec = (Settings && Settings.currentCodec) || 'h264-hw';
+        const caps = (Settings && Settings.encoderCaps) || {};
+        const maxDim = codecMaxDim(codec, caps);
+        if (w > maxDim || h > maxDim) html += codecLimitWarningIcon(maxDim);
+        meta.innerHTML = html;
+      } else {
+        meta.textContent = '';
+      }
     }
   }
 };
@@ -4321,6 +4359,35 @@ const LOW_DISK_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" ' +
   'aria-label="Pouco espaço em disco"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
   '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
+// Mesma logica de OBSEncoder.GetEncoderMaxDimension (Delphi) e do
+// Settings._syncCodecMaxRes — extraida em helper top-level pra ser
+// reusada em mais de um lugar. Se mudar aqui, mudar nos outros.
+function codecMaxDim(codec, caps) {
+  caps = caps || {};
+  if (codec === 'h264-hw') return 4096;
+  if (codec === 'h264-sw' || codec === 'hevc-hw' || codec === 'av1-hw') return 8192;
+  // 'auto' ou desconhecido: chain prioriza h264-hw, entao limite = 4096
+  // quando h264-hw esta presente nas caps.
+  return caps.h264Hw ? 4096 : 8192;
+}
+
+// Triangulo de aviso (mesmo visual do LOW_DISK_ICON) com tooltip nativo
+// via <title> SVG. Mostrado ao lado da resolucao agregada das telas
+// selecionadas quando ela excede o limite do codec atual.
+function codecLimitWarningIcon(maxDim) {
+  const tip = 'Resolução combinada das telas excede o limite do codec ' +
+    '(' + maxDim + ' × ' + maxDim + '). A gravação será reduzida ' +
+    'proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra ' +
+    'gravar até 8192 × 8192.';
+  return '<svg width="13" height="13" viewBox="0 0 24 24" ' +
+    'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
+    'aria-label="Resolução acima do limite do codec">' +
+    '<title>' + escapeHtml(tip) + '</title>' +
+    '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+    '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+}
+
 function buildRecMetaHtml(fileCount, totalBytes, freeBytes) {
   const sep = '<span class="meta-sep">|</span>';
   let html = `${fileCount} ${fileCount === 1 ? 'arquivo' : 'arquivos'}`;
@@ -4711,9 +4778,29 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// Fecha as Configuracoes clicando no overlay (fora do modal) ou com Esc.
+// Match com o About (mesma UX). Guard contra Confirm/About em cima —
+// se algum modal "filho" esta aberto, ESC dele tem prioridade.
+document.getElementById('settingsOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'settingsOverlay') Settings.close();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const sov = document.getElementById('settingsOverlay');
+  if (!sov.classList.contains('visible')) return;
+  // Se um modal sobreposto (Confirm ou About) esta aberto, deixa ele
+  // tratar o ESC — os handlers desses ja fecham primeiro.
+  const cov = document.getElementById('confirmOverlay');
+  const aov = document.getElementById('aboutOverlay');
+  if ((cov && cov.classList.contains('visible')) ||
+      (aov && aov.classList.contains('visible'))) return;
+  e.preventDefault();
+  Settings.close();
+});
+
 const Settings = {
   currentRecDir: '',
-  currentCodec: 'auto',
+  currentCodec: 'h264-hw',
   currentHotkey: '',
   currentAutostart: false,
   currentCloseToTray: false,
@@ -4724,7 +4811,7 @@ const Settings = {
   currentRecordingQuality: 0,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
-    document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
+    document.getElementById('settingsCodec').value = this.currentCodec || 'h264-hw';
     this._loadHotkeyIntoUi(this.currentHotkey || '');
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
@@ -4737,6 +4824,7 @@ const Settings = {
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
+    this._syncCodecMaxRes();
     this._updateThemeButtons();
     document.getElementById('settingsOverlay').classList.add('visible');
     Bridge.send('get_settings');
@@ -4832,6 +4920,11 @@ const Settings = {
       this.currentScrollLockIndicator = scrollLockIndicator;
       this.currentHibernate = hibernate;
       this.currentRecordingQuality = recordingQuality;
+      // Atualiza o icone de aviso na barra lateral caso o codec novo
+      // tenha um limite diferente do anterior (ex.: h264-hw → av1-hw
+      // remove o warning de canvas grande).
+      if (typeof Displays !== 'undefined' && Displays._updateCount)
+        Displays._updateCount();
       this.close();
       Toast.show('Configurações salvas', '', { ttl: 2000 });
     } catch (err) {
@@ -4842,7 +4935,13 @@ const Settings = {
   },
   applySettings(data) {
     this.currentRecDir = data.recordDir || '';
-    this.currentCodec = data.codec || 'auto';
+    const prevCodec = this.currentCodec;
+    this.currentCodec = data.codec || 'h264-hw';
+    // Sincroniza o icone de aviso se o codec efetivo mudou no boot
+    // ou apos um get_settings com config diferente.
+    if (prevCodec !== this.currentCodec &&
+        typeof Displays !== 'undefined' && Displays._updateCount)
+      Displays._updateCount();
     this.currentHotkey = data.hotkey || '';
     this.currentAutostart = !!data.autostart;
     this.currentCloseToTray = !!data.closeToTray;
@@ -4882,6 +4981,7 @@ const Settings = {
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
+    this._syncCodecMaxRes();
   },
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
@@ -4902,6 +5002,30 @@ const Settings = {
   },
   onQualityChange() {
     this._syncQualityHint();
+  },
+  onCodecChange() {
+    this._syncCodecMaxRes();
+  },
+  // Espelha OBSEncoder.GetEncoderMaxDimension (Delphi) — qualquer
+  // mudanca de logica de limite tem que ser refletida aqui pra UI
+  // mostrar a mesma coisa que o backend vai aplicar.
+  //   h264-hw  → 4096 — universal em NVIDIA NVENC, AMD AMF, Intel QSV
+  //              (limite do encoder hw, nao do hardware em si)
+  //   h264-sw  → 8192 (x264 nao tem limite pratico)
+  //   hevc-hw  → 8192
+  //   av1-hw   → 8192
+  //   auto     → 4096 se caps tem h264-hw (vai bater nele primeiro
+  //              no fallback chain), senao 8192
+  _syncCodecMaxRes() {
+    const codec = document.getElementById('settingsCodec').value;
+    const el = document.getElementById('settingsCodecMaxRes');
+    if (!el) return;
+    const caps = this.encoderCaps || {};
+    let dim;
+    if (codec === 'h264-hw') dim = 4096;
+    else if (codec === 'h264-sw' || codec === 'hevc-hw' || codec === 'av1-hw') dim = 8192;
+    else /* auto */ dim = caps.h264Hw ? 4096 : 8192;
+    el.textContent = 'Resolução máxima do codec: ' + dim + ' × ' + dim;
   },
   _syncQualityHint() {
     const el = document.getElementById('settingsRecordingQuality');
@@ -4970,7 +5094,7 @@ const Settings = {
         // Defaults (espelhados do backend OBSConfig.GetConfigBool/Str
         // e do OBSBridge HandleSet*).
         document.getElementById('settingsRecDir').value = '';
-        document.getElementById('settingsCodec').value = 'auto';
+        document.getElementById('settingsCodec').value = 'h264-hw';
         this._loadHotkeyIntoUi('Pause');
         document.getElementById('settingsAutostart').checked = false;
         document.getElementById('settingsCloseToTray').checked = false;
@@ -4983,6 +5107,7 @@ const Settings = {
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
         this._syncQualityHint();
+        this._syncCodecMaxRes();
         Toast.show('Campos restaurados',
           'Clique Salvar pra aplicar as mudanças.', { ttl: 4000 });
       },
@@ -5065,6 +5190,13 @@ const Settings = {
   encoderCaps: null,
   applyEncoderCaps(caps) {
     this.encoderCaps = caps || {};
+    // Caps mudou — 'auto' pode passar de 4096 (com h264-hw) pra 8192
+    // (sem) ou vice-versa, entao re-sincroniza o texto de max res.
+    this._syncCodecMaxRes();
+    // O icone de aviso ao lado da resolucao agregada das telas
+    // depende de caps (pro modo 'auto'). Re-renderiza o meta.
+    if (typeof Displays !== 'undefined' && Displays._updateCount)
+      Displays._updateCount();
     const sel = document.getElementById('settingsCodec');
     if (!sel) return;
     // Habilita/desabilita cada opcao baseado nas caps detectadas.

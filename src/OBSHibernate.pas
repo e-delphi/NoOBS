@@ -1,4 +1,4 @@
-(*
+﻿(*
   OBSHibernate - modo "hibernação" do NoOBS.
 
   Esse e um modo de execucao alternativo do exe. Em vez do app full
@@ -62,6 +62,22 @@ const
   HK_RECORD_TOGGLE      = 100;
   HK_RECORD_TOGGLE_ALT  = 101;
 
+type
+  // Tipos pras 3 APIs nao-documentadas da uxtheme.dll (ordinais 133/135/136)
+  // usadas pra forcar dark/light no menu popup, mesma estrategia do OBSUI.
+  TSetPreferredAppMode    = function(AppMode: Integer): Integer; stdcall;
+  TAllowDarkModeForWindow = function(Wnd: HWND; Allow: BOOL): BOOL; stdcall;
+  TFlushMenuThemes        = procedure; stdcall;
+
+const
+  // PreferredAppMode enum (uxtheme.dll ordinal 135):
+  //   0 = DEFAULT     — segue sistema
+  //   1 = ALLOWDARK   — permite dark, por janela
+  //   2 = FORCEDARK   — forca dark em tudo
+  //   3 = FORCELIGHT  — forca light em tudo
+  PAM_FORCE_DARK  = 2;
+  PAM_FORCE_LIGHT = 3;
+
 var
   MainWindow: HWND = 0;
   TrayIcon: TNotifyIconData;
@@ -70,6 +86,67 @@ var
   SingleInstanceMutex: THandle = 0;
   RecordHotkeyRegistered: Boolean = False;
   RecordHotkeyAltRegistered: Boolean = False;
+  SetPreferredAppMode:    TSetPreferredAppMode    = nil;
+  AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
+  FlushMenuThemes:        TFlushMenuThemes        = nil;
+
+// Le o tema preferido do app (do config) e resolve 'system' via registry
+// do Windows. Retorna 'dark' ou 'light'. Duplicado da logica equivalente
+// em OBSBridge.DetectSystemTheme + PushTheme — hibernate nao pode
+// depender de OBSBridge (que carrega libobs/FFmpeg/etc.).
+function ResolveAppTheme: string;
+const
+  REG_KEY = 'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize';
+  REG_VAL = 'AppsUseLightTheme';
+var
+  Cfg: string;
+  Key: HKEY;
+  DataType, DataSize, Value: DWORD;
+begin
+  Cfg := LowerCase(GetConfigStr('theme', 'system'));
+  if Cfg = 'dark' then Exit('dark');
+  if Cfg = 'light' then Exit('light');
+
+  // 'system' (ou valor invalido): consulta a preferencia do SO.
+  Result := 'light';
+  if RegOpenKeyExW(HKEY_CURRENT_USER, REG_KEY, 0, KEY_QUERY_VALUE, Key)
+     <> ERROR_SUCCESS then Exit;
+  try
+    DataSize := SizeOf(Value);
+    if (RegQueryValueExW(Key, REG_VAL, nil, @DataType, @Value, @DataSize)
+        = ERROR_SUCCESS) and (DataType = REG_DWORD) then
+    begin
+      if Value = 0 then Result := 'dark';
+    end;
+  finally
+    RegCloseKey(Key);
+  end;
+end;
+
+// Carrega ordinais privados da uxtheme.dll e seta o modo (FORCEDARK ou
+// FORCELIGHT) baseado no tema do app. Mesmo truque do OBSUI — afeta
+// menus do sistema (TrackPopupMenu inclusive) sem precisar fazer
+// owner-draw manual.
+procedure InitMenuTheme;
+var
+  UxTheme: HMODULE;
+  Theme: string;
+begin
+  UxTheme := LoadLibrary('uxtheme.dll');
+  if UxTheme = 0 then Exit;
+  @SetPreferredAppMode    := GetProcAddress(UxTheme, MAKEINTRESOURCE(135));
+  @AllowDarkModeForWindow := GetProcAddress(UxTheme, MAKEINTRESOURCE(133));
+  @FlushMenuThemes        := GetProcAddress(UxTheme, MAKEINTRESOURCE(136));
+
+  Theme := ResolveAppTheme;
+  Log('Hibernate: aplicando tema "%s" no menu do tray.', [Theme]);
+  if Assigned(SetPreferredAppMode) then
+  begin
+    if Theme = 'dark' then SetPreferredAppMode(PAM_FORCE_DARK)
+    else                   SetPreferredAppMode(PAM_FORCE_LIGHT);
+  end;
+  if Assigned(FlushMenuThemes) then FlushMenuThemes;
+end;
 
 function GetExePath: string;
 var
@@ -300,6 +377,10 @@ begin
   end;
   Log('Hibernate: mutex "%s" adquirido.', [MUTEX_NAME]);
 
+  // Aplica tema do app (light/dark) no menu popup — precisa ser ANTES
+  // do CreateWindow pra que a janela ja herde o modo certo.
+  InitMenuTheme;
+
   // Janela invisivel pra hospedar tray + hotkey. WS_POPUP sem
   // WS_VISIBLE = janela existe mas nao aparece. WS_EX_TOOLWINDOW pra
   // garantir que nao apareca em Alt+Tab caso algo a torne visivel
@@ -325,6 +406,11 @@ begin
     Exit;
   end;
   Log('Hibernate: janela criada (HWND=%d).', [MainWindow]);
+
+  // Permite dark mode nesta janela especifica (alem do PreferredAppMode
+  // global). Necessario pra que o TrackPopupMenu sirva do dark theme.
+  if Assigned(AllowDarkModeForWindow) then
+    AllowDarkModeForWindow(MainWindow, True);
 
   InstallTrayIcon;
   RegisterRecordHotkey;

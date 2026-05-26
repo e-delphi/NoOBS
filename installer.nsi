@@ -1,4 +1,4 @@
-!include "MUI2.nsh"
+﻿!include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
 
@@ -12,22 +12,32 @@ InstallDirRegKey HKCU "Software\NoOBS" "InstallDir"
 RequestExecutionLevel user
 Unicode True
 
+; Compactacao LZMA solid — instalador final menor (~40-50% comparado
+; ao default zlib). /SOLID compacta todos os arquivos como um bloco
+; unico, melhorando a razao de compressao em troca de descompactacao
+; sequencial (irrelevante porque o instalador extrai tudo no install).
+SetCompressor /SOLID lzma
+
 !define MUI_ICON "icon.ico"
 !define MUI_UNICON "icon.ico"
 !define MUI_ABORTWARNING
 
 ;--------------------------------
-; Paginas do instalador
+; Paginas do instalador — minimo essencial: Directory pra escolher
+; pasta, Components pros opcionais (autostart / atalho), InstFiles
+; com log. Welcome/Finish/License removidas. App abre automaticamente
+; apos o install (ver .onInstSuccess) e o installer fecha sozinho
+; (SetAutoClose true dentro da SecMain).
+;
+; Sobre a licenca: GPL v3 nao exige que o user "aceite" durante o
+; install — so exige que a licenca acompanhe a distribuicao. O arquivo
+; LICENSE eh empacotado dentro do exe da NSIS (referenciado pelo
+; tema/branding) e tambem pode ser visto no repo do GitHub e em
+; "Sobre" dentro do app.
 ;--------------------------------
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
-
-!define MUI_FINISHPAGE_RUN "$INSTDIR\bin\64bit\NoOBS.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Abrir NoOBS"
-!insertmacro MUI_PAGE_FINISH
 
 ;--------------------------------
 ; Paginas do desinstalador
@@ -41,7 +51,7 @@ Unicode True
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
 ;--------------------------------
-; Verificacao de 64-bit
+; Verificacao de 64-bit + close + force kill se ja estiver rodando
 ;--------------------------------
 Function .onInit
     ${IfNot} ${RunningX64}
@@ -49,13 +59,41 @@ Function .onInit
         Abort
     ${EndIf}
 
-    ; Fecha o NoOBS se estiver rodando
+    ; Checa se ha alguma instancia rodando (modo full OU hibernate — os
+    ; dois usam o titulo "NoOBS"). FindWindow acha tambem janelas
+    ; invisiveis/WS_POPUP, entao pega o hibernate tambem.
     FindWindow $0 "" "NoOBS"
     ${If} $0 != 0
-        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "NoOBS esta em execucao. Clique OK para fechar e continuar." IDOK close IDCANCEL abort
+        MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "NoOBS está em execução. Clique OK para fechar e continuar com a instalação." IDOK close IDCANCEL abort
         close:
-            SendMessage $0 ${WM_CLOSE} 0 0
-            Sleep 1000
+            ; Fase 1 — graceful: WM_CLOSE em loop pra cada janela "NoOBS"
+            ; encontrada. Respeita o shutdown limpo (Engine.Teardown,
+            ; libobs, FFmpeg, watchers). Itera ate 5 vezes pra cobrir
+            ; multiplas janelas (raro, mas defensivo).
+            ;
+            ; Cuidado: com closeToTray=ON, WM_CLOSE manda pra bandeja em
+            ; vez de fechar — por isso a Fase 2 sempre roda em seguida.
+            StrCpy $1 0
+            loop_close:
+                FindWindow $0 "" "NoOBS"
+                ${If} $0 == 0
+                    Goto force_kill
+                ${EndIf}
+                SendMessage $0 ${WM_CLOSE} 0 0
+                Sleep 400
+                IntOp $1 $1 + 1
+                ${If} $1 < 5
+                    Goto loop_close
+                ${EndIf}
+            force_kill:
+                ; Fase 2 — hard kill: taskkill /F /IM /T captura qualquer
+                ; processo NoOBS.exe que sobrou (hibernate em mid-task,
+                ; instancia minimizada pra bandeja por WM_CLOSE, ou
+                ; processo "ghost" segurando arquivos). /T mata filhos
+                ; tambem. Nao falha se nao houver processo (so loga).
+                nsExec::ExecToLog 'taskkill /F /IM NoOBS.exe /T'
+                Pop $0
+                Sleep 500
             Goto done
         abort:
             Abort
@@ -64,10 +102,28 @@ Function .onInit
 FunctionEnd
 
 ;--------------------------------
+; .onInstSuccess — chamada pelo NSIS automaticamente quando o install
+; termina sem erro. Lanca o NoOBS direto e o installer fecha sozinho
+; (SetAutoClose true), sem precisar de tela final.
+;--------------------------------
+Function .onInstSuccess
+    ; Exec (fire-and-forget) em vez de ExecShell pra nao abrir cmd ou
+    ; passar pelo shell. Garante working dir certa pro app encontrar
+    ; obs.dll + plugins.
+    SetOutPath "$INSTDIR\bin\64bit"
+    Exec '"$INSTDIR\bin\64bit\NoOBS.exe"'
+FunctionEnd
+
+;--------------------------------
 ; Instalacao
 ;--------------------------------
 Section "NoOBS" SecMain
     SectionIn RO
+
+    ; Fecha a janela do installer automaticamente quando o install
+    ; termina — combinado com .onInstSuccess (que abre o NoOBS), o
+    ; user nao precisa clicar Concluir nem ver tela final.
+    SetAutoClose true
 
     SetOutPath "$INSTDIR\bin\64bit"
     File /r "exe\bin\64bit\*.*"
@@ -133,12 +189,25 @@ LangString DESC_SecDesktopShortcut  ${LANG_PORTUGUESEBR} "Cria um atalho do NoOB
 ; Desinstalacao
 ;--------------------------------
 Function un.onInit
-    ; Fecha o NoOBS se estiver rodando
-    FindWindow $0 "" "NoOBS"
-    ${If} $0 != 0
+    ; Mesma estrategia do .onInit (graceful WM_CLOSE em loop + taskkill
+    ; defensivo) — mas silenciosa, sem MessageBox. Desinstalar implica
+    ; que o user quer fechar tudo de qualquer jeito.
+    StrCpy $1 0
+    un_loop_close:
+        FindWindow $0 "" "NoOBS"
+        ${If} $0 == 0
+            Goto un_force_kill
+        ${EndIf}
         SendMessage $0 ${WM_CLOSE} 0 0
-        Sleep 1000
-    ${EndIf}
+        Sleep 400
+        IntOp $1 $1 + 1
+        ${If} $1 < 5
+            Goto un_loop_close
+        ${EndIf}
+    un_force_kill:
+        nsExec::ExecToLog 'taskkill /F /IM NoOBS.exe /T'
+        Pop $0
+        Sleep 500
 FunctionEnd
 
 Section "Uninstall"

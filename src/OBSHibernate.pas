@@ -119,7 +119,7 @@ procedure RegisterRecordHotkey;
 // Le 'hotkey' do config.json e registra. Mesma logica do
 // OBSBridge.ApplyHotkeyFromConfig, mas standalone (sem deps de Bridge).
 const
-  DEFAULT_HOTKEY = 'Pause';
+  DEFAULT_HOTKEY = 'Pause/Break';
 var
   Spec: string;
   HK: THotkeySpec;

@@ -71,7 +71,11 @@ begin
     VK_UP:       Result := 'Up';
     VK_DOWN:     Result := 'Down';
     VK_BACK:     Result := 'Backspace';
-    VK_PAUSE:    Result := 'Pause';
+    // Label "Pause/Break" reflete o que esta impresso no teclado fisico
+    // — `Pause/Break` (US) ou `Pause | Break`. ParseHotkey aceita ambos
+    // os literais "Pause" e "Pause/Break" pra compatibilidade com config
+    // antigo.
+    VK_PAUSE:    Result := 'Pause/Break';
     VK_NUMPAD0..VK_NUMPAD9:
       Result := 'Numpad' + IntToStr(AVk - VK_NUMPAD0);
     VK_ADD:      Result := 'NumpadAdd';
@@ -145,8 +149,9 @@ begin
   else if S = 'UP'       then Result := VK_UP
   else if S = 'DOWN'     then Result := VK_DOWN
   else if S = 'BACKSPACE' then Result := VK_BACK
-  else if S = 'PAUSE'    then Result := VK_PAUSE
-  else if S = 'BREAK'    then Result := VK_PAUSE
+  else if S = 'PAUSE'      then Result := VK_PAUSE
+  else if S = 'BREAK'      then Result := VK_PAUSE
+  else if S = 'PAUSE/BREAK' then Result := VK_PAUSE
   else if S = 'NUMPADADD' then Result := VK_ADD
   else if S = 'NUMPADSUBTRACT' then Result := VK_SUBTRACT
   else if S = 'NUMPADMULTIPLY' then Result := VK_MULTIPLY

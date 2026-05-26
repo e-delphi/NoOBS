@@ -2690,8 +2690,8 @@
         <div class="settings-input-row">
           <select class="settings-input" id="settingsCodec"
                   onchange="Settings.onCodecChange()">
-            <option value="auto">Automático</option>
-            <option value="h264-hw">H.264 — hardware (recomendado)</option>
+            <option value="auto">Automático (recomendado)</option>
+            <option value="h264-hw">H.264 — hardware</option>
             <option value="h264-sw">H.264 — software (x264, CPU)</option>
             <option value="av1-hw">AV1 — hardware</option>
             <option value="hevc-hw">HEVC / H.265 — hardware</option>
@@ -3697,7 +3697,7 @@ const Displays = {
       });
       if (w > 0 && h > 0) {
         let html = `${w}×${h}`;
-        const codec = (Settings && Settings.currentCodec) || 'h264-hw';
+        const codec = (Settings && Settings.currentCodec) || 'auto';
         const caps = (Settings && Settings.encoderCaps) || {};
         const maxDim = codecMaxDim(codec, caps);
         if (w > maxDim || h > maxDim) html += codecLimitWarningIcon(maxDim);
@@ -4708,7 +4708,7 @@ const HOTKEY_KEY_GROUPS = [
   { label: 'Números', keys: '0123456789'.split('') },
   { label: 'Especiais', keys: [
       'Space','Enter','Tab','Esc','Insert','Delete','Home','End',
-      'PageUp','PageDown','Backspace','Pause']
+      'PageUp','PageDown','Backspace','Pause/Break']
   },
   { label: 'Setas', keys: ['Left','Right','Up','Down'] },
   { label: 'Numpad', keys: [
@@ -4800,7 +4800,7 @@ document.addEventListener('keydown', (e) => {
 
 const Settings = {
   currentRecDir: '',
-  currentCodec: 'h264-hw',
+  currentCodec: 'auto',
   currentHotkey: '',
   currentAutostart: false,
   currentCloseToTray: false,
@@ -4811,7 +4811,7 @@ const Settings = {
   currentRecordingQuality: 0,
   open() {
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
-    document.getElementById('settingsCodec').value = this.currentCodec || 'h264-hw';
+    document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
     this._loadHotkeyIntoUi(this.currentHotkey || '');
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
@@ -4936,7 +4936,7 @@ const Settings = {
   applySettings(data) {
     this.currentRecDir = data.recordDir || '';
     const prevCodec = this.currentCodec;
-    this.currentCodec = data.codec || 'h264-hw';
+    this.currentCodec = data.codec || 'auto';
     // Sincroniza o icone de aviso se o codec efetivo mudou no boot
     // ou apos um get_settings com config diferente.
     if (prevCodec !== this.currentCodec &&
@@ -5094,8 +5094,8 @@ const Settings = {
         // Defaults (espelhados do backend OBSConfig.GetConfigBool/Str
         // e do OBSBridge HandleSet*).
         document.getElementById('settingsRecDir').value = '';
-        document.getElementById('settingsCodec').value = 'h264-hw';
-        this._loadHotkeyIntoUi('Pause');
+        document.getElementById('settingsCodec').value = 'auto';
+        this._loadHotkeyIntoUi('Pause/Break');
         document.getElementById('settingsAutostart').checked = false;
         document.getElementById('settingsCloseToTray').checked = false;
         document.getElementById('settingsMinimizeOnRecord').checked = false;

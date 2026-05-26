@@ -254,10 +254,11 @@ var
   Pref: string;
 begin
   // Le preferencia do usuario. Valores: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
-  // Default h264-hw: H.264 e o codec mais compatible com players e
-  // editores; quando o hardware nao suporta, o fallback chain (logo
-  // abaixo) cai em H.264 software (x264) que sempre funciona.
-  Pref := LowerCase(GetConfigStr('codec', 'h264-hw'));
+  // Default 'auto': deixa o app decidir o melhor codec via fallback
+  // chain (H.264 hw -> H.264 sw -> AV1 hw -> HEVC hw). Compatibilidade
+  // primeiro, com fallback automatico pra software quando o hw nao
+  // suporta.
+  Pref := LowerCase(GetConfigStr('codec', 'auto'));
   Log('Codec preferido: %s', [Pref]);
 
   if Pref = 'av1-hw' then
@@ -315,7 +316,7 @@ var
   Pref: string;
   Caps: TEncoderCaps;
 begin
-  Pref := LowerCase(GetConfigStr('codec', 'h264-hw'));
+  Pref := LowerCase(GetConfigStr('codec', 'auto'));
 
   if Pref = 'h264-hw' then Exit(MAX_H264_HW);
   if (Pref = 'h264-sw') or (Pref = 'hevc-hw') or (Pref = 'av1-hw') then

@@ -190,13 +190,19 @@ App exit (Shutdown):
 
 ## Pegadinhas conhecidas (já encontramos, não repita)
 
-### 1. UTF-8 BOM em `.pas`
+### 1. UTF-8 BOM em `.pas` (e `.nsi`)
 
 Delphi parsea `.pas` como cp1252 quando não há BOM. Acentos viram
 mojibake e comentários com `é`/`ç`/`—` quebram blocos `{ }`.
 
-**Sempre** salvar fontes Delphi com **UTF-8 BOM**. Se o Write tool não
-adiciona, rode:
+**Mesma pegadinha vale pro `installer.nsi`**: NSIS 3 com `Unicode True`
+gera EXE UTF-16, mas só ativa o parser UTF-8 do script se o `.nsi`
+tem BOM UTF-8. Sem BOM, lê o arquivo como cp1252 → mensagens com
+acento aparecem corrompidas no MessageBox do instalador (`está` vira
+`estÃ¡`).
+
+**Sempre** salvar fontes Delphi e o `installer.nsi` com **UTF-8 BOM**.
+Se o Write tool não adiciona, rode:
 
 ```ps
 $path = 'C:\...\Foo.pas'

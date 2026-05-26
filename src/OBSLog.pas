@@ -213,15 +213,54 @@ function AddVectoredExceptionHandler(First: ULONG; Handler: Pointer): Pointer;
 function SetUnhandledExceptionFilter(lpTopLevelExceptionFilter: Pointer): Pointer;
   stdcall; external 'kernel32.dll';
 
+// GetModuleHandleExW nao esta declarado em todas as versoes do
+// Winapi.Windows.pas — declaramos manualmente. Usado pra resolver
+// endereco de excecao -> modulo (DLL/EXE) sem incrementar refcount.
+function GetModuleHandleExW(dwFlags: DWORD; lpModuleName: PWideChar;
+  out phModule: HMODULE): BOOL; stdcall; external 'kernel32.dll';
+
 // Handler de ULTIMA chance — chamado pelo Windows logo antes de matar
 // o processo, depois que TODOS os outros handlers (Delphi RTL, SEH,
 // VectoredExceptionHandler) ja passaram. Aqui logamos a excecao fatal
 // pra ter o ultimo rastro antes do "processo sumiu sem aviso".
+// Resolve qual modulo (.dll / .exe) contem o endereco — usado pra dar
+// pista do que crashou (ex.: obs.dll, avcodec-61.dll, WebView2 etc.)
+// sem precisar de symbols. Retorna "modname.dll+0xNNNN" ou string vazia.
+function ResolveAddressToModule(Addr: Pointer): string;
+const
+  GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = $00000004;
+  GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT = $00000002;
+var
+  HMod: HMODULE;
+  Buf: array[0..MAX_PATH - 1] of WideChar;
+  Offset: NativeUInt;
+  Path: string;
+begin
+  Result := '';
+  HMod := 0;
+  // Pega o HMODULE do modulo que contem esse endereco. Com a flag
+  // FROM_ADDRESS, o ponteiro e tratado como endereco dentro do modulo
+  // (nao como nome) — cast pra PWideChar e' so pra casar o tipo da
+  // assinatura, o valor nao e interpretado como string.
+  if not GetModuleHandleExW(
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS or
+    GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    PWideChar(Addr), HMod) then Exit;
+  if HMod = 0 then Exit;
+  if GetModuleFileNameW(HMod, @Buf[0], MAX_PATH) = 0 then Exit;
+  Path := Buf;
+  // So o nome do arquivo (sem path) — mais legivel no log.
+  Path := ExtractFileName(Path);
+  Offset := NativeUInt(Addr) - NativeUInt(HMod);
+  Result := Format('%s+0x%x', [Path, Offset]);
+end;
+
 function UnhandledExceptionFilter_NoOBS(ExceptionInfo: PExceptionPointers): LONG; stdcall;
 const
   EXCEPTION_EXECUTE_HANDLER = 1;
 var
   Rec: PExceptionRecord;
+  ModInfo: string;
 begin
   // EXECUTE_HANDLER = "permite o processo morrer com codigo dessa
   // excecao". Mesmo se voltassemos CONTINUE_SEARCH, nao tem mais
@@ -234,6 +273,14 @@ begin
     Log('===== FATAL UNHANDLED EXCEPTION =====');
     Log('FATAL: code=$%.8x addr=$%p — processo sera terminado pelo Windows.',
       [Rec.ExceptionCode, Rec.ExceptionAddress]);
+    // Resolve endereco -> modulo+offset (sem symbols). Isso da pista
+    // de em qual DLL/EXE a excecao aconteceu — obs.dll, avcodec-61.dll,
+    // user32.dll, etc.
+    try
+      ModInfo := ResolveAddressToModule(Rec.ExceptionAddress);
+      if ModInfo <> '' then
+        Log('FATAL: module=%s', [ModInfo]);
+    except end;
     Log('FATAL: TID=%d', [GetCurrentThreadId]);
     // Forca flush — FlushFileBuffers ja roda dentro de WriteLineRaw,
     // mas garantido aqui antes do processo morrer.

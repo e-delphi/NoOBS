@@ -42,6 +42,7 @@ uses
   System.Types,
   System.JSON,
   System.Generics.Collections,
+  System.Generics.Defaults,
   System.IOUtils,
   System.Classes,
   System.NetEncoding,
@@ -939,6 +940,23 @@ begin
       try CleanupLegacyCache; except end;
       // GC primeiro pra liberar espaco antes de gerar caches novos.
       try GarbageCollectCache(LivePaths); except end;
+
+      // Ordena por mtime DESC: gera thumbnails dos mais recentes
+      // primeiro, que sao os que o user mais provavelmente vai
+      // querer abrir/ver. Sem isso, o cache antigo eh processado
+      // primeiro e os videos novos (sem thumb) ficam por ultimo.
+      TArray.Sort<string>(Files, TComparer<string>.Construct(
+        function(const A, B: string): Integer
+        var DA, DB: TDateTime;
+        begin
+          DA := 0; DB := 0;
+          try DA := TFile.GetLastWriteTime(A); except end;
+          try DB := TFile.GetLastWriteTime(B); except end;
+          if      DA > DB then Result := -1
+          else if DA < DB then Result :=  1
+          else                 Result :=  0;
+        end));
+
       for j := 0 to High(Files) do
       begin
         if IsShuttingDown then Exit;
@@ -1801,7 +1819,7 @@ procedure ApplyHotkeyFromConfig;
 // PAUSE/BREAK — improvavel de conflitar com outros apps).
 // Config string vazia ('') = nenhum atalho global.
 const
-  DEFAULT_HOTKEY = 'Pause';
+  DEFAULT_HOTKEY = 'Pause/Break';
 var
   Spec: string;
   HK: THotkeySpec;
@@ -2725,8 +2743,8 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'settings');
   Obj.AddPair('recordDir', RecordDir);
-  Obj.AddPair('codec', GetConfigStr('codec', 'h264-hw'));
-  Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause'));
+  Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
+  Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause/Break'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
   Obj.AddPair('closeToTray',
     TJSONBool.Create(GetConfigBool('closeToTray', False)));

@@ -206,11 +206,16 @@ var
   // durante init = rendering preto/quebrado. Esses vars guardam a
   // posicao pretendida e marcam:
   //   - PendingHideAfterWebViewReady: SW_HIDE quando WebView2 termina init
+  //     (caso "modo bandeja" — janela some, so o tray icon fica)
+  //   - PendingMinimizeAfterWebViewReady: SW_SHOWMINNOACTIVE quando
+  //     WebView2 termina init (caso "minimizado" — sem tray, janela
+  //     vai pra taskbar como icone minimizado)
   //   - PendingRestorePosition: reposiciona + remove WS_EX_TOOLWINDOW na
   //     primeira abertura via tray
   PendingRestoreBounds: TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
-  PendingRestorePosition:       Boolean = False;
-  PendingHideAfterWebViewReady: Boolean = False;
+  PendingRestorePosition:           Boolean = False;
+  PendingHideAfterWebViewReady:     Boolean = False;
+  PendingMinimizeAfterWebViewReady: Boolean = False;
 
   // True se este processo foi spawnado por OBSHibernate.Run com o flag
   // /start-record (o user apertou a hotkey de gravacao enquanto no
@@ -544,14 +549,34 @@ begin
 
   StartNavigate;
 
-  // Se o app subiu via /tray, a janela esta visivel off-screen com
+  // Se o app subiu via autostart, a janela esta visivel off-screen com
   // WS_EX_TOOLWINDOW (truque pra WebView2 inicializar com parent visivel).
-  // Agora que o WebView2 esta pronto, escondemos a janela — o icone na
-  // bandeja ja foi instalado.
+  // Agora que o WebView2 esta pronto, finaliza pra um dos dois estados:
+  //   - HideAfterWebViewReady: some completamente (tray-only mode)
+  //   - MinimizeAfterWebViewReady: vai pra taskbar como minimizado
+  //     (restaura position + remove WS_EX_TOOLWINDOW antes pra aparecer
+  //     na taskbar normal).
   if PendingHideAfterWebViewReady then
   begin
     PendingHideAfterWebViewReady := False;
     ShowWindow(MainWindow, SW_HIDE);
+  end
+  else if PendingMinimizeAfterWebViewReady then
+  begin
+    PendingMinimizeAfterWebViewReady := False;
+    // Remove tool window style (aparece na taskbar/Alt+Tab) +
+    // restaura position normal pra quando o user clicar no botao
+    // minimizado da taskbar.
+    SetWindowLongPtr(MainWindow, GWL_EXSTYLE,
+      GetWindowLongPtr(MainWindow, GWL_EXSTYLE) and not NativeInt(WS_EX_TOOLWINDOW));
+    SetWindowPos(MainWindow, 0,
+      PendingRestoreBounds.Left, PendingRestoreBounds.Top,
+      PendingRestoreBounds.Right  - PendingRestoreBounds.Left,
+      PendingRestoreBounds.Bottom - PendingRestoreBounds.Top,
+      SWP_NOZORDER or SWP_NOACTIVATE or SWP_FRAMECHANGED or SWP_HIDEWINDOW);
+    PendingRestorePosition := False;
+    // SW_SHOWMINNOACTIVE = visivel mas minimizado, sem roubar foco.
+    ShowWindow(MainWindow, SW_SHOWMINNOACTIVE);
   end;
 
   // Reduz working set apos warmup do WebView.
@@ -1136,6 +1161,7 @@ var
   WorkArea: TRect;
   WinX, WinY, WinW, WinH: Integer;
   StartInTray: Boolean;
+  StartMinimized: Boolean;
   CmdLine: string;
   IsAutostartLaunch: Boolean;
 begin
@@ -1153,8 +1179,8 @@ begin
   // /autostart + closeToTray + hibernate=ON: respawna em modo hibernate.
   // Mais leve que carregar tudo aqui e esconder na bandeja — libobs,
   // WebView2, FFmpeg, watchers ficam sem inicializar enquanto o user
-  // nao interagir. Se 'hibernate' esta OFF no config, sobe full mode
-  // direto e fica em segundo plano consumindo RAM normalmente.
+  // nao interagir. Se 'hibernate' esta OFF no config, cai no caso
+  // abaixo: inicia full mas com janela escondida na bandeja.
   if IsAutostartLaunch and
      GetConfigBool('closeToTray', False) and
      GetConfigBool('hibernate', False) then
@@ -1164,8 +1190,24 @@ begin
     Log('OBSUI.Run: OBSHibernate.Run retornou — saindo.');
     Exit;
   end;
-  // Outros casos de /autostart: cai no fluxo normal (janela visivel).
-  StartInTray := False;
+
+  // Comportamento esperado de /autostart em TODOS os casos:
+  //   closeToTray=ON  + hibernate=ON  → modo hibernate (tratado acima)
+  //   closeToTray=ON  + hibernate=OFF → full mode, escondido na bandeja
+  //   closeToTray=OFF + hibernate=*   → full mode, minimizado na taskbar
+  //                                     (hibernate=ON sem tray e config
+  //                                     invalido — UI gateia — entao
+  //                                     tratamos igual ao OFF/OFF.)
+  //
+  // Nenhum caso de autostart deve fazer a janela "pular" no logon.
+  StartInTray    := IsAutostartLaunch and
+                    GetConfigBool('closeToTray', False);
+  StartMinimized := IsAutostartLaunch and
+                    not GetConfigBool('closeToTray', False);
+  if StartInTray then
+    Log('OBSUI.Run: /autostart + closeToTray=ON — iniciando em modo bandeja.')
+  else if StartMinimized then
+    Log('OBSUI.Run: /autostart + closeToTray=OFF — iniciando minimizado.');
 
   // /start-record: hibernate spawnou esse processo porque o user
   // apertou a hotkey de gravacao. Marca pra OBSBridge consultar em
@@ -1246,26 +1288,40 @@ begin
   // Liga o handler de comandos do tray (Abrir / Fechar).
   OBSTray.OnTrayCommand := OnTrayCommandHandler;
 
-  // /start-record: user apertou hotkey enquanto na hibernacao.
-  // App sobe pra gravar sem mostrar UI. Reusamos o caminho "off-screen
-  // pra WebView2 init + SW_HIDE depois" — mesma logica do antigo
-  // StartInTray (que nao e mais ativado por /autostart).
-  if StartInTray or FStartRecordRequested then
+  // Casos onde a UI sobe SEM mostrar janela:
+  //   StartInTray          — /autostart + closeToTray=ON (user logou no
+  //                          Windows e configurou app pra bandeja).
+  //   FStartRecordRequested — hibernate spawnou esse processo via hotkey
+  //                          de gravar; sobe pra gravar sem mostrar UI.
+  //
+  // Truque do off-screen: WebView2 nao inicializa corretamente quando o
+  // parent HWND nunca foi mostrado — render fica preto/quebrado. Por
+  // isso mostramos a janela off-screen (-32000,-32000), com
+  // WS_EX_TOOLWINDOW pra nao aparecer na taskbar/Alt+Tab, e damos
+  // SW_HIDE depois que o WebView2 termina init.
+  if StartInTray or StartMinimized or FStartRecordRequested then
   begin
     // WebView2 nao inicializa corretamente quando o parent HWND nunca
     // foi mostrado durante o setup — rendering fica preto/quebrado.
-    // Workaround:
+    // Workaround comum aos tres casos (tray / minimized / start-record):
     //  1) Adiciona WS_EX_TOOLWINDOW (some da taskbar/Alt+Tab durante init).
     //  2) Posiciona off-screen.
     //  3) SW_SHOWNOACTIVATE — WebView2 ve o parent visivel e inicializa OK.
-    //  4) Apos a inicializacao do WebView2 terminar (TControllerHandler),
-    //     daremos SW_HIDE — sinalizado por PendingHideAfterWebViewReady.
+    //  4) Apos init terminar (TControllerHandler) — divergem aqui:
+    //     • StartInTray / FStartRecordRequested → SW_HIDE
+    //       (PendingHideAfterWebViewReady)
+    //     • StartMinimized                       → SW_SHOWMINNOACTIVE
+    //       (PendingMinimizeAfterWebViewReady) restaurando position +
+    //       removendo WS_EX_TOOLWINDOW antes pra aparecer na taskbar.
     //  5) Na 1a abertura via tray, OnTrayCommandHandler remove o
     //     WS_EX_TOOLWINDOW e reposiciona a janela no centro.
     WasMaximized := True; // por convencao restaura maximizado depois
     PendingRestoreBounds := Rect(WinX, WinY, WinX + WinW, WinY + WinH);
     PendingRestorePosition := True;
-    PendingHideAfterWebViewReady := True;
+    if StartMinimized then
+      PendingMinimizeAfterWebViewReady := True
+    else
+      PendingHideAfterWebViewReady := True;
 
     SetWindowLongPtr(Wnd, GWL_EXSTYLE,
       GetWindowLongPtr(Wnd, GWL_EXSTYLE) or WS_EX_TOOLWINDOW);
@@ -1274,7 +1330,11 @@ begin
     ShowWindow(Wnd, SW_SHOWNOACTIVATE);
     UpdateWindow(Wnd);
 
-    OBSTray.InstallTrayIcon(Wnd, WINDOW_TITLE);
+    // Tray icon so faz sentido se closeToTray=ON ou start-record. Pro
+    // StartMinimized (closeToTray=OFF) o app fica acessivel via taskbar
+    // sem precisar do icone de bandeja.
+    if StartInTray or FStartRecordRequested then
+      OBSTray.InstallTrayIcon(Wnd, WINDOW_TITLE);
   end
   else
   begin

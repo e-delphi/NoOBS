@@ -2564,6 +2564,40 @@
     margin-bottom: 2px;
   }
 
+  /* ===== Hint (tooltip custom) =====
+     Elemento unico no body, ativado por delegacao quando o user passa
+     o mouse sobre algo com [data-hint]. Estilizado pra casar com o
+     resto da UI (dark/light) — substitui o tooltip nativo do browser
+     que tem aparencia inconsistente e demora ~1s pra aparecer. */
+  .hint {
+    position: fixed;
+    z-index: 9900;
+    background: var(--panel-3);
+    color: var(--text-1);
+    padding: 7px 11px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    max-width: 320px;
+    white-space: normal;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.40);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+  .hint.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  [data-theme="light"] .hint {
+    background: #fff;
+    color: #1f2937;
+    border-color: rgba(0,0,0,0.10);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+  }
+
   /* ===== Toast notifications ===== */
   .toast-stack {
     position: fixed;
@@ -2621,6 +2655,9 @@
 
 <!-- ===== Toast stack ===== -->
 <div class="toast-stack" id="toastStack"></div>
+
+<!-- ===== Hint (tooltip custom) — gerenciado pelo objeto Hint em JS ===== -->
+<div class="hint" id="hint" role="tooltip"></div>
 
 <!-- ===== Confirm modal (generico) ===== -->
 <div class="confirm-overlay" id="confirmOverlay">
@@ -2828,7 +2865,7 @@
     </div>
     <div class="settings-footer">
       <button class="settings-btn" onclick="Settings.restoreDefaults()"
-              title="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
+              data-hint="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
         Restaurar padrão
       </button>
       <div class="settings-footer-right">
@@ -3794,7 +3831,7 @@ function buildTrackLegend() {
     if (names.length === 1) label = names[0];
     else if (names.length === 2) label = names.join(', ');
     else label = `${names.length} dispositivos agrupados`;
-    return '<div class="track-legend-item" data-track="' + t + '" title="' +
+    return '<div class="track-legend-item" data-track="' + t + '" data-hint="' +
            escapeHtml(names.join(', ')) + '">' +
            '<span class="track-legend-color"></span>' +
            '<span class="track-legend-name">' +
@@ -3808,7 +3845,7 @@ function buildTrackLegend() {
   // 1. Padrão (explicativo) — quando ha device default visivel.
   if (hasDefault) {
     html += '<div class="track-legend-item" data-track="default" ' +
-            'title="Dispositivo definido como padrao no Windows">' +
+            'data-hint="Dispositivo definido como padrão no Windows. Indicado por um ponto colorido ao lado do nome do dispositivo na lista.">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
             '<span class="track-legend-track">Padrão</span>' +
@@ -3818,7 +3855,7 @@ function buildTrackLegend() {
   // 2. Faixa 1 (Mix) — quando ha alguma track ativa.
   if (allTracks.length > 0) {
     html += '<div class="track-legend-item" data-track="mix" ' +
-            'title="Mistura de todos os dispositivos habilitados">' +
+            'data-hint="Mistura de todos os dispositivos habilitados. Gravada como a primeira faixa de áudio do arquivo final.">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
             '<span class="track-legend-track">Faixa 1</span>' +
@@ -3836,7 +3873,7 @@ function buildTrackLegend() {
     const label = disabledNames.length === 1
       ? disabledNames[0]
       : `${disabledNames.length} dispositivos desabilitados`;
-    html += '<div class="track-legend-item" data-track="off" title="' +
+    html += '<div class="track-legend-item" data-track="off" data-hint="' +
             escapeHtml(disabledNames.join(', ')) + '">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
@@ -4352,12 +4389,20 @@ let _lastFreeBytes = -1;
 const LOW_DISK_THRESHOLD = 5 * 1024 * 1024 * 1024; // 5 GB
 
 // SVG inline do icone de aviso (triangulo laranja com !). Tamanho 13px
-// pra casar com a altura da linha do meta.
-const LOW_DISK_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" ' +
+// pra casar com a altura da linha do meta. Wrap em span com data-hint
+// pra disparar o tooltip custom (Hint) ao inves do nativo do browser.
+const LOW_DISK_ICON =
+  '<span data-hint="Espaço em disco abaixo de 5 GB na pasta de ' +
+  'gravações. Pode não dar pra fazer uma gravação completa sem ' +
+  'liberar espaço." ' +
+  'style="display:inline-flex;vertical-align:middle">' +
+  '<svg width="13" height="13" viewBox="0 0 24 24" ' +
   'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
   'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
-  'aria-label="Pouco espaço em disco"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
-  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  'aria-label="Pouco espaço em disco">' +
+  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
+  '</svg></span>';
 
 // Mesma logica de OBSEncoder.GetEncoderMaxDimension (Delphi) e do
 // Settings._syncCodecMaxRes — extraida em helper top-level pra ser
@@ -4371,21 +4416,23 @@ function codecMaxDim(codec, caps) {
   return caps.h264Hw ? 4096 : 8192;
 }
 
-// Triangulo de aviso (mesmo visual do LOW_DISK_ICON) com tooltip nativo
-// via <title> SVG. Mostrado ao lado da resolucao agregada das telas
-// selecionadas quando ela excede o limite do codec atual.
+// Triangulo de aviso (mesmo visual do LOW_DISK_ICON) com tooltip custom
+// via data-hint no wrapper. Mostrado ao lado da resolucao agregada das
+// telas selecionadas quando ela excede o limite do codec atual.
 function codecLimitWarningIcon(maxDim) {
   const tip = 'Resolução combinada das telas excede o limite do codec ' +
     '(' + maxDim + ' × ' + maxDim + '). A gravação será reduzida ' +
     'proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra ' +
     'gravar até 8192 × 8192.';
-  return '<svg width="13" height="13" viewBox="0 0 24 24" ' +
+  return '<span data-hint="' + escapeHtml(tip) + '" ' +
+    'style="display:inline-flex;vertical-align:middle">' +
+    '<svg width="13" height="13" viewBox="0 0 24 24" ' +
     'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
     'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
     'aria-label="Resolução acima do limite do codec">' +
-    '<title>' + escapeHtml(tip) + '</title>' +
     '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
-    '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
+    '</svg></span>';
 }
 
 function buildRecMetaHtml(fileCount, totalBytes, freeBytes) {
@@ -4603,6 +4650,92 @@ function hideLoading() {
   const ov = document.getElementById('loadingOverlay');
   if (ov) ov.classList.add('hidden');
 }
+
+// =====================================================================
+// Hint (tooltip custom — substitui o `title` nativo)
+//
+// Como usar:
+//   <button data-hint="Texto explicativo aqui">Botão</button>
+//
+// Comportamento:
+//   - Aparece ~400ms apos o mouse parar sobre o elemento.
+//   - Some imediato quando o mouse sai (ou scroll/blur/mousedown).
+//   - Auto-posiciona acima/abaixo do alvo conforme caiba na viewport.
+//   - Tema (dark/light) herdado do <html data-theme="...">.
+// =====================================================================
+const Hint = {
+  el: null,
+  showTimer: 0,
+  current: null,  // elemento sob o cursor que disparou o hint
+  SHOW_DELAY_MS: 400,
+
+  init() {
+    this.el = document.getElementById('hint');
+    if (!this.el) return;
+    document.addEventListener('mouseover',  (e) => this._onOver(e));
+    document.addEventListener('mouseout',   (e) => this._onOut(e));
+    document.addEventListener('mousedown',  ()  => this.hide());
+    document.addEventListener('scroll',     ()  => this.hide(), true);
+    window.addEventListener('blur',         ()  => this.hide());
+    window.addEventListener('resize',       ()  => this.hide());
+  },
+
+  _onOver(e) {
+    const target = e.target.closest('[data-hint]');
+    if (!target) return;
+    if (target === this.current) return;
+    this.current = target;
+    clearTimeout(this.showTimer);
+    const text = target.getAttribute('data-hint');
+    if (!text) return;
+    this.showTimer = setTimeout(() => this._show(target, text), this.SHOW_DELAY_MS);
+  },
+
+  _onOut(e) {
+    const target = e.target.closest('[data-hint]');
+    if (!target) return;
+    // Ignora se o mouse foi pra um descendente do mesmo target —
+    // continuamos "dentro" do hint area.
+    if (e.relatedTarget && target.contains(e.relatedTarget)) return;
+    this.current = null;
+    clearTimeout(this.showTimer);
+    this.hide();
+  },
+
+  _show(target, text) {
+    if (!this.el) return;
+    this.el.textContent = text;
+    // Torna visivel pra medir tamanho real, mas sem flash — opacity 0
+    // ate posicionarmos.
+    this.el.style.visibility = 'hidden';
+    this.el.classList.add('visible');
+    const hintRect = this.el.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    const pad = 6;
+    const margin = 6;
+    // Default: abaixo, centralizado horizontalmente.
+    let top  = rect.bottom + pad;
+    let left = rect.left + (rect.width - hintRect.width) / 2;
+    // Se vai estourar pra baixo, posiciona acima.
+    if (top + hintRect.height + margin > window.innerHeight)
+      top = rect.top - hintRect.height - pad;
+    // Clamp horizontal.
+    if (left < margin) left = margin;
+    if (left + hintRect.width > window.innerWidth - margin)
+      left = window.innerWidth - hintRect.width - margin;
+    // Clamp vertical (caso ambos os lados nao caibam).
+    if (top < margin) top = margin;
+    this.el.style.left = left + 'px';
+    this.el.style.top  = top  + 'px';
+    this.el.style.visibility = '';
+  },
+
+  hide() {
+    clearTimeout(this.showTimer);
+    if (this.el) this.el.classList.remove('visible');
+    this.current = null;
+  }
+};
 
 // =====================================================================
 // Toast (notificacao nao-bloqueante)
@@ -6489,6 +6622,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('searchInput').addEventListener('input', onSearch);
   initCtxMenu();
   Confirm.init();
+  Hint.init();
   Player.init();
   Displays.init();
   Bridge.init();

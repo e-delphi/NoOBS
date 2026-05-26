@@ -2167,6 +2167,10 @@ begin
     // a gravacao mesmo se o user desplugar/replugar monitor.
     RecordingMonitorsSnapshot := WinPreview.EnumerateMonitors;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
+    // Bolinha vermelha no icone da bandeja e da janela (taskbar) —
+    // sinalizacao visual de "gravando" mesmo com a janela escondida.
+    try OBSTray.SetTrayRecording(True); except end;
+    try OBSUI.SetWindowIconRecording(True); except end;
     PushRecordingState;
     // Auto-minimizar se o user pediu — UI da lugar pra outras janelas
     // durante a gravacao. Hotkey global continua funcionando pra parar.
@@ -2209,6 +2213,10 @@ begin
     on E: Exception do
     begin
       RecordingActive := False;
+      // Reverte os icones caso ja tenhamos trocado pra "recording"
+      // antes do erro (defensivo — no-op se nunca trocou).
+      try OBSTray.SetTrayRecording(False); except end;
+      try OBSUI.SetWindowIconRecording(False); except end;
       PostError('Falha ao iniciar gravacao: ' + E.Message);
       PushRecordingState;
       Log('HandleRecordStart: FALHOU apos %dms: %s',
@@ -2279,6 +2287,18 @@ begin
   end;
   Log('HandleRecordStop: inicio.');
 
+  // Sinaliza pra UI tocar o som de parada AGORA — Engine.StopRecording
+  // pode demorar centenas de ms flushing buffers do MKV, e o user nao
+  // quer ouvir o "ding" so depois disso (parece travado). UI debouncea
+  // pra nao tocar duas vezes se o stop veio do click no botao (que ja
+  // toca preemptivamente).
+  if GetConfigBool('playSoundOnRecord', False) then
+  begin
+    var SndObj := TJSONObject.Create;
+    SndObj.AddPair('type', 'recording_stopping');
+    PostOwned(SndObj);
+  end;
+
   KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
 
   // Para o blink do Scroll Lock e garante LED apagado, independente
@@ -2300,6 +2320,9 @@ begin
   RecordingActive := False;
   LastRecordingPath := OutputPath;
   LastRecordingDuration := Elapsed;
+  // Restaura icones (remove a bolinha vermelha).
+  try OBSTray.SetTrayRecording(False); except end;
+  try OBSUI.SetWindowIconRecording(False); except end;
   PushRecordingState;
   if OutputPath <> '' then
   begin
@@ -2754,6 +2777,8 @@ begin
     TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
   Obj.AddPair('scrollLockIndicator',
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
+  Obj.AddPair('playSoundOnRecord',
+    TJSONBool.Create(GetConfigBool('playSoundOnRecord', False)));
   Obj.AddPair('hibernate',
     TJSONBool.Create(GetConfigBool('hibernate', False)));
   Obj.AddPair('recordingQuality',
@@ -2856,6 +2881,12 @@ begin
     KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
     OBSScrollLock.SetScrollLockState(False);
   end;
+end;
+
+procedure HandleSetPlaySoundOnRecord(AEnable: Boolean);
+begin
+  SetConfigBool('playSoundOnRecord', AEnable);
+  Log('PlaySoundOnRecord: %s', [BoolToStr(AEnable, True)]);
 end;
 
 procedure MaybeNotifyRecord(const ATitle, AMessage: string);
@@ -3120,6 +3151,8 @@ begin
       HandleSetNotifyOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_scroll_lock_indicator' then
       HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_play_sound_on_record' then
+      HandleSetPlaySoundOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_hibernate' then
       HandleSetHibernate(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_recording_quality' then

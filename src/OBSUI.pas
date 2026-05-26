@@ -93,6 +93,10 @@ procedure EnsureTrayIcon;
 // Remove o icone da bandeja. Idempotente.
 procedure RemoveTrayIcon;
 
+// Troca o icone da janela (taskbar + titulo) entre normal e "gravando"
+// (com bolinha vermelha sobreposta). Idempotente.
+procedure SetWindowIconRecording(AOn: Boolean);
+
 // Registra atalho global do Windows. AModifiers e combinacao de
 // MOD_ALT/MOD_CONTROL/MOD_SHIFT/MOD_WIN (Winapi.Windows). AVk e o
 // virtual-key (VK_F9, etc). Retorna True se registrado com sucesso.
@@ -125,6 +129,7 @@ uses
   System.SysUtils,
   OBSConfig,
   OBSLog,
+  OBSRecordIcon,
   OBSSingleInstance,
   OBSStartupCheck,
   OBSTray,
@@ -1058,6 +1063,62 @@ end;
 procedure RemoveTrayIcon;
 begin
   OBSTray.RemoveTrayIcon;
+end;
+
+var
+  // Caches dos icones da janela (ICON_BIG + ICON_SMALL) — gerados lazy
+  // na 1a chamada de SetWindowIconRecording. Vivos pelo resto do
+  // processo; Windows libera no termino. (Delphi nao aceita init em
+  // declaracoes multi-var, entao cada um na sua linha.)
+  WinIconBigBase:     HICON = 0;
+  WinIconBigRec:      HICON = 0;
+  WinIconSmallBase:   HICON = 0;
+  WinIconSmallRec:    HICON = 0;
+  WindowRecordingNow: Boolean = False;
+
+procedure SetWindowIconRecording(AOn: Boolean);
+var
+  SizeBig, SizeSmall: Integer;
+begin
+  if MainWindow = 0 then Exit;
+  if AOn = WindowRecordingNow then Exit;
+  WindowRecordingNow := AOn;
+
+  if WinIconBigBase = 0 then
+  begin
+    SizeBig := GetSystemMetrics(SM_CXICON);
+    if SizeBig < 32 then SizeBig := 32;
+    WinIconBigBase := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
+      SizeBig, SizeBig, LR_DEFAULTCOLOR);
+    if WinIconBigBase = 0 then
+      WinIconBigBase := LoadIconW(HInstance, 'MAINICON');
+    WinIconBigRec := OBSRecordIcon.CreateRecordingOverlayIcon(
+      WinIconBigBase, SizeBig);
+  end;
+  if WinIconSmallBase = 0 then
+  begin
+    SizeSmall := GetSystemMetrics(SM_CXSMICON);
+    if SizeSmall < 16 then SizeSmall := 16;
+    WinIconSmallBase := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
+      SizeSmall, SizeSmall, LR_DEFAULTCOLOR);
+    if WinIconSmallBase = 0 then
+      WinIconSmallBase := LoadIconW(HInstance, 'MAINICON');
+    WinIconSmallRec := OBSRecordIcon.CreateRecordingOverlayIcon(
+      WinIconSmallBase, SizeSmall);
+  end;
+
+  // ICON_SMALL afeta a barra de titulo + Alt+Tab pequeno; ICON_BIG
+  // afeta o icone da taskbar e Alt+Tab grande.
+  if AOn then
+  begin
+    SendMessage(MainWindow, WM_SETICON, ICON_BIG,   LPARAM(WinIconBigRec));
+    SendMessage(MainWindow, WM_SETICON, ICON_SMALL, LPARAM(WinIconSmallRec));
+  end
+  else
+  begin
+    SendMessage(MainWindow, WM_SETICON, ICON_BIG,   LPARAM(WinIconBigBase));
+    SendMessage(MainWindow, WM_SETICON, ICON_SMALL, LPARAM(WinIconSmallBase));
+  end;
 end;
 
 procedure RestoreFromTray;

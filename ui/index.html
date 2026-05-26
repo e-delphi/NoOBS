@@ -2847,6 +2847,19 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsPlaySoundOnRecord">
+          <span>Tocar som de início e fim da gravação</span>
+        </label>
+        <div class="settings-hint">
+          Toca uma sequência curta de duas notas ao começar (ascendente)
+          e ao terminar (descendente) a gravação. Discreto — volume
+          baixo o suficiente pra não atrapalhar, alto o suficiente pra
+          confirmar que a ação foi recebida.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
         <label class="settings-check-row" id="settingsHibernateRow">
           <input type="checkbox" id="settingsHibernate">
           <span>Hibernar quando inativo</span>
@@ -3403,6 +3416,13 @@ const Bridge = {
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
+    // Sinal cedo do backend ao comecar HandleRecordStop — tocamos o som
+    // de parada AGORA em vez de esperar o flush dos buffers do MKV.
+    // Cobre o caso da hotkey/tray, onde o UI nao passa pelo toggleRecord.
+    recording_stopping() {
+      if (Settings && Settings.currentPlaySoundOnRecord)
+        RecordingSounds.playStop();
+    },
     recording_added(data) {
       if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
       addRecordingCard(data.item);
@@ -4631,6 +4651,13 @@ function toggleRecord() {
   // Ripple so no start. No stop nao faz sentido visualmente — a UI
   // ja sinaliza fim removendo o pulse vermelho.
   if (!isRecording) triggerRecordRipple();
+  // Som de parada preemptivo — toca imediato ao clicar, em vez de
+  // esperar o backend terminar Engine.StopRecording (que pode levar
+  // centenas de ms flushing buffers). O backend tambem manda um
+  // recording_stopping, mas o debounce em RecordingSounds.playStop
+  // evita disparar duas vezes.
+  if (isRecording && Settings && Settings.currentPlaySoundOnRecord)
+    RecordingSounds.playStop();
   Bridge.send(isRecording ? 'record_stop' : 'record_start');
 }
 
@@ -4734,6 +4761,86 @@ const Hint = {
     clearTimeout(this.showTimer);
     if (this.el) this.el.classList.remove('visible');
     this.current = null;
+  }
+};
+
+// =====================================================================
+// RecordingSounds — feedback sonoro de inicio/fim de gravacao via
+// Web Audio API (sem arquivos de audio externos).
+//
+// Notas escolhidas: C5 (523.25 Hz) + G5 (783.99 Hz) — intervalo de
+// quinta justa, agradavel e nao-disruptivo. Inicio toca C5→G5 (sensacao
+// ascendente / "abrir"); fim toca G5→C5 (descendente / "fechar").
+// Envelope ADSR rapido (5ms attack, 50ms decay pra 70%, release linear)
+// pra evitar clicks audiveis e dar uma sensacao "natural" de bell tone.
+// Volume final 0.12 (de 1.0) — audivel mas nao incomoda.
+//
+// AudioContext eh lazy-init na primeira chamada — o autoplay policy do
+// Chromium pode suspender ate o user interagir com a pagina, mas como
+// gravacao so dispara via click no botao OU hotkey global (que tambem
+// conta como interacao pelo WebView2), na pratica funciona desde a 1a.
+// =====================================================================
+const RecordingSounds = {
+  ctx: null,
+  // Timestamp do ultimo playStop pra debounce — clicar no botao toca
+  // preemptivamente, e o backend depois manda recording_stopping; sem
+  // debounce, sound tocaria duas vezes sobreposto.
+  _lastStopMs: 0,
+
+  _ensureContext() {
+    if (!this.ctx) {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        this.ctx = new AC();
+      } catch (e) {
+        return null;
+      }
+    }
+    if (this.ctx.state === 'suspended') {
+      try { this.ctx.resume(); } catch (e) {}
+    }
+    return this.ctx;
+  },
+
+  _playNote(freq, startTime, duration, volume) {
+    const ctx = this.ctx;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    // ADSR: 0→vol em 5ms, decay pra 70% em 45ms, release linear ate 0.
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(volume,        startTime + 0.005);
+    gain.gain.linearRampToValueAtTime(volume * 0.70, startTime + 0.050);
+    gain.gain.linearRampToValueAtTime(0,             startTime + duration);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.02);
+  },
+
+  // C5 → G5 — ascendente, sensacao de inicio/abertura.
+  playStart() {
+    const ctx = this._ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    this._playNote(523.25, t0,        0.16, 0.12);
+    this._playNote(783.99, t0 + 0.10, 0.20, 0.12);
+  },
+
+  // G5 → C5 — descendente, sensacao de fim/fechamento.
+  // Debounce de 800ms — se o stop veio do click no botao, ja tocamos
+  // preemptivamente; o recording_stopping do backend chegaria logo
+  // depois e tocaria de novo sem o debounce.
+  playStop() {
+    const now = Date.now();
+    if (now - this._lastStopMs < 800) return;
+    this._lastStopMs = now;
+    const ctx = this._ensureContext();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    this._playNote(783.99, t0,        0.16, 0.12);
+    this._playNote(523.25, t0 + 0.10, 0.20, 0.12);
   }
 };
 
@@ -4940,6 +5047,7 @@ const Settings = {
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
   currentScrollLockIndicator: false,
+  currentPlaySoundOnRecord: false,
   currentHibernate: false,
   currentRecordingQuality: 0,
   open() {
@@ -4951,6 +5059,7 @@ const Settings = {
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
     document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
+    document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
     this._syncQualityHint();
@@ -4993,6 +5102,7 @@ const Settings = {
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
       const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
+      const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
       const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
@@ -5036,6 +5146,8 @@ const Settings = {
         Bridge.send('set_notify_on_record', { enabled: notifyOnRecord });
       if (scrollLockIndicator !== this.currentScrollLockIndicator)
         Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
+      if (playSoundOnRecord !== this.currentPlaySoundOnRecord)
+        Bridge.send('set_play_sound_on_record', { enabled: playSoundOnRecord });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (recordingQuality !== this.currentRecordingQuality)
@@ -5051,6 +5163,7 @@ const Settings = {
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
       this.currentScrollLockIndicator = scrollLockIndicator;
+      this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentHibernate = hibernate;
       this.currentRecordingQuality = recordingQuality;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
@@ -5081,6 +5194,9 @@ const Settings = {
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
     this.currentScrollLockIndicator = !!data.scrollLockIndicator;
+    // playSoundOnRecord: default false — feature opt-in. !!data.* cobre
+    // tanto o caso "undefined" (configa nova/limpa) quanto false explicito.
+    this.currentPlaySoundOnRecord = !!data.playSoundOnRecord;
     // hibernate: default false — so faz sentido com closeToTray ON, e
     // gateamos a UI pra forcar isso. !!data.hibernate cobre o caso
     // undefined naturalmente (resulta em false).
@@ -5106,6 +5222,8 @@ const Settings = {
     if (nr) nr.checked = this.currentNotifyOnRecord;
     const sl = document.getElementById('settingsScrollLockIndicator');
     if (sl) sl.checked = this.currentScrollLockIndicator;
+    const ps = document.getElementById('settingsPlaySoundOnRecord');
+    if (ps) ps.checked = this.currentPlaySoundOnRecord;
     const hb = document.getElementById('settingsHibernate');
     if (hb) hb.checked = this.currentHibernate;
     const rqEl = document.getElementById('settingsRecordingQuality');
@@ -5234,6 +5352,7 @@ const Settings = {
         document.getElementById('settingsMinimizeOnRecord').checked = false;
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
+        document.getElementById('settingsPlaySoundOnRecord').checked = false;
         document.getElementById('settingsHibernate').checked = false;
         document.getElementById('settingsRecordingQuality').value = '0';
         this._syncMinimizeOnRecordLabel();
@@ -6435,11 +6554,29 @@ function stopRecordingAnimation() {
   _renderTimer(0);
 }
 
+// Estado anterior — usado pra detectar transicao (false→true = inicio,
+// true→false = parou) e disparar o som de feedback. Inicia null pra que
+// o primeiro recording_state recebido apos o boot (geralmente active=false)
+// NAO dispare playStop.
+let _lastRecordingActive = null;
+
 function applyRecordingState(active, elapsedSec) {
   const btn = document.getElementById('recordBtn');
   const label = document.getElementById('recordLabel');
   const card = document.getElementById('recCard');
   const statusText = document.getElementById('recStatusText');
+
+  // Feedback sonoro de inicio — so quando active vira true, primeira
+  // vez (nao no boot onde _lastRecordingActive=null). O som de PARADA
+  // nao roda aqui — toca preemptivamente em toggleRecord (click) ou
+  // pelo handler recording_stopping (hotkey/tray), porque
+  // Engine.StopRecording pode levar centenas de ms flushing buffers
+  // e o user sente que "travou" se o ding so vier no fim.
+  if (_lastRecordingActive !== null && _lastRecordingActive !== active &&
+      active && Settings && Settings.currentPlaySoundOnRecord) {
+    RecordingSounds.playStart();
+  }
+  _lastRecordingActive = active;
 
   if (active) {
     btn.classList.add('recording');

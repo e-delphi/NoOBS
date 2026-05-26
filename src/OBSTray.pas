@@ -47,6 +47,11 @@ function IsTrayInstalled: Boolean;
 // icone ainda nao esta instalado.
 procedure ShowBalloon(const ATitle, AMessage: string);
 
+// Troca o icone da bandeja entre normal e "gravando" (icone padrao com
+// uma bolinha vermelha sobreposta). Idempotente; chama varias vezes
+// com o mesmo valor sao no-op apos a primeira.
+procedure SetTrayRecording(AOn: Boolean);
+
 // Chamado pela window proc quando recebe WM_TRAYICON.
 procedure HandleTrayMessage(AWnd: HWND; AParam: LPARAM);
 
@@ -56,11 +61,17 @@ procedure HandleTrayCommand(AWnd: HWND; ACommandId: Integer);
 implementation
 
 uses
-  System.SysUtils, OBSAutostart;
+  System.SysUtils, OBSAutostart, OBSRecordIcon;
 
 var
   TrayIcon: TNotifyIconData;
   TrayAdded: Boolean = False;
+  // Caches dos icones — gerados lazy na primeira chamada de
+  // SetTrayRecording, destruidos no final do processo (Windows limpa
+  // junto com o handle table).
+  BaseTrayIcon:      HICON = 0;
+  RecordingTrayIcon: HICON = 0;
+  TrayRecordingNow:  Boolean = False;
 
 function IsTrayInstalled: Boolean;
 begin
@@ -126,6 +137,41 @@ begin
   Data.szInfo[MLen] := #0;
 
   Data.dwInfoFlags := NIIF_USER or NIIF_LARGE_ICON;
+  Shell_NotifyIconW(NIM_MODIFY, @Data);
+end;
+
+procedure SetTrayRecording(AOn: Boolean);
+var
+  Data: TNotifyIconData;
+  Size: Integer;
+begin
+  if not TrayAdded then Exit;
+  if AOn = TrayRecordingNow then Exit;
+  TrayRecordingNow := AOn;
+
+  // Gera (uma vez) os dois icones cache:
+  //   BaseTrayIcon       — copia do MAINICON (pra restaurar depois)
+  //   RecordingTrayIcon  — MAINICON + bolinha vermelha sobreposta
+  if BaseTrayIcon = 0 then
+    BaseTrayIcon := LoadIconW(HInstance, 'MAINICON');
+  if BaseTrayIcon = 0 then
+    BaseTrayIcon := LoadIconW(0, IDI_APPLICATION);
+  if RecordingTrayIcon = 0 then
+  begin
+    Size := GetSystemMetrics(SM_CXSMICON);
+    if Size < 16 then Size := 16;
+    RecordingTrayIcon := CreateRecordingOverlayIcon(BaseTrayIcon, Size);
+  end;
+
+  ZeroMemory(@Data, SizeOf(Data));
+  Data.cbSize := SizeOf(Data);
+  Data.Wnd    := TrayIcon.Wnd;
+  Data.uID    := TrayIcon.uID;
+  Data.uFlags := NIF_ICON;
+  if AOn and (RecordingTrayIcon <> 0) then
+    Data.hIcon := RecordingTrayIcon
+  else
+    Data.hIcon := BaseTrayIcon;
   Shell_NotifyIconW(NIM_MODIFY, @Data);
 end;
 

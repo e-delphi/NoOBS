@@ -463,9 +463,10 @@ begin
     Item.AddPair('id',   Id);
     Item.AddPair('name', Devs[i].Name);
     Item.AddPair('info', '');
-    Item.AddPair('enabled',   TJSONBool.Create(MicEnabled[k]));
-    Item.AddPair('isDefault', TJSONBool.Create(MicDefault[k]));
-    Item.AddPair('track',     TJSONNumber.Create(MicTracks[k]));
+    Item.AddPair('enabled',     TJSONBool.Create(MicEnabled[k]));
+    Item.AddPair('isDefault',   TJSONBool.Create(MicDefault[k]));
+    Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
+    Item.AddPair('track',       TJSONNumber.Create(MicTracks[k]));
     AMicsJson.AddElement(Item);
   end;
   for k := 0 to High(SpkIdxs) do
@@ -476,9 +477,10 @@ begin
     Item.AddPair('id',   Id);
     Item.AddPair('name', Devs[i].Name);
     Item.AddPair('info', '');
-    Item.AddPair('enabled',   TJSONBool.Create(SpkEnabled[k]));
-    Item.AddPair('isDefault', TJSONBool.Create(SpkDefault[k]));
-    Item.AddPair('track',     TJSONNumber.Create(SpkTracks[k]));
+    Item.AddPair('enabled',     TJSONBool.Create(SpkEnabled[k]));
+    Item.AddPair('isDefault',   TJSONBool.Create(SpkDefault[k]));
+    Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
+    Item.AddPair('track',       TJSONNumber.Create(SpkTracks[k]));
     ASpkJson.AddElement(Item);
   end;
 end;

@@ -884,6 +884,30 @@
     vertical-align: middle;
     flex-shrink: 0;
   }
+  /* Icones ao lado do nome de devices Bluetooth:
+       .source-bt-icon  — azul, informativo ("este device e BT")
+       .source-bt-warn  — triangulo ambar, mesmo visual do icone de
+                          pouco espaco em disco — sinaliza o problema
+                          de qualidade HFP via hint detalhado.
+     Ambos com vertical-align: middle pra centralizar com a bolinha
+     default e o texto (que ja usam o mesmo align). display:block na
+     SVG remove o gap de baseline inline. */
+  .source-bt-icon, .source-bt-warn {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+    /* cursor: help vem do seletor global [data-hint] */
+  }
+  .source-bt-icon svg, .source-bt-warn svg {
+    display: block;
+    width: 13px;
+    height: 13px;
+  }
+  .source-bt-icon { color: #1da1f2; }  /* azul Bluetooth */
+  .source-bt-warn { color: #f59e0b; }  /* amber — mesmo dos outros avisos */
   .source-info {
     font-size: 10.5px;
     color: var(--text-3);
@@ -2597,6 +2621,10 @@
     border-color: rgba(0,0,0,0.10);
     box-shadow: 0 6px 18px rgba(0,0,0,0.15);
   }
+  /* Cursor "help" (seta com ?) em qualquer elemento que tem data-hint
+     — sinaliza visualmente que tem info extra disponivel ao passar o
+     mouse, sem precisar declarar em cada componente individualmente. */
+  [data-hint] { cursor: help; }
 
   /* ===== Toast notifications ===== */
   .toast-stack {
@@ -3946,10 +3974,51 @@ function renderSources(kindShort, listId, countId, items) {
       dot.className = 'source-default-dot';
       dot.title = 'Dispositivo padrão do sistema';
       name.appendChild(dot);
-      name.appendChild(document.createTextNode(item.name || item.id));
-    } else {
-      name.textContent = item.name || item.id;
     }
+    // Dispositivos Bluetooth ganham dois icones:
+    //   1) Logo BT em azul — informativo, "isto eh um device Bluetooth"
+    //   2) Triangulo ambar — sinaliza o problema de qualidade HFP, hint
+    //      detalhado explica a limitacao (texto varia pra mic vs spk).
+    // Ambos com vertical-align: middle (mesma estrategia da bolinha
+    // default) pra centralizar com o nome.
+    if (item.isBluetooth) {
+      const bt = document.createElement('span');
+      bt.className = 'source-bt-icon';
+      bt.setAttribute('data-hint', 'Dispositivo Bluetooth');
+      bt.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11"/></svg>';
+      name.appendChild(bt);
+
+      const warn = document.createElement('span');
+      warn.className = 'source-bt-warn';
+      warn.setAttribute('data-hint', (kindShort === 'mic')
+        ? 'Atenção: enquanto este microfone Bluetooth estiver conectado ' +
+          'e o NoOBS aberto (mesmo sem marcar pra gravar — os medidores ' +
+          'de nível já abrem acesso ao mic), o Windows mantém o fone no ' +
+          'perfil HFP. A qualidade do áudio do dispositivo cai pra mono ' +
+          '8 ou 16 kHz e o volume costuma ir pro máximo. Limitação do ' +
+          'Bluetooth Classic — desmarcar aqui não resolve. Pra recuperar ' +
+          'HD, desative ou desconecte o dispositivo no Windows, ou use ' +
+          'um microfone USB separado.'
+        : 'Atenção: alto-falante Bluetooth. Quando qualquer app no ' +
+          'Windows acessa um microfone Bluetooth (incluindo os ' +
+          'medidores de nível do NoOBS), este dispositivo cai pra ' +
+          'qualidade telefônica (mono 8 ou 16 kHz) e volume máximo ' +
+          'automaticamente. Limitação do Bluetooth Classic — pra HD, ' +
+          'desative o microfone Bluetooth no Windows, ou use BT LE ' +
+          'Audio (hardware mais novo + Windows 11).');
+      // Mesmo SVG do LOW_DISK_ICON: triangulo com ! interno.
+      warn.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+        '<line x1="12" y1="9" x2="12" y2="13"/>' +
+        '<line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+      name.appendChild(warn);
+    }
+    name.appendChild(document.createTextNode(item.name || item.id));
     meta.appendChild(name);
     if (item.info) {
       const info = document.createElement('div');

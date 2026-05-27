@@ -18,6 +18,11 @@ type
     Name: string;         // friendly name
     Kind: TAudioDeviceKind;
     IsDefault: Boolean;
+    // True se o dispositivo esta atras de um adapter Bluetooth — usado
+    // pra avisar o user sobre limitacao do perfil HFP (quando o mic BT
+    // e ativado, qualidade do audio de saida cai pra mono 8/16 kHz e
+    // o volume costuma ir pro maximo automaticamente).
+    IsBluetooth: Boolean;
   end;
   TAudioDeviceInfoArray = TArray<TAudioDeviceInfo>;
 
@@ -72,7 +77,12 @@ const
 
   // PROPERTYKEY do friendly name. Definido em Functiondiscoverykeys_devpkey.h.
   // PKEY_Device_FriendlyName = (a45c254e-df1c-4efd-8020-67d146a850e0), pid 14
-  PKEY_Device_FriendlyName: TGUID = '{A45C254E-DF1C-4EFD-8020-67D146A850E0}';
+  // PKEY_Device_EnumeratorName = (same fmtid), pid 24 — retorna o nome do
+  // enumerator do device manager: "USB", "HDAUDIO", "BTHENUM" (Bluetooth),
+  // etc. Usamos pra detectar dispositivos Bluetooth e mostrar warning de
+  // limitacao do perfil HFP na UI.
+  PKEY_Device_FriendlyName:   TGUID = '{A45C254E-DF1C-4EFD-8020-67D146A850E0}';
+  PKEY_Device_EnumeratorName: TGUID = '{A45C254E-DF1C-4EFD-8020-67D146A850E0}';
 
 type
   // Subset do PROPVARIANT que precisamos.
@@ -201,6 +211,45 @@ begin
       Result := string(PV.pwszVal);
     FreePropVariantString(PV);
   end;
+end;
+
+// Le PKEY_Device_EnumeratorName via property store e retorna True se
+// o device esta atras do bus Bluetooth (enumerator = "BTHENUM").
+// Fallback adicional: se o friendly name contem "Hands-Free" (perfil
+// HFP), tambem marca como BT — alguns drivers expoem o sub-endpoint
+// HFP como device separado sem que o enumerator seja BTHENUM diretamente.
+function IsBluetoothDevice(const Dev: IMMDevice; const AFriendlyName: string): Boolean;
+var
+  Store: IPropertyStore;
+  Key: PROPERTYKEY;
+  PV: TPropVariant;
+  EnumName: string;
+  LowerName: string;
+begin
+  Result := False;
+  if Dev = nil then Exit;
+
+  if Succeeded(Dev.OpenPropertyStore(0 {STGM_READ}, Store)) then
+  begin
+    Key.fmtid := PKEY_Device_EnumeratorName;
+    Key.pid := 24;
+    ZeroMemory(@PV, SizeOf(PV));
+    if Succeeded(Store.GetValue(Key, PV)) then
+    begin
+      if PV.pwszVal <> nil then
+        EnumName := string(PV.pwszVal);
+      FreePropVariantString(PV);
+      if SameText(EnumName, 'BTHENUM') then Exit(True);
+    end;
+  end;
+
+  // Fallback heuristico — varios drivers nao reportam BTHENUM no
+  // endpoint mas colocam "Hands-Free" / "Bluetooth" no nome.
+  LowerName := LowerCase(AFriendlyName);
+  if (Pos('hands-free', LowerName) > 0) or
+     (Pos('hands free', LowerName) > 0) or
+     (Pos('bluetooth',  LowerName) > 0) then
+    Result := True;
 end;
 
 function GetDeviceId(const Dev: IMMDevice): string;
@@ -375,14 +424,17 @@ begin
       // IsDefault so se DefId existe — evita falso-positivo quando ambos
       // ficam vazios (DefId vazio + GetDeviceId falhou).
       Entry.Info.IsDefault := (DefId <> '') and SameText(DevId, DefId);
+      Entry.Info.IsBluetooth := IsBluetoothDevice(Dev, Entry.Info.Name);
       if Kinds[k] = adkInput then
-        Log('WinAudioMeter: + IN  "%s" id="%s"%s',
+        Log('WinAudioMeter: + IN  "%s" id="%s"%s%s',
           [Entry.Info.Name, DevId,
-           IfThen(Entry.Info.IsDefault, ' [default]', '')])
+           IfThen(Entry.Info.IsDefault,   ' [default]',   ''),
+           IfThen(Entry.Info.IsBluetooth, ' [bluetooth]', '')])
       else
-        Log('WinAudioMeter: + OUT "%s" id="%s"%s',
+        Log('WinAudioMeter: + OUT "%s" id="%s"%s%s',
           [Entry.Info.Name, DevId,
-           IfThen(Entry.Info.IsDefault, ' [default]', '')]);
+           IfThen(Entry.Info.IsDefault,   ' [default]',   ''),
+           IfThen(Entry.Info.IsBluetooth, ' [bluetooth]', '')]);
       Meter := nil;
       try
         if Succeeded(Dev.Activate(IID_IAudioMeterInformation,

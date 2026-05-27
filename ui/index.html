@@ -1919,8 +1919,19 @@
     text-align: center;
   }
 
-  .player-seek {
+  /* Wrap contem o seek e a waveform — mas o wrap so toma a altura do
+     seek (4px). A waveform e posicionada absoluto abaixo (top: 100%),
+     ficando dentro do padding-bottom da .player-controls. Resultado:
+     o seek mantem exatamente a mesma posicao vertical que tinha antes
+     da waveform existir; a waveform aparece embaixo, no espaco do
+     padding, sem mexer com o flex/align dos outros controles. */
+  .player-seek-wrap {
     flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+  .player-seek {
+    width: 100%;
     -webkit-appearance: none;
     appearance: none;
     height: 4px;
@@ -1930,6 +1941,39 @@
       rgba(255,255,255,0.15) var(--p, 0%), rgba(255,255,255,0.15) 100%);
     outline: none;
     cursor: pointer;
+  }
+  /* Waveform: posicionada ABSOLUTAMENTE logo abaixo do seek. Fica
+     fora do fluxo flex — nao afeta a altura do wrap nem desloca os
+     outros controles. Renderiza no espaco do padding-bottom da
+     controls bar.
+     Posicao vertical: `calc(50% + 2px)` = centro do wrap + metade da
+     espessura do track (4px / 2). Isso faz a waveform encostar
+     exatamente na borda inferior do track visivel do seek bar (que
+     fica no meio da altura do input element). `top: 100%` daria a
+     borda inferior do INPUT BOX, que tem altura maior que o track por
+     causa do thumb (14px) — sobra um espacinho. */
+  .player-waveform {
+    position: absolute;
+    top: calc(50% + 2px);
+    left: 0;
+    right: 0;
+    height: 14px;
+    opacity: 0.55;
+    pointer-events: none;  /* nao intercepta clique do seek */
+  }
+  .player-waveform[hidden] { display: none; }
+  /* Barras crescem PRA BAIXO a partir do topo (top: 0) — formato de
+     "reflexo" abaixo do seek bar. Cristas altas chegam no fundo, baixas
+     ficam coladas no topo. Sem border-radius porque em 1-2px de
+     largura arredondar borra a silhueta. */
+  .wf-bar {
+    position: absolute;
+    top: 0;
+    background: rgba(255, 255, 255, 0.75);
+    min-height: 1px;
+  }
+  [data-theme="light"] .wf-bar {
+    background: rgba(0, 0, 0, 0.60);
   }
   .player-seek::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -3049,7 +3093,12 @@
         <svg viewBox="0 0 24 24" id="playerPlayIcon"><path d="M8 5v14l11-7z"/></svg>
       </button>
       <span class="player-time" id="playerTime">00:00 / 00:00</span>
-      <input type="range" class="player-seek" id="playerSeek" min="0" max="1000" value="0">
+      <div class="player-seek-wrap">
+        <input type="range" class="player-seek" id="playerSeek" min="0" max="1000" value="0">
+        <!-- Waveform: barras renderizadas em background apos decodificar
+             a faixa Mix do audio. Decoracao visual — nao essencial. -->
+        <div class="player-waveform" id="playerWaveform" hidden></div>
+      </div>
       <div class="player-volume-wrap">
         <button class="player-btn" id="playerMute" title="Mudo (M)">
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
@@ -3442,6 +3491,7 @@ const Bridge = {
     play_url(data) { Player.play(data.url, data.name, data.mode, data.id); },
     video_info(data) { Player.renderInfo(data); },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
+    waveform_ready(data) { Waveform.onReady(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
     // Sinal cedo do backend ao comecar HandleRecordStop — tocamos o som
@@ -4914,6 +4964,99 @@ const RecordingSounds = {
 };
 
 // =====================================================================
+// Waveform — barras de onda sonora abaixo do seek bar do player.
+//
+// Arquitetura: backend (Delphi) extrai os peaks da 1a faixa de audio
+// via libav em worker thread (~500ms-2s pra gravacao tipica) e manda
+// pra UI como JSON. Sem fetch/decode no JS, evitando os problemas de
+// mixed content (UI em https vs HTTP local) e CORS (origens diferentes
+// entre subdomains do virtual host).
+//
+// Fluxo:
+//   1) Player.play() seta currentRecId + dispara request_waveform.
+//   2) Backend computa peaks via FFmpegOps.ComputeAudioPeaks em thread
+//      separada — nao bloqueia main nem video playback.
+//   3) waveform_ready chega com array de N floats em [0..1] — Waveform
+//      so renderiza.
+//   4) Cacheado por recId no JS — proxima abertura da mesma gravacao,
+//      render instantaneo sem novo round-trip pro backend.
+//
+// Custo runtime: zero. Barras sao DOM estatico painted pelo compositor.
+// =====================================================================
+const Waveform = {
+  cache: new Map(),     // recId → array de peaks
+  currentRecId: null,
+  // 500 buckets — pra video de 30 min, ~3.6s por bucket (vs 18s com
+  // 100). Visualmente cada barra fica ~1.5px em seek bar de 800px,
+  // o que com gap minimo da o aspecto de waveform continua estilo
+  // SoundCloud em vez de tracinhos isolados.
+  BUCKETS: 500,
+
+  // Chamado em Player.play quando troca de gravacao. Se ja temos peaks
+  // em cache, renderiza instantaneo. Senao dispara request_waveform.
+  reset(recId) {
+    this.currentRecId = recId;
+    const el = document.getElementById('playerWaveform');
+    if (!el) return;
+    el.innerHTML = '';
+    if (recId && this.cache.has(recId)) {
+      this._render(this.cache.get(recId));
+    } else {
+      el.hidden = true;
+    }
+  },
+
+  // Backend manda waveform_ready. Cacheamos e renderizamos.
+  onReady(data) {
+    if (!data || !data.id || !Array.isArray(data.peaks)) return;
+    this.cache.set(data.id, data.peaks);
+    if (this.currentRecId === data.id) this._render(data.peaks);
+  },
+
+  _render(peaks) {
+    const el = document.getElementById('playerWaveform');
+    if (!el || !peaks || peaks.length === 0) return;
+    // Normaliza pelo pico maximo (ocupa altura total) pra audio
+    // baixo tambem mostrar barras visiveis.
+    let maxPeak = 0;
+    for (let i = 0; i < peaks.length; i++)
+      if (peaks[i] > maxPeak) maxPeak = peaks[i];
+    if (maxPeak < 0.0001) maxPeak = 0.0001;
+
+    const widthPct = 100 / peaks.length;
+    // Com 500+ buckets, cada slot fica ~1.5px em seek bar de 800px.
+    // Bar width = 88% do slot = ~1.3px com gap minimo.
+    const barWidth = widthPct * 0.88;
+    // Curva gamma (pow 0.5 = sqrt) na razao peak/max — amplifica
+    // pequenas variacoes de amplitude que sao tipicas em audio com
+    // AGC ou compressao. Sem isso, RMS na maioria das gravacoes (fala
+    // razoavelmente uniforme) gera barras quase iguais. Com gamma 0.5:
+    //   ratio 0.10 → bar 32% (era 10%)
+    //   ratio 0.50 → bar 71% (era 50%)
+    //   ratio 1.00 → bar 100% (igual)
+    // Altura minima 4% pra silencios totais terem linha visivel.
+    let html = '';
+    for (let i = 0; i < peaks.length; i++) {
+      const ratio = peaks[i] / maxPeak;
+      const h = Math.max(4, Math.sqrt(ratio) * 100);
+      html += '<div class="wf-bar" style="' +
+        'left:' + (i * widthPct).toFixed(3) + '%;' +
+        'width:' + barWidth.toFixed(3) + '%;' +
+        'height:' + h.toFixed(1) + '%' +
+        '"></div>';
+    }
+    el.innerHTML = html;
+    el.hidden = false;
+  },
+
+  hide() {
+    this.currentRecId = null;
+    const el = document.getElementById('playerWaveform');
+    if (el) { el.hidden = true; el.innerHTML = ''; }
+  }
+};
+
+// =====================================================================
 // Toast (notificacao nao-bloqueante)
 // =====================================================================
 const Toast = {
@@ -5970,6 +6113,19 @@ const Player = {
     document.getElementById('playerTitle').textContent = name || '';
     v.src = url;
     v.load();
+    // Waveform: reseta state. Se cacheado, renderiza instantaneo;
+    // senao dispara request_waveform em background (defer pra video
+    // ter prioridade na thread).
+    if (changed) {
+      Waveform.reset(id);
+      if (!Waveform.cache.has(id)) {
+        setTimeout(() => {
+          if (Player.currentId === id)
+            Bridge.send('request_waveform',
+              { id: id, buckets: Waveform.BUCKETS });
+        }, 100);
+      }
+    }
     // Esconde indicador de pause durante o load (evita flash se o video
     // antigo havia ficado pausado). Os eventos play/pause atualizam dai.
     document.getElementById('playerPauseIndicator').classList.remove('visible');
@@ -5995,6 +6151,10 @@ const Player = {
     // Reseta velocidade pra 1x — novo video comeca em ritmo normal
     // mesmo se o ultimo ficou em 2x ou 0.5x.
     this.setPlaybackSpeed(1);
+    // Cancela qualquer decode/fetch de waveform em andamento (peaks ja
+    // cacheados ficam — proxima vez que abrir essa gravacao, render
+    // instantaneo).
+    Waveform.hide();
     // Sai de fullscreen se estiver — fechar player em fullscreen
     // deixaria a janela borderless toda preta sem onde clicar.
     if (document.body.dataset.fs === '1') this.toggleFullscreen();

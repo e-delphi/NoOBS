@@ -129,6 +129,7 @@ uses
   System.SysUtils,
   OBSConfig,
   OBSLog,
+  OBSPlayer,
   OBSRecordIcon,
   OBSSingleInstance,
   OBSStartupCheck,
@@ -470,12 +471,18 @@ end;
 
 procedure StartNavigate;
 const
-  // Virtual host arbitrario. Nao resolve DNS — WebView2 intercepta
-  // requests pra esse host e serve do folder mapeado. "https://" da
-  // contexto seguro pra Notification API + outras features modernas.
-  UI_HOST = 'noobs.app';
+  // Virtual hosts arbitrarios — nao resolvem DNS, WebView2 intercepta e
+  // serve do folder mapeado. "https://" da contexto seguro (Notification
+  // API, fetch sem mixed content, etc.).
+  //   UI_HOST    — pasta com index.html + assets (UI).
+  //   CACHE_HOST — pasta de cache (%LOCALAPPDATA%\NoOBS\cache).
+  //                Necessario pra waveform fazer fetch() das M4A das
+  //                faixas extraidas — sem isso, fetch de HTTP local
+  //                seria mixed content (UI roda em https://).
+  UI_HOST    = 'noobs.app';
+  CACHE_HOST = 'cache.noobs.app';
 var
-  Folder: string;
+  Folder, CacheFolder: string;
   WV3: ICoreWebView2_3;
   HR: HRESULT;
 begin
@@ -492,13 +499,31 @@ begin
   end;
   Log('StartNavigate: UI folder="%s".', [Folder]);
 
-  // Mapeia o virtual host pra pasta com o index.html. ALLOW: WebView2
-  // serve qualquer recurso do folder. Origin no JS vira "https://noobs.app".
   if Succeeded(WebView.QueryInterface(IID_ICoreWebView2_3, WV3)) and (WV3 <> nil) then
   begin
+    // 1) UI: index.html + assets servidos do disco. Origin no JS vira
+    //    "https://noobs.app".
     HR := WV3.SetVirtualHostNameToFolderMapping(UI_HOST, PWideChar(Folder),
       COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
-    Log('StartNavigate: SetVirtualHostNameToFolderMapping HR=$%.8x', [HR]);
+    Log('StartNavigate: SetVirtualHostNameToFolderMapping UI HR=$%.8x', [HR]);
+
+    // 2) Cache: M4A extraidos, thumbs, MP4 transcodados. Acessivel via
+    //    "https://cache.noobs.app/<filename>" — usado pelo Waveform pra
+    //    fazer fetch + decodeAudioData sem bater em mixed content.
+    //
+    // ACCESS_KIND_DENY_CORS (= 2) apesar do nome confuso significa
+    // "denega a restricao CORS" — serve com headers Access-Control-Allow-*
+    // permitindo cross-origin. ALLOW (= 1) serviria mas bloquearia fetch
+    // de outra origem (UI em noobs.app fetching cache.noobs.app = origens
+    // diferentes apesar do dominio raiz). Usamos literal 2 pra nao depender
+    // do constante existir no Winapi.WebView2 de cada versao do RAD Studio.
+    CacheFolder := OBSPlayer.CacheRootDir;
+    if not DirectoryExists(CacheFolder) then
+      ForceDirectories(CacheFolder);
+    HR := WV3.SetVirtualHostNameToFolderMapping(CACHE_HOST, PWideChar(CacheFolder),
+      COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND(2));  // DENY_CORS
+    Log('StartNavigate: SetVirtualHostNameToFolderMapping CACHE HR=$%.8x folder="%s"',
+      [HR, CacheFolder]);
   end
   else
     Log('UI: ICoreWebView2_3 nao disponivel — Notification API pode nao funcionar.');

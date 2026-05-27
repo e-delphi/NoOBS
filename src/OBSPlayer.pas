@@ -79,6 +79,12 @@ procedure GarbageCollectCache(const ALivePaths: TArray<string>);
 function GetAudioTrackUrls(const APath: string;
   out AUrls: TArray<string>): Boolean;
 
+// Pasta raiz do cache (%LOCALAPPDATA%\NoOBS\cache\) — exposta pra
+// OBSUI mapear como virtual host (https://cache.noobs.app/...) usado
+// pela waveform. Fetch via HTTP local seria bloqueado por mixed content
+// (UI roda em origem https://).
+function CacheRootDir: string;
+
 implementation
 
 uses

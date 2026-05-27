@@ -40,6 +40,14 @@ function ExtractAudioTracks(const ASrc: string;
 function ExtractFrameJpeg(const ASrc, ADstJpeg: string;
   ATimestampSec, ATargetHeight: Integer): Boolean;
 
+// Decoda a primeira faixa de audio do source e calcula peaks por
+// bucket — usado pra renderizar a waveform abaixo do seek bar do
+// player. Retorna array de Single (Length = ABuckets), cada valor em
+// [0..1] representando o pico absoluto daquela secao do audio.
+// Faz uma passada linear; ~500ms-2s pra gravacao de 10 min.
+function ComputeAudioPeaks(const ASrc: string; ABuckets: Integer;
+  out APeaks: TArray<Single>): Boolean;
+
 implementation
 
 uses
@@ -645,6 +653,214 @@ begin
       // re-raise pra propagar pro caller (que ja loga tambem).
       raise;
     end;
+  end;
+end;
+
+function ComputeAudioPeaks(const ASrc: string; ABuckets: Integer;
+  out APeaks: TArray<Single>): Boolean;
+// Decoda PCM da 1a faixa de audio e produz um array de peaks
+// agrupados em ABuckets fatias temporais iguais. Suporta os formatos
+// AAC mais comuns (FLTP/FLT/S16P/S16). Outros sao ignorados.
+//
+// Algoritmo: estima totalSamples via stream.duration; loop linear pelos
+// frames decodados, cada sample contribui pro seu bucket via
+// floor(sampleIdx * Buckets / totalSamples).
+const
+  // AVSampleFormat enum (libavutil/samplefmt.h).
+  AV_SAMPLE_FMT_S16  = 1;
+  AV_SAMPLE_FMT_FLT  = 3;
+  AV_SAMPLE_FMT_S16P = 6;
+  AV_SAMPLE_FMT_FLTP = 8;
+var
+  SrcCtx: AVFormatContext;
+  AStream: PAVStream;
+  CodecPar: PAVCodecParameters;
+  Codec: PAVCodec;
+  DecCtx: PAVCodecContext;
+  Pkt: PAVPacket;
+  Frame: PAVFrame;
+  AudioIdx, i: Integer;
+  Fmt: Integer;
+  SampleRate, NumChannels: Integer;
+  DurUs: Int64;
+  DurSec: Double;
+  SampleIdx: Int64;
+  s: Integer;
+  Channel0Ptr: PByte;
+  V: Single;
+  Vi16: SmallInt;
+  NbStreams: Cardinal;
+begin
+  Result := False;
+  if ABuckets <= 0 then Exit;
+  SetLength(APeaks, ABuckets);
+  for i := 0 to ABuckets - 1 do APeaks[i] := 0;
+
+  if not FFmpegLibAvailable then Exit;
+  SrcCtx := nil;
+  DecCtx := nil;
+  Pkt := nil;
+  Frame := nil;
+  try
+    if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(ASrc)), nil, nil) < 0 then Exit;
+    if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
+
+    // Acha 1a stream de audio via os helpers do FFmpegLib.
+    AudioIdx := -1;
+    NbStreams := av_format_context_nb_streams(SrcCtx);
+    for i := 0 to Integer(NbStreams) - 1 do
+    begin
+      AStream := GetStreamByIndex(SrcCtx, Cardinal(i));
+      if (AStream <> nil) and (AStream.codecpar <> nil) and
+         (AStream.codecpar.codec_type = AVMEDIA_TYPE_AUDIO) then
+      begin
+        AudioIdx := i;
+        Break;
+      end;
+    end;
+    if AudioIdx < 0 then Exit;
+
+    AStream := GetStreamByIndex(SrcCtx, Cardinal(AudioIdx));
+    CodecPar := AStream.codecpar;
+    Codec := avcodec_find_decoder(CodecPar.codec_id);
+    if Codec = nil then Exit;
+    DecCtx := avcodec_alloc_context3(Codec);
+    if DecCtx = nil then Exit;
+    if avcodec_parameters_to_context(DecCtx, CodecPar) < 0 then Exit;
+    if avcodec_open2(DecCtx, Codec, nil) < 0 then Exit;
+
+    SampleRate := CodecPar.sample_rate;
+    if SampleRate <= 0 then SampleRate := 48000;
+    NumChannels := CodecPar.ch_layout.nb_channels;
+    if NumChannels < 1 then NumChannels := 1;
+
+    // Duracao em segundos — prefere stream.duration, fallback pro
+    // av_format_context_duration (microsegundos).
+    DurSec := 0;
+    if (AStream.duration > 0) and (AStream.time_base.den > 0) then
+      DurSec := AStream.duration *
+        (AStream.time_base.num / AStream.time_base.den);
+    if DurSec <= 0 then
+    begin
+      DurUs := av_format_context_duration(SrcCtx);
+      if DurUs > 0 then DurSec := DurUs / AV_TIME_BASE;
+    end;
+    if DurSec <= 0 then DurSec := 60;  // chute defensivo (so pra logar)
+
+    Pkt := av_packet_alloc;
+    Frame := av_frame_alloc;
+    if (Pkt = nil) or (Frame = nil) then Exit;
+
+    Log('Waveform: audio stream=%d codec_id=%d rate=%d ch=%d declared dur=%.1fs',
+      [AudioIdx, Integer(CodecPar.codec_id), SampleRate, NumChannels, DurSec]);
+
+    // Estrategia hi-res: em vez de pre-bucketar baseado em duracao
+    // declarada (que pode estar errada — vide screenshot mostrando
+    // 25% finais vazios), acumula peaks num array de alta resolucao
+    // proporcional ao sample count REAL, depois compacta no final.
+    //
+    // Vantagem: indepedente da duracao declarada na metadata, a
+    // waveform sempre representa exatamente os samples decodificados,
+    // ocupando 100% da largura visual.
+    //
+    // 4000 hi-res buckets: pra video de 1h = 0.9s/bucket; pra 30 min
+    // = 0.45s/bucket; pra 5 min = 75ms/bucket. ~16KB de memoria.
+    const HIRES_BUCKETS = 4000;
+    var SamplesPerHiRes: Integer;
+    SamplesPerHiRes := SampleRate div 20;  // 50ms por hi-res bucket
+    if SamplesPerHiRes < 1 then SamplesPerHiRes := 1;
+
+    var HiResPeaks: TArray<Single>;
+    SetLength(HiResPeaks, HIRES_BUCKETS);
+    var ActualHiResCount: Integer := 0;
+
+    SampleIdx := 0;
+    while av_read_frame(SrcCtx, Pkt) = 0 do
+    begin
+      if Pkt.stream_index = AudioIdx then
+      begin
+        if avcodec_send_packet(DecCtx, Pkt) = 0 then
+        begin
+          while avcodec_receive_frame(DecCtx, Frame) = 0 do
+          begin
+            Fmt := Frame.format;
+            Channel0Ptr := Frame.data[0];
+            if Channel0Ptr <> nil then
+            begin
+              for s := 0 to Frame.nb_samples - 1 do
+              begin
+                V := 0;
+                case Fmt of
+                  AV_SAMPLE_FMT_FLTP:
+                    V := PSingle(Channel0Ptr + s * SizeOf(Single))^;
+                  AV_SAMPLE_FMT_FLT:
+                    V := PSingle(Channel0Ptr +
+                      s * NumChannels * SizeOf(Single))^;
+                  AV_SAMPLE_FMT_S16P:
+                    begin
+                      Vi16 := PSmallInt(Channel0Ptr + s * SizeOf(SmallInt))^;
+                      V := Vi16 / 32768.0;
+                    end;
+                  AV_SAMPLE_FMT_S16:
+                    begin
+                      Vi16 := PSmallInt(Channel0Ptr +
+                        s * NumChannels * SizeOf(SmallInt))^;
+                      V := Vi16 / 32768.0;
+                    end;
+                end;
+                if V < 0 then V := -V;
+
+                // Hi-res bucket por sample count real (NAO duracao
+                // declarada). Cresce o array se ultrapassar inicial.
+                var HiResIdx: Integer := SampleIdx div SamplesPerHiRes;
+                if HiResIdx >= Length(HiResPeaks) then
+                  SetLength(HiResPeaks, Length(HiResPeaks) * 2);
+                if V > HiResPeaks[HiResIdx] then HiResPeaks[HiResIdx] := V;
+                if HiResIdx >= ActualHiResCount then
+                  ActualHiResCount := HiResIdx + 1;
+                Inc(SampleIdx);
+              end;
+            end;
+            av_frame_unref(Frame);
+          end;
+        end;
+      end;
+      av_packet_unref(Pkt);
+    end;
+
+    // Flush decoder pra capturar qualquer frame final em buffer.
+    avcodec_send_packet(DecCtx, nil);
+    while avcodec_receive_frame(DecCtx, Frame) = 0 do
+      av_frame_unref(Frame);
+
+    // Compacta hi-res → target buckets, max por chunk.
+    if ActualHiResCount = 0 then
+    begin
+      Log('Waveform: 0 samples processed — empty audio?');
+      Exit;
+    end;
+    for i := 0 to ABuckets - 1 do
+    begin
+      var StartHi: Integer := (Int64(i) * ActualHiResCount) div ABuckets;
+      var EndHi:   Integer := (Int64(i + 1) * ActualHiResCount) div ABuckets;
+      if EndHi > ActualHiResCount then EndHi := ActualHiResCount;
+      if EndHi <= StartHi then EndHi := StartHi + 1;
+      for var j: Integer := StartHi to EndHi - 1 do
+        if HiResPeaks[j] > APeaks[i] then APeaks[i] := HiResPeaks[j];
+    end;
+
+    var MaxP: Single := 0;
+    for i := 0 to ABuckets - 1 do
+      if APeaks[i] > MaxP then MaxP := APeaks[i];
+    Log('Waveform: %d samples, %d hi-res buckets used, peak max=%.4f',
+      [SampleIdx, ActualHiResCount, MaxP]);
+
+    Result := True;
+  finally
+    if Frame  <> nil then av_frame_free(@Frame);
+    if Pkt    <> nil then av_packet_free(@Pkt);
+    if DecCtx <> nil then avcodec_free_context(@DecCtx);
+    if SrcCtx <> nil then avformat_close_input(@SrcCtx);
   end;
 end;
 

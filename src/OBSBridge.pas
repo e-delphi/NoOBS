@@ -58,6 +58,7 @@ uses
   OBSRecordWatch,
   System.SyncObjs,
   FFmpegLib,
+  FFmpegOps,
   NoOBSTypes,
   OBSEncoder,
   OBSAudioTracks,
@@ -974,6 +975,10 @@ end;
 
 // Forward — definida logo abaixo da implementacao da thread.
 procedure PushMonitorThumbs; forward;
+// Definida em ~linha 2800. Forward aqui porque DoInit (~1990) chama
+// PushSettings pra que o UI tenha as configs desde o boot (sem isso,
+// settings so chegavam quando o user abria o modal de Configuracoes).
+procedure PushSettings; forward;
 
 // ----------------------------------------------------------------------
 // TThumbTimerThread
@@ -1985,6 +1990,11 @@ begin
   // 30s+ em maquinas sem mic ou com audio service em estado ruim.
   // Quando terminar, push refresh.
   PushInit(False);
+  // Sem isso, currentPlaySoundOnRecord (e outras settings) ficam nos
+  // defaults JS ate o user abrir o modal de configuracoes. Resultado:
+  // som de inicio/fim de gravacao nao toca na primeira gravacao se
+  // estiver habilitado, ate o user ter aberto Settings uma vez.
+  PushSettings;
   PushRecordingState;
   // Snapshots iniciais — sem isso o 1o hot-plug de monitor/webcam
   // compararia contra lista vazia e reportaria "todos adicionados".
@@ -2662,6 +2672,46 @@ begin
     end).Start;
 end;
 
+procedure HandleRequestWaveform(const APath: string; ABuckets: Integer);
+// Calcula peaks da 1a faixa de audio via libav (em worker thread) e
+// envia pra UI como JSON. UI renderiza as barras embaixo do seek bar.
+// Sem cache em arquivo por enquanto — cada open recompute (~500ms-2s).
+begin
+  if APath = '' then Exit;
+  if not TFile.Exists(APath) then Exit;
+  if ABuckets <= 0 then ABuckets := 100;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Peaks: TArray<Single>;
+      Ok: Boolean;
+      i: Integer;
+      Obj: TJSONObject;
+      Arr: TJSONArray;
+    begin
+      if IsShuttingDown then Exit;
+      Ok := False;
+      try Ok := FFmpegOps.ComputeAudioPeaks(APath, ABuckets, Peaks); except end;
+      if IsShuttingDown then Exit;
+      if not Ok then
+      begin
+        Log('Waveform: ComputeAudioPeaks falhou pra "%s"', [APath]);
+        Exit;
+      end;
+
+      Obj := TJSONObject.Create;
+      Obj.AddPair('type', 'waveform_ready');
+      Obj.AddPair('id', APath);
+      Arr := TJSONArray.Create;
+      for i := 0 to High(Peaks) do
+        Arr.AddElement(TJSONNumber.Create(Peaks[i]));
+      Obj.AddPair('peaks', Arr);
+
+      TThread.Queue(nil, procedure begin PostOwned(Obj); end);
+    end).Start;
+end;
+
 procedure HandleRequestAudioTracks(const APath: string);
 // Extrai todas as audio tracks (uma vez, ~500ms-2s) e devolve URLs.
 // JS cria audio elements sincronizados ao video element pra mixagem
@@ -3131,6 +3181,8 @@ begin
       HandleRequestVideoInfo(GetStrField(Obj, 'id'))
     else if MsgType = 'request_audio_tracks' then
       HandleRequestAudioTracks(GetStrField(Obj, 'id'))
+    else if MsgType = 'request_waveform' then
+      HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
     else if MsgType = 'pick_record_dir' then

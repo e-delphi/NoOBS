@@ -2388,11 +2388,25 @@ begin
 end;
 
 procedure OnWindowRestoredForHibernate;
-// Disparado por OBSUI.RestoreFromTray. Cancela o timer de idle —
-// user voltou a interagir com a janela, nao queremos hibernar.
+// Disparado por OBSUI.RestoreFromTray. Faz duas coisas:
+//
+//  1. Cancela o timer de idle hibernate — user voltou a interagir
+//     com a janela, nao queremos respawnar como /hibernate.
+//
+//  2. Re-empurra estado de gravacao pra UI. Defensivo: se a gravacao
+//     foi iniciada via hotkey/tray enquanto a janela estava escondida,
+//     o PushRecordingState original pode nao ter "pego" no DOM:
+//       - WebView2 as vezes throttle/dropa msgs com window hidden
+//       - Em spawn /start-record (vindo de hibernate), o PushRecordingState
+//         compete com PushInit/PushSettings/PushRefreshBusy na ordem de
+//         processamento JS — race conhecido
+//     Re-enviar aqui garante que ao abrir a janela o user ve o estado
+//     correto (botao "Parar", borda vermelha, timer rolando). Push
+//     e idempotente — se DOM ja esta certo, applyRecordingState e no-op.
 begin
   if MainWindowHandle = 0 then Exit;
   KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+  try PushRecordingState; except end;
 end;
 
 procedure HandleRecordStop;

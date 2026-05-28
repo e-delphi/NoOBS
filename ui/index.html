@@ -2612,10 +2612,55 @@
     gap: 10px;
     margin-top: 4px;
   }
+  /* Slider customizado — estilizamos track + thumb explicitamente pra
+     ter controle exato das dimensoes. Sem isso, o thumb usa o tamanho
+     default do WebView2 (que varia entre versoes / temas / OS), e o
+     alinhamento dos ticks com o centro do thumb fica impossivel de
+     calibrar (cada ambiente renderiza com radius diferente — uns 4-5px,
+     outros ate 8px). Fixando em 14px, o raio e exato 7px, e o padding
+     61px das classes .quality-ticks / .fps-ticks alinha perfeitamente.
+     Trade-off: perdemos o look "nativo" do Windows, mas em troca temos
+     consistencia visual com o resto da UI (cor --success) e ticks
+     alinhados. */
+  /* Slider customizado — estilizamos track + thumb explicitamente. Com
+     `appearance: none` o tamanho do thumb fica EXATO (14px), sem
+     depender de defaults do WebView2/OS theme que variam de 8 a 16px.
+     Isso e pre-requisito pra alinhar os ticks com o centro do thumb. */
   .quality-slider-row input[type="range"] {
-    flex: 1;
-    accent-color: var(--success);
+    width: 100%;
     cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    display: block;
+  }
+  /* Track com fill verde a esquerda do thumb. --val (0..1) e atualizado
+     via JS pelo helper Settings._syncSliderFill toda vez que o slider
+     muda. O ponto de troca do gradient bate exato com o centro do thumb:
+     7px (raio do thumb a partir do inicio do track) + ratio * (100% - 14px). */
+  .quality-slider-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .quality-slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    border: none;
+    cursor: pointer;
+    /* Centra o thumb verticalmente na track de 4px: (14-4)/2 = 5 */
+    margin-top: -5px;
   }
   .quality-end-label {
     font-size: 11px;
@@ -2623,26 +2668,57 @@
     min-width: 44px;
   }
   .quality-end-label:last-of-type { text-align: right; }
-  .quality-ticks {
+
+  /* Wrapper que envolve <input> + <ticks>. Ocupa o espaco do meio do
+     row (flex: 1, entre os labels). Como o wrapper TEM A MESMA LARGURA
+     do input (input com width: 100%), os ticks dentro dele alinham
+     naturalmente com o thumb — basta compensar o raio do thumb (7px)
+     nas pontas. Sem isso (estrutura antiga com ticks fora do row),
+     o calculo dependia de label-width + gap + thumb-radius, que e
+     fragil. */
+  .slider-with-ticks {
+    flex: 1;
     display: flex;
-    justify-content: space-between;
-    padding: 0 50px;  /* aprox. largura dos labels Menor/Maior */
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* CENTRALIZAR cada tick no centro do thumb naquela posicao. Math:
+       thumb-center = ratio * (slider-width - thumb-width) + thumb-radius
+       tick-left    = thumb-center - tick-width/2
+     CSS resolve isso com `left: thumb-center` + `translateX(-50%)`,
+     que desloca o tick PRA ESQUERDA por metade da PROPRIA largura
+     (independente do que esteja escrito — "20", "160", "-2", "+1"
+     todos centralizam certo). Sem isso (flex space-between ou
+     translateX:0/-100% nas pontas), o ALINHAMENTO bate pela borda
+     do texto, nao pelo centro — primeiro tick aparece a direita do
+     thumb, ultimo a esquerda. */
+  .slider-with-ticks .quality-ticks {
+    position: relative;
+    height: 14px;
     margin-top: 2px;
     font-size: 10px;
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
   }
-  /* Tick marks do slider de FPS — diferente do .quality-ticks porque os
-     valores nao sao igualmente espacados (10, 30, 60, 120, maxMonitorHz).
-     Por isso usamos position:absolute + calc() pra alinhar cada label
-     com a posicao proporcional do thumb. O padding 0 50px casa com o
-     .quality-slider-row (largura dos labels esquerdo/direito) pra que
-     0% (left edge da area util) bata com o "10 fps" e 100% (right edge)
-     bata com o label do max. Tick gerado dinamicamente em JS. */
-  .fps-ticks {
+  .slider-with-ticks .quality-ticks span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  /* 5 ticks evenly-spaced (-2, -1, 0, +1, +2). Cada um em ratio 0,
+     0.25, 0.5, 0.75, 1.0. Posicao = thumb-center naquele valor. */
+  .slider-with-ticks .quality-ticks span:nth-child(1) { left: 7px; }
+  .slider-with-ticks .quality-ticks span:nth-child(2) { left: calc(7px + 0.25 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(3) { left: calc(7px + 0.50 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(4) { left: calc(7px + 0.75 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(5) { left: calc(100% - 7px); }
+  /* Tick marks do slider de FPS — mesma logica, posicionamento via JS
+     porque a quantidade de ticks varia com maxMonitorHz. */
+  .slider-with-ticks .fps-ticks {
     position: relative;
     height: 14px;
-    padding: 0 50px;
+    padding: 0;
     margin-top: 2px;
     font-size: 10px;
     color: var(--text-3);
@@ -2651,14 +2727,15 @@
   .fps-ticks .fps-tick {
     position: absolute;
     top: 0;
+    /* SEMPRE centraliza — independente do tick ser o primeiro, ultimo
+       ou intermediario. translateX(-50%) desloca o label pra esquerda
+       pela metade da propria largura, alinhando o centro do texto com
+       o centro do thumb naquela posicao. Antes tinha .at-start /
+       .at-end fazendo translateX(0) / -100% pra "encostar nas bordas",
+       o que desalinhava (texto comecava AO INVES DE CENTRAR no thumb). */
     transform: translateX(-50%);
     white-space: nowrap;
   }
-  /* Primeira/ultima tick ancoram nas bordas da area util (igual ao
-     .quality-ticks via flex) — ajuste manual de transform pra nao
-     ultrapassar o container. */
-  .fps-ticks .fps-tick.at-start { transform: translateX(0); }
-  .fps-ticks .fps-tick.at-end   { transform: translateX(-100%); }
   .settings-hint {
     font-size: 11px;
     color: var(--text-3);
@@ -3039,13 +3116,17 @@
         <label data-i18n="settings.quality.label">Qualidade da gravação</label>
         <div class="quality-slider-row">
           <span class="quality-end-label" data-i18n="settings.quality.lower">Menor</span>
-          <input type="range" id="settingsRecordingQuality"
-                 min="-2" max="2" step="1" value="0"
-                 oninput="Settings.onQualityChange()">
+          <!-- Wrapper com largura == input → ticks dentro alinham com
+               o thumb compensando so o raio (7px). -->
+          <div class="slider-with-ticks">
+            <input type="range" id="settingsRecordingQuality"
+                   min="-2" max="2" step="1" value="0"
+                   oninput="Settings.onQualityChange()">
+            <div class="quality-ticks">
+              <span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
+            </div>
+          </div>
           <span class="quality-end-label" data-i18n="settings.quality.higher">Maior</span>
-        </div>
-        <div class="quality-ticks">
-          <span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
         </div>
         <div class="settings-hint" id="settingsQualityHint">
           Padrão — mesma qualidade do encoder, balanceado entre tamanho
@@ -3061,14 +3142,16 @@
                Settings._currentFpsFromSlider faz a conversao indice -> fps.
                Lista padrao: [20, 30, 60, 90, ..., max do monitor]. -->
           <span class="quality-end-label" id="settingsFpsMinLabel">20 fps</span>
-          <input type="range" id="settingsRecordingFps"
-                 min="0" max="2" step="1" value="1"
-                 oninput="Settings.onFpsChange()">
+          <div class="slider-with-ticks">
+            <input type="range" id="settingsRecordingFps"
+                   min="0" max="2" step="1" value="1"
+                   oninput="Settings.onFpsChange()">
+            <!-- Ticks: um por predefinicao. Populados em JS via
+                 _populateFpsTicks com left = 7px + ratio * (100% - 14px). -->
+            <div class="fps-ticks" id="fpsTicks"></div>
+          </div>
           <span class="quality-end-label" id="settingsFpsMaxLabel">60 fps</span>
         </div>
-        <!-- Ticks: um por predefinicao, espacados igualmente (cada passo
-             do slider = uma predefinicao). Populado em JS. -->
-        <div class="fps-ticks" id="fpsTicks"></div>
         <div class="settings-hint" id="settingsFpsHint">
           30 fps — suave, padrão de vídeo. Arquivo compacto.
         </div>
@@ -6009,8 +6092,22 @@ const Settings = {
     if (!el || !hint) return;
     const v = parseInt(el.value, 10) | 0;
     // Chave estilo 'settings.quality.hint.-2' .. '.2' — match com o JSON.
-    if (v < -2 || v > 2) { hint.textContent = ''; return; }
-    hint.textContent = T('settings.quality.hint.' + v);
+    if (v >= -2 && v <= 2) hint.textContent = T('settings.quality.hint.' + v);
+    else hint.textContent = '';
+    this._syncSliderFill(el);
+  },
+  // Atualiza a CSS var --val (0..1) usada pelo linear-gradient da track
+  // pra colorir a parte preenchida em verde. Chamado pelos _sync*Hint
+  // que ja sao invocados em todo lugar que o slider muda — drag, open,
+  // applySettings, restoreDefaults.
+  _syncSliderFill(slider) {
+    if (!slider) return;
+    const min = parseFloat(slider.min) || 0;
+    const max = parseFloat(slider.max) || 100;
+    const val = parseFloat(slider.value) || 0;
+    const ratio = (max > min) ?
+      Math.max(0, Math.min(1, (val - min) / (max - min))) : 0;
+    slider.style.setProperty('--val', String(ratio));
   },
   _syncFpsHint() {
     const hint = document.getElementById('settingsFpsHint');
@@ -6026,6 +6123,7 @@ const Settings = {
     else if (v <= 120) bucket = 'high';
     else               bucket = 'veryHigh';
     hint.textContent = T('settings.fps.hint.' + bucket, { fps: v });
+    this._syncSliderFill(document.getElementById('settingsRecordingFps'));
   },
   // Calcula as predefinicoes validas dado o maxMonitorHz atual. Ver
   // comentario da propriedade fpsPresets pra regra completa.
@@ -6085,7 +6183,12 @@ const Settings = {
       maxLbl.textContent = this.fpsPresets[this.fpsPresets.length - 1] + ' fps';
   },
   // Tick por preset, espacados igualmente (cada step do slider = 1 tick).
-  // Posicao = (i / (N-1)) do espaco util do slider (padding 50px cada lado).
+  // Container .fps-ticks vive dentro de .slider-with-ticks, que tem a
+  // mesma largura do input (width: 100%). Entao "100%" no calc abaixo
+  // ja e a largura util do slider — basta compensar o raio do thumb
+  // (7px = metade da width: 14px do ::-webkit-slider-thumb):
+  //   left = 7px + ratio * (100% - 14px)
+  // Independente de label-width, gap, ou outros offsets externos do row.
   _populateFpsTicks() {
     const el = document.getElementById('fpsTicks');
     if (!el) return;
@@ -6093,11 +6196,11 @@ const Settings = {
     if (presets.length < 2) { el.innerHTML = ''; return; }
     el.innerHTML = presets.map((v, i) => {
       const ratio = i / (presets.length - 1);
-      const left = `calc(50px + ${ratio} * (100% - 100px))`;
-      let cls = 'fps-tick';
-      if (i === 0) cls += ' at-start';
-      else if (i === presets.length - 1) cls += ' at-end';
-      return `<span class="${cls}" style="left: ${left}">${v}</span>`;
+      const left = `calc(7px + ${ratio} * (100% - 14px))`;
+      // Sem at-start/at-end — todos os ticks centralizados via translateX(-50%)
+      // na CSS, que e o jeito certo de alinhar com o thumb (centro a centro,
+      // nao borda a borda).
+      return `<span class="fps-tick" style="left: ${left}">${v}</span>`;
     }).join('');
   },
 
@@ -6814,6 +6917,18 @@ const Player = {
     this.triedTranscode = false;
     this.closeInfoPanel();
     this.resetZoom();
+    // Reseta selecao de monitor/regiao + layout cacheado + flag de info
+    // carregada. Sem isso, abrir o mesmo (ou outro) video em seguida
+    // herda a selecao anterior na aba "Visualizacao" do painel de info
+    // — bug visivel: usuario abre video, escolhe um monitor especifico,
+    // fecha, reabre, e o player ja inicia naquela regiao em vez de tela
+    // cheia. infoLoaded=null forca o re-render do painel mesmo se for
+    // o mesmo video (caso contrario toggleInfoPanel skip o requestInfo
+    // pq infoLoaded === currentId, e o DOM mantem o radio do monitor
+    // antigo marcado).
+    this.selectedRegions = new Set();
+    this.currentLayout = null;
+    this.infoLoaded = null;
     // Reseta velocidade pra 1x — novo video comeca em ritmo normal
     // mesmo se o ultimo ficou em 2x ou 0.5x.
     this.setPlaybackSpeed(1);

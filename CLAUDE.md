@@ -620,6 +620,105 @@ acordava o outro.
 **Solução**: `OBSSingleInstance.pas` exporta as constantes; ambas as
 units fazem `uses OBSSingleInstance`. Nunca duplicar esses literais.
 
+### 37. **`Player.close()` precisa resetar TODO o estado, não só zoom/áudio**
+
+`selectedRegions` (Set<number> da aba "Visualização" do painel de info),
+`currentLayout` (layout do canvas cacheado) e `infoLoaded` (id do vídeo
+cujo painel foi renderizado) persistem entre aberturas do player. Sintoma:
+abrir vídeo, abrir info, marcar monitor 1, fechar, reabrir o **mesmo
+vídeo** → painel volta com monitor 1 selecionado e o player joga direto
+naquela região em vez de tela cheia.
+
+Causa: `toggleInfoPanel` skip o `requestInfo()` quando `infoLoaded ===
+currentId` (otimização pra evitar re-fetch), mas o DOM já está populado
+da sessão anterior — incluindo o radio do monitor selecionado.
+
+**Solução** em `Player.close()`: além dos cleanups de zoom/áudio/waveform/
+fullscreen, resetar:
+```javascript
+this.selectedRegions = new Set();   // volta pra "Tela cheia"
+this.currentLayout = null;
+this.infoLoaded = null;             // força re-render mesmo pro mesmo id
+```
+
+### 38. **Re-push de `recording_state` ao restaurar da bandeja**
+
+WebView2 com janela hidden ocasionalmente throttle/dropa `postMessage`
+calls. Cenário comum: app na bandeja → user aperta hotkey de gravar →
+`HandleRecordStart` faz `PushRecordingState`, mas a mensagem não "pega"
+no DOM (especialmente em `/start-record` vindo de hibernate, onde
+compete com PushInit/PushSettings na fila do JS). User reabre a janela
+e vê botão "Iniciar gravação" + sem timer, mesmo gravando.
+
+**Solução** em `OnWindowRestoredForHibernate` (callback de
+`OBSUI.RestoreFromTray`): além de matar o timer de idle hibernate,
+chamar `PushRecordingState`. Idempotente — `applyRecordingState` no JS
+reaplica as mesmas classes/labels se o DOM já está correto, e o guard
+de `_lastRecordingActive` previne replay do som de início.
+
+### 39. **Sliders: thumb com width explícita + ticks centralizados em `translateX(-50%)`**
+
+Dois problemas combinados que matam o alinhamento de ticks:
+
+**Problema A — tamanho do thumb varia.** Sem `::-webkit-slider-thumb`
+com width fixa, o WebView2 usa o default do tema do OS (varia entre
+8-16px). Raio do thumb fica indeterminado → impossível calibrar offset
+dos ticks. Solução: estilizar thumb explicitamente:
+```css
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  margin-top: -5px;  /* centra na track de 4px */
+}
+```
+Combinado com `-webkit-appearance: none` no input + `width: 100%` (não
+`flex: 1` — usar wrapper `.slider-with-ticks` pra acompanhar a largura).
+
+**Problema B — alinhamento por borda em vez de centro.** `flex
+space-between` ou `translateX(0)` no primeiro tick / `translateX(-100%)`
+no último alinha pela BORDA do label, não pelo centro. Como o texto
+varia ("-2" tem 12px, "160" tem 22px), o primeiro tick aparece à
+direita do thumb e o último à esquerda — assimétrico.
+
+**Solução**: `position: absolute` + `transform: translateX(-50%)` em
+**TODOS** os ticks (sem `.at-start`/`.at-end` overrides), com
+`left: calc(7px + ratio * (100% - 14px))`. O `translateX(-50%)`
+centraliza independente da largura do texto.
+
+Bonus: track com fill verde via `linear-gradient` usando uma CSS var
+`--val` (0..1) atualizada por JS no `oninput`:
+```css
+background: linear-gradient(to right,
+  var(--success) 0,
+  var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+  var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+  var(--border-2) 100%);
+```
+O ponto de troca de cor usa a mesma matemática dos ticks — verde sempre
+termina exatamente embaixo do centro do thumb.
+
+### 40. **AVStream offsets validados pra FFmpeg 7.x (avformat-61)**
+
+Igual ao `AVFormatContext` (pegadinha #26), `AVStream` NÃO é ABI-stable.
+Layout pra FFmpeg 7.x (avformat-61), Win64:
+
+| Campo            | Offset | Tipo                  |
+|------------------|--------|-----------------------|
+| `codecpar`       | 16     | AVCodecParameters*    |
+| `time_base`      | 32     | AVRational (8B)       |
+| `start_time`     | 40     | int64                 |
+| `duration`       | 48     | int64                 |
+| `nb_frames`      | 56     | int64                 |
+| `metadata`       | 80     | AVDictionary*         |
+| `avg_frame_rate` | **88** | AVRational (FPS médio)|
+
+`OBSProbe.Probe` lê `avg_frame_rate.num / avg_frame_rate.den` pra
+mostrar a taxa de quadros no painel de info do player (`29.97` pra
+NTSC, `30/60/144` pra inteiros). Se subir o major (61→62), validar
+contra `avformat.h` do release novo.
+
 ---
 
 ## Caches
@@ -704,7 +803,19 @@ trocas de idioma:
 <input data-i18n-placeholder="recordings.search" placeholder="Buscar...">
 <button data-i18n-aria="record.ariaLabel" aria-label="Gravar">REC</button>
 <p data-i18n-html="about.intro2"><b>HTML simples</b> aceito aqui</p>
+<ul data-i18n-list="about.features"><li>fallback</li></ul>
 ```
+
+Atributos suportados pelo `I18n.apply()`:
+
+| Atributo | Efeito | Chave aponta para |
+|---|---|---|
+| `data-i18n` | `textContent` | string |
+| `data-i18n-html` | `innerHTML` (aceita `<b>`/`<code>`) | string |
+| `data-i18n-title` | atributo `title` | string |
+| `data-i18n-placeholder` | atributo `placeholder` | string |
+| `data-i18n-aria` | atributo `aria-label` | string |
+| `data-i18n-list` | renderiza array como `<li>` filhos | array de string |
 
 **JS dinâmico** — `T(key, args)`:
 
@@ -765,6 +876,15 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 - **Strings pra FFI** (libobs/libav): UTF-8 sempre. Use
   `UTF8Encode`/`UTF8ToString` (ou `FFmpegLib.ToUtf8`), nunca
   `AnsiString(s)` direto que depende da locale.
+- **`.gitignore` — un-ignore em cascata**: o git não desce em diretório
+  ignorado. Pra incluir arquivos dentro de uma pasta excluída, primeiro
+  un-ignore o diretório, **depois** os arquivos:
+  ```gitignore
+  exe/bin/64bit/*                      # ignora tudo
+  !exe/bin/64bit/lang/                 # 1º: un-ignora a pasta
+  !exe/bin/64bit/lang/*.json           # 2º: un-ignora os arquivos
+  ```
+  Só a segunda linha sozinha NÃO funciona — `lang/` continua ignorado.
 
 ---
 

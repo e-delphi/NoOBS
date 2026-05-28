@@ -1,5 +1,6 @@
 ﻿!include "MUI2.nsh"
 !include "LogicLib.nsh"
+!include "Sections.nsh"
 !include "x64.nsh"
 
 ;--------------------------------
@@ -99,6 +100,16 @@ Function .onInit
             Abort
         done:
     ${EndIf}
+
+    ; Sincroniza o checkbox "Iniciar com Windows" com o estado real do
+    ; registro. Caso classico: user ja tinha autostart ligado (via
+    ; install anterior OU via toggle no app), reinstala, e clica
+    ; "Avancar" no painel de Componentes sem mexer em nada. Sem o
+    ; pre-check, o checkbox vem desmarcado (default /o) e a etapa
+    ; "AutostartSync" remove silenciosamente a entrada que o user
+    ; tinha. Com o pre-check, o checkbox reflete a config atual e o
+    ; user precisa DESMARCAR explicitamente pra remover.
+    Call PreCheckAutostart
 FunctionEnd
 
 ;--------------------------------
@@ -168,6 +179,34 @@ Section /o "Iniciar com o Windows" SecAutostart
     ; Comportamento (bandeja vs janela visivel) e decidido pelo app
     ; em runtime, lendo o config 'closeToTray'.
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /autostart'
+    ; Limpa StartupApproved se ficou em estado "disabled" (user tinha
+    ; desativado pelo Task Manager/Settings > Inicializar do Windows
+    ; numa instalacao anterior). Sem isso, o Windows continua ignorando
+    ; a entrada de Run mesmo recem-escrita. Remover a chave faz o
+    ; Windows tratar como "default enabled".
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "NoOBS"
+SectionEnd
+
+; Hidden section (prefixo "-" = obrigatoria, nao aparece no painel de
+; Componentes). SEMPRE roda — independente do user ter marcado ou
+; desmarcado o checkbox acima. Aqui sincronizamos a uncheck: se o
+; SecAutostart NAO foi selecionado, removemos qualquer entrada de
+; autostart que uma instalacao anterior (ou o toggle pelo app via UI)
+; tenha deixado.
+;
+; Sem essa secao, o checkbox era "additive-only": marcado escrevia,
+; desmarcado nao fazia nada. Resultado: reinstalar com checkbox
+; desmarcado nao removia a entrada antiga — surpresa pra quem espera
+; que o instalador seja autoritativo.
+Section "-AutostartSync"
+    SectionGetFlags ${SecAutostart} $0
+    IntOp $0 $0 & ${SF_SELECTED}
+    ${If} $0 == 0
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS"
+        ; Tambem limpa StartupApproved — assim o estado fica realmente
+        ; "nao configurado" (e nao "Run vazio + disabled marcado").
+        DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "NoOBS"
+    ${EndIf}
 SectionEnd
 
 Section /o "Atalho na Area de Trabalho" SecDesktopShortcut
@@ -184,6 +223,27 @@ LangString DESC_SecDesktopShortcut  ${LANG_PORTUGUESEBR} "Cria um atalho do NoOB
   !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart}       $(DESC_SecAutostart)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktopShortcut} $(DESC_SecDesktopShortcut)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+;--------------------------------
+; Pre-check do checkbox "Iniciar com Windows" baseado no estado atual
+; do registro. Declarada APOS as Sections pra que ${SecAutostart} ja
+; tenha sido resolvido. Chamada via Call a partir de .onInit (NSIS
+; aceita forward-reference de funcoes via Call).
+;
+; Logica: se a entrada de Run ja existe (de uma instalacao anterior
+; OU do toggle do app via Settings), pre-marca o checkbox. User
+; precisa DESMARCAR explicitamente pra remover — sem isso, o checkbox
+; vinha desmarcado no default /o e a etapa AutostartSync removia
+; silenciosamente uma config que o user nao quis tocar.
+;--------------------------------
+Function PreCheckAutostart
+    ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS"
+    ${If} $0 != ""
+        SectionGetFlags ${SecAutostart} $1
+        IntOp $1 $1 | ${SF_SELECTED}
+        SectionSetFlags ${SecAutostart} $1
+    ${EndIf}
+FunctionEnd
 
 ;--------------------------------
 ; Desinstalacao
@@ -227,6 +287,11 @@ Section "Uninstall"
 
     ; Remove autostart se estiver registrado (instalador pode ter adicionado).
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS"
+    ; Tambem limpa StartupApproved — Task Manager/Settings > Inicializar
+    ; podem ter armazenado o status (enabled/disabled) la em paralelo.
+    ; Sem essa limpeza, a chave fica orfa apontando pra um NoOBS que
+    ; nao existe mais.
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "NoOBS"
 
     ; Pergunta se quer remover configuracoes e cache
     MessageBox MB_YESNO "Deseja remover as configuracoes e cache do NoOBS?" IDNO skip

@@ -144,8 +144,8 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.342;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Build>342</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.343;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Build>343</VerInfo_Build>
         <Icon_MainIcon>icon.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
@@ -200,6 +200,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\WinAudioMeter.pas"/>
         <DCCReference Include="src\WinPreview.pas"/>
         <DCCReference Include="src\WinWebcam.pas"/>
+        <DCCReference Include="src\NoOBSLockDetector.pas"/>
         <RcItem Include="ui\index.html">
             <ContainerId>ResourceItem</ContainerId>
             <ResourceType>RCDATA</ResourceType>

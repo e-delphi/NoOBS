@@ -52,7 +52,8 @@ uses
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',
   WinPreview in 'src\WinPreview.pas',
-  WinWebcam in 'src\WinWebcam.pas';
+  WinWebcam in 'src\WinWebcam.pas',
+  NoOBSLockDetector in 'src\NoOBSLockDetector.pas';
 
 // Dispatch entre modo "full" (UI completa + libobs + watchers) e
 // modo "hibernate" (so tray icon + hotkey, ~5MB RAM). Flag de linha de

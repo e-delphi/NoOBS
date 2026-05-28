@@ -56,6 +56,7 @@ uses
   OBSAudioWatch,
   OBSProbe,
   OBSRecordWatch,
+  NoOBSLockDetector,
   System.SyncObjs,
   FFmpegLib,
   FFmpegOps,
@@ -122,6 +123,16 @@ type
     procedure Execute; override;
   end;
 
+  // Holder pra callback `of object` do TMachineLockDetector. Detector
+  // exporta evento de instancia (TMachineLockEvent = procedure(...) of
+  // object), nao da pra apontar pra procedure unit-level — precisa de
+  // metodo de classe/instancia. Esse holder e a "ponte" minima:
+  // recebe o evento na thread do detector e despacha pra main via
+  // TThread.Queue.
+  TLockEventHolder = class
+    procedure OnLockChanged(Sender: TObject; ALocked: Boolean);
+  end;
+
 const
   // IDs dos atalhos globais (registrados em DoInit via OBSUI).
   // Faixa 100..999 reservada — caller pode usar > 1000 livre.
@@ -161,6 +172,11 @@ var
   WindowWasVisibleBeforeRecord: Boolean = False;
   ThumbBusy: Boolean = False;       // evita pile-up se o tick anterior atrasar
   ThumbThread: TThumbTimerThread = nil;
+  // Detector de bloqueio de tela (Win+L / lock automatico). Quando o
+  // config 'stopOnLock' esta ativo e o app esta gravando, a transicao
+  // WTS_SESSION_LOCK dispara HandleRecordStop.
+  LockDetector: TMachineLockDetector = nil;
+  LockEventHolder: TLockEventHolder = nil;
   // True enquanto o modal de player de video esta aberto. UI envia o
   // estado via mensagem 'player_state'. Quando aberto, suspendemos os
   // audio meters e a captura de thumbs de monitor — a sidebar do app
@@ -391,6 +407,47 @@ end;
 // Constroi micsJson + speakersJson com o campo `track` ja computado pela
 // funcao centralizada em OBSEngine. Single source of truth: UI nao
 // re-implementa o agrupamento.
+// Insertion sort estavel dos 4 arrays paralelos (Idxs, Tracks,
+// Enabled, Default) pela chave Track ascendente. Track=0 (device
+// desabilitado, fora de qualquer faixa) e tratado como +infinito,
+// indo pro fim da lista. Usado pra exibir mics/speakers na UI
+// seguindo a numeracao das tracks — coerente com a legenda.
+procedure SortAudioParallelByTrack(
+  var AIdxs, ATracks: TArray<Integer>;
+  var AEnabled, ADefault: TArray<Boolean>);
+var
+  i, j, n: Integer;
+  tIdx, tTrack: Integer;
+  tEn, tDef: Boolean;
+
+  function Key(ATrack: Integer): Integer;
+  begin
+    if ATrack = 0 then Result := MaxInt else Result := ATrack;
+  end;
+
+begin
+  n := Length(ATracks);
+  if n < 2 then Exit;
+  for i := 1 to n - 1 do
+  begin
+    tIdx := AIdxs[i]; tTrack := ATracks[i];
+    tEn := AEnabled[i]; tDef := ADefault[i];
+    j := i;
+    while (j > 0) and (Key(ATracks[j-1]) > Key(tTrack)) do
+    begin
+      AIdxs[j]    := AIdxs[j-1];
+      ATracks[j]  := ATracks[j-1];
+      AEnabled[j] := AEnabled[j-1];
+      ADefault[j] := ADefault[j-1];
+      Dec(j);
+    end;
+    AIdxs[j]    := tIdx;
+    ATracks[j]  := tTrack;
+    AEnabled[j] := tEn;
+    ADefault[j] := tDef;
+  end;
+end;
+
 procedure BuildAudioJsonWithTracks(out AMicsJson, ASpkJson: TJSONArray);
 var
   Devs: TAudioDeviceInfoArray;
@@ -455,6 +512,20 @@ begin
 
   ComputeAudioTrackAssignments(MicEnabled, MicDefault, SpkEnabled, SpkDefault,
     MicTracks, SpkTracks, TotalTracks);
+
+  // Reordena os 4 arrays paralelos (Idxs, Tracks, Enabled, Default)
+  // pra que a lista exibida na UI siga a numeracao das tracks
+  // ascendente. Sem isso, quando o ComputeAudioTrackAssignments faz
+  // o post-processing movendo a faixa agrupada pro fim (track 6),
+  // dispositivos com track menor (4, 5) apareciam DEPOIS dos
+  // agrupados (6) na UI — contradizendo a legenda. Disabled (track=0)
+  // vao pro fim ("inativos" agrupados na cauda da lista).
+  //
+  // Insertion sort estavel — arrays sao pequenos (<10 devices tipico),
+  // O(n^2) e irrelevante. Stable: empates (ex: varios devices na
+  // mesma track agrupada) mantem ordem de enumeracao.
+  SortAudioParallelByTrack(MicIdxs, MicTracks, MicEnabled, MicDefault);
+  SortAudioParallelByTrack(SpkIdxs, SpkTracks, SpkEnabled, SpkDefault);
 
   for k := 0 to High(MicIdxs) do
   begin
@@ -2061,6 +2132,27 @@ begin
   // Hot-plug de audio (continua funcionando sem OBS).
   try OBSAudioWatch.Start(OnDeviceChange); except end;
 
+  // Detector de bloqueio de tela. Sempre ativo (custo desprezivel —
+  // hidden message window + PeekMessage). O config 'stopOnLock' e
+  // consultado dentro do callback, nao na construcao — assim o user
+  // pode ligar/desligar a feature sem reiniciar o app.
+  if LockEventHolder = nil then
+    LockEventHolder := TLockEventHolder.Create;
+  if LockDetector = nil then
+  begin
+    try
+      LockDetector := TMachineLockDetector.Create;
+      LockDetector.OnLockStateChanged := LockEventHolder.OnLockChanged;
+      Log('LockDetector: iniciado.');
+    except
+      on E: Exception do
+      begin
+        Log('LockDetector: falha ao iniciar: %s', [E.Message]);
+        if LockDetector <> nil then FreeAndNil(LockDetector);
+      end;
+    end;
+  end;
+
   // Watcher da pasta de gravacoes — refresh automatico quando o user
   // adiciona/exclui arquivo via Explorer ou outro app.
   try OBSRecordWatch.Start(RecordDir, OnRecordDirChanged); except end;
@@ -2831,6 +2923,8 @@ begin
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
   Obj.AddPair('playSoundOnRecord',
     TJSONBool.Create(GetConfigBool('playSoundOnRecord', False)));
+  Obj.AddPair('stopOnLock',
+    TJSONBool.Create(GetConfigBool('stopOnLock', False)));
   Obj.AddPair('hibernate',
     TJSONBool.Create(GetConfigBool('hibernate', False)));
   Obj.AddPair('recordingQuality',
@@ -2939,6 +3033,36 @@ procedure HandleSetPlaySoundOnRecord(AEnable: Boolean);
 begin
   SetConfigBool('playSoundOnRecord', AEnable);
   Log('PlaySoundOnRecord: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetStopOnLock(AEnable: Boolean);
+begin
+  SetConfigBool('stopOnLock', AEnable);
+  Log('StopOnLock: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure TLockEventHolder.OnLockChanged(Sender: TObject; ALocked: Boolean);
+// Callback do TMachineLockDetector — roda na thread INTERNA do detector
+// (a que da PeekMessage da hidden message-window). Nao toca libobs aqui
+// — Queue pra main pra respeitar a invariante "libobs so na main thread"
+// (pegadinha #3). HandleRecordStop tambem mexe em timers WM_* e UI push,
+// que tem que ser main.
+begin
+  Log('LockDetector: sessao %s.',
+    [IfThen(ALocked, 'bloqueada', 'desbloqueada')]);
+  // So agimos no LOCK. Unlock e informativo (no log).
+  if not ALocked then Exit;
+  // Config gate — feature e opt-in, mesmo com detector rodando.
+  if not GetConfigBool('stopOnLock', False) then Exit;
+
+  TThread.Queue(nil,
+    procedure
+    begin
+      if IsShuttingDown then Exit;
+      if not RecordingActive then Exit;
+      Log('LockDetector: parando gravacao por bloqueio de tela.');
+      HandleRecordStop;
+    end);
 end;
 
 procedure MaybeNotifyRecord(const ATitle, AMessage: string);
@@ -3207,6 +3331,8 @@ begin
       HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_play_sound_on_record' then
       HandleSetPlaySoundOnRecord(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_stop_on_lock' then
+      HandleSetStopOnLock(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_hibernate' then
       HandleSetHibernate(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_recording_quality' then
@@ -3585,6 +3711,15 @@ begin
 
   try OBSAudioWatch.Stop; except end;
   Log('Shutdown: AudioWatch ok');
+
+  // Detector de bloqueio: destructor termina + waits o TThread.
+  if LockDetector <> nil then
+  begin
+    try FreeAndNil(LockDetector); except end;
+  end;
+  if LockEventHolder <> nil then
+    FreeAndNil(LockEventHolder);
+  Log('Shutdown: LockDetector ok');
   try StopPlayerServer; except end;
   Log('Shutdown: PlayerServer ok');
 

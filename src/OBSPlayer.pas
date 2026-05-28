@@ -738,6 +738,17 @@ var
 begin
   Doc := ARequest.Document;
 
+  // CORS pra todos os responses. WebView2 com NavigateToString tem
+  // origin "null"; sem ACAO=*, MediaElementAudioSourceNode marca o
+  // recurso como "tainted" e o GainNode produz SILENCIO (mesmo que
+  // o <video>/<audio> sem Web Audio tocasse normalmente). Setamos
+  // crossOrigin="anonymous" no JS — daqui o browser exige header
+  // de CORS no response. '*' satisfaz any-origin pra requests sem
+  // credenciais (que e o caso, tudo aqui e localhost sem cookie).
+  // Range requests passam transparente — Chromium so usa ACAO pra
+  // habilitar Web Audio, nao afeta o playback regular.
+  AResponse.CustomHeaders.Values['Access-Control-Allow-Origin'] := '*';
+
   // /thumb/<id>.jpg — thumbs volateis de monitor
   if StartsText('/thumb/', Doc) then
   begin

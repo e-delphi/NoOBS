@@ -1458,9 +1458,16 @@
      mantemos a area do layout — visibility:hidden nao pausa playback
      nem corta o audio. */
   .player-stage.compositing video { visibility: hidden; }
+  /* Zoom badge fica DENTRO do .player-stage, que tem stacking context
+     abaixo do .player-header (z-index: 5). Com top: 10px o badge
+     coincidia visualmente com o close button e ficava parcialmente
+     escondido por ele. top: 56px posiciona logo abaixo do header
+     (padding-top 12 + close button 32 + 12px gap = ~56px), em
+     espaco livre. Right: 12px alinha com o close button — fica
+     pendurado direto abaixo dele. */
   .player-zoom-badge {
     position: absolute;
-    top: 10px;
+    top: 56px;
     right: 12px;
     padding: 4px 8px;
     background: rgba(0,0,0,0.6);
@@ -1474,11 +1481,11 @@
   }
   .player-stage.zoomed .player-zoom-badge { opacity: 1; }
 
-  /* Indicador visual de pause — circulo com duas barras centrado no
-     stage. Interior do circulo tem fill escuro semi-transparente pra
-     destacar as barras brancas mesmo em videos claros. Halo radial
-     em volta escurece a area imediatamente ao redor pra que o stroke
-     branco do circulo nunca se perca em fundos brancos. */
+  /* Indicador central de pause — agora EFEMERO: aparece como flash
+     curto (~1.2s) so no momento que o user pausa o video, confirmando
+     a acao. Some sozinho depois pro user poder ver o quadro limpo.
+     Estado persistente de "pausado" e dado pelo badge no canto (abaixo)
+     + pelo botao Play na barra de controles. */
   .player-pause-indicator {
     position: absolute;
     top: 50%;
@@ -1498,15 +1505,66 @@
     border-radius: 50%;
     pointer-events: none;
     opacity: 0;
-    transition: opacity 180ms ease, transform 180ms ease;
   }
   .player-pause-indicator svg {
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
   }
-  .player-pause-indicator.visible {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+  /* Animacao do flash: fade in rapido (180ms), hold (520ms), fade out
+     com leve crescimento (500ms). Total 1200ms. animation-fill-mode:
+     forwards mantem opacity:0 no fim (== voltar ao estado default).
+     Re-trigger: JS remove a classe, forca reflow e re-adiciona. */
+  .player-pause-indicator.flash {
+    animation: noobs-pause-flash 1200ms ease forwards;
   }
+  @keyframes noobs-pause-flash {
+    0%   { opacity: 0;    transform: translate(-50%, -50%) scale(0.7); }
+    15%  { opacity: 0.95; transform: translate(-50%, -50%) scale(1.0); }
+    58%  { opacity: 0.95; transform: translate(-50%, -50%) scale(1.0); }
+    100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.15); }
+  }
+
+  /* Badge persistente de "pausado" no canto superior esquerdo do
+     stage. Discreto (semi-transparente), nunca cobre conteudo
+     importante do video. Aparece enquanto v.paused/ended, some no
+     play. Posicao top-left porque o zoom badge ja ocupa o top-right. */
+  /* Badge vive DENTRO do .player-header (flex container com gap:12px
+     e align-items:center). Sem position:absolute — flex layout cuida
+     do alinhamento vertical com o close button. flex-shrink: 0 evita
+     que ele seja espremido se o titulo for muito longo. Entra com
+     slide horizontal sutil da direita pra esquerda — mais natural
+     quando vem ao lado de outro elemento (close button) do que vindo
+     de cima. */
+  .player-pause-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px 4px 7px;
+    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(6px);
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+  .player-pause-badge svg {
+    width: 10px;
+    height: 10px;
+    display: block;
+  }
+  .player-pause-badge.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  /* Nao usamos display:none quando hidden — quebraria a transition
+     (display nao e animavel). Em vez disso, badge sempre ocupa seu
+     slot no flex (apenas opacity vai a 0). Custo: o titulo perde
+     ~95px de espaco em ambos os estados, mas a posicao do X fica
+     estavel (sem "pulo" lateral ao pausar) e a animacao funciona. */
 
   .player-loading {
     position: absolute;
@@ -1658,15 +1716,28 @@
     padding-top: 6px;
     border-top: 1px solid rgba(255,255,255,0.05);
   }
+  /* Per-track slider: identico ao master em logica (0..200 com
+     transicao verde→vermelho em 100%), mas usa --success como cor
+     "natural" pra harmonizar com o painel de info (verde = OK,
+     vermelho = boost > 100%). */
   .player-info-vol {
     flex: 1;
     -webkit-appearance: none;
     appearance: none;
     height: 3px;
     border-radius: 2px;
-    background: linear-gradient(to right,
-      var(--success) 0%, var(--success) var(--vp, 0%),
-      rgba(255,255,255,0.15) var(--vp, 0%), rgba(255,255,255,0.15) 100%);
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(255,255,255,0.35) calc(50% - 0.5px),
+        rgba(255,255,255,0.35) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        var(--success) 0%, var(--success) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(255,255,255,0.15) var(--vp, 0%),
+        rgba(255,255,255,0.15) 100%);
     cursor: pointer;
     outline: none;
   }
@@ -1674,8 +1745,39 @@
     -webkit-appearance: none;
     width: 10px; height: 10px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--thumb-color, #fff);
     cursor: pointer;
+  }
+  /* "200%" precisa de mais espaco que "100%" — 38px era apertado. */
+  .player-info-vol-val {
+    min-width: 42px;
+  }
+
+  /* Tooltip flutuante mostrado durante drag/click dos sliders de
+     volume (master + per-faixa). Singleton no body — posicao
+     calculada via JS pra centralizar no thumb. Acima do z-index
+     do overlay do player (9000) e do toast (9998). */
+  .vol-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: rgba(20, 20, 20, 0.95);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+    transform: translate(-50%, -100%);  /* horiz center, vert above */
+    margin-top: -8px;                    /* gap acima do slider */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    user-select: none;
+  }
+  .vol-tooltip[hidden] { display: none; }
+  /* Acima de 100% — mesma cor da barra/thumb pra reforcar feedback. */
+  .vol-tooltip.boost {
+    background: var(--danger-2, #ef4444);
   }
   .player-info-vol-val {
     font-size: 10px;
@@ -1729,12 +1831,20 @@
     border-top: 1px solid rgba(0,0,0,0.06);
   }
   [data-theme="light"] .player-info-vol {
-    background: linear-gradient(to right,
-      var(--success) 0%, var(--success) var(--vp, 0%),
-      rgba(0,0,0,0.12) var(--vp, 0%), rgba(0,0,0,0.12) 100%);
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(0,0,0,0.35) calc(50% - 0.5px),
+        rgba(0,0,0,0.35) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        var(--success) 0%, var(--success) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(0,0,0,0.12) var(--vp, 0%), rgba(0,0,0,0.12) 100%);
   }
   [data-theme="light"] .player-info-vol::-webkit-slider-thumb {
-    background: var(--success);
+    background: var(--thumb-color, var(--success));
   }
   [data-theme="light"] .player-info-vol-val {
     color: rgba(0,0,0,0.6);
@@ -1985,6 +2095,31 @@
     box-shadow: 0 0 0 0 rgba(16,185,129,0);
     transition: box-shadow 150ms ease;
   }
+  /* Pausado: seek bar fica CINZA pra reforcar "video parado".
+     Override do gradient + cor do thumb + glow do hover. Dark e
+     light theme tem cinzas diferentes pra preservar contraste. */
+  .player.paused .player-seek {
+    background: linear-gradient(to right,
+      rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.55) var(--p, 0%),
+      rgba(255,255,255,0.15) var(--p, 0%), rgba(255,255,255,0.15) 100%);
+  }
+  .player.paused .player-seek::-webkit-slider-thumb {
+    background: rgba(255,255,255,0.85);
+  }
+  .player.paused .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(255,255,255,0.18);
+  }
+  [data-theme="light"] .player.paused .player-seek {
+    background: linear-gradient(to right,
+      rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.45) var(--p, 0%),
+      rgba(0,0,0,0.12) var(--p, 0%), rgba(0,0,0,0.12) 100%);
+  }
+  [data-theme="light"] .player.paused .player-seek::-webkit-slider-thumb {
+    background: rgba(0,0,0,0.65);
+  }
+  [data-theme="light"] .player.paused .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(0,0,0,0.18);
+  }
   .player-seek:hover::-webkit-slider-thumb {
     box-shadow: 0 0 0 6px rgba(16,185,129,0.2);
   }
@@ -1994,23 +2129,41 @@
     align-items: center;
     gap: 6px;
   }
+  /* Volume slider master: range 0..200. Visual em 3 segmentos:
+       0..100  → branco (zona "normal", --vp-mid fica igual a --vp)
+       100..200 → vermelho-clamp (boost via GainNode, pode distorcer)
+       resto     → track gray
+     Tick fino em 50% da largura marca onde fica o 100% — referencia
+     visual rapida pro user saber se esta abaixo/acima do "natural". */
   .player-volume {
     -webkit-appearance: none;
     appearance: none;
-    width: 80px;
+    width: 90px;
     height: 4px;
     border-radius: 2px;
-    background: linear-gradient(to right,
-      rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.85) var(--vp, 100%),
-      rgba(255,255,255,0.15) var(--vp, 100%), rgba(255,255,255,0.15) 100%);
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(255,255,255,0.45) calc(50% - 0.5px),
+        rgba(255,255,255,0.45) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        rgba(255,255,255,0.85) 0%,
+        rgba(255,255,255,0.85) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(255,255,255,0.15) var(--vp, 0%),
+        rgba(255,255,255,0.15) 100%);
     cursor: pointer;
   }
+  /* Cor do thumb segue a zona — vermelho quando boost ativo
+     pra reforcar que esta acima de 100%. */
   .player-volume::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     width: 11px; height: 11px;
     border-radius: 50%;
-    background: #fff;
+    background: var(--thumb-color, #fff);
     cursor: pointer;
   }
 
@@ -2932,6 +3085,20 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsStopOnLock">
+          <span>Parar a gravação ao bloquear o computador</span>
+        </label>
+        <div class="settings-hint">
+          Quando o Windows é bloqueado (Win+L, troca de usuário ou
+          bloqueio automático), a gravação em andamento é encerrada
+          automaticamente e o arquivo é finalizado. Útil pra não
+          deixar uma gravação rodando por horas se você esquecer de
+          parar antes de sair.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
         <label class="settings-check-row" id="settingsHibernateRow">
           <input type="checkbox" id="settingsHibernate">
           <span>Hibernar quando inativo</span>
@@ -3047,11 +3214,25 @@
   <div class="player">
     <div class="player-header">
       <div class="player-title" id="playerTitle">—</div>
+      <!-- Badge "PAUSADO" vive DENTRO do header — flex layout alinha
+           verticalmente com o close button automatico, sem magic
+           numbers de top/height. Aparece a esquerda do X. -->
+      <div class="player-pause-badge" id="playerPauseBadge" aria-hidden="true">
+        <svg viewBox="0 0 10 10" fill="currentColor">
+          <rect x="1" y="1" width="2.5" height="8" rx="0.5" fill="currentColor"/>
+          <rect x="6.5" y="1" width="2.5" height="8" rx="0.5" fill="currentColor"/>
+        </svg>
+        <span>PAUSADO</span>
+      </div>
       <button class="player-close" id="playerClose" title="Fechar (Esc)">×</button>
     </div>
     <div class="player-body">
       <div class="player-stage" id="playerStage">
-        <video id="playerVideo" preload="auto" playsinline></video>
+        <!-- crossorigin="anonymous" forca o browser a fazer CORS check no
+             response do OBSPlayer (que retorna ACAO=*). Sem isso, o
+             MediaElementAudioSourceNode silencia o audio quando o GainNode
+             do boost de volume e conectado (recurso "tainted"). -->
+        <video id="playerVideo" preload="auto" playsinline crossorigin="anonymous"></video>
         <!-- Canvas overlay pra modo "multi-monitor selecionado":
              quando 2+ regioes do canvas estao ativas, hidemos o video
              visualmente (mantem decode + audio) e pintamos as regioes
@@ -3103,7 +3284,11 @@
         <button class="player-btn" id="playerMute" title="Mudo (M)">
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
         </button>
-        <input type="range" class="player-volume" id="playerVolume" min="0" max="100" value="100">
+        <!-- Range 0..200: 0..100 = atenuacao normal (HTMLMediaElement.volume),
+             100..200 = boost via Web Audio GainNode. Bar fica vermelha
+             alem dos 100% pra avisar que esta amplificando (pode distorcer
+             dependendo do material). -->
+        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" title="Volume (0–200%)">
       </div>
       <div class="player-speed-wrap">
         <button class="player-btn player-speed-btn" id="playerSpeedBtn" title="Velocidade de execução">
@@ -4301,11 +4486,10 @@ function buildRecCard(item) {
       RecSelection.toggle(card.dataset.id);
       return;
     }
-    // Click no nome (.when) e reservado pra dblclick = edit. Single-click
-    // ali nao deve abrir o video. Click em qualquer outra parte do card
-    // (thumb, body, size) abre normalmente.
-    if (e.target.classList && e.target.classList.contains('when')) return;
-    if (e.target.classList && e.target.classList.contains('editing')) return;
+    // Click no BODY inteiro (nome + tamanho) e reservado pra dblclick =
+    // rename. So a thumb (imagem/duracao no topo) abre o player. Sem
+    // isso, era facil pedir play sem querer mirando no texto.
+    if (e.target.closest('.body')) return;
     // Em modo selecao, click no card tambem alterna a selecao
     // (evita ter que mirar na bolinha de 20px).
     if (RecSelection.size() > 0) {
@@ -4353,7 +4537,6 @@ function buildRecCard(item) {
   const when = document.createElement('div');
   when.className = 'when';
   when.textContent = item.name || formatWhen(item.date);
-  when.ondblclick = (ev) => editName(ev, when, card.dataset.id);
 
   const size = document.createElement('div');
   size.className = 'size';
@@ -4361,6 +4544,12 @@ function buildRecCard(item) {
 
   body.appendChild(when);
   body.appendChild(size);
+  // Dblclick em qualquer parte do body (nome OU tamanho) → edita o
+  // nome. Antes estava so no .when — agora o tamanho tambem serve de
+  // alvo, consistente com o single-click do body que tambem nao abre
+  // o player. Sempre passa o `when` element pro editName (que ele e
+  // o unico contenteditable; o size e display-only).
+  body.ondblclick = (ev) => editName(ev, when, card.dataset.id);
   card.appendChild(thumb);
   card.appendChild(body);
   return card;
@@ -5260,6 +5449,7 @@ const Settings = {
   currentNotifyOnRecord: false,
   currentScrollLockIndicator: false,
   currentPlaySoundOnRecord: false,
+  currentStopOnLock: false,
   currentHibernate: false,
   currentRecordingQuality: 0,
   open() {
@@ -5272,6 +5462,7 @@ const Settings = {
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
     document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
+    document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
     this._syncQualityHint();
@@ -5315,6 +5506,7 @@ const Settings = {
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
       const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
+      const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
       const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
@@ -5360,6 +5552,8 @@ const Settings = {
         Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
       if (playSoundOnRecord !== this.currentPlaySoundOnRecord)
         Bridge.send('set_play_sound_on_record', { enabled: playSoundOnRecord });
+      if (stopOnLock !== this.currentStopOnLock)
+        Bridge.send('set_stop_on_lock', { enabled: stopOnLock });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (recordingQuality !== this.currentRecordingQuality)
@@ -5376,6 +5570,7 @@ const Settings = {
       this.currentNotifyOnRecord = notifyOnRecord;
       this.currentScrollLockIndicator = scrollLockIndicator;
       this.currentPlaySoundOnRecord = playSoundOnRecord;
+      this.currentStopOnLock = stopOnLock;
       this.currentHibernate = hibernate;
       this.currentRecordingQuality = recordingQuality;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
@@ -5409,6 +5604,9 @@ const Settings = {
     // playSoundOnRecord: default false — feature opt-in. !!data.* cobre
     // tanto o caso "undefined" (configa nova/limpa) quanto false explicito.
     this.currentPlaySoundOnRecord = !!data.playSoundOnRecord;
+    // stopOnLock: default false — opt-in. Quando ON, Windows lock event
+    // (Win+L etc.) chama HandleRecordStop no backend.
+    this.currentStopOnLock = !!data.stopOnLock;
     // hibernate: default false — so faz sentido com closeToTray ON, e
     // gateamos a UI pra forcar isso. !!data.hibernate cobre o caso
     // undefined naturalmente (resulta em false).
@@ -5436,6 +5634,8 @@ const Settings = {
     if (sl) sl.checked = this.currentScrollLockIndicator;
     const ps = document.getElementById('settingsPlaySoundOnRecord');
     if (ps) ps.checked = this.currentPlaySoundOnRecord;
+    const sol = document.getElementById('settingsStopOnLock');
+    if (sol) sol.checked = this.currentStopOnLock;
     const hb = document.getElementById('settingsHibernate');
     if (hb) hb.checked = this.currentHibernate;
     const rqEl = document.getElementById('settingsRecordingQuality');
@@ -5565,6 +5765,7 @@ const Settings = {
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
         document.getElementById('settingsPlaySoundOnRecord').checked = false;
+        document.getElementById('settingsStopOnLock').checked = false;
         document.getElementById('settingsHibernate').checked = false;
         document.getElementById('settingsRecordingQuality').value = '0';
         this._syncMinimizeOnRecordLabel();
@@ -5724,6 +5925,11 @@ const Player = {
     const seek = document.getElementById('playerSeek');
     const vol  = document.getElementById('playerVolume');
 
+    // Render inicial do slider master — sem isso o gradient nasce
+    // sem --vp/--vp-mid (CSS fallback = 0%, bar fica toda cinza ate
+    // o 1o play() chamar updateVolUi).
+    setVolBarVars(vol, parseInt(vol.value, 10));
+
     document.getElementById('playerClose').onclick = () => Player.close();
     ov.addEventListener('click', (e) => { if (e.target === ov) Player.close(); });
 
@@ -5794,10 +6000,19 @@ const Player = {
       v.currentTime = (seek.value / 1000) * v.duration;
     });
     vol.addEventListener('input', () => {
+      // Slider value e 0..200; masterVolume vira 0..2.0 (1.0 = "natural"
+      // 100%, 2.0 = boost maximo). AudioContext as vezes nasce suspenso
+      // ate o 1o user gesture — esse input event JA conta como gesture,
+      // mas resume() e seguro chamar idempotente.
       Player.masterVolume = vol.value / 100;
       Player.masterMuted = Player.masterVolume === 0;
+      Player.ensureAudioGraph();
       Player.applyVolumes();
+      Player.updateVolUi();
     });
+    // Tooltip + dblclick=reset → 100% (compartilhado com os sliders
+    // per-faixa via VolTooltip.wire).
+    VolTooltip.wire(vol);
 
     // Sync audio elements ao seek/play/pause/ratechange do video.
     v.addEventListener('seeked', () => Player.syncAudios(true));
@@ -5821,8 +6036,27 @@ const Player = {
       else if (e.key === 'm' || e.key === 'M') { Player.toggleMute(); }
       else if (e.key === 'f' || e.key === 'F') { Player.toggleFullscreen(); }
       else if (e.key === '0') { Player.resetZoom(); }
-      else if (e.key === 'ArrowRight') { v.currentTime = Math.min((v.currentTime || 0) + 5, v.duration || 0); }
-      else if (e.key === 'ArrowLeft')  { v.currentTime = Math.max((v.currentTime || 0) - 5, 0); }
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        // Pausado: avanca/retrocede QUADRO A QUADRO. NoOBS grava a
+        // 30fps por padrao (OBSEngine.fps_num=30), entao 1/30s ≈ 1
+        // frame. Pra videos vindos de fora com framerate diferente
+        // (60fps, etc.) o passo nao bate exato em 1 frame, mas
+        // browser snap pra frame mais proxima — UX continua sendo
+        // "uma seta = um passo discreto pequeno".
+        //
+        // Tocando: pula 5s (atalho clássico de scrubbing). Mantem a
+        // distincao porque user pausado quer precisao (revisar frame
+        // exato), user tocando quer navegacao rapida.
+        //
+        // Audio slaves sincronizam via o listener 'seeked' que ja
+        // existe (syncAudios(true) forca todos pro novo currentTime).
+        const dir  = (e.key === 'ArrowRight') ? +1 : -1;
+        const step = v.paused ? (1/30) : 5;
+        const dur  = v.duration || 0;
+        const next = (v.currentTime || 0) + dir * step;
+        v.currentTime = Math.max(0, Math.min(next, dur));
+        e.preventDefault();
+      }
     });
 
     // Zoom: scroll do mouse no stage (sem ctrl). O bloqueio global de
@@ -6077,7 +6311,13 @@ const Player = {
   },
   play(url, name, mode, id) {
     const ov = document.getElementById('playerOverlay');
-    if (!ov.classList.contains('visible')) ov.classList.add('visible');
+    // "Fresh open" = overlay nao estava visivel antes desta chamada.
+    // Distincto de "video novo" — user pode reabrir o mesmo video
+    // (caso B) ou pode dar play em outro card sem fechar (caso C, raro).
+    // Tambem distinto de reload pra transcode (caso D, wasVisible=true
+    // e id igual) — la NAO queremos resetar nada.
+    const wasVisible = ov.classList.contains('visible');
+    if (!wasVisible) ov.classList.add('visible');
     // Idempotente — caso play() seja chamado sem showPending antes
     // (backend pode pular pending pra videos ja prontos no cache).
     Bridge.send('player_state', { open: true });
@@ -6087,7 +6327,13 @@ const Player = {
       this.infoLoaded = null;
       // Reseta multi-track audio do video anterior.
       this.stopDriftCheck();
-      this.audioEls.forEach(a => { try { a.pause(); a.src=''; a.load(); } catch(e){} });
+      this.audioEls.forEach(a => {
+        try { a.pause(); a.src=''; a.load(); } catch(e){}
+        try { if (a._noobs_source) a._noobs_source.disconnect(); } catch(e){}
+        try { if (a._noobs_gain)   a._noobs_gain.disconnect();   } catch(e){}
+        a._noobs_source = null;
+        a._noobs_gain   = null;
+      });
       this.audioEls = [];
       this.audiosRequested = false;
       this.audiosReadyForId = null;
@@ -6097,9 +6343,14 @@ const Player = {
       this.currentLayout = null;
       this.selectedRegionIndex = -1;
       this.applyRegionView();
-      // Re-aplica volumes com o estado zerado (defaults) — sem isso
-      // o video.volume mantem o valor da gravacao anterior, daria
-      // mismatch com o slider que mostra 100% na nova gravacao.
+    }
+    // Reset do MASTER em TODA abertura fresh (mesmo reabrindo o
+    // mesmo video). User pediu: "ao abrir um video sempre comecar
+    // no 100%". Reload pra transcode (wasVisible=true) NAO reseta —
+    // a recuperacao do video nao deve perder a configuracao do user.
+    if (!wasVisible || changed) {
+      this.masterVolume = 1.0;
+      this.masterMuted = false;
       this.applyVolumes();
     }
     this.currentId = id;
@@ -6127,8 +6378,18 @@ const Player = {
       }
     }
     // Esconde indicador de pause durante o load (evita flash se o video
-    // antigo havia ficado pausado). Os eventos play/pause atualizam dai.
-    document.getElementById('playerPauseIndicator').classList.remove('visible');
+    // antigo havia ficado pausado). Tira tambem a classe .flash do
+    // central pra cancelar uma animacao em andamento — sem isso, abrir
+    // outro video no meio do flash deixaria o pulso continuar fora de
+    // contexto. Eventos play/pause atualizam dai.
+    const _ind = document.getElementById('playerPauseIndicator');
+    if (_ind) _ind.classList.remove('flash');
+    const _bd  = document.getElementById('playerPauseBadge');
+    if (_bd) _bd.classList.remove('visible');
+    // Limpa tambem o estado "paused" do container — sem isso, a seek
+    // bar nasceria cinza por um frame ate o evento 'play' disparar.
+    const _pl = document.querySelector('.player');
+    if (_pl) _pl.classList.remove('paused');
     v.play().catch(() => Player.updatePauseOverlay());
     // Sincroniza o icone de volume — o video padrao abre em 1.0 mas
     // nenhum volumechange dispara automaticamente, entao o icone
@@ -6164,7 +6425,17 @@ const Player = {
     this.stopTimeRaf();
     this.stopDriftCheck();
     // Para e descarta audio elements (libera memoria/network).
-    this.audioEls.forEach(a => { try { a.pause(); a.src=''; a.load(); } catch(e){} });
+    // Desconecta MediaElementSource/GainNode antes — sem isso o
+    // audioCtx mantem referencias vivas pra cada slave ja criado,
+    // acumulando memoria a cada open/close. O <video> persiste (e o
+    // mesmo elemento) — nao desconecta o dele.
+    this.audioEls.forEach(a => {
+      try { a.pause(); a.src=''; a.load(); } catch(e){}
+      try { if (a._noobs_source) a._noobs_source.disconnect(); } catch(e){}
+      try { if (a._noobs_gain)   a._noobs_gain.disconnect();   } catch(e){}
+      a._noobs_source = null;
+      a._noobs_gain   = null;
+    });
     this.audioEls = [];
     this.audiosRequested = false;
     this.audiosReadyForId = null;
@@ -6317,8 +6588,8 @@ const Player = {
                 'title="' + (isMuted ? 'Desmutar' : 'Mutar') + '">' +
                 MUTE_ICON_SVG(isMuted) + '</button>';
         html += '<input type="range" class="player-info-vol" ' +
-                'data-track="' + idx + '" min="0" max="100" ' +
-                'value="' + volPct + '">';
+                'data-track="' + idx + '" min="0" max="200" ' +
+                'value="' + volPct + '" title="Volume da faixa (0–200%)">';
         html += '<span class="player-info-vol-val" data-track-val="' +
                 idx + '">' + volPct + '%</span>';
         html += '</div>';
@@ -6345,13 +6616,18 @@ const Player = {
     };
     body.querySelectorAll('.player-info-vol').forEach(slider => {
       const idx = parseInt(slider.dataset.track, 10);
-      slider.style.setProperty('--vp', slider.value + '%');
+      // Render inicial: posiciona --vp/--vp-mid corretamente pro valor
+      // que ja veio do trackVolumes[idx] (pode ser 100% no track 0).
+      setVolBarVars(slider, parseInt(slider.value, 10));
       slider.addEventListener('input', () => {
-        const vol = parseInt(slider.value, 10) / 100;
-        slider.style.setProperty('--vp', slider.value + '%');
+        const raw = parseInt(slider.value, 10);  // 0..200
+        const vol = raw / 100;                    // 0..2.0
+        setVolBarVars(slider, raw);
         const label = body.querySelector(
           '[data-track-val="' + idx + '"]');
-        if (label) label.textContent = slider.value + '%';
+        if (label) label.textContent = raw + '%';
+        // Garante AudioContext acordado (input event = user gesture).
+        Player.ensureAudioGraph();
         Player.setTrackVolume(idx, vol);
         syncMuteState(idx, vol === 0);
         // User arrastando o slider apaga o "volume restaurado" do
@@ -6359,6 +6635,10 @@ const Player = {
         // pro valor que o user acabou de mexer.
         if (vol > 0) delete slider.dataset.preMute;
       });
+      // Tooltip flutuante + dblclick=reset 100%. Idempotente —
+      // re-renders do painel re-passam pelos mesmos elementos, mas
+      // a flag _noobs_voltt_wired evita listeners duplicados.
+      VolTooltip.wire(slider);
     });
 
     // Botoes de mutar — toggle: muta zera volume guardando o valor
@@ -6382,7 +6662,7 @@ const Player = {
           delete slider.dataset.preMute;
         }
         slider.value = String(nextVol);
-        slider.style.setProperty('--vp', nextVol + '%');
+        setVolBarVars(slider, nextVol);
         const label = body.querySelector(
           '[data-track-val="' + idx + '"]');
         if (label) label.textContent = nextVol + '%';
@@ -6545,15 +6825,34 @@ const Player = {
       ic.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
   },
   updatePauseOverlay() {
-    // Mostra o circulo de pause sobre o video quando pausado, esconde
-    // ao tocar. "ended" tambem mostra — o video parou no fim.
-    const v = document.getElementById('playerVideo');
+    // Padrao "YouTube + Netflix":
+    //   - Indicador CENTRAL e efemero: pulsa 1.2s no momento do
+    //     pause/play e some, confirmando a acao sem bloquear o quadro.
+    //   - Badge no canto (top-left) e persistente enquanto pausado,
+    //     dando feedback de estado discreto.
+    // Re-trigger da animacao precisa de remove → force reflow →
+    // re-add (caso contrario o browser nao reinicia a animacao se a
+    // classe ja estava la, ex: usuario pausa duas vezes rapido).
+    const v   = document.getElementById('playerVideo');
     const ind = document.getElementById('playerPauseIndicator');
-    if (!ind) return;
-    if (v.paused || v.ended)
-      ind.classList.add('visible');
-    else
-      ind.classList.remove('visible');
+    const bd  = document.getElementById('playerPauseBadge');
+    if (!v) return;
+    const isPaused = v.paused || v.ended;
+    if (ind) {
+      ind.classList.remove('flash');
+      if (isPaused) {
+        void ind.offsetWidth; // force reflow → reinicia a animacao
+        ind.classList.add('flash');
+      }
+    }
+    if (bd) {
+      bd.classList.toggle('visible', isPaused);
+    }
+    // Classe .paused no container do player → seek bar muda pra cinza
+    // (override CSS scoped). Sem isso, a barra continuaria verde
+    // durante pause, contradizendo o "estou parado".
+    const playerEl = document.querySelector('.player');
+    if (playerEl) playerEl.classList.toggle('paused', isPaused);
   },
   toggleMute() {
     this.masterMuted = !this.masterMuted;
@@ -6569,7 +6868,9 @@ const Player = {
     const pct = this.masterMuted ? 0 :
       Math.round((this.masterVolume == null ? 1 : this.masterVolume) * 100);
     vol.value = pct;
-    vol.style.setProperty('--vp', pct + '%');
+    // Slider range 0..200 → --vp e --vp-mid em % da largura (0..100%).
+    // helper centralizado pra a mesma logica vir pros per-track sliders.
+    setVolBarVars(vol, pct);
     const mute = this.masterMuted || pct === 0;
     if (mute)
       ic.innerHTML = '<path d="M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.92 8.92 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
@@ -6648,8 +6949,16 @@ const Player = {
     if (this.audiosReadyForId === data.id) return; // ja setup
     const urls = data.urls || [];
     this.audiosReadyForId = data.id;
-    // Limpa qualquer audio anterior (defensive).
-    this.audioEls.forEach(a => { try { a.pause(); a.src=''; } catch(e){} });
+    // Limpa qualquer audio anterior (defensive). Inclui desconexao
+    // dos gain nodes pra nao acumular no audioCtx se onAudioTracksReady
+    // dispara duas vezes (race entre clicks rapidos).
+    this.audioEls.forEach(a => {
+      try { a.pause(); a.src=''; } catch(e){}
+      try { if (a._noobs_source) a._noobs_source.disconnect(); } catch(e){}
+      try { if (a._noobs_gain)   a._noobs_gain.disconnect();   } catch(e){}
+      a._noobs_source = null;
+      a._noobs_gain   = null;
+    });
     this.audioEls = [];
     // Cria audio elements pras tracks 2..N (skipa idx 0 = video).
     // SEM crossOrigin — forcaria CORS check, e o HTTP server local
@@ -6657,7 +6966,14 @@ const Player = {
     // NavigateToString nao tem origin definida = "null").
     const log = (msg) => Bridge.send('ui_log', { message: 'audio: ' + msg });
     for (let i = 1; i < urls.length; i++) {
-      const a = new Audio(urls[i]);
+      // crossOrigin DEVE ser setado ANTES do src (que ja foi via
+      // new Audio(url) ali) — Chromium ignora mudanca depois que o
+      // request comecou. Reseta forcando src vazio → seta crossOrigin
+      // → re-atribui src. Necessario pra MediaElementAudioSourceNode
+      // nao "taintar" e silenciar quando o GainNode entra em cena.
+      const a = new Audio();
+      a.crossOrigin = 'anonymous';
+      a.src = urls[i];
       a.preload = 'auto';
       const idx = i;
       a.addEventListener('error', () => {
@@ -6726,17 +7042,228 @@ const Player = {
   stopDriftCheck() {
     if (this.driftRaf) { cancelAnimationFrame(this.driftRaf); this.driftRaf = null; }
   },
+  // ===== Web Audio: GainNode pra volume > 100% =====
+  // HTMLMediaElement.volume e clampado em [0, 1] pelo spec — sem
+  // GainNode, "200%" nao existiria. Lazy: AudioContext so e criado
+  // quando algo realmente precisa (slider mexido ou audio slave
+  // criado). MediaElementAudioSourceNode pode ser criado UMA vez
+  // por elemento — guardamos no proprio elemento via _noobs_gain.
+  audioCtx: null,
+  ensureAudioGraph() {
+    if (!this.audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return; // browser muito antigo — fallback nativo
+      try { this.audioCtx = new AC(); }
+      catch (e) { return; }
+    }
+    // Pode estar suspended por autoplay policy ate o user gesture.
+    // resume() e idempotente e ja temos gesture (o input do slider).
+    if (this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
+  },
+  // Anexa MediaElementSource→GainNode→destination no elemento, se
+  // ainda nao tem. Retorna o GainNode (ou null se falhou). Cacheado
+  // em el._noobs_gain — chamadas subsequentes sao no-op O(1).
+  attachGain(el) {
+    if (!el) return null;
+    if (el._noobs_gain) return el._noobs_gain;
+    if (!this.audioCtx) {
+      this.ensureAudioGraph();
+      if (!this.audioCtx) return null;
+    }
+    try {
+      const src  = this.audioCtx.createMediaElementSource(el);
+      const gain = this.audioCtx.createGain();
+      src.connect(gain).connect(this.audioCtx.destination);
+      el._noobs_source = src;
+      el._noobs_gain   = gain;
+      return gain;
+    } catch (e) {
+      // Tipico: createMediaElementSource ja chamado pra este element,
+      // OU elemento ainda nao tem audio (load nao terminou). Loga e
+      // segue com fallback nativo — slider funciona ate 100% via .volume.
+      Bridge.send('ui_log',
+        { message: 'audio-graph: attach falhou ' + (e && e.message || e) });
+      return null;
+    }
+  },
   applyVolumes() {
     const v = document.getElementById('playerVideo');
     if (!v) return;
     const tv = this.trackVolumes || [1.0];
-    const master = this.masterMuted ? 0 : (this.masterVolume == null ? 1 : this.masterVolume);
-    v.volume = Math.max(0, Math.min(1, master * (tv[0] == null ? 1 : tv[0])));
-    v.muted = false; // mute geral via volume, nao via muted
+    const master = this.masterMuted ? 0 :
+      (this.masterVolume == null ? 1 : this.masterVolume);
+    // Track 0 = audio nativo do <video>. Tenta gain node primeiro;
+    // se conseguiu, .volume fica em 1.0 (gain controla tudo). Caso
+    // contrario fallback pra .volume nativo (clampado em [0,1]).
+    const trk0 = tv[0] == null ? 1 : tv[0];
+    const vGain = this.attachGain(v);
+    if (vGain) {
+      v.volume = 1;
+      // setTargetAtTime suaviza mudancas rapidas no slider sem zipper noise.
+      try {
+        vGain.gain.setTargetAtTime(
+          Math.max(0, master * trk0), this.audioCtx.currentTime, 0.01);
+      } catch (e) { vGain.gain.value = Math.max(0, master * trk0); }
+    } else {
+      v.volume = Math.max(0, Math.min(1, master * trk0));
+    }
+    v.muted = false;
     this.audioEls.forEach((a, i) => {
-      const trackIdx = i + 1; // audioEls[0] = track index 1
+      const trackIdx = i + 1;
       const tvol = tv[trackIdx] == null ? 0 : tv[trackIdx];
-      a.volume = Math.max(0, Math.min(1, master * tvol));
+      const aGain = this.attachGain(a);
+      if (aGain) {
+        a.volume = 1;
+        try {
+          aGain.gain.setTargetAtTime(
+            Math.max(0, master * tvol), this.audioCtx.currentTime, 0.01);
+        } catch (e) { aGain.gain.value = Math.max(0, master * tvol); }
+      } else {
+        a.volume = Math.max(0, Math.min(1, master * tvol));
+      }
+    });
+  }
+};
+
+// =========================================================================
+// Helper: atualiza --vp e --vp-mid do gradient pra um slider 0..200.
+//   --vp     = posicao do thumb em % da largura (val/2 → 0..100%)
+//   --vp-mid = limite verde/branco→vermelho (min(val,100)/2)
+// Tambem alterna --thumb-color pra vermelho quando boost ativo.
+// =========================================================================
+function setVolBarVars(slider, val0_200) {
+  const v = Math.max(0, Math.min(200, val0_200 | 0));
+  const pct = v / 2;                    // 0..100 (% da largura)
+  const mid = Math.min(v, 100) / 2;     // 0..50  (limite cor1→cor2)
+  slider.style.setProperty('--vp',     pct + '%');
+  slider.style.setProperty('--vp-mid', mid + '%');
+  slider.style.setProperty('--thumb-color', v > 100 ? 'var(--danger-2, #ef4444)' : '');
+}
+
+// =========================================================================
+// VolTooltip — hint flutuante que mostra o % atual durante interacao
+// com os sliders de volume (master + per-faixa). Singleton: um unico
+// <div> reutilizado, posicionado via JS sobre o thumb do slider ativo.
+//
+// Eventos:
+//   pointerdown → mostra (com valor atual)
+//   input       → atualiza texto + posicao (durante drag/keyboard)
+//   pointerup   → schedule hide com pequeno delay (leitura final)
+//   focus       → mostra (keyboard nav)
+//   blur        → hide
+//   dblclick    → reseta pra 100% (dispara 'input' programaticamente
+//                 pra os outros handlers reagirem: gain + gradient +
+//                 label de % na linha do per-faixa)
+//
+// pointerup e ouvido tambem na window — sem isso, drag que termina
+// FORA do slider (mouse arrastado pra longe) deixaria o tooltip
+// visivel pra sempre.
+// =========================================================================
+const VolTooltip = {
+  el: null,
+  active: null,
+  hideTimer: 0,
+  globalWired: false,
+
+  _ensure() {
+    if (this.el) return this.el;
+    let t = document.getElementById('volTooltip');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'volTooltip';
+      t.className = 'vol-tooltip';
+      t.hidden = true;
+      document.body.appendChild(t);
+    }
+    this.el = t;
+    if (!this.globalWired) {
+      window.addEventListener('pointerup',     () => this._onGlobalUp());
+      window.addEventListener('pointercancel', () => this._onGlobalUp());
+      window.addEventListener('resize', () => {
+        if (this.active) this._position(this.active);
+      });
+      this.globalWired = true;
+    }
+    return t;
+  },
+
+  show(slider) {
+    const t = this._ensure();
+    clearTimeout(this.hideTimer);
+    const v = parseInt(slider.value, 10) || 0;
+    t.textContent = v + '%';
+    t.classList.toggle('boost', v > 100);
+    t.hidden = false;
+    this._position(slider);
+  },
+
+  _position(slider) {
+    const t = this.el;
+    if (!t || t.hidden) return;
+    const rect = slider.getBoundingClientRect();
+    const min = parseFloat(slider.min) || 0;
+    const max = parseFloat(slider.max) || 100;
+    const val = parseFloat(slider.value) || 0;
+    const ratio = (max > min) ? (val - min) / (max - min) : 0;
+    // thumbW aproximado — Chromium renderiza ~11px no master e ~10px
+    // no per-faixa. A diferenca eh perceptivelmente irrelevante pro
+    // posicionamento do tooltip; 11 da centralizacao boa nos dois casos.
+    const thumbW = 11;
+    const innerW = Math.max(0, rect.width - thumbW);
+    const x = rect.left + thumbW/2 + ratio * innerW;
+    t.style.left = x + 'px';
+    t.style.top  = rect.top + 'px';
+  },
+
+  hide(delayMs) {
+    clearTimeout(this.hideTimer);
+    const doHide = () => { if (this.el) this.el.hidden = true; };
+    if (delayMs && delayMs > 0)
+      this.hideTimer = setTimeout(doHide, delayMs);
+    else
+      doHide();
+  },
+
+  _onGlobalUp() {
+    if (this.active) {
+      this.hide(400);
+      this.active = null;
+    }
+  },
+
+  // Wire-up de UM slider (idempotente — flag no proprio elemento
+  // evita listeners duplicados se o painel de info for re-renderizado).
+  wire(slider) {
+    if (!slider || slider._noobs_voltt_wired) return;
+    slider._noobs_voltt_wired = true;
+    this._ensure();
+
+    slider.addEventListener('pointerdown', () => {
+      this.active = slider;
+      // pointerdown roda ANTES do native value update do click-on-track,
+      // entao o primeiro show pega o valor antigo. O input event que
+      // dispara em sequencia (1-2ms depois) ja atualiza o texto.
+      this.show(slider);
+    });
+    slider.addEventListener('input', () => {
+      this.show(slider);
+      // Keyboard nav (setas, page up/down): nao tem pointerdown ativo,
+      // entao auto-hide curtinho depois da ultima tecla.
+      if (!this.active) this.hide(800);
+    });
+    slider.addEventListener('focus', () => this.show(slider));
+    slider.addEventListener('blur',  () => this.hide(200));
+    slider.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      slider.value = '100';
+      // Dispara 'input' programaticamente pra os handlers ja
+      // existentes (gain, gradient, label) atualizarem em cascata.
+      // bubbles=true caso algum dia adicionemos delegation.
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      this.show(slider);
+      this.hide(900);
     });
   }
 };

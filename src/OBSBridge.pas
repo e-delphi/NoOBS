@@ -13,6 +13,8 @@
     record_stop          : —
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
+    set_recording_fps    : fps (Integer, >= 10)
+    set_language         : language ('', 'auto', 'pt-BR', 'en', ...)
 
   Mensagens Delphi -> JS (campo "type"):
     init                 : monitors, mics, speakers, recordings
@@ -49,6 +51,7 @@ uses
   Vcl.Graphics,
   Vcl.Imaging.PngImage,
   OBSUI,
+  OBSLang,
   OBSLog,
   OBSScene,
   OBSPlayer,
@@ -667,12 +670,20 @@ function GetRecordDirFreeBytes: Int64; forward;
 procedure PushInit(AIncludeAudio: Boolean = True);
 var
   Init: TJSONObject;
+  Bundle: TJSONObject;
 begin
   // Se AIncludeAudio=False: pula a enumeracao WASAPI (que pode demorar
   // 30s+ em maquinas sem mic / audio service ruim). Caller deve depois
   // disparar enumeracao em worker thread e push audio_sources_refreshed.
   Init := TJSONObject.Create;
   Init.AddPair('type', 'init');
+  // Bundle de traducoes — JS usa pra montar a propria T() function.
+  // Caso nao tenha bundle (lang folder ausente), JS cai pros literais
+  // hardcoded no HTML como fallback.
+  Bundle := OBSLang.GetCurrentBundle;
+  if Bundle <> nil then
+    Init.AddPair('i18n', Bundle);
+  Init.AddPair('language', OBSLang.CurrentLanguage);
   Init.AddPair('monitors',   BuildMonitorsFromWin);
   if AIncludeAudio then
   begin
@@ -2039,6 +2050,11 @@ begin
   // balloon como fallback.
   UIReady := True;
 
+  // Carrega bundle de traducoes antes de qualquer push pra UI (PushInit
+  // serializa o bundle pra JS). 1a execucao detecta locale do Windows.
+  try OBSLang.InitLanguage; except on E: Exception do
+    Log('OBSLang: InitLanguage falhou: %s', [E.Message]); end;
+
   PushTheme;
   PushAppIcon;
 
@@ -2722,6 +2738,8 @@ begin
         begin
           StreamObj.AddPair('width', TJSONNumber.Create(S.Width));
           StreamObj.AddPair('height', TJSONNumber.Create(S.Height));
+          // FPS — 0 quando desconhecido (UI esconde a linha nesse caso).
+          StreamObj.AddPair('frameRate', TJSONNumber.Create(S.FrameRate));
         end
         else if S.Kind = 'audio' then
         begin
@@ -2929,6 +2947,21 @@ begin
     TJSONBool.Create(GetConfigBool('hibernate', False)));
   Obj.AddPair('recordingQuality',
     TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
+  // recordingFps: 0 = nao configurado → UI interpreta como 30 (default
+  // do NoOBS — mais compacto que o 60fps do OBS Studio).
+  // maxMonitorHz: taxa maxima dos monitores conectados agora — UI usa como
+  // limite superior do slider de fps. Chamada rapida (Win32 apenas).
+  Obj.AddPair('recordingFps',
+    TJSONNumber.Create(GetConfigInt('recordingFps', 30)));
+  Obj.AddPair('maxMonitorHz',
+    TJSONNumber.Create(WinPreview.GetMaxMonitorRefreshRate));
+  // Idioma atual ativo (codigo resolvido — 'pt-BR', 'en', etc.).
+  Obj.AddPair('language', OBSLang.CurrentLanguage);
+  // Valor salvo no config ('', 'auto', 'pt-BR', ...) — UI usa pra decidir
+  // se o dropdown deve mostrar "Automatico (sistema)" como selecao atual
+  // ou um idioma fixo.
+  Obj.AddPair('languagePref', GetConfigStr('language', ''));
+  Obj.AddPair('availableLanguages', OBSLang.GetAvailableLanguages);
   PostOwned(Obj);
 end;
 
@@ -2983,6 +3016,42 @@ begin
   if ALevel >  2 then ALevel :=  2;
   SetConfigInt('recordingQuality', ALevel);
   Log('RecordingQuality: %d', [ALevel]);
+end;
+
+procedure HandleSetRecordingFps(AFps: Integer);
+begin
+  // Minimo 10 fps. Sem maximo fixo — user pode ter monitor 360 Hz.
+  if AFps < 10 then AFps := 10;
+  SetConfigInt('recordingFps', AFps);
+  Log('RecordingFps: %d fps', [AFps]);
+end;
+
+procedure HandleSetLanguage(const ACode: string);
+// ACode aceita:
+//   ''     -> 'auto' (segue locale do Windows)
+//   'auto' -> idem
+//   'pt-BR', 'en', 'es', ...
+// Persiste a preferencia + carrega o bundle + push 'language_changed'
+// pra UI repintar tudo.
+var
+  Normalized, Resolved: string;
+  Obj: TJSONObject;
+  Bundle: TJSONObject;
+begin
+  Normalized := Trim(ACode);
+  SetConfigStr('language', Normalized);
+  Log('Language: pref="%s"', [Normalized]);
+  // Re-init resolve auto/manual + carrega.
+  OBSLang.InitLanguage;
+  Resolved := OBSLang.CurrentLanguage;
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'language_changed');
+  Obj.AddPair('language', Resolved);
+  Obj.AddPair('languagePref', Normalized);
+  Bundle := OBSLang.GetCurrentBundle;
+  if Bundle <> nil then Obj.AddPair('i18n', Bundle);
+  PostOwned(Obj);
 end;
 
 procedure HandleSetHibernate(AEnable: Boolean);
@@ -3337,6 +3406,10 @@ begin
       HandleSetHibernate(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_recording_quality' then
       HandleSetRecordingQuality(GetIntField(Obj, 'level'))
+    else if MsgType = 'set_recording_fps' then
+      HandleSetRecordingFps(GetIntField(Obj, 'fps'))
+    else if MsgType = 'set_language' then
+      HandleSetLanguage(GetStrField(Obj, 'language'))
     else if MsgType = 'get_settings' then
       PushSettings
     else if MsgType = 'set_theme' then

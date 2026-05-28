@@ -145,6 +145,10 @@ Section "NoOBS" SecMain
     SetOutPath "$INSTDIR\obs-plugins"
     File /r "exe\obs-plugins\*.*"
 
+    ; Pasta de traducoes ja foi instalada via `File /r "exe\bin\64bit\*.*"`
+    ; acima — a subpasta lang\*.json e parte de exe\bin\64bit\. Sem
+    ; bloco separado pra evitar duplicacao.
+
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
     ; Atalhos do Menu Iniciar (sempre criados — SetOutPath define o "Start in" do .lnk)
@@ -271,6 +275,8 @@ Function un.onInit
 FunctionEnd
 
 Section "Uninstall"
+    ; $INSTDIR\bin\64bit\lang foi instalado em separado; RMDir /r de
+    ; $INSTDIR\bin ja cobre, mas mantemos clareza listando.
     RMDir /r "$INSTDIR\bin"
     RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\obs-plugins"

@@ -83,7 +83,7 @@ end;
 
 function ValidateRuntime: TMissingFileArray;
 var
-  PluginBin, PluginData, DataLibobs: string;
+  PluginBin, PluginData, DataLibobs, LangDir: string;
 begin
   SetLength(Result, 0);
 
@@ -113,6 +113,16 @@ begin
   CheckDir(Result, DataLibobs,
     'Data do libobs (shaders/effects). Sem isso o video nao renderiza.',
     mkCritical);
+
+  // Pasta de traducoes — unica, sempre em <ExeDir>\lang\ (sem fallback
+  // de dev: a propria pasta exe\bin\64bit\lang\ no repo e a fonte de
+  // verdade). Recomendada, nao critica — sem ela o app sobe com chaves
+  // literais ("[settings.title]") mas ainda funciona.
+  LangDir := ExeDir + 'lang';
+  if not DirectoryExists(LangDir) then
+    AddMissing(Result, LangDir,
+      'Pasta de traducoes (lang\). Sem ela o app exibe chaves brutas — UI ' +
+      'continua funcional mas sem textos traduzidos.', mkRecommended);
 
   // -- Recomendados: feature degrada se faltar ----------------------------
   PluginBin  := ResolveRel('..\..\obs-plugins\64bit');

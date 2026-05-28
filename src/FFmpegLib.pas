@@ -116,8 +116,18 @@ type
     seek_preroll:        Integer;
   end;
 
-  // AVStream — primeiros campos publicos. Ate codecpar e estavel
-  // dentro de avformat-61. Campos depois nao usamos.
+  // AVStream — primeiros campos publicos do AVStream em FFmpeg 7.x
+  // (avformat-61). Layout casa com a ordem em avformat.h. Offsets
+  // calculados pra Win64 (ponteiros 8B, alinhamento natural):
+  //   av_class             0  | nb_frames            56
+  //   index                8  | disposition          64
+  //   id                  12  | discard              68
+  //   codecpar            16  | sample_aspect_ratio  72
+  //   priv_data           24  | metadata             80
+  //   time_base           32  | avg_frame_rate       88  ← FPS aqui
+  //   start_time          40  | attached_pic         96  (resto truncado)
+  //   duration            48  |
+  // Validar contra avformat.h se subir o major (61→62).
   PAVStream = ^AVStream;
   AVStream = record
     av_class:      Pointer;
@@ -133,6 +143,7 @@ type
     discard:       Integer;
     sample_aspect_ratio: AVRational;
     metadata:      AVDictionary;
+    avg_frame_rate: AVRational;  // FPS medio (para VFR e o mais util)
     // ... resto truncado, nao usamos.
   end;
 

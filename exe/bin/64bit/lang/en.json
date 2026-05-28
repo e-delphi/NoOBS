@@ -1,0 +1,299 @@
+{
+  "meta": {
+    "code": "en",
+    "name": "English",
+    "nativeName": "English",
+    "fallback": "en"
+  },
+  "app": {
+    "title": "NoOBS",
+    "tagline": "Lightweight screen recorder with OBS Studio embedded"
+  },
+  "header": {
+    "settings": "Settings",
+    "about": "About NoOBS",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
+  "sources": {
+    "monitors": "Displays",
+    "mics": "Microphones",
+    "speakers": "Speakers",
+    "webcams": "Webcams",
+    "default": "Default",
+    "defaultDevice": "System default device",
+    "audioTracks": "Audio tracks"
+  },
+  "record": {
+    "start": "Start recording",
+    "stop": "Stop recording",
+    "starting": "Starting...",
+    "ariaLabel": "Record",
+    "statusReady": "Ready to record",
+    "statusRecording": "Recording",
+    "recordingFor": "Recording for {{time}}",
+    "started": "Recording started.",
+    "finished": "Recording finished ({{min}}m {{sec}}s)."
+  },
+  "recordings": {
+    "title": "Recordings",
+    "search": "Search...",
+    "openFolder": "Open recordings folder",
+    "deleteSelected": "Delete selected recordings",
+    "selectToDelete": "Select recordings to delete",
+    "deleteOne": "Delete 1 selected recording",
+    "deleteN": "Delete {{count}} selected recordings",
+    "empty": "No recordings found.",
+    "fileCount_one": "{{count}} file",
+    "fileCount_other": "{{count}} files",
+    "spaceUsed": "{{size}} used",
+    "spaceFree": "{{size}} free",
+    "lowSpace": "Low free space",
+    "select": "Select",
+    "selectAllInGroup": "Select all in this group",
+    "confirmDeleteTitle": "Delete recordings",
+    "confirmDeleteOne": "Move this recording to the Windows Recycle Bin?",
+    "confirmDeleteN": "Move {{count}} recordings to the Windows Recycle Bin?"
+  },
+  "settings": {
+    "title": "Settings",
+    "theme": {
+      "label": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "toggleLight": "Light theme",
+      "toggleDark": "Dark theme"
+    },
+    "language": {
+      "label": "Language",
+      "auto": "Automatic (system)",
+      "hint": "Language of the NoOBS interface. \"Automatic\" uses the Windows language; other values force the selected language."
+    },
+    "recordDir": {
+      "label": "Recordings output folder",
+      "browse": "Browse...",
+      "reset": "Restore default"
+    },
+    "codec": {
+      "label": "Video codec",
+      "auto": "Automatic (recommended)",
+      "h264Hw": "H.264 — hardware",
+      "h264Sw": "H.264 — software (x264, CPU)",
+      "av1Hw": "AV1 — hardware",
+      "hevcHw": "HEVC / H.265 — hardware",
+      "unavailable": "(unavailable)",
+      "maxRes": "Codec max resolution: {{w}} × {{h}}",
+      "hint": "Automatic picks the best available option in the order H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Only choose manually if you know what you're doing."
+    },
+    "hotkey": {
+      "label": "Global hotkey to start/stop recording",
+      "ctrl": "Ctrl",
+      "shift": "Shift",
+      "alt": "Alt",
+      "win": "Win",
+      "plus": "+",
+      "hint": "Check the desired modifiers (Ctrl, Shift, Alt, Win) and pick a main key. Examples: Pause or Ctrl+Shift+G.",
+      "noKey": "No hotkey set. Pick a main key (and optionally modifiers) to enable the global hotkey.",
+      "activeHint": "Current hotkey: <code>{{spec}}</code>. Uncheck all modifiers and pick <b>Not set</b> to disable."
+    },
+    "quality": {
+      "label": "Recording quality",
+      "lower": "Lower",
+      "higher": "Higher",
+      "hint": {
+        "-2": "Aggressive compression — much smaller files, visibly lower quality.",
+        "-1": "Moderate compression — smaller files, slightly lower quality.",
+        "0": "Default — same as encoder defaults, balanced between file size and visual quality.",
+        "1": "High quality — larger files, sharper video.",
+        "2": "Maximum quality — large files, close to visually lossless."
+      }
+    },
+    "fps": {
+      "label": "Recording framerate",
+      "unitFps": "{{n}} fps",
+      "hint": {
+        "low": "{{fps}} fps — low framerate, motion may look choppy. Smaller files.",
+        "smooth": "{{fps}} fps — smooth, standard video rate. Compact files.",
+        "good": "{{fps}} fps — good fluidity, great for general use.",
+        "high": "{{fps}} fps — high fluidity, ideal for games and fast motion.",
+        "veryHigh": "{{fps}} fps — very high fluidity. Larger files."
+      }
+    },
+    "autostart": {
+      "label": "Start with Windows",
+      "hint": "NoOBS launches automatically when you log into Windows."
+    },
+    "closeToTray": {
+      "label": "Minimize to tray",
+      "hint": "Lets NoOBS use the system tray icon. With this option enabled, the window's X button sends to tray instead of quitting — click the icon to reopen, or use the icon's menu to actually quit."
+    },
+    "minimizeOnRecord": {
+      "labelTray": "Minimize to tray when recording starts",
+      "labelTaskbar": "Minimize when recording starts",
+      "hintTray": "When a recording starts, the NoOBS window is sent to the system tray — useful for recording the screen without the app's own window appearing in the video. The global hotkey still works to stop.",
+      "hintTaskbar": "When a recording starts, the NoOBS window is minimized — useful for recording the screen without the app's own window appearing in the video. The global hotkey still works to stop."
+    },
+    "notifyOnRecord": {
+      "label": "Show Windows notification on record start/stop",
+      "hint": "Shows a Windows notification when a recording starts or finishes. Only useful when the window is automatically minimized — otherwise the recording state is already visible in the window."
+    },
+    "scrollLock": {
+      "label": "Blink Scroll Lock LED while recording",
+      "hint": "Blinks the keyboard's Scroll Lock LED (1Hz) while a recording is active — discreet, always-visible indicator, useful when the app is in the tray. Turns off automatically when stopped."
+    },
+    "playSound": {
+      "label": "Play start/stop recording sound",
+      "hint": "Plays a short two-note sequence when starting (ascending) and stopping (descending) a recording — discreet audible confirmation."
+    },
+    "stopOnLock": {
+      "label": "Stop recording when computer is locked",
+      "hint": "When you lock Windows (Win+L, switch user, or automatic lock), the ongoing recording is finalized — avoids accidentally recording long sessions when you step away."
+    },
+    "hibernate": {
+      "label": "Free memory after 1 minute in tray",
+      "hint": "When the app stays in the tray for over 1 minute without recording, releases all resources and stays at ~5 MB of RAM. Only available with 'Minimize to tray' enabled."
+    },
+    "buttons": {
+      "reset": "Restore defaults",
+      "resetTitle": "Restore all fields to defaults (does not save — you still need to click Save)",
+      "cancel": "Cancel",
+      "save": "Save"
+    }
+  },
+  "about": {
+    "title": "About NoOBS",
+    "tagline": "Lightweight screen recorder with OBS Studio embedded",
+    "intro1": "NoOBS was born out of frustration with the complexity of OBS Studio — configuring scenes, sources and devices for every recording.",
+    "intro2": "The idea here is <b>simplicity</b>: open, click Record, you're recording. Displays, webcam, microphones and system audio are detected and ready automatically.",
+    "intro3": "<b>Lightweight, fast, intuitive</b> — a premium product designed so your recording always just works.",
+    "labels": {
+      "author": "Author",
+      "coAuthor": "Co-authoring",
+      "repository": "Repository",
+      "features": "Main features",
+      "builtWith": "Built with"
+    },
+    "features": [
+      "<b>Multi-monitor</b> and <b>webcam</b> recorded simultaneously",
+      "<b>Separate audio tracks</b> — mic and each output as its own track in the MKV",
+      "<b>GPU acceleration</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) with CPU x264 fallback",
+      "Configurable <b>global hotkey</b> to start/stop from anywhere",
+      "<b>Hibernate mode</b>: ~5 MB of RAM when idle in the tray",
+      "<b>MKV container</b> — recording recoverable even after power loss",
+      "<b>Built-in player</b> with thumbnails, search and delete right in the UI"
+    ],
+    "builtWith": [
+      "Delphi 12 (RAD Studio) — native Win64 target",
+      "libobs (OBS Studio core) — recording, encoder and capture",
+      "FFmpeg — remux, track extraction and thumbnails",
+      "WebView2 (Chromium) — HTML/CSS/JS interface"
+    ],
+    "footer": "Free software based on OBS Studio (GPL v2+), FFmpeg (LGPL/GPL) and Microsoft's WebView2.",
+    "close": "Close"
+  },
+  "player": {
+    "loading": "Preparing video...",
+    "analyzing": "Analyzing file...",
+    "paused": "PAUSED",
+    "videoInfo": "Video info",
+    "close": "Close",
+    "playPause": "Play/Pause (Space)",
+    "mute": "Mute (M)",
+    "unmute": "Unmute",
+    "muteShort": "Mute",
+    "volume": "Volume (0–200%)",
+    "speed": "Playback speed",
+    "fullscreen": "Fullscreen (F / double-click)",
+    "info": {
+      "file": "File",
+      "name": "Name",
+      "container": "Container",
+      "duration": "Duration",
+      "size": "Size",
+      "totalBitrate": "Total bitrate",
+      "video": "Video",
+      "stream": "Stream {{n}}",
+      "codec": "Codec",
+      "resolution": "Resolution",
+      "frameRate": "Frame rate",
+      "bitrate": "Bitrate",
+      "visualization": "View",
+      "fullView": "Full view",
+      "region": "Region {{n}}",
+      "audio_one": "Audio ({{count}} track)",
+      "audio_other": "Audio ({{count}} tracks)",
+      "track": "Track {{n}}",
+      "trackMix": "Track {{n}} (mix)",
+      "channels": "Channels",
+      "channelsMono": "Mono",
+      "channelsStereo": "Stereo",
+      "channelsN": "{{count}} channels",
+      "sampleRate": "Sample rate"
+    }
+  },
+  "toast": {
+    "saved": "Settings saved",
+    "errorSaving": "Error saving",
+    "invalidHotkey": "Invalid hotkey",
+    "fieldsReset": "Fields restored",
+    "fieldsResetBody": "Click Save to apply the changes.",
+    "restoreConfirmMessage": "This will reset all fields to their default values. You still need to click Save to apply. Continue?",
+    "restoreConfirmOk": "Restore",
+    "devicesUpdated": "Devices updated",
+    "monitorsUpdated": "Displays updated",
+    "updatingMonitors": "Updating displays",
+    "updatingAudio": "Updating audio devices",
+    "startingRecord": "Starting recording",
+    "updating": "Updating",
+    "errorTitle": "Error",
+    "unknownError": "Unknown error",
+    "languageChanged": "Language changed"
+  },
+  "error": {
+    "loadVideo": "Error loading video.",
+    "unsupportedCodec": "Unsupported codec, converting...",
+    "recordStartFailed": "Failed to start recording: {{error}}",
+    "fileNotFound": "File not found",
+    "folderNotFound": "Recordings folder not found",
+    "deleteFailed": "Failed to delete file: {{file}}",
+    "renameFailed": "Failed to rename file."
+  },
+  "warning": {
+    "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."
+  },
+  "dateGroups": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisWeek": "This week",
+    "noDate": "No date"
+  },
+  "tracks": {
+    "title": "Audio tracks",
+    "default": "Default",
+    "defaultDevice": "System default device",
+    "defaultHint": "Device set as default in Windows. Indicated by a colored dot next to the device name in the list.",
+    "track": "Track {{n}}",
+    "mix": "Track 1",
+    "mixLabel": "Mix (all)",
+    "mixHint": "Mix of all enabled devices. Recorded as the first audio track of the output file.",
+    "noTrack": "No track",
+    "devicesGrouped_one": "{{count}} device grouped",
+    "devicesGrouped_other": "{{count}} devices grouped",
+    "devicesDisabled_one": "{{count}} device disabled",
+    "devicesDisabled_other": "{{count}} devices disabled"
+  },
+  "months": [
+    "January", "February", "March", "April",
+    "May", "June", "July", "August",
+    "September", "October", "November", "December"
+  ],
+  "common": {
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK"
+  }
+}

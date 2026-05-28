@@ -93,6 +93,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
+| `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log centralizado em `%LOCALAPPDATA%\NoOBS\NoOBS.log`, append, thread-safe          |
 | `WinPreview`        | **Win32**: `EnumDisplayMonitors` + `BitBlt` pra capturar thumb de cada monitor     |
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
@@ -657,6 +658,77 @@ recuperáveis manualmente).
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |
 | `sources.speakers[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.webcams[name]`          | `true` / `false` (default: `false`)                |
+| `language`                       | `""` (auto, segue Windows), `"pt-BR"`, `"en"`, `"es"`, ... |
+| `recordingQuality`               | `-2..+2` (default `0`)                             |
+| `recordingFps`                   | `10..maxMonitorHz` (default `30` — padrão do NoOBS, mais compacto que o 60fps do OBS Studio) |
+
+---
+
+## Internacionalização (i18n)
+
+Toda string visível ao usuário (labels, hints, botões, toasts, mensagens
+de erro) vem de `lang\<código>.json` — **nunca hardcode em HTML ou JS**.
+Padrão alinhado com i18next: JSON aninhado, dot-notation, interpolação
+`{{var}}`, fallback chain por `meta.fallback`.
+
+### Arquitetura
+
+- **Arquivos**: `exe\bin\64bit\lang\pt-BR.json` (base, fonte da verdade
+  pra novas chaves), `en.json`, `es.json`, ... — JSON UTF-8 com namespaces
+  top-level (`settings`, `record`, `recordings`, `toast`, `error`, `about`,
+  `player`, `sources`, `header`, `common`, ...).
+- **Localização única**: `<ExeDir>\lang\` — em dev **E** em produção.
+  Não há duplicata na raiz do repo: a própria pasta `exe\bin\64bit\lang\`
+  é source-controlled. NoOBS.exe roda daquele diretório, então um único
+  path cobre os dois cenários (sem fallback, sem copy script).
+- **Detecção 1ª execução**: `OBSLang.InitLanguage` lê `GetUserDefaultLocaleName`,
+  faz match exato (`pt-BR.json`) e depois por prefixo (`pt-*`); fallback
+  final `en`. Resultado fica em `config.language` (vazio = `auto`).
+- **Instalador**: já coberto pelo `File /r "exe\bin\64bit\*.*"` (a pasta
+  `lang\` é subpasta de `bin\64bit\`, vai junto sem bloco separado).
+- **Validação startup**: `OBSStartupCheck` reporta pasta `lang\` ausente
+  como recomendada (não crítica) — app sobe com chaves literais entre
+  colchetes (`[settings.title]`) sinalizando ao tradutor o que falta.
+- **Mensageria UI**: bundle inteiro vai pra UI no `init` e no
+  `language_changed` — JS espelha o backend via módulo `I18n`.
+
+### Como usar
+
+**HTML estático** — atributos `data-i18n*`. O texto inicial fica como
+fallback até o bundle chegar; `I18n.apply()` substitui no `init` e em
+trocas de idioma:
+
+```html
+<label data-i18n="settings.title">Configurações</label>
+<button data-i18n-title="header.close" title="Fechar">×</button>
+<input data-i18n-placeholder="recordings.search" placeholder="Buscar...">
+<button data-i18n-aria="record.ariaLabel" aria-label="Gravar">REC</button>
+<p data-i18n-html="about.intro2"><b>HTML simples</b> aceito aqui</p>
+```
+
+**JS dinâmico** — `T(key, args)`:
+
+```javascript
+Toast.show(T('toast.saved'));
+statusText.textContent = T('record.statusRecording');
+hint.textContent = T('settings.fps.hint.good', { fps: 60 });
+```
+
+**Delphi** — `OBSLang.T(key, args)`:
+
+```pascal
+uses OBSLang;
+PostError(T('error.recordStartFailed', ['error', E.Message]));
+```
+
+### Adicionando um idioma novo
+
+1. Crie `exe\bin\64bit\lang\<code>.json` (copie `en.json` como template e traduza).
+2. `meta.code` deve casar com o nome do arquivo (`pt-BR.json` → `"pt-BR"`).
+3. `meta.fallback` aponta pro idioma de backup (geralmente `"en"`).
+4. UI detecta sozinha via `GetAvailableLanguages` — dropdown atualiza.
+5. Instalador já cobre via `File /r "exe\bin\64bit\*.*"` (a pasta `lang\`
+   é subpasta de `bin\64bit\`).
 
 ---
 
@@ -706,12 +778,20 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 3. **Mudança de protocolo UI↔Delphi**: documentar tipo novo no
    cabeçalho de `OBSBridge.pas` e no objeto `Bridge.handlers` em
    `ui/index.html`.
-4. **Sempre rebuild antes de declarar pronto**: msbuild deve
+4. **Alterou QUALQUER texto visível ao usuário** (label, hint, botão,
+   toast, mensagem de erro, tooltip, placeholder, aria-label): atualize
+   **TODOS** os arquivos `exe\bin\64bit\lang\*.json` (`pt-BR`, `en`,
+   `es`, ...) com a mesma chave. Strings estáticas no HTML viram
+   `data-i18n="..."`; strings dinâmicas em JS viram `T('...')`; strings
+   em Delphi viram `OBSLang.T('...')`. Nunca mude só o pt-BR — chaves
+   ausentes nos outros idiomas aparecem como `[chave]` na UI. Ver
+   seção "Internacionalização (i18n)".
+5. **Sempre rebuild antes de declarar pronto**: msbuild deve
    terminar com **0 Aviso(s) 0 Erro(s)**.
-5. **Se mexeu em canvas/format/audio/encoder**: faça uma gravação
+6. **Se mexeu em canvas/format/audio/encoder**: faça uma gravação
    real de teste e valide o `.mkv` abrindo no player do NoOBS
    (que invoca Probe via libavformat).
-6. **Se mexeu em offsets de struct libav**: validar contra o header
+7. **Se mexeu em offsets de struct libav**: validar contra o header
    `.h` do release exato da major (avformat-61 = FFmpeg 7.x).
 
 ---
@@ -749,3 +829,13 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 - **NÃO use** `av_opt_set_int(ctx, "width", ...)` em AVCodecContext —
   use `AVCodecParameters` + `avcodec_parameters_to_context`
   (pegadinha #28).
+- **NÃO hardcode** texto visível ao usuário em HTML ou JS — sempre via
+  `data-i18n` no HTML, `T(...)` em JS ou `OBSLang.T(...)` em Delphi. Se
+  adicionar string nova, replique em TODOS os `exe\bin\64bit\lang\*.json`
+  (pt-BR, en, es, ...). Ver "Internacionalização (i18n)".
+- **NÃO atualize só `pt-BR.json`** quando mudar uma string — todos os
+  arquivos precisam da mesma chave, caso contrário a UI exibe `[chave]`
+  nos idiomas faltantes.
+- **NÃO crie pasta `lang\` na raiz do repo** — a fonte de verdade é
+  `exe\bin\64bit\lang\` (única, ao lado do exe). Duplicar gera drift
+  entre as duas cópias.

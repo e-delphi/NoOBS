@@ -2632,6 +2632,33 @@
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
   }
+  /* Tick marks do slider de FPS — diferente do .quality-ticks porque os
+     valores nao sao igualmente espacados (10, 30, 60, 120, maxMonitorHz).
+     Por isso usamos position:absolute + calc() pra alinhar cada label
+     com a posicao proporcional do thumb. O padding 0 50px casa com o
+     .quality-slider-row (largura dos labels esquerdo/direito) pra que
+     0% (left edge da area util) bata com o "10 fps" e 100% (right edge)
+     bata com o label do max. Tick gerado dinamicamente em JS. */
+  .fps-ticks {
+    position: relative;
+    height: 14px;
+    padding: 0 50px;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .fps-ticks .fps-tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  /* Primeira/ultima tick ancoram nas bordas da area util (igual ao
+     .quality-ticks via flex) — ajuste manual de transform pra nao
+     ultrapassar o container. */
+  .fps-ticks .fps-tick.at-start { transform: translateX(0); }
+  .fps-ticks .fps-tick.at-end   { transform: translateX(-100%); }
   .settings-hint {
     font-size: 11px;
     color: var(--text-3);
@@ -2907,29 +2934,32 @@
 <div class="settings-overlay" id="settingsOverlay">
   <div class="settings-modal">
     <div class="settings-header">
-      <h3>Configurações</h3>
+      <h3 data-i18n="settings.title">Configurações</h3>
       <div class="theme-toggle" id="settingsTheme">
         <button type="button" class="theme-toggle-btn" data-theme="light"
-                onclick="Settings.setTheme('light')" title="Tema claro">
+                onclick="Settings.setTheme('light')"
+                data-i18n-title="settings.theme.toggleLight" title="Tema claro">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="4"/>
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
           </svg>
-          <span>Claro</span>
+          <span data-i18n="settings.theme.light">Claro</span>
         </button>
         <button type="button" class="theme-toggle-btn" data-theme="dark"
-                onclick="Settings.setTheme('dark')" title="Tema escuro">
+                onclick="Settings.setTheme('dark')"
+                data-i18n-title="settings.theme.toggleDark" title="Tema escuro">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
-          <span>Escuro</span>
+          <span data-i18n="settings.theme.dark">Escuro</span>
         </button>
       </div>
-      <button class="settings-help-btn" onclick="About.open()" title="Sobre o NoOBS">
+      <button class="settings-help-btn" onclick="About.open()"
+              data-i18n-title="header.about" title="Sobre o NoOBS">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
@@ -2941,29 +2971,44 @@
     </div>
     <div class="settings-body">
       <div class="settings-field">
-        <label>Pasta de saída das gravações</label>
+        <label data-i18n="settings.language.label">Idioma</label>
+        <div class="settings-input-row">
+          <select class="settings-input" id="settingsLanguage"
+                  onchange="Settings.onLanguageChange()">
+            <option value="" data-i18n="settings.language.auto">Automático (sistema)</option>
+            <!-- Demais opções (pt-BR, en, es...) são populadas dinamicamente
+                 a partir de availableLanguages enviado pelo backend. -->
+          </select>
+        </div>
+        <div class="settings-hint" data-i18n="settings.language.hint">
+          Idioma da interface do NoOBS. "Automático" usa o idioma do Windows; outros valores forçam o idioma escolhido.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label data-i18n="settings.recordDir.label">Pasta de saída das gravações</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsRecDir" placeholder="C:\Users\...\Videos">
-          <button class="settings-btn" onclick="Settings.pickFolder()">Procurar...</button>
+          <button class="settings-btn" onclick="Settings.pickFolder()" data-i18n="settings.recordDir.browse">Procurar...</button>
         </div>
       </div>
       <div class="settings-field">
-        <label>Codec de vídeo</label>
+        <label data-i18n="settings.codec.label">Codec de vídeo</label>
         <div class="settings-input-row">
           <select class="settings-input" id="settingsCodec"
                   onchange="Settings.onCodecChange()">
-            <option value="auto">Automático (recomendado)</option>
-            <option value="h264-hw">H.264 — hardware</option>
-            <option value="h264-sw">H.264 — software (x264, CPU)</option>
-            <option value="av1-hw">AV1 — hardware</option>
-            <option value="hevc-hw">HEVC / H.265 — hardware</option>
+            <option value="auto"    data-i18n="settings.codec.auto">Automático (recomendado)</option>
+            <option value="h264-hw" data-i18n="settings.codec.h264Hw">H.264 — hardware</option>
+            <option value="h264-sw" data-i18n="settings.codec.h264Sw">H.264 — software (x264, CPU)</option>
+            <option value="av1-hw"  data-i18n="settings.codec.av1Hw">AV1 — hardware</option>
+            <option value="hevc-hw" data-i18n="settings.codec.hevcHw">HEVC / H.265 — hardware</option>
           </select>
           <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
         </div>
         <div class="settings-hint" id="settingsCodecMaxRes">
           Resolução máxima do codec: 4096 × 4096
         </div>
-        <div class="settings-hint" id="settingsCodecHint">
+        <div class="settings-hint" id="settingsCodecHint" data-i18n="settings.codec.hint">
           Automático escolhe a melhor opção disponível na ordem
           H.264 hardware → H.264 software → AV1 hardware → HEVC
           hardware. Use uma escolha manual só se souber o que está
@@ -2971,19 +3016,19 @@
         </div>
       </div>
       <div class="settings-field">
-        <label>Atalho global para iniciar/parar gravação</label>
+        <label data-i18n="settings.hotkey.label">Atalho global para iniciar/parar gravação</label>
         <div class="hotkey-builder">
           <div class="hotkey-mods">
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyCtrl"  onchange="Settings.onHotkeyChange()"><span>Ctrl</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyShift" onchange="Settings.onHotkeyChange()"><span>Shift</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyAlt"   onchange="Settings.onHotkeyChange()"><span>Alt</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyWin"   onchange="Settings.onHotkeyChange()"><span>Win</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyCtrl"  onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.ctrl">Ctrl</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyShift" onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.shift">Shift</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyAlt"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.alt">Alt</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyWin"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.win">Win</span></label>
           </div>
           <span class="hotkey-plus">+</span>
           <select class="settings-input hotkey-key" id="settingsHotkeyKey"
                   onchange="Settings.onHotkeyChange()"></select>
         </div>
-        <div class="settings-hint" id="settingsHotkeyPreview">
+        <div class="settings-hint" id="settingsHotkeyPreview" data-i18n-html="settings.hotkey.hint">
           Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e
           escolha uma tecla principal. Exemplos: <code>Pause</code> ou
           <code>Ctrl+Shift+G</code>.
@@ -2991,13 +3036,13 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
-        <label>Qualidade da gravação</label>
+        <label data-i18n="settings.quality.label">Qualidade da gravação</label>
         <div class="quality-slider-row">
-          <span class="quality-end-label">Menor</span>
+          <span class="quality-end-label" data-i18n="settings.quality.lower">Menor</span>
           <input type="range" id="settingsRecordingQuality"
                  min="-2" max="2" step="1" value="0"
                  oninput="Settings.onQualityChange()">
-          <span class="quality-end-label">Maior</span>
+          <span class="quality-end-label" data-i18n="settings.quality.higher">Maior</span>
         </div>
         <div class="quality-ticks">
           <span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
@@ -3009,11 +3054,32 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
+        <label data-i18n="settings.fps.label">Taxa de quadros da gravação</label>
+        <div class="quality-slider-row">
+          <!-- Slider snap entre predefinicoes: o `value` E o INDICE da
+               lista Settings.fpsPresets (0..N-1, step=1), nao o fps em si.
+               Settings._currentFpsFromSlider faz a conversao indice -> fps.
+               Lista padrao: [20, 30, 60, 90, ..., max do monitor]. -->
+          <span class="quality-end-label" id="settingsFpsMinLabel">20 fps</span>
+          <input type="range" id="settingsRecordingFps"
+                 min="0" max="2" step="1" value="1"
+                 oninput="Settings.onFpsChange()">
+          <span class="quality-end-label" id="settingsFpsMaxLabel">60 fps</span>
+        </div>
+        <!-- Ticks: um por predefinicao, espacados igualmente (cada passo
+             do slider = uma predefinicao). Populado em JS. -->
+        <div class="fps-ticks" id="fpsTicks"></div>
+        <div class="settings-hint" id="settingsFpsHint">
+          30 fps — suave, padrão de vídeo. Arquivo compacto.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutostart">
-          <span>Iniciar com o Windows</span>
+          <span data-i18n="settings.autostart.label">Iniciar com o Windows</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.autostart.hint">
           O NoOBS sobe automaticamente quando você loga no Windows.
         </div>
       </div>
@@ -3022,9 +3088,9 @@
         <label class="settings-check-row">
           <input type="checkbox" id="settingsCloseToTray"
                  onchange="Settings.onTrayChange()">
-          <span>Minimizar para bandeja</span>
+          <span data-i18n="settings.closeToTray.label">Minimizar para bandeja</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.closeToTray.hint">
           Permite ao NoOBS usar o ícone na bandeja do sistema. Com
           esta opção ativa, o botão X da janela manda pra bandeja
           em vez de encerrar — clique no ícone pra reabrir, ou use
@@ -3048,9 +3114,9 @@
       <div class="settings-field">
         <label class="settings-check-row" id="settingsNotifyOnRecordRow">
           <input type="checkbox" id="settingsNotifyOnRecord">
-          <span>Notificar no Windows ao iniciar/parar gravação</span>
+          <span data-i18n="settings.notifyOnRecord.label">Notificar no Windows ao iniciar/parar gravação</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.notifyOnRecord.hint">
           Mostra uma notificação do Windows quando começa ou termina
           uma gravação. Só faz sentido quando a janela é minimizada
           automaticamente — caso contrário o estado da gravação já
@@ -3061,9 +3127,9 @@
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsScrollLockIndicator">
-          <span>Piscar LED de Scroll Lock durante gravação</span>
+          <span data-i18n="settings.scrollLock.label">Piscar LED de Scroll Lock durante gravação</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.scrollLock.hint">
           Pisca o LED de Scroll Lock do teclado (1Hz) enquanto a
           gravação está ativa — indicador discreto e sempre visível,
           útil quando o app está na bandeja. Apaga automaticamente ao
@@ -3074,9 +3140,9 @@
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsPlaySoundOnRecord">
-          <span>Tocar som de início e fim da gravação</span>
+          <span data-i18n="settings.playSound.label">Tocar som de início e fim da gravação</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.playSound.hint">
           Toca uma sequência curta de duas notas ao começar (ascendente)
           e ao terminar (descendente) a gravação. Discreto — volume
           baixo o suficiente pra não atrapalhar, alto o suficiente pra
@@ -3087,9 +3153,9 @@
       <div class="settings-field">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsStopOnLock">
-          <span>Parar a gravação ao bloquear o computador</span>
+          <span data-i18n="settings.stopOnLock.label">Parar a gravação ao bloquear o computador</span>
         </label>
-        <div class="settings-hint">
+        <div class="settings-hint" data-i18n="settings.stopOnLock.hint">
           Quando o Windows é bloqueado (Win+L, troca de usuário ou
           bloqueio automático), a gravação em andamento é encerrada
           automaticamente e o arquivo é finalizado. Útil pra não
@@ -3101,9 +3167,9 @@
       <div class="settings-field">
         <label class="settings-check-row" id="settingsHibernateRow">
           <input type="checkbox" id="settingsHibernate">
-          <span>Hibernar quando inativo</span>
+          <span data-i18n="settings.hibernate.label">Hibernar quando inativo</span>
         </label>
-        <div class="settings-hint" id="settingsHibernateHint">
+        <div class="settings-hint" id="settingsHibernateHint" data-i18n="settings.hibernate.hint">
           Quando a janela fica escondida na bandeja por mais de 1 minuto
           sem gravação em curso, o app entra em modo hibernação — libera
           libobs, WebView2, FFmpeg e watchers, deixando só um ícone na
@@ -3117,12 +3183,14 @@
     </div>
     <div class="settings-footer">
       <button class="settings-btn" onclick="Settings.restoreDefaults()"
+              data-i18n="settings.buttons.reset"
+              data-i18n-title="settings.buttons.resetTitle"
               data-hint="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
         Restaurar padrão
       </button>
       <div class="settings-footer-right">
-        <button class="settings-btn" onclick="Settings.close()">Cancelar</button>
-        <button class="settings-btn primary" onclick="Settings.save()">Salvar</button>
+        <button class="settings-btn" onclick="Settings.close()" data-i18n="settings.buttons.cancel">Cancelar</button>
+        <button class="settings-btn primary" onclick="Settings.save()" data-i18n="settings.buttons.save">Salvar</button>
       </div>
     </div>
   </div>
@@ -3132,8 +3200,8 @@
 <div class="settings-overlay" id="aboutOverlay">
   <div class="settings-modal about-modal">
     <div class="settings-header">
-      <h3>Sobre o NoOBS</h3>
-      <button class="player-close" onclick="About.close()" title="Fechar">×</button>
+      <h3 data-i18n="about.title">Sobre o NoOBS</h3>
+      <button class="player-close" onclick="About.close()" data-i18n-title="about.close" title="Fechar">×</button>
     </div>
     <div class="settings-body about-body">
       <div class="about-logo">
@@ -3147,30 +3215,30 @@
           <circle cx="12" cy="12" r="4" fill="currentColor"/>
         </svg>
         <div class="about-name">NoOBS</div>
-        <div class="about-tagline">Gravador de tela leve com OBS Studio embarcado</div>
+        <div class="about-tagline" data-i18n="about.tagline">Gravador de tela leve com OBS Studio embarcado</div>
       </div>
 
       <div class="about-desc">
-        <p>O NoOBS nasceu da frustração com a complexidade do OBS Studio
+        <p data-i18n="about.intro1">O NoOBS nasceu da frustração com a complexidade do OBS Studio
         — configurar cenas, fontes e dispositivos a cada gravação.</p>
-        <p>A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar,
+        <p data-i18n-html="about.intro2">A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar,
         está gravando. Telas, webcam, microfones e áudio do sistema são
         detectados e ficam prontos automaticamente.</p>
-        <p><b>Leve, rápido, intuitivo</b> — um produto premium pensado
+        <p data-i18n-html="about.intro3"><b>Leve, rápido, intuitivo</b> — um produto premium pensado
         pra que sua gravação sempre funcione.</p>
       </div>
 
       <div class="about-info">
         <div class="about-row">
-          <span class="about-label">Autor</span>
+          <span class="about-label" data-i18n="about.labels.author">Autor</span>
           <span class="about-value">Eduardo Rodrigues</span>
         </div>
         <div class="about-row">
-          <span class="about-label">Co-autoria</span>
+          <span class="about-label" data-i18n="about.labels.coAuthor">Co-autoria</span>
           <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.7 <span style="color: var(--text-3)">1M</span></span>
         </div>
         <div class="about-row">
-          <span class="about-label">Repositório</span>
+          <span class="about-label" data-i18n="about.labels.repository">Repositório</span>
           <span class="about-link" role="link" tabindex="0"
                 onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
             github.com/e-delphi/NoOBS
@@ -3179,8 +3247,8 @@
       </div>
 
       <div class="about-scroll">
-        <div class="about-section-title">Principais recursos</div>
-        <ul class="about-list">
+        <div class="about-section-title" data-i18n="about.labels.features">Principais recursos</div>
+        <ul class="about-list" data-i18n-list="about.features">
           <li><b>Multi-monitor</b> e <b>webcam</b> gravados simultaneamente</li>
           <li><b>Faixas de áudio separadas</b> — mic e cada saída como track própria no MKV</li>
           <li><b>Aceleração de GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) com fallback CPU x264</li>
@@ -3190,8 +3258,8 @@
           <li><b>Player embutido</b> com thumbnails, busca e exclusão direto na UI</li>
         </ul>
 
-        <div class="about-section-title">Construído com</div>
-        <ul class="about-list">
+        <div class="about-section-title" data-i18n="about.labels.builtWith">Construído com</div>
+        <ul class="about-list" data-i18n-list="about.builtWith">
           <li>Delphi 12 (RAD Studio) — target Win64 nativo</li>
           <li>libobs (OBS Studio core) — gravação, encoder e captura</li>
           <li>FFmpeg — remux, extração de faixas e thumbnails</li>
@@ -3200,7 +3268,7 @@
       </div>
 
       <div class="about-fixed-footer">
-        <div class="about-footer-note">
+        <div class="about-footer-note" data-i18n="about.footer">
           Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
           e WebView2 da Microsoft.
         </div>
@@ -3222,9 +3290,9 @@
           <rect x="1" y="1" width="2.5" height="8" rx="0.5" fill="currentColor"/>
           <rect x="6.5" y="1" width="2.5" height="8" rx="0.5" fill="currentColor"/>
         </svg>
-        <span>PAUSADO</span>
+        <span data-i18n="player.paused">PAUSADO</span>
       </div>
-      <button class="player-close" id="playerClose" title="Fechar (Esc)">×</button>
+      <button class="player-close" id="playerClose" data-i18n-title="player.close" title="Fechar (Esc)">×</button>
     </div>
     <div class="player-body">
       <div class="player-stage" id="playerStage">
@@ -3349,10 +3417,10 @@
           <div class="rec-header">
             <div class="rec-state">
               <span class="rec-state-dot"></span>
-              <span id="recStatusText">Pronto para gravar</span>
+              <span id="recStatusText" data-i18n="record.statusReady">Pronto para gravar</span>
             </div>
             <button class="icon-btn record-settings-btn" id="settingsBtn"
-                    onclick="Settings.open()" title="Configurações">
+                    onclick="Settings.open()" data-i18n-title="header.settings" title="Configurações">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round">
@@ -3367,10 +3435,10 @@
           </div>
 
           <button class="record-btn" id="recordBtn" onclick="toggleRecord()"
-                  aria-label="Gravar">
+                  data-i18n-aria="record.ariaLabel" aria-label="Gravar">
             <span class="icon"></span>
           </button>
-          <div class="record-label" id="recordLabel">Iniciar gravação</div>
+          <div class="record-label" id="recordLabel" data-i18n="record.start">Iniciar gravação</div>
         </div>
       </div>
 
@@ -3379,7 +3447,7 @@
       <div class="sources-scroll">
         <div class="section" data-kind="mic">
           <div class="section-title">
-            <h3>Microfones</h3>
+            <h3 data-i18n="sources.mics">Microfones</h3>
             <span class="count" id="micCount">— / —</span>
           </div>
           <div id="micList"></div>
@@ -3387,7 +3455,7 @@
 
         <div class="section" data-kind="speaker">
           <div class="section-title">
-            <h3>Alto-falantes</h3>
+            <h3 data-i18n="sources.speakers">Alto-falantes</h3>
             <span class="count" id="spkCount">— / —</span>
           </div>
           <div id="spkList"></div>
@@ -3406,7 +3474,7 @@
       <div class="section displays-block" data-kind="monitor">
         <div class="section-title">
           <div class="displays-title">
-            <h3>Telas</h3>
+            <h3 data-i18n="sources.monitors">Telas</h3>
             <span class="meta" id="monMeta"></span>
           </div>
           <span class="count" id="monCount">— / —</span>
@@ -3416,13 +3484,14 @@
 
       <div class="recordings-header">
         <div class="recordings-title">
-          <h2>Gravações</h2>
+          <h2 data-i18n="recordings.title">Gravações</h2>
           <span class="meta" id="recMeta">—</span>
         </div>
         <div class="recordings-actions">
         <input type="text" class="search" id="searchInput"
-               placeholder="Buscar...">
-        <button class="icon-btn" id="openDirBtn" onclick="Bridge.send('open_record_dir')" title="Abrir pasta de gravações">
+               data-i18n-placeholder="recordings.search" placeholder="Buscar...">
+        <button class="icon-btn" id="openDirBtn" onclick="Bridge.send('open_record_dir')"
+                data-i18n-title="recordings.openFolder" title="Abrir pasta de gravações">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
@@ -3431,7 +3500,7 @@
         </button>
         <button class="icon-btn delete-selected-btn" id="deleteSelectedBtn"
                 onclick="bulkDeleteSelected()" disabled
-                title="Excluir gravações selecionadas">
+                data-i18n-title="recordings.deleteSelected" title="Excluir gravações selecionadas">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
@@ -3444,7 +3513,7 @@
         </div>
       </div>
 
-      <div class="empty-state" id="emptyState" style="display:none">
+      <div class="empty-state" id="emptyState" style="display:none" data-i18n="recordings.empty">
         Nenhuma gravação encontrada.
       </div>
 
@@ -3464,6 +3533,97 @@
 // =====================================================================
 // Bridge — comunicacao com o host Delphi (OBSBridge.pas)
 // =====================================================================
+// =====================================================================
+// I18n — sistema de traducoes (carregado do bundle Delphi via Bridge)
+//
+// Padrao alinhado com i18next: chaves com namespace via dot-notation
+// ('settings.title'), interpolacao {{var}}, fallback automatico.
+//
+// Uso no HTML:
+//   <span data-i18n="settings.title">Configurações</span>
+//   <button data-i18n-title="header.close">×</button>
+//   <input data-i18n-placeholder="recordings.search">
+//   <button data-i18n-aria="record.ariaLabel">REC</button>
+//
+// Uso no JS:
+//   T('toast.saved')                 -> "Configurações salvas"
+//   T('record.finished', {min: 5})   -> "Gravação finalizada (5m 0s)."
+//
+// O texto inicial no HTML serve de fallback enquanto o bundle nao
+// chegou (1o paint antes do 'init' message).
+// =====================================================================
+const I18n = {
+  bundle: null,    // objeto JSON do idioma ativo
+  language: '',    // codigo do idioma ('pt-BR', 'en', ...)
+  setBundle(bundle, language) {
+    this.bundle = bundle || null;
+    this.language = language || '';
+    document.documentElement.setAttribute('lang', this.language || 'pt-BR');
+    this.apply(document);
+  },
+  // Recupera um valor cru — string, array, ou objeto — pra casos como
+  // months[] ou hints que ficam em sub-objetos.
+  get(key) { return this._lookup(key); },
+  // Lookup string com interpolacao. Chave ausente => '[key]' (sinal pro
+  // tradutor identificar o que falta). Aceita 2o param como objeto
+  // { name: 'Eduardo', count: 3 }.
+  t(key, args) {
+    const v = this._lookup(key);
+    if (v == null) return '[' + key + ']';
+    if (typeof v !== 'string') return String(v);
+    if (!args) return v;
+    return v.replace(/\{\{(\w+)\}\}/g, (m, k) =>
+      (args[k] !== undefined && args[k] !== null) ? String(args[k]) : m);
+  },
+  _lookup(key) {
+    if (!this.bundle || !key) return null;
+    const parts = String(key).split('.');
+    let cur = this.bundle;
+    for (let i = 0; i < parts.length; i++) {
+      if (cur == null || typeof cur !== 'object') return null;
+      cur = cur[parts[i]];
+    }
+    return (cur === undefined) ? null : cur;
+  },
+  // Aplica traducao a todos os elementos com data-i18n* dentro de root.
+  // Walk separado por tipo de atributo pra precisao.
+  apply(root) {
+    root = root || document;
+    root.querySelectorAll('[data-i18n]').forEach(el => {
+      const k = el.getAttribute('data-i18n');
+      if (k) el.textContent = this.t(k);
+    });
+    root.querySelectorAll('[data-i18n-html]').forEach(el => {
+      // Variante que aceita HTML simples (<b>, <i>, <code>) — usado em
+      // textos longos do About modal. Limita risco mantendo bundles
+      // sob controle dos devs (nao vem de user input).
+      const k = el.getAttribute('data-i18n-html');
+      if (k) el.innerHTML = this.t(k);
+    });
+    root.querySelectorAll('[data-i18n-title]').forEach(el => {
+      const k = el.getAttribute('data-i18n-title');
+      if (k) el.setAttribute('title', this.t(k));
+    });
+    root.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const k = el.getAttribute('data-i18n-placeholder');
+      if (k) el.setAttribute('placeholder', this.t(k));
+    });
+    root.querySelectorAll('[data-i18n-aria]').forEach(el => {
+      const k = el.getAttribute('data-i18n-aria');
+      if (k) el.setAttribute('aria-label', this.t(k));
+    });
+    // Renderiza um array do bundle como <li> dentro do elemento. Usado em
+    // listas de tamanho variavel (About: features, builtWith).
+    root.querySelectorAll('[data-i18n-list]').forEach(el => {
+      const k = el.getAttribute('data-i18n-list');
+      const arr = this.get(k);
+      if (Array.isArray(arr))
+        el.innerHTML = arr.map(item => '<li>' + item + '</li>').join('');
+    });
+  },
+};
+const T = (k, a) => I18n.t(k, a);
+
 const Bridge = {
   send(type, payload = {}) {
     try {
@@ -3488,6 +3648,10 @@ const Bridge = {
   },
   handlers: {
     init(data) {
+      // i18n vem ANTES de qualquer render — quem usar T() ja pega o
+      // bundle carregado. Sem bundle, T() retorna '[key]' e os textos
+      // hardcoded no HTML servem de fallback ate o user trocar idioma.
+      if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
       Displays.monitors = data.monitors || [];
       Displays.webcams  = data.webcams  || [];
       Displays.render();
@@ -3499,6 +3663,44 @@ const Bridge = {
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
       hideLoading();
       updateRecordButtonAvailability();
+    },
+    language_changed(data) {
+      // Backend trocou de idioma — re-aplica bundle. Como apply() faz
+      // walk pelos data-i18n, todos os elementos marcados se atualizam
+      // sem reload da pagina.
+      if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
+      // Atualiza textos dinamicos que dependem de funcoes JS (re-render
+      // de listas, botoes com label condicional, etc).
+      try { Settings._syncMinimizeOnRecordLabel(); } catch (e) {}
+      try { Settings._syncQualityHint(); } catch (e) {}
+      try { Settings._syncFpsHint(); } catch (e) {}
+      try { Settings._syncCodecMaxRes(); } catch (e) {}
+      try { Settings._updateHotkeyPreview(); } catch (e) {}
+      try { Displays.render(); } catch (e) {}
+      // Re-renderiza a legenda de faixas (textos compostos em JS, sem
+      // data-i18n por terem placeholders dinamicos como "Faixa N").
+      try { buildTrackLegend(); } catch (e) {}
+      // Re-render do estado de gravacao pra atualizar label/status do
+      // botao de gravar (T('record.start'/'stop'/'statusReady'/...)).
+      // Re-aplica estado de gravacao pra atualizar label (T('record.start'/stop'))
+      // e statusText. Usa cache _lastRecordingActive — true/false/null pre-boot.
+      try {
+        if (_lastRecordingActive !== null)
+          applyRecordingState(_lastRecordingActive, 0);
+      } catch (e) {}
+      try { updateRecordButtonAvailability(); } catch (e) {}
+      // Re-render recordings — date groups (Hoje/Ontem/...) + nomes de
+      // mes ficam stale; cache populado no proprio renderRecordings.
+      try {
+        if (typeof renderRecordings === 'function' &&
+            window._lastRecordingsItems) {
+          renderRecordings(window._lastRecordingsItems);
+        }
+      } catch (e) {}
+      // Re-render do meta (X arquivos · Y usados · Z livres) — buildRecMetaHtml
+      // usa T() pluralizado. recalcRecMetaFromDom le do DOM atual.
+      try { recalcRecMetaFromDom(); } catch (e) {}
+      Toast.show(T('toast.languageChanged'), '', { ttl: 1800 });
     },
     init_pending(data) { showLoading(data && data.message); },
     window_hidden() {
@@ -3634,10 +3836,10 @@ const Bridge = {
     },
     refresh_busy(data) {
       if (data.busy) {
-        const msg = data.what === 'monitors' ? 'Atualizando monitores'
-                  : data.what === 'audio'    ? 'Atualizando dispositivos de áudio'
-                  : data.what === 'starting' ? 'Iniciando gravação'
-                  : 'Atualizando';
+        const msg = data.what === 'monitors' ? T('toast.updatingMonitors')
+                  : data.what === 'audio'    ? T('toast.updatingAudio')
+                  : data.what === 'starting' ? T('toast.startingRecord')
+                  : T('toast.updating');
         showLoading(msg);
       } else {
         hideLoading();
@@ -4113,36 +4315,36 @@ function buildTrackLegend() {
     let label;
     if (names.length === 1) label = names[0];
     else if (names.length === 2) label = names.join(', ');
-    else label = `${names.length} dispositivos agrupados`;
+    else label = T('tracks.devicesGrouped_other', { count: names.length });
     return '<div class="track-legend-item" data-track="' + t + '" data-hint="' +
            escapeHtml(names.join(', ')) + '">' +
            '<span class="track-legend-color"></span>' +
            '<span class="track-legend-name">' +
-           '<span class="track-legend-track">Faixa ' + t + '</span>' +
+           '<span class="track-legend-track">' + T('tracks.track', { n: t }) + '</span>' +
            escapeHtml(label) +
            '</span></div>';
   }
 
-  let html = '<div class="track-legend-title">Faixas de áudio</div>';
+  let html = '<div class="track-legend-title">' + T('tracks.title') + '</div>';
 
   // 1. Padrão (explicativo) — quando ha device default visivel.
   if (hasDefault) {
     html += '<div class="track-legend-item" data-track="default" ' +
-            'data-hint="Dispositivo definido como padrão no Windows. Indicado por um ponto colorido ao lado do nome do dispositivo na lista.">' +
+            'data-hint="' + escapeHtml(T('tracks.defaultHint')) + '">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
-            '<span class="track-legend-track">Padrão</span>' +
-            'Dispositivo padrão do sistema' +
+            '<span class="track-legend-track">' + T('tracks.default') + '</span>' +
+            escapeHtml(T('tracks.defaultDevice')) +
             '</span></div>';
   }
   // 2. Faixa 1 (Mix) — quando ha alguma track ativa.
   if (allTracks.length > 0) {
     html += '<div class="track-legend-item" data-track="mix" ' +
-            'data-hint="Mistura de todos os dispositivos habilitados. Gravada como a primeira faixa de áudio do arquivo final.">' +
+            'data-hint="' + escapeHtml(T('tracks.mixHint')) + '">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
-            '<span class="track-legend-track">Faixa 1</span>' +
-            'Mix (todos)' +
+            '<span class="track-legend-track">' + T('tracks.mix') + '</span>' +
+            escapeHtml(T('tracks.mixLabel')) +
             '</span></div>';
   }
   // 3. Tracks dos dispositivos padrão.
@@ -4155,12 +4357,12 @@ function buildTrackLegend() {
   if (disabledNames.length > 0) {
     const label = disabledNames.length === 1
       ? disabledNames[0]
-      : `${disabledNames.length} dispositivos desabilitados`;
+      : T('tracks.devicesDisabled_other', { count: disabledNames.length });
     html += '<div class="track-legend-item" data-track="off" data-hint="' +
             escapeHtml(disabledNames.join(', ')) + '">' +
             '<span class="track-legend-color"></span>' +
             '<span class="track-legend-name">' +
-            '<span class="track-legend-track">Sem faixa</span>' +
+            '<span class="track-legend-track">' + T('tracks.noTrack') + '</span>' +
             escapeHtml(label) +
             '</span></div>';
   }
@@ -4207,7 +4409,7 @@ function renderSources(kindShort, listId, countId, items) {
     if (item.isDefault) {
       const dot = document.createElement('span');
       dot.className = 'source-default-dot';
-      dot.title = 'Dispositivo padrão do sistema';
+      dot.title = T('sources.defaultDevice');
       name.appendChild(dot);
     }
     // Dispositivos Bluetooth ganham dois icones:
@@ -4350,8 +4552,8 @@ function formatWhen(isoOrText) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
   const hhmm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  if (sameDay(d, today)) return `Hoje, ${hhmm}`;
-  if (sameDay(d, yest))  return `Ontem, ${hhmm}`;
+  if (sameDay(d, today)) return `${T('dateGroups.today')}, ${hhmm}`;
+  if (sameDay(d, yest))  return `${T('dateGroups.yesterday')}, ${hhmm}`;
   const dd = String(d.getDate()).padStart(2,'0');
   const mm = String(d.getMonth() + 1).padStart(2,'0');
   const yy = d.getFullYear();
@@ -4555,29 +4757,39 @@ function buildRecCard(item) {
   return card;
 }
 
-// Define a qual periodo uma data pertence.
-const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+// Define a qual periodo uma data pertence. Labels traduzidos via I18n —
+// 'months' e array indexado por month (0-11) lido com I18n.get(). Sem
+// cache pra sobreviver a troca de idioma em runtime (language_changed
+// re-renderiza recordings, e cada periodKey() consulta o bundle ativo).
+const MONTHS_FALLBACK = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 function periodKey(date) {
   const d = new Date(date);
-  if (isNaN(d.getTime())) return { key: 'zzz-unknown', label: 'Sem data', order: 0 };
+  if (isNaN(d.getTime())) return { key: 'zzz-unknown', label: T('dateGroups.noDate'), order: 0 };
   const today = new Date();
   today.setHours(0,0,0,0);
   const y = new Date(d); y.setHours(0,0,0,0);
   const diff = (today - y) / 86400000; // dias
-  if (diff <= 0) return { key: '00-hoje',     label: 'Hoje',         order: 0 };
-  if (diff < 2)  return { key: '01-ontem',    label: 'Ontem',        order: 1 };
-  if (diff < 7)  return { key: '02-semana',   label: 'Esta semana',  order: 2 };
+  if (diff <= 0) return { key: '00-hoje',   label: T('dateGroups.today'),     order: 0 };
+  if (diff < 2)  return { key: '01-ontem',  label: T('dateGroups.yesterday'), order: 1 };
+  if (diff < 7)  return { key: '02-semana', label: T('dateGroups.thisWeek'),  order: 2 };
   // Agrupa por mês/ano. Order = 1000000 - (Y*100 + M) pra desc.
   const ym = d.getFullYear() * 100 + d.getMonth();
+  const months = I18n.get('months');
+  const monthName = (Array.isArray(months) ? months[d.getMonth()]
+                                           : null) || MONTHS_FALLBACK[d.getMonth()];
   return {
     key:   `99-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-    label: `${MONTHS_PT[d.getMonth()]} ${d.getFullYear()}`,
+    label: `${monthName} ${d.getFullYear()}`,
     order: 1000000 - ym
   };
 }
 
 function renderRecordings(items) {
+  // Cache pra re-renderizar em troca de idioma (date groups + months
+  // dependem do bundle ativo). Sem cache, language_changed nao tem
+  // como repintar a lista.
+  if (Array.isArray(items)) window._lastRecordingsItems = items;
   const grid = document.getElementById('recGrid');
   grid.innerHTML = '';
   const arr = (items || []).slice();
@@ -4748,16 +4960,13 @@ function codecMaxDim(codec, caps) {
 // via data-hint no wrapper. Mostrado ao lado da resolucao agregada das
 // telas selecionadas quando ela excede o limite do codec atual.
 function codecLimitWarningIcon(maxDim) {
-  const tip = 'Resolução combinada das telas excede o limite do codec ' +
-    '(' + maxDim + ' × ' + maxDim + '). A gravação será reduzida ' +
-    'proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra ' +
-    'gravar até 8192 × 8192.';
+  const tip = T('warning.canvasOverflow', { max: maxDim });
   return '<span data-hint="' + escapeHtml(tip) + '" ' +
     'style="display:inline-flex;vertical-align:middle">' +
     '<svg width="13" height="13" viewBox="0 0 24 24" ' +
     'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
     'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
-    'aria-label="Resolução acima do limite do codec">' +
+    'aria-label="' + escapeHtml(tip) + '">' +
     '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
     '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
     '</svg></span>';
@@ -4765,10 +4974,14 @@ function codecLimitWarningIcon(maxDim) {
 
 function buildRecMetaHtml(fileCount, totalBytes, freeBytes) {
   const sep = '<span class="meta-sep">|</span>';
-  let html = `${fileCount} ${fileCount === 1 ? 'arquivo' : 'arquivos'}`;
-  if (totalBytes > 0) html += `${sep}${formatBytes(totalBytes)} usados`;
+  // Pluralizacao via chaves _one / _other (padrao i18next).
+  const fileKey = fileCount === 1 ? 'recordings.fileCount_one'
+                                  : 'recordings.fileCount_other';
+  let html = T(fileKey, { count: fileCount });
+  if (totalBytes > 0)
+    html += sep + T('recordings.spaceUsed', { size: formatBytes(totalBytes) });
   if (freeBytes >= 0) {
-    html += `${sep}${formatBytes(freeBytes)} livres`;
+    html += sep + T('recordings.spaceFree', { size: formatBytes(freeBytes) });
     if (freeBytes < LOW_DISK_THRESHOLD) html += LOW_DISK_ICON;
   }
   return html;
@@ -4817,6 +5030,17 @@ function formatBitrate(bps) {
   if (bps >= 1000000) return (bps / 1000000).toFixed(2) + ' Mbps';
   if (bps >= 1000)    return Math.round(bps / 1000) + ' kbps';
   return bps + ' bps';
+}
+
+function formatFps(fps) {
+  // Mantem casas decimais em taxas NTSC (29.97, 59.94) que aparecem
+  // como fracoes nao-inteiras. Taxas exatas (30, 60, 120) ficam limpas.
+  // Tolerancia 0.01 absorve ruido de ponto flutuante quando avg_frame_rate
+  // ja vem como inteiro mas o backend perdeu precisao na divisao.
+  if (!fps || fps <= 0) return '—';
+  const rounded = Math.round(fps);
+  if (Math.abs(fps - rounded) < 0.01) return rounded + ' fps';
+  return fps.toFixed(2) + ' fps';
 }
 
 // SVG do botao de mutar/desmutar uma faixa de audio do player.
@@ -5452,7 +5676,25 @@ const Settings = {
   currentStopOnLock: false,
   currentHibernate: false,
   currentRecordingQuality: 0,
+  currentRecordingFps: 30,
+  maxMonitorHz: 60,
+  // Predefinicoes do slider de fps — computadas a partir de maxMonitorHz.
+  // Regra: 20, 30, e depois multiplos de 30 ate o max. Se max nao for
+  // multiplo de 30, descarta o penultimo (o maior multiplo abaixo de max)
+  // e adiciona o proprio max no fim.
+  //   60Hz   -> [20, 30, 60]
+  //   144Hz  -> [20, 30, 60, 90, 144]            (120 pulado)
+  //   165Hz  -> [20, 30, 60, 90, 120, 165]       (150 pulado)
+  //   240Hz  -> [20, 30, 60, 90, 120, 150, 180, 210, 240]
+  // Slider.value = indice nesse array (0..N-1, step=1).
+  fpsPresets: [20, 30, 60],
+  currentLanguage: '',        // codigo ativo resolvido ('pt-BR', 'en'...)
+  currentLanguagePref: '',    // pref salvo ('', 'auto', ou codigo fixo)
+  availableLanguages: [],     // [{code, name, nativeName}, ...]
   open() {
+    this._populateLanguageOptions();
+    document.getElementById('settingsLanguage').value =
+      this.currentLanguagePref || '';
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
     this._loadHotkeyIntoUi(this.currentHotkey || '');
@@ -5466,6 +5708,12 @@ const Settings = {
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
     this._syncQualityHint();
+    // Computa presets baseados no maxMonitorHz atual + aplica no slider
+    // (indice + labels + ticks). Idempotente.
+    this.fpsPresets = this._computeFpsPresets();
+    this._applyFpsPresetsToSlider();
+    this._populateFpsTicks();
+    this._syncFpsHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -5497,6 +5745,7 @@ const Settings = {
   },
   async save() {
     try {
+      const language = document.getElementById('settingsLanguage').value || '';
       const path = document.getElementById('settingsRecDir').value.trim();
       const codec = document.getElementById('settingsCodec').value;
       const hotkey = this._readHotkeyFromUi();
@@ -5509,15 +5758,20 @@ const Settings = {
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
       const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
+      // Slider snap nas predefinicoes — _currentFpsFromSlider mapeia
+      // indice -> fps direto da lista, garantindo valor valido [20..max].
+      const recordingFps = this._currentFpsFromSlider();
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
-        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate, recordingQuality,
+        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
+        recordingQuality, recordingFps,
         prev: { recDir: this.currentRecDir, codec: this.currentCodec, hotkey: this.currentHotkey,
                 autostart: this.currentAutostart, closeToTray: this.currentCloseToTray,
                 minimizeOnRecord: this.currentMinimizeOnRecord,
                 notifyOnRecord: this.currentNotifyOnRecord,
                 scrollLockIndicator: this.currentScrollLockIndicator,
                 hibernate: this.currentHibernate,
-                recordingQuality: this.currentRecordingQuality } });
+                recordingQuality: this.currentRecordingQuality,
+                recordingFps: this.currentRecordingFps } });
 
       // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
       // Cobre tanto spec invalido (so modificadores) quanto combinacoes
@@ -5526,7 +5780,7 @@ const Settings = {
       if (hotkey !== '') {
         const validation = await validateHotkeyWithBackend(hotkey);
         if (!validation.ok) {
-          Toast.show('Atalho inválido', validation.reason +
+          Toast.show(T('toast.invalidHotkey'), validation.reason +
             ' Escolha outra combinação.', { warn: true, ttl: 7000 });
           return;
         }
@@ -5558,6 +5812,10 @@ const Settings = {
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (recordingQuality !== this.currentRecordingQuality)
         Bridge.send('set_recording_quality', { level: recordingQuality });
+      if (recordingFps !== this.currentRecordingFps)
+        Bridge.send('set_recording_fps', { fps: recordingFps });
+      if (language !== this.currentLanguagePref)
+        Bridge.send('set_language', { language });
       // Atualiza cache local imediato pra evitar reenvio de uma mesma
       // mudanca na proxima save (e evitar flash de valor antigo num
       // re-open antes da resposta do get_settings).
@@ -5573,16 +5831,18 @@ const Settings = {
       this.currentStopOnLock = stopOnLock;
       this.currentHibernate = hibernate;
       this.currentRecordingQuality = recordingQuality;
+      this.currentRecordingFps = recordingFps;
+      this.currentLanguagePref = language;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
       // tenha um limite diferente do anterior (ex.: h264-hw → av1-hw
       // remove o warning de canvas grande).
       if (typeof Displays !== 'undefined' && Displays._updateCount)
         Displays._updateCount();
       this.close();
-      Toast.show('Configurações salvas', '', { ttl: 2000 });
+      Toast.show(T('toast.saved'), '', { ttl: 2000 });
     } catch (err) {
       console.error('[Settings.save] erro:', err);
-      Toast.show('Erro ao salvar', String(err && err.message || err),
+      Toast.show(T('toast.errorSaving'), String(err && err.message || err),
         { warn: true, ttl: 6000 });
     }
   },
@@ -5617,6 +5877,24 @@ const Settings = {
     if (rq < -2) rq = -2;
     if (rq > 2)  rq = 2;
     this.currentRecordingQuality = rq;
+    // recordingFps: >= 10, default 30 (padrao do NoOBS).
+    let fps = parseInt(data.recordingFps, 10);
+    if (!Number.isFinite(fps) || fps < 10) fps = 30;
+    this.currentRecordingFps = fps;
+    // maxMonitorHz: taxa maxima detectada no backend (Win32 EnumDisplaySettings).
+    let maxHz = parseInt(data.maxMonitorHz, 10);
+    if (!Number.isFinite(maxHz) || maxHz < 10) maxHz = 60;
+    this.maxMonitorHz = maxHz;
+    // i18n: idioma ativo + pref salvo (vazio/'auto' = automatico). Lista
+    // de idiomas disponiveis vem do backend (enumerou pasta lang\).
+    this.currentLanguage = data.language || '';
+    this.currentLanguagePref = data.languagePref || '';
+    if (Array.isArray(data.availableLanguages))
+      this.availableLanguages = data.availableLanguages;
+    // Repopula dropdown — preserva selecao se o modal estiver aberto.
+    this._populateLanguageOptions();
+    const langEl = document.getElementById('settingsLanguage');
+    if (langEl) langEl.value = this.currentLanguagePref || '';
     const inp = document.getElementById('settingsRecDir');
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
@@ -5641,6 +5919,11 @@ const Settings = {
     const rqEl = document.getElementById('settingsRecordingQuality');
     if (rqEl) rqEl.value = String(this.currentRecordingQuality);
     this._syncQualityHint();
+    // Recomputa presets pra refletir o maxMonitorHz que acabou de chegar.
+    this.fpsPresets = this._computeFpsPresets();
+    this._applyFpsPresetsToSlider();
+    this._populateFpsTicks();
+    this._syncFpsHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -5666,6 +5949,36 @@ const Settings = {
   onQualityChange() {
     this._syncQualityHint();
   },
+  onFpsChange() {
+    this._syncFpsHint();
+  },
+  onLanguageChange() {
+    // Mudanca local — so commita no backend quando o user clica Salvar.
+    // Aqui apenas guardamos a selecao pra que outros _sync* reflitam.
+    // (O backend escolhe 'auto' quando o valor enviado e '' ou 'auto'.)
+  },
+  // Reconstroi as <option> do dropdown de idioma a partir de
+  // availableLanguages, preservando a opcao "Automatico" como primeira.
+  // Idempotente: pode ser chamada toda vez que o modal abre ou que
+  // applySettings traz uma lista nova.
+  _populateLanguageOptions() {
+    const sel = document.getElementById('settingsLanguage');
+    if (!sel) return;
+    // Preserva opcao "auto" (com data-i18n) — limpa as demais.
+    const autoOpt = sel.querySelector('option[value=""]');
+    sel.innerHTML = '';
+    if (autoOpt) sel.appendChild(autoOpt);
+    const list = Array.isArray(this.availableLanguages) ? this.availableLanguages : [];
+    list.forEach(l => {
+      if (!l || !l.code) return;
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      // nativeName fica mais natural pro user (ex.: "Português (Brasil)")
+      // que o name em ingles ("Portuguese (Brazil)"). Fallback pro code.
+      opt.textContent = l.nativeName || l.name || l.code;
+      sel.appendChild(opt);
+    });
+  },
   onCodecChange() {
     this._syncCodecMaxRes();
   },
@@ -5688,35 +6001,116 @@ const Settings = {
     if (codec === 'h264-hw') dim = 4096;
     else if (codec === 'h264-sw' || codec === 'hevc-hw' || codec === 'av1-hw') dim = 8192;
     else /* auto */ dim = caps.h264Hw ? 4096 : 8192;
-    el.textContent = 'Resolução máxima do codec: ' + dim + ' × ' + dim;
+    el.textContent = T('settings.codec.maxRes', { w: dim, h: dim });
   },
   _syncQualityHint() {
     const el = document.getElementById('settingsRecordingQuality');
     const hint = document.getElementById('settingsQualityHint');
     if (!el || !hint) return;
     const v = parseInt(el.value, 10) | 0;
-    let txt;
-    switch (v) {
-      case -2: txt = 'Compactação agressiva — arquivos bem menores, qualidade visível abaixo do normal.'; break;
-      case -1: txt = 'Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal.'; break;
-      case  0: txt = 'Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.'; break;
-      case  1: txt = 'Qualidade alta — arquivos maiores, vídeo mais nítido.'; break;
-      case  2: txt = 'Qualidade máxima — arquivos grandes, próximo de lossless visual.'; break;
-      default: txt = '';
+    // Chave estilo 'settings.quality.hint.-2' .. '.2' — match com o JSON.
+    if (v < -2 || v > 2) { hint.textContent = ''; return; }
+    hint.textContent = T('settings.quality.hint.' + v);
+  },
+  _syncFpsHint() {
+    const hint = document.getElementById('settingsFpsHint');
+    if (!hint) return;
+    // Le o fps via helper (slider.value -> indice -> fps). Bucketiza
+    // pela mesma faixa de antes — agora os buckets coincidem com os
+    // presets (20→low, 30→smooth, 60→good, 90/120→high, 150+→veryHigh).
+    const v = this._currentFpsFromSlider();
+    let bucket;
+    if (v <= 24)       bucket = 'low';
+    else if (v <= 30)  bucket = 'smooth';
+    else if (v <= 60)  bucket = 'good';
+    else if (v <= 120) bucket = 'high';
+    else               bucket = 'veryHigh';
+    hint.textContent = T('settings.fps.hint.' + bucket, { fps: v });
+  },
+  // Calcula as predefinicoes validas dado o maxMonitorHz atual. Ver
+  // comentario da propriedade fpsPresets pra regra completa.
+  _computeFpsPresets() {
+    const max = Math.max(20, this.maxMonitorHz || 60);
+    const list = [20, 30];
+    for (let v = 60; v <= max; v += 30) list.push(v);
+    // Dedup + filtro pelo range (caso max < 30 ou == 20).
+    let presets = [...new Set(list)].filter(v => v <= max);
+    if (presets.length === 0) return [max];
+    // Se max nao bateu num multiplo de 30, pula o ultimo da lista
+    // (penultimo em relacao a onde max vai entrar) e injeta max.
+    // Mantem >= 2 elementos pra nao colapsar quando max e baixo.
+    if (presets[presets.length - 1] !== max) {
+      if (presets.length >= 3) presets.pop();
+      presets.push(max);
     }
-    hint.textContent = txt;
+    return presets;
+  },
+  // Acha o indice do preset mais proximo de um valor de fps livre.
+  // Usado pra mapear config (qualquer inteiro >= 10) -> posicao do slider.
+  _fpsToIndex(fps) {
+    if (!Array.isArray(this.fpsPresets) || this.fpsPresets.length === 0) return 0;
+    let best = 0;
+    let bestDiff = Infinity;
+    this.fpsPresets.forEach((p, i) => {
+      const d = Math.abs(p - fps);
+      if (d < bestDiff) { best = i; bestDiff = d; }
+    });
+    return best;
+  },
+  // Le o valor atual do slider e retorna o fps correspondente (vira
+  // direto da lista de presets — slider.value E o indice).
+  _currentFpsFromSlider() {
+    const el = document.getElementById('settingsRecordingFps');
+    if (!el || !Array.isArray(this.fpsPresets) || this.fpsPresets.length === 0)
+      return this.currentRecordingFps || 30;
+    const idx = Math.max(0, Math.min(this.fpsPresets.length - 1,
+      parseInt(el.value, 10) | 0));
+    return this.fpsPresets[idx];
+  },
+  // Configura o slider (min/max/step/value) + labels laterais a partir
+  // de fpsPresets. Centralizado pra reusar em open()/applySettings()/
+  // restoreDefaults() sem duplicar logica.
+  _applyFpsPresetsToSlider() {
+    const slider = document.getElementById('settingsRecordingFps');
+    if (slider) {
+      slider.min = 0;
+      slider.max = String(Math.max(0, this.fpsPresets.length - 1));
+      slider.step = 1;
+      slider.value = String(this._fpsToIndex(this.currentRecordingFps));
+    }
+    const minLbl = document.getElementById('settingsFpsMinLabel');
+    if (minLbl) minLbl.textContent = this.fpsPresets[0] + ' fps';
+    const maxLbl = document.getElementById('settingsFpsMaxLabel');
+    if (maxLbl)
+      maxLbl.textContent = this.fpsPresets[this.fpsPresets.length - 1] + ' fps';
+  },
+  // Tick por preset, espacados igualmente (cada step do slider = 1 tick).
+  // Posicao = (i / (N-1)) do espaco util do slider (padding 50px cada lado).
+  _populateFpsTicks() {
+    const el = document.getElementById('fpsTicks');
+    if (!el) return;
+    const presets = Array.isArray(this.fpsPresets) ? this.fpsPresets : [];
+    if (presets.length < 2) { el.innerHTML = ''; return; }
+    el.innerHTML = presets.map((v, i) => {
+      const ratio = i / (presets.length - 1);
+      const left = `calc(50px + ${ratio} * (100% - 100px))`;
+      let cls = 'fps-tick';
+      if (i === 0) cls += ' at-start';
+      else if (i === presets.length - 1) cls += ' at-end';
+      return `<span class="${cls}" style="left: ${left}">${v}</span>`;
+    }).join('');
   },
 
   _syncMinimizeOnRecordLabel() {
     const tray = document.getElementById('settingsCloseToTray').checked;
     const lbl = document.getElementById('settingsMinimizeOnRecordLabel');
     const hint = document.getElementById('settingsMinimizeOnRecordHint');
-    if (lbl) lbl.textContent = tray
-      ? 'Minimizar para a bandeja ao iniciar a gravação'
-      : 'Minimizar ao iniciar a gravação';
-    if (hint) hint.textContent = tray
-      ? 'Ao começar uma gravação, a janela do NoOBS é enviada pra bandeja do sistema — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar.'
-      : 'Ao começar uma gravação, a janela do NoOBS é minimizada — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar.';
+    if (lbl) lbl.textContent = T(tray
+      ? 'settings.minimizeOnRecord.labelTray'
+      : 'settings.minimizeOnRecord.labelTaskbar');
+    if (hint) hint.textContent = T(tray
+      ? 'settings.minimizeOnRecord.hintTray'
+      : 'settings.minimizeOnRecord.hintTaskbar');
   },
   _syncNotifyOnRecordEnabled() {
     const minOnRec = document.getElementById('settingsMinimizeOnRecord').checked;
@@ -5747,15 +6141,19 @@ const Settings = {
     // Tema fica de fora — ja eh aplicado/salvo instantaneo via os
     // botoes de toggle no header, nao faz parte do fluxo de Salvar.
     Confirm.open({
-      title: 'Restaurar padrão',
-      message: 'Isso vai redefinir todos os campos pros valores padrão. ' +
-        'Você ainda precisa clicar em Salvar pra aplicar. Continuar?',
-      okLabel: 'Restaurar',
-      cancelLabel: 'Cancelar',
+      title: T('settings.buttons.reset'),
+      message: T('toast.restoreConfirmMessage'),
+      okLabel: T('toast.restoreConfirmOk'),
+      cancelLabel: T('common.cancel'),
       danger: false,
       onOk: () => {
         // Defaults (espelhados do backend OBSConfig.GetConfigBool/Str
         // e do OBSBridge HandleSet*).
+        //
+        // recordingFps default = 30 (padrao do NoOBS — mais compacto
+        // que o 60fps do OBS Studio, suficiente pra screencast). User
+        // pode subir manualmente ate o Hz do monitor mais rapido.
+        document.getElementById('settingsLanguage').value = '';
         document.getElementById('settingsRecDir').value = '';
         document.getElementById('settingsCodec').value = 'auto';
         this._loadHotkeyIntoUi('Pause/Break');
@@ -5768,13 +6166,21 @@ const Settings = {
         document.getElementById('settingsStopOnLock').checked = false;
         document.getElementById('settingsHibernate').checked = false;
         document.getElementById('settingsRecordingQuality').value = '0';
+        // FPS: snap pra 30 (preset garantido a existir se max >= 30).
+        // Atualiza currentRecordingFps ANTES de _applyFpsPresetsToSlider
+        // pra que o slider sente nessa posicao.
+        this.currentRecordingFps = 30;
+        this.fpsPresets = this._computeFpsPresets();
+        this._applyFpsPresetsToSlider();
+        this._populateFpsTicks();
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
         this._syncQualityHint();
+        this._syncFpsHint();
         this._syncCodecMaxRes();
-        Toast.show('Campos restaurados',
-          'Clique Salvar pra aplicar as mudanças.', { ttl: 4000 });
+        Toast.show(T('toast.fieldsReset'),
+          T('toast.fieldsResetBody'), { ttl: 4000 });
       },
     });
   },
@@ -5843,13 +6249,12 @@ const Settings = {
     const spec = this._readHotkeyFromUi();
     const el = document.getElementById('settingsHotkeyPreview');
     if (!el) return;
+    // Bundle traz HTML simples nesses 2 hints (code/b). T() faz interpolacao
+    // {{spec}} pro atalho atual; o noKey nao tem var.
     if (spec)
-      el.innerHTML = 'Atalho atual: <code>' + spec + '</code>. ' +
-        'Desmarque todos os modificadores e selecione <b>Não definida</b> ' +
-        'para desativar.';
+      el.innerHTML = T('settings.hotkey.activeHint', { spec });
     else
-      el.innerHTML = 'Nenhum atalho definido. Selecione uma tecla principal ' +
-        '(e opcionalmente modificadores) para ativar o atalho global.';
+      el.innerHTML = T('settings.hotkey.noKey');
   },
   // caps = { av1Hw, hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
   encoderCaps: null,
@@ -6507,16 +6912,21 @@ const Player = {
     // Video
     if (videoStreams.length > 0) {
       html += '<div class="player-info-section">';
-      html += '<div class="player-info-section-title">Vídeo</div>';
+      html += '<div class="player-info-section-title">' + T('player.info.video') + '</div>';
       videoStreams.forEach((s, idx) => {
         if (videoStreams.length > 1)
-          html += '<div class="player-info-track-title">Stream ' +
-                  (idx + 1) + '</div>';
-        html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
+          html += '<div class="player-info-track-title">' +
+                  T('player.info.stream', { n: idx + 1 }) + '</div>';
+        html += infoRow(T('player.info.codec'), escapeHtml((s.codec || '').toUpperCase()));
         if (s.width && s.height)
-          html += infoRow('Resolução', s.width + ' × ' + s.height);
+          html += infoRow(T('player.info.resolution'), s.width + ' × ' + s.height);
+        // FPS — so renderiza se conhecido (backend manda 0 quando avg_frame_rate
+        // nao foi populado pelo container). NTSC etc. mantem casas decimais
+        // (29,97); taxas inteiras (30, 60) ficam sem decimal.
+        if (s.frameRate > 0)
+          html += infoRow(T('player.info.frameRate'), formatFps(s.frameRate));
         if (s.bitrate > 0)
-          html += infoRow('Bitrate', formatBitrate(s.bitrate));
+          html += infoRow(T('player.info.bitrate'), formatBitrate(s.bitrate));
       });
       html += '</div>';
     }
@@ -7338,15 +7748,15 @@ function applyRecordingState(active, elapsedSec) {
     btn.classList.add('recording');
     card.classList.add('recording');
     document.body.classList.add('recording');
-    label.textContent = 'Parar gravação';
-    statusText.textContent = 'Gravando';
+    label.textContent = T('record.stop');
+    statusText.textContent = T('record.statusRecording');
     startRecordingAnimation(elapsedSec || 0);
   } else {
     btn.classList.remove('recording');
     card.classList.remove('recording');
     document.body.classList.remove('recording');
-    label.textContent = 'Iniciar gravação';
-    statusText.textContent = 'Pronto para gravar';
+    label.textContent = T('record.start');
+    statusText.textContent = T('record.statusReady');
     stopRecordingAnimation();
   }
   updateRecordButtonAvailability();

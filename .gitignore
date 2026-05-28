@@ -16,3 +16,8 @@ exe/bin/*
 !exe/bin/64bit/
 exe/bin/64bit/*
 !exe/bin/64bit/WebView2Loader.dll
+# Traducoes — fonte de verdade do projeto vive aqui (sem duplicata na
+# raiz). Precisa un-ignorar a pasta ANTES dos JSONs: git nao desce em
+# diretorio ignorado, entao !lang/*.json sozinho nao funciona.
+!exe/bin/64bit/lang/
+!exe/bin/64bit/lang/*.json

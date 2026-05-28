@@ -1,0 +1,299 @@
+{
+  "meta": {
+    "code": "es",
+    "name": "Spanish",
+    "nativeName": "Español",
+    "fallback": "en"
+  },
+  "app": {
+    "title": "NoOBS",
+    "tagline": "Grabador de pantalla liviano con OBS Studio integrado"
+  },
+  "header": {
+    "settings": "Configuración",
+    "about": "Acerca de NoOBS",
+    "minimize": "Minimizar",
+    "maximize": "Maximizar",
+    "restore": "Restaurar",
+    "close": "Cerrar"
+  },
+  "sources": {
+    "monitors": "Pantallas",
+    "mics": "Micrófonos",
+    "speakers": "Altavoces",
+    "webcams": "Cámaras web",
+    "default": "Predeterminado",
+    "defaultDevice": "Dispositivo predeterminado del sistema",
+    "audioTracks": "Pistas de audio"
+  },
+  "record": {
+    "start": "Iniciar grabación",
+    "stop": "Detener grabación",
+    "starting": "Iniciando...",
+    "ariaLabel": "Grabar",
+    "statusReady": "Listo para grabar",
+    "statusRecording": "Grabando",
+    "recordingFor": "Grabando por {{time}}",
+    "started": "Grabación iniciada.",
+    "finished": "Grabación finalizada ({{min}}m {{sec}}s)."
+  },
+  "recordings": {
+    "title": "Grabaciones",
+    "search": "Buscar...",
+    "openFolder": "Abrir carpeta de grabaciones",
+    "deleteSelected": "Eliminar grabaciones seleccionadas",
+    "selectToDelete": "Selecciona grabaciones para eliminar",
+    "deleteOne": "Eliminar 1 grabación seleccionada",
+    "deleteN": "Eliminar {{count}} grabaciones seleccionadas",
+    "empty": "No se encontraron grabaciones.",
+    "fileCount_one": "{{count}} archivo",
+    "fileCount_other": "{{count}} archivos",
+    "spaceUsed": "{{size}} usados",
+    "spaceFree": "{{size}} libres",
+    "lowSpace": "Poco espacio libre",
+    "select": "Seleccionar",
+    "selectAllInGroup": "Seleccionar todos del grupo",
+    "confirmDeleteTitle": "Eliminar grabaciones",
+    "confirmDeleteOne": "¿Mover esta grabación a la Papelera de Windows?",
+    "confirmDeleteN": "¿Mover {{count}} grabaciones a la Papelera de Windows?"
+  },
+  "settings": {
+    "title": "Configuración",
+    "theme": {
+      "label": "Tema",
+      "light": "Claro",
+      "dark": "Oscuro",
+      "toggleLight": "Tema claro",
+      "toggleDark": "Tema oscuro"
+    },
+    "language": {
+      "label": "Idioma",
+      "auto": "Automático (sistema)",
+      "hint": "Idioma de la interfaz de NoOBS. \"Automático\" usa el idioma de Windows; otros valores fuerzan el idioma elegido."
+    },
+    "recordDir": {
+      "label": "Carpeta de salida de las grabaciones",
+      "browse": "Explorar...",
+      "reset": "Restaurar predeterminado"
+    },
+    "codec": {
+      "label": "Códec de video",
+      "auto": "Automático (recomendado)",
+      "h264Hw": "H.264 — hardware",
+      "h264Sw": "H.264 — software (x264, CPU)",
+      "av1Hw": "AV1 — hardware",
+      "hevcHw": "HEVC / H.265 — hardware",
+      "unavailable": "(no disponible)",
+      "maxRes": "Resolución máxima del códec: {{w}} × {{h}}",
+      "hint": "Automático elige la mejor opción disponible en el orden H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Solo elige manualmente si sabes lo que estás haciendo."
+    },
+    "hotkey": {
+      "label": "Atajo global para iniciar/detener la grabación",
+      "ctrl": "Ctrl",
+      "shift": "Shift",
+      "alt": "Alt",
+      "win": "Win",
+      "plus": "+",
+      "hint": "Marca los modificadores deseados (Ctrl, Shift, Alt, Win) y elige una tecla principal. Ejemplos: Pause o Ctrl+Shift+G.",
+      "noKey": "No hay atajo configurado. Elige una tecla principal (y opcionalmente modificadores) para activar el atajo global.",
+      "activeHint": "Atajo actual: <code>{{spec}}</code>. Desmarca todos los modificadores y elige <b>No definida</b> para desactivar."
+    },
+    "quality": {
+      "label": "Calidad de la grabación",
+      "lower": "Menor",
+      "higher": "Mayor",
+      "hint": {
+        "-2": "Compresión agresiva — archivos mucho más pequeños, calidad visiblemente inferior.",
+        "-1": "Compresión moderada — archivos más pequeños, calidad ligeramente inferior.",
+        "0": "Predeterminado — misma calidad del codificador, equilibrado entre tamaño y calidad visual.",
+        "1": "Calidad alta — archivos más grandes, video más nítido.",
+        "2": "Calidad máxima — archivos grandes, casi sin pérdida visual."
+      }
+    },
+    "fps": {
+      "label": "Cuadros por segundo de la grabación",
+      "unitFps": "{{n}} fps",
+      "hint": {
+        "low": "{{fps}} fps — baja tasa, el movimiento puede verse irregular. Archivo menor.",
+        "smooth": "{{fps}} fps — suave, estándar de video. Archivo compacto.",
+        "good": "{{fps}} fps — buena fluidez, ideal para uso general.",
+        "high": "{{fps}} fps — alta fluidez, ideal para juegos y movimiento rápido.",
+        "veryHigh": "{{fps}} fps — fluidez muy alta. Archivo más grande."
+      }
+    },
+    "autostart": {
+      "label": "Iniciar con Windows",
+      "hint": "NoOBS se abre automáticamente cuando inicias sesión en Windows."
+    },
+    "closeToTray": {
+      "label": "Minimizar a la bandeja",
+      "hint": "Permite que NoOBS use el ícono en la bandeja del sistema. Con esta opción activa, el botón X de la ventana la envía a la bandeja en vez de cerrar — clic en el ícono para reabrir, o usa el menú del ícono para cerrar de verdad."
+    },
+    "minimizeOnRecord": {
+      "labelTray": "Minimizar a la bandeja al iniciar la grabación",
+      "labelTaskbar": "Minimizar al iniciar la grabación",
+      "hintTray": "Al iniciar una grabación, la ventana de NoOBS se envía a la bandeja del sistema — útil para grabar la pantalla sin que la propia ventana aparezca en el video. El atajo global sigue funcionando para detener.",
+      "hintTaskbar": "Al iniciar una grabación, la ventana de NoOBS se minimiza — útil para grabar la pantalla sin que la propia ventana aparezca en el video. El atajo global sigue funcionando para detener."
+    },
+    "notifyOnRecord": {
+      "label": "Notificar en Windows al iniciar/detener la grabación",
+      "hint": "Muestra una notificación de Windows cuando comienza o termina una grabación. Solo tiene sentido cuando la ventana se minimiza automáticamente — de lo contrario el estado ya es visible en la propia ventana."
+    },
+    "scrollLock": {
+      "label": "Parpadear LED de Scroll Lock durante la grabación",
+      "hint": "Parpadea el LED de Scroll Lock del teclado (1Hz) mientras la grabación está activa — indicador discreto y siempre visible, útil cuando la app está en la bandeja. Se apaga automáticamente al detener."
+    },
+    "playSound": {
+      "label": "Reproducir sonido de inicio y fin de grabación",
+      "hint": "Reproduce una secuencia corta de dos notas al iniciar (ascendente) y al detener (descendente) la grabación — confirmación auditiva discreta."
+    },
+    "stopOnLock": {
+      "label": "Detener la grabación al bloquear el equipo",
+      "hint": "Cuando bloqueas Windows (Win+L, cambio de usuario o bloqueo automático), la grabación en curso se finaliza — evita grabar sesiones largas inadvertidamente cuando te alejas."
+    },
+    "hibernate": {
+      "label": "Liberar memoria tras 1 minuto en la bandeja",
+      "hint": "Cuando la app permanece en la bandeja por más de 1 minuto sin grabar, libera todos los recursos y se queda en ~5 MB de RAM. Solo disponible con 'Minimizar a la bandeja' activo."
+    },
+    "buttons": {
+      "reset": "Restaurar valores",
+      "resetTitle": "Restaurar todos los campos a sus valores predeterminados (no guarda — aún necesitas hacer clic en Guardar)",
+      "cancel": "Cancelar",
+      "save": "Guardar"
+    }
+  },
+  "about": {
+    "title": "Acerca de NoOBS",
+    "tagline": "Grabador de pantalla liviano con OBS Studio integrado",
+    "intro1": "NoOBS nació de la frustración con la complejidad de OBS Studio — configurar escenas, fuentes y dispositivos en cada grabación.",
+    "intro2": "La idea aquí es <b>simplicidad</b>: abrir, clic en Grabar, está grabando. Pantallas, cámara, micrófonos y audio del sistema se detectan y quedan listos automáticamente.",
+    "intro3": "<b>Liviano, rápido, intuitivo</b> — un producto premium pensado para que tu grabación siempre funcione.",
+    "labels": {
+      "author": "Autor",
+      "coAuthor": "Coautoría",
+      "repository": "Repositorio",
+      "features": "Funcionalidades principales",
+      "builtWith": "Construido con"
+    },
+    "features": [
+      "<b>Multi-monitor</b> y <b>cámara web</b> grabados simultáneamente",
+      "<b>Pistas de audio separadas</b> — micrófono y cada salida como pista propia en el MKV",
+      "<b>Aceleración por GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) con fallback CPU x264",
+      "<b>Atajo global</b> configurable para iniciar/detener desde cualquier lugar",
+      "<b>Modo hibernación</b>: ~5 MB de RAM cuando está inactivo en la bandeja",
+      "<b>Contenedor MKV</b> — grabación recuperable incluso tras una caída de energía",
+      "<b>Reproductor integrado</b> con miniaturas, búsqueda y eliminación directo en la UI"
+    ],
+    "builtWith": [
+      "Delphi 12 (RAD Studio) — target Win64 nativo",
+      "libobs (núcleo de OBS Studio) — grabación, codificador y captura",
+      "FFmpeg — remux, extracción de pistas y miniaturas",
+      "WebView2 (Chromium) — interfaz HTML/CSS/JS"
+    ],
+    "footer": "Software libre basado en OBS Studio (GPL v2+), FFmpeg (LGPL/GPL) y WebView2 de Microsoft.",
+    "close": "Cerrar"
+  },
+  "player": {
+    "loading": "Preparando video...",
+    "analyzing": "Analizando archivo...",
+    "paused": "PAUSADO",
+    "videoInfo": "Información del video",
+    "close": "Cerrar",
+    "playPause": "Play/Pause (Espacio)",
+    "mute": "Silenciar (M)",
+    "unmute": "Reactivar audio",
+    "muteShort": "Silenciar",
+    "volume": "Volumen (0–200%)",
+    "speed": "Velocidad de reproducción",
+    "fullscreen": "Pantalla completa (F / doble clic)",
+    "info": {
+      "file": "Archivo",
+      "name": "Nombre",
+      "container": "Contenedor",
+      "duration": "Duración",
+      "size": "Tamaño",
+      "totalBitrate": "Bitrate total",
+      "video": "Video",
+      "stream": "Stream {{n}}",
+      "codec": "Códec",
+      "resolution": "Resolución",
+      "frameRate": "Cuadros por segundo",
+      "bitrate": "Bitrate",
+      "visualization": "Vista",
+      "fullView": "Pantalla completa",
+      "region": "Región {{n}}",
+      "audio_one": "Audio ({{count}} pista)",
+      "audio_other": "Audio ({{count}} pistas)",
+      "track": "Pista {{n}}",
+      "trackMix": "Pista {{n}} (mezcla)",
+      "channels": "Canales",
+      "channelsMono": "Mono",
+      "channelsStereo": "Estéreo",
+      "channelsN": "{{count}} canales",
+      "sampleRate": "Frecuencia de muestreo"
+    }
+  },
+  "toast": {
+    "saved": "Configuración guardada",
+    "errorSaving": "Error al guardar",
+    "invalidHotkey": "Atajo inválido",
+    "fieldsReset": "Campos restaurados",
+    "fieldsResetBody": "Haz clic en Guardar para aplicar los cambios.",
+    "restoreConfirmMessage": "Esto restablecerá todos los campos a sus valores predeterminados. Aún necesitas hacer clic en Guardar para aplicar. ¿Continuar?",
+    "restoreConfirmOk": "Restaurar",
+    "devicesUpdated": "Dispositivos actualizados",
+    "monitorsUpdated": "Pantallas actualizadas",
+    "updatingMonitors": "Actualizando pantallas",
+    "updatingAudio": "Actualizando dispositivos de audio",
+    "startingRecord": "Iniciando grabación",
+    "updating": "Actualizando",
+    "errorTitle": "Error",
+    "unknownError": "Error desconocido",
+    "languageChanged": "Idioma cambiado"
+  },
+  "error": {
+    "loadVideo": "Error al cargar el video.",
+    "unsupportedCodec": "Códec no soportado, convirtiendo...",
+    "recordStartFailed": "Error al iniciar grabación: {{error}}",
+    "fileNotFound": "Archivo no encontrado",
+    "folderNotFound": "Carpeta de grabaciones no encontrada",
+    "deleteFailed": "Error al eliminar el archivo: {{file}}",
+    "renameFailed": "Error al renombrar el archivo."
+  },
+  "warning": {
+    "canvasOverflow": "La resolución combinada de las pantallas excede el límite del códec ({{max}} × {{max}}). La grabación se reducirá proporcionalmente. Cambia a AV1 o HEVC en Configuración para grabar hasta 8192 × 8192."
+  },
+  "dateGroups": {
+    "today": "Hoy",
+    "yesterday": "Ayer",
+    "thisWeek": "Esta semana",
+    "noDate": "Sin fecha"
+  },
+  "tracks": {
+    "title": "Pistas de audio",
+    "default": "Predeterminado",
+    "defaultDevice": "Dispositivo predeterminado del sistema",
+    "defaultHint": "Dispositivo definido como predeterminado en Windows. Indicado por un punto de color junto al nombre del dispositivo en la lista.",
+    "track": "Pista {{n}}",
+    "mix": "Pista 1",
+    "mixLabel": "Mezcla (todos)",
+    "mixHint": "Mezcla de todos los dispositivos habilitados. Grabada como la primera pista de audio del archivo final.",
+    "noTrack": "Sin pista",
+    "devicesGrouped_one": "{{count}} dispositivo agrupado",
+    "devicesGrouped_other": "{{count}} dispositivos agrupados",
+    "devicesDisabled_one": "{{count}} dispositivo deshabilitado",
+    "devicesDisabled_other": "{{count}} dispositivos deshabilitados"
+  },
+  "months": [
+    "Enero", "Febrero", "Marzo", "Abril",
+    "Mayo", "Junio", "Julio", "Agosto",
+    "Septiembre", "Octubre", "Noviembre", "Diciembre"
+  ],
+  "common": {
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "yes": "Sí",
+    "no": "No",
+    "ok": "OK"
+  }
+}

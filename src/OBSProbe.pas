@@ -27,6 +27,7 @@ type
     SampleRate: Integer;    // audio apenas
     BitRate: Int64;
     Duration: Double;       // segundos
+    FrameRate: Double;      // video apenas: avg_frame_rate (0 se desconhecido)
   end;
   TStreamArray = TArray<TStreamInfo>;
 
@@ -177,6 +178,14 @@ begin
         Info.SampleRate := S.codecpar.sample_rate;
         Info.BitRate    := S.codecpar.bit_rate;
       end;
+
+      // FPS via avg_frame_rate (= num/den, expresso como fracao pra
+      // suportar taxas NTSC como 30000/1001 = 29.97). Zero se desconhecido
+      // — UI nao exibe a linha nesse caso.
+      if (Info.Kind = 'video') and (S.avg_frame_rate.den > 0) then
+        Info.FrameRate := S.avg_frame_rate.num / S.avg_frame_rate.den
+      else
+        Info.FrameRate := 0;
 
       if (S.duration > 0) and (S.time_base.den > 0) then
         Info.Duration := (S.duration * S.time_base.num) / S.time_base.den

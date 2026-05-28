@@ -546,11 +546,17 @@ begin
 
   // 2. Configura video (canvas). obs_reset_video pode ser chamado
   // entre gravacoes sem problemas — so nao durante output ativo.
-  Log('-- Configurando video %dx%d --', [CanvasW, CanvasH]);
+  var FpsVal: Integer := OBSConfig.GetConfigInt('recordingFps', 30);
+  // 0 = nao configurado (config vazio) → usa 30 (padrao do NoOBS, mais
+  // compacto que o 60fps do OBS Studio). User pode subir no slider de
+  // Configuracoes ate o Hz do monitor mais rapido. Clamp defensivo pra
+  // 30 se vier valor invalido < 10.
+  if FpsVal < 10 then FpsVal := 30;
+  Log('-- Configurando video %dx%d @ %d fps --', [CanvasW, CanvasH, FpsVal]);
   GraphicsModule := 'libobs-d3d11';
   FillChar(OVI, SizeOf(OVI), 0);
   OVI.graphics_module := PAnsiChar(GraphicsModule);
-  OVI.fps_num := 30;
+  OVI.fps_num := Cardinal(FpsVal);
   OVI.fps_den := 1;
   OVI.base_width := Cardinal(CanvasW);
   OVI.base_height := Cardinal(CanvasH);

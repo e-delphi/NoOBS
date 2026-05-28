@@ -17,10 +17,16 @@ type
     FriendlyName: string;
     X, Y, Width, Height: Integer;
     IsPrimary: Boolean;
+    RefreshRate: Integer;   // Hz (ex.: 60, 120, 144, 240)
   end;
   TMonitorInfoArray = TArray<TMonitorInfo>;
 
 function EnumerateMonitors: TMonitorInfoArray;
+
+// Retorna a taxa de atualizacao maxima entre todos os monitores
+// conectados. Fallback 60 Hz se nao houver monitor ou se a consulta
+// falhar.
+function GetMaxMonitorRefreshRate: Integer;
 
 // Captura JPEG raw (bytes) do monitor, escalado pra AThumbW x AThumbH.
 function CaptureMonitorAsJpeg(const AMon: TMonitorInfo;
@@ -38,6 +44,13 @@ uses
   Vcl.Graphics, Vcl.Imaging.Jpeg,
   System.NetEncoding, System.Classes;
 
+const
+  // ENUM_CURRENT_SETTINGS = DWORD(-1) — definido em wingdi.h. Algumas
+  // versoes do Delphi nao expoem o simbolo via Winapi.Windows, entao
+  // declaramos local. Significa "ler os parametros ATIVOS do monitor"
+  // (em vez de iterar modos disponiveis).
+  ENUM_CURRENT_SETTINGS_LOCAL = DWORD(-1);
+
 type
   PEnumState = ^TEnumState;
   TEnumState = record
@@ -51,6 +64,7 @@ var
   State: PEnumState;
   Info: TMonitorInfo;
   MI: TMonitorInfoEx;
+  DM: TDeviceMode;
 begin
   State := PEnumState(lParam);
   ZeroMemory(@MI, SizeOf(MI));
@@ -65,6 +79,14 @@ begin
     Info.Width  := MI.rcMonitor.Right  - MI.rcMonitor.Left;
     Info.Height := MI.rcMonitor.Bottom - MI.rcMonitor.Top;
     Info.IsPrimary := (MI.dwFlags and MONITORINFOF_PRIMARY) <> 0;
+    // Taxa de atualizacao: EnumDisplaySettings com ENUM_CURRENT_SETTINGS
+    // retorna os parametros ativos do monitor. Fallback 60 Hz se falhar.
+    ZeroMemory(@DM, SizeOf(DM));
+    DM.dmSize := SizeOf(DM);
+    if EnumDisplaySettings(PWideChar(Info.DeviceName), ENUM_CURRENT_SETTINGS_LOCAL, DM) then
+      Info.RefreshRate := Integer(DM.dmDisplayFrequency)
+    else
+      Info.RefreshRate := 60;
     SetLength(State^.List, Length(State^.List) + 1);
     State^.List[High(State^.List)] := Info;
     Inc(State^.Idx);
@@ -80,6 +102,18 @@ begin
   State.Idx := 0;
   EnumDisplayMonitors(0, nil, @MonitorEnumProc, LPARAM(@State));
   Result := State.List;
+end;
+
+function GetMaxMonitorRefreshRate: Integer;
+var
+  Mons: TMonitorInfoArray;
+  i: Integer;
+begin
+  Result := 60; // fallback razoavel se nenhum monitor responder
+  Mons := EnumerateMonitors;
+  for i := 0 to High(Mons) do
+    if Mons[i].RefreshRate > Result then
+      Result := Mons[i].RefreshRate;
 end;
 
 function CaptureMonitorAsJpeg(const AMon: TMonitorInfo;

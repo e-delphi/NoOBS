@@ -648,13 +648,88 @@ begin
 end;
 
 // =====================================================================
-// HTTP server: serve o arquivo de cache com Range
+// HTTP server: serve o arquivo de cache com Range (streaming)
 // =====================================================================
+
+type
+  // Stream read-only que expoe APENAS a janela [FStart..FStart+FLen) de
+  // um arquivo. O Indy le este stream em blocos e escreve no socket —
+  // nada e copiado pra RAM (ao contrario do TMemoryStream.CopyFrom antigo,
+  // que carregava a fatia inteira na memoria antes de responder e travava
+  // o seek em disco lento). Memoria por requisicao = buffer do Indy (~KB),
+  // independente do tamanho do video.
+  TRangeFileStream = class(TStream)
+  private
+    FFile: TFileStream;
+    FStart: Int64;  // offset no arquivo onde a janela comeca
+    FLen: Int64;    // tamanho da janela (bytes servidos)
+    FPos: Int64;    // posicao logica dentro da janela [0..FLen]
+  public
+    constructor Create(const APath: string; AStart, ALen: Int64);
+    destructor Destroy; override;
+    function Read(var Buffer; Count: Longint): Longint; override;
+    function Write(const Buffer; Count: Longint): Longint; override;
+    function Seek(const Offset: Int64; Origin: TSeekOrigin): Int64; override;
+  end;
+
+constructor TRangeFileStream.Create(const APath: string; AStart, ALen: Int64);
+begin
+  inherited Create;
+  FFile := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
+  FStart := AStart;
+  FLen := ALen;
+  FPos := 0;
+  FFile.Position := FStart;
+end;
+
+destructor TRangeFileStream.Destroy;
+begin
+  FFile.Free;
+  inherited;
+end;
+
+function TRangeFileStream.Read(var Buffer; Count: Longint): Longint;
+var
+  Remaining: Int64;
+  ToRead: Longint;
+begin
+  Remaining := FLen - FPos;
+  if Remaining <= 0 then Exit(0);
+  if Count > Remaining then ToRead := Longint(Remaining) else ToRead := Count;
+  FFile.Position := FStart + FPos;   // re-sincroniza caso Seek tenha mexido
+  Result := FFile.Read(Buffer, ToRead);
+  if Result > 0 then Inc(FPos, Result);
+end;
+
+function TRangeFileStream.Write(const Buffer; Count: Longint): Longint;
+begin
+  Result := 0;  // read-only
+end;
+
+function TRangeFileStream.Seek(const Offset: Int64; Origin: TSeekOrigin): Int64;
+begin
+  // Mapeia a janela logica [0..FLen] no arquivo. O TStream.GetSize do
+  // Indy usa Seek(0, soEnd) pra descobrir o tamanho — precisa funcionar.
+  case Origin of
+    soBeginning: FPos := Offset;
+    soCurrent:   FPos := FPos + Offset;
+    soEnd:       FPos := FLen + Offset;
+  end;
+  if FPos < 0 then FPos := 0;
+  if FPos > FLen then FPos := FLen;
+  FFile.Position := FStart + FPos;
+  Result := FPos;
+end;
 
 procedure ServeFileWithRange(AReq: TIdHTTPRequestInfo;
   AResp: TIdHTTPResponseInfo; const AFilePath: string);
+const
+  // Tamanho maximo servido por resposta. Mesmo num range aberto
+  // ("bytes=N-"), respondemos no maximo isso (206 parcial) e o browser
+  // re-pede os proximos blocos conforme reproduz. Limita IO/latencia por
+  // requisicao -> seek quase instantaneo mesmo em HD/SSD lento.
+  SERVE_CHUNK_MAX = 8 * 1024 * 1024;  // 8 MB
 var
-  FS: TFileStream;
   TotalSize, RangeStart, RangeEnd, ContentLen, SuffixLen: Int64;
   RangeHdr, S, StartStr: string;
   P: Integer;
@@ -666,92 +741,107 @@ begin
     Exit;
   end;
 
-  FS := TFileStream.Create(AFilePath, fmOpenRead or fmShareDenyWrite);
   try
-    TotalSize := FS.Size;
-    RangeStart := 0;
-    RangeEnd := TotalSize - 1;
-
-    RangeHdr := AReq.RawHeaders.Values['Range'];
-    if (RangeHdr <> '') and StartsText('bytes=', RangeHdr) then
-    begin
-      // formato "bytes=START-END", "bytes=START-" ou "bytes=-N" (sufixo)
-      S := Copy(RangeHdr, 7, MaxInt);
-      P := Pos('-', S);
-      if P > 0 then
-      begin
-        StartStr := Copy(S, 1, P - 1);
-        if StartStr = '' then
-        begin
-          // Range de sufixo "bytes=-N" = ultimos N bytes (RFC 7233).
-          // Antes era interpretado como start=0 -> servia os bytes errados.
-          SuffixLen := StrToInt64Def(Copy(S, P + 1, MaxInt), 0);
-          if SuffixLen > 0 then
-          begin
-            if SuffixLen > TotalSize then SuffixLen := TotalSize;
-            RangeStart := TotalSize - SuffixLen;
-            RangeEnd := TotalSize - 1;
-          end;
-        end
-        else
-        begin
-          RangeStart := StrToInt64Def(StartStr, 0);
-          if P < Length(S) then
-            RangeEnd := StrToInt64Def(Copy(S, P + 1, MaxInt), TotalSize - 1);
-        end;
-      end;
-      if RangeEnd >= TotalSize then RangeEnd := TotalSize - 1;
-      if RangeStart > RangeEnd then
-      begin
-        AResp.ResponseNo := 416;
-        AResp.CustomHeaders.Values['Content-Range'] :=
-          Format('bytes */%d', [TotalSize]);
-        Exit;
-      end;
-      AResp.ResponseNo := 206;
-      AResp.CustomHeaders.Values['Content-Range'] :=
-        Format('bytes %d-%d/%d', [RangeStart, RangeEnd, TotalSize]);
-    end
-    else
-      AResp.ResponseNo := 200;
-
-    ContentLen := RangeEnd - RangeStart + 1;
-    // Content-Type por extensao — Chromium e mais permissivo se vier
-    // o tipo certo. video/x-matroska pra .mkv, video/mp4 pra .mp4 etc.
-    case IndexStr(LowerCase(ExtractFileExt(AFilePath)),
-                  ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg',
-                   '.jpeg', '.png', '.m4a', '.aac']) of
-      0, 1: AResp.ContentType := 'video/mp4';
-      2:    AResp.ContentType := 'video/x-matroska';
-      3:    AResp.ContentType := 'video/webm';
-      4:    AResp.ContentType := 'video/quicktime';
-      5, 6: AResp.ContentType := 'image/jpeg';
-      7:    AResp.ContentType := 'image/png';
-      8:    AResp.ContentType := 'audio/mp4';
-      9:    AResp.ContentType := 'audio/aac';
-    else
-      AResp.ContentType := 'application/octet-stream';
-    end;
-    AResp.CustomHeaders.Values['Accept-Ranges'] := 'bytes';
-    AResp.CustomHeaders.Values['Cache-Control'] := 'no-store';
-    AResp.ContentLength := ContentLen;
-
-    FS.Position := RangeStart;
-
-    // Indy fecha o ContentStream pra gente.
-    AResp.ContentStream := TMemoryStream.Create;
-    TMemoryStream(AResp.ContentStream).CopyFrom(FS, ContentLen);
-    AResp.ContentStream.Position := 0;
+    TotalSize := TFile.GetSize(AFilePath);
   except
     on E: Exception do
     begin
-      FS.Free;
       AResp.ResponseNo := 500;
       AResp.ContentText := 'erro: ' + E.Message;
       Exit;
     end;
   end;
-  FS.Free;
+
+  // Arquivo vazio/invalido: responde 200 vazio (evita range negativo).
+  if TotalSize <= 0 then
+  begin
+    AResp.ResponseNo := 200;
+    AResp.ContentText := '';
+    Exit;
+  end;
+
+  RangeStart := 0;
+  RangeEnd := TotalSize - 1;
+
+  RangeHdr := AReq.RawHeaders.Values['Range'];
+  if (RangeHdr <> '') and StartsText('bytes=', RangeHdr) then
+  begin
+    // formato "bytes=START-END", "bytes=START-" ou "bytes=-N" (sufixo)
+    S := Copy(RangeHdr, 7, MaxInt);
+    P := Pos('-', S);
+    if P > 0 then
+    begin
+      StartStr := Copy(S, 1, P - 1);
+      if StartStr = '' then
+      begin
+        // Range de sufixo "bytes=-N" = ultimos N bytes (RFC 7233).
+        SuffixLen := StrToInt64Def(Copy(S, P + 1, MaxInt), 0);
+        if SuffixLen > 0 then
+        begin
+          if SuffixLen > TotalSize then SuffixLen := TotalSize;
+          RangeStart := TotalSize - SuffixLen;
+          RangeEnd := TotalSize - 1;
+        end;
+      end
+      else
+      begin
+        RangeStart := StrToInt64Def(StartStr, 0);
+        if P < Length(S) then
+          RangeEnd := StrToInt64Def(Copy(S, P + 1, MaxInt), TotalSize - 1);
+      end;
+    end;
+    if RangeEnd >= TotalSize then RangeEnd := TotalSize - 1;
+    if RangeStart > RangeEnd then
+    begin
+      AResp.ResponseNo := 416;
+      AResp.CustomHeaders.Values['Content-Range'] :=
+        Format('bytes */%d', [TotalSize]);
+      Exit;
+    end;
+    // Cap: nunca serve mais que SERVE_CHUNK_MAX por resposta. Servir menos
+    // bytes que o range pedido e valido (RFC 7233) — o Chromium re-pede o
+    // proximo range. Content-Range reflete o que REALMENTE foi servido.
+    if (RangeEnd - RangeStart + 1) > SERVE_CHUNK_MAX then
+      RangeEnd := RangeStart + SERVE_CHUNK_MAX - 1;
+    AResp.ResponseNo := 206;
+    AResp.CustomHeaders.Values['Content-Range'] :=
+      Format('bytes %d-%d/%d', [RangeStart, RangeEnd, TotalSize]);
+  end
+  else
+    AResp.ResponseNo := 200;
+
+  ContentLen := RangeEnd - RangeStart + 1;
+  // Content-Type por extensao — Chromium e mais permissivo se vier
+  // o tipo certo. video/x-matroska pra .mkv, video/mp4 pra .mp4 etc.
+  case IndexStr(LowerCase(ExtractFileExt(AFilePath)),
+                ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg',
+                 '.jpeg', '.png', '.m4a', '.aac']) of
+    0, 1: AResp.ContentType := 'video/mp4';
+    2:    AResp.ContentType := 'video/x-matroska';
+    3:    AResp.ContentType := 'video/webm';
+    4:    AResp.ContentType := 'video/quicktime';
+    5, 6: AResp.ContentType := 'image/jpeg';
+    7:    AResp.ContentType := 'image/png';
+    8:    AResp.ContentType := 'audio/mp4';
+    9:    AResp.ContentType := 'audio/aac';
+  else
+    AResp.ContentType := 'application/octet-stream';
+  end;
+  AResp.CustomHeaders.Values['Accept-Ranges'] := 'bytes';
+  AResp.CustomHeaders.Values['Cache-Control'] := 'no-store';
+  AResp.ContentLength := ContentLen;
+
+  // Streaming: o Indy le o TRangeFileStream em blocos e envia pelo socket,
+  // sem carregar a fatia na RAM. Indy assume a posse e libera o stream.
+  try
+    AResp.ContentStream := TRangeFileStream.Create(AFilePath, RangeStart, ContentLen);
+  except
+    on E: Exception do
+    begin
+      AResp.ResponseNo := 500;
+      AResp.ContentText := 'erro: ' + E.Message;
+    end;
+  end;
 end;
 
 procedure ServeMonitorThumb(const AId: string;

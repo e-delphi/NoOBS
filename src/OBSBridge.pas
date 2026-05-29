@@ -108,6 +108,11 @@ const
   SCROLL_LOCK_BLINK_INTERVAL_MS = 1000;
   HIBERNATE_IDLE_DELAY_MS   = 60_000;
   OBS_WARMUP_DELAY_MS   = 1500;  // tempo pra UI renderizar antes do init
+  // Fallback do stop assincrono: se o sinal "stop" do output nunca
+  // chegar (muxer travado, crash interno), forca a finalizacao depois
+  // deste prazo pra nao deixar a gravacao "presa".
+  TIMER_STOP_TIMEOUT    = 7010;
+  STOP_TIMEOUT_MS       = 10_000;
 
   PFX_MONITOR = 'NoOBS Monitor ';
   PFX_MIC     = 'NoOBS Mic - ';
@@ -149,6 +154,11 @@ const
 var
   Engine: TOBSEngine = nil;
   Initialized: Boolean = False;
+  // Setado no TOPO de DoInit (antes do init async terminar). Initialized
+  // so vira True no fim — sem esta flag, um segundo 'ready' do JS (reload/
+  // re-navegacao da pagina) re-entraria DoInit e re-armaria timers /
+  // re-iniciaria watchers no meio do init.
+  DoInitStarted: Boolean = False;
 
   // Flag de shutdown lido por TODAS as worker threads (capture, ffprobe,
   // transcode...). Usa Integer + TInterlocked pra garantir:
@@ -736,11 +746,10 @@ begin
     Exit;
   end;
 
-  // Pequena espera: o OBS pode estar finalizando o muxer do MKV
-  // (cues/seek index sao escritos apos o ultimo cluster). Sem esse
-  // settle, GetSize pode retornar tamanho parcial / 0.
-  Sleep(500);
-
+  // Sem Sleep: esta funcao agora so e chamada por OnEngineRecordingStopped,
+  // disparado pelo sinal "stop" do output — que significa que o muxer ja
+  // escreveu o trailer/cues e o arquivo esta COMPLETO (mesma garantia que
+  // o OBS usa pra dar AutoRemux na hora). GetSize ja le o tamanho final.
   try
     FSize := TFile.GetSize(AFilePath);
     FDate := TFile.GetLastWriteTime(AFilePath);
@@ -844,6 +853,9 @@ begin
   end;
   Log('PushTheme: cfg="%s" resolved="%s"', [ThemeCfg, Resolved]);
 
+  // Aplica o tema no popup do menu de bandeja (popup preto so no dark).
+  try OBSUI.ApplyTrayMenuTheme(SameText(Resolved, 'dark')); except end;
+
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'theme');
   Obj.AddPair('theme', Resolved);
@@ -854,6 +866,8 @@ procedure HandleSetTheme(const ATheme: string);
 begin
   if (ATheme <> 'dark') and (ATheme <> 'light') then Exit;
   SetConfigStr('theme', ATheme);
+  // Atualiza o tema do menu de bandeja na hora (sem esperar restart).
+  try OBSUI.ApplyTrayMenuTheme(SameText(ATheme, 'dark')); except end;
 end;
 
 function ConsumeFirstRunFlag: Boolean;
@@ -1725,10 +1739,15 @@ begin
                 if NewSig = LastAppliedAudioSig then
                 begin
                   Log('DoRefreshAudio: signature inalterada, sem push pra UI.');
-                  // Se o banner ja estava marcado durante gravacao mas a
-                  // mudanca foi revertida, limpa o flag — UI ja reflete
-                  // o estado atual, nao precisa refresh pos-stop.
-                  if PendingAudioRefresh then PendingAudioRefresh := False;
+                  // Mudanca revertida (estado atual == o que a UI ja mostra):
+                  // FECHA o banner e limpa o flag. PushAudioDeviceChanged(False)
+                  // e incondicional de proposito — o HandleRecordStop ja zera
+                  // PendingAudioRefresh ANTES de chamar DoRefreshAudio, entao
+                  // um `if PendingAudioRefresh` aqui nunca fecharia o banner no
+                  // pos-stop e ele ficaria preso quando a gravacao terminava no
+                  // mesmo estado de antes. Fechar banner ja escondido e no-op.
+                  PendingAudioRefresh := False;
+                  PushAudioDeviceChanged(False);
                   Exit;
                 end;
 
@@ -1984,8 +2003,7 @@ begin
   begin
     HK := ParseHotkey(Spec);
     if not HK.Valid then
-      Reason := 'Atalho inválido — selecione pelo menos uma tecla principal ' +
-                '(letra, número, F1-F12, Pause, etc).'
+      Reason := 'settings.hotkey.invalidSpec'
     else
       IsReservedHotkey(HK.Modifiers, HK.Vk, Reason);
   end;
@@ -1994,6 +2012,9 @@ begin
   Obj.AddPair('type', 'hotkey_validation_result');
   Obj.AddPair('hotkey', Spec);
   Obj.AddPair('ok', TJSONBool.Create(Reason = ''));
+  // Reason e uma CHAVE i18n (vazia = ok). Resolve pro idioma atual antes
+  // de mandar pra UI, que exibe o texto direto no toast.
+  if Reason <> '' then Reason := OBSLang.T(Reason);
   Obj.AddPair('reason', Reason);
   PostOwned(Obj);
 end;
@@ -2043,6 +2064,17 @@ begin
     PushInit;
     Exit;
   end;
+  if DoInitStarted then
+  begin
+    // Segundo 'ready' enquanto o init async ainda nao terminou (reload
+    // da pagina/re-navegacao). NAO re-roda backend init — so re-empurra
+    // o basico pra UI repintar. Evita timers/watchers duplicados.
+    Log('DoInit: ja em andamento — re-push leve, sem re-init.');
+    PushTheme;
+    PushInit(False);
+    Exit;
+  end;
+  DoInitStarted := True;
   Log('DoInit: inicio');
 
   // Marca que a UI JS esta viva — daqui pra frente, push de
@@ -2215,7 +2247,7 @@ begin
 
   if RecordingActive and IsMonitor then
   begin
-    PostError('Nao da pra alterar fontes de video durante a gravacao.');
+    PostError(OBSLang.T('error.cantChangeSourcesWhileRecording'));
     Exit;
   end;
 
@@ -2248,6 +2280,39 @@ end;
 // settings (mais abaixo) mas e chamada pelo Handle{Start,Stop}.
 procedure MaybeNotifyRecord(const ATitle, AMessage: string); forward;
 
+procedure OnEngineRecordingStopped(const AOutputPath: string);
+// Callback registrado em Engine.OnStopped. Roda na MAIN thread quando o
+// output emitiu "stop" — gravacao terminou de verdade, arquivo completo.
+// E aqui (nao no HandleRecordStop) que salvamos a meta e adicionamos o
+// card, porque so agora o arquivo esta integro (mesma logica do
+// RecordingStop do frontend do OBS). Tambem desarma o timeout.
+var
+  Meta: TRecordingMeta;
+begin
+  KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
+  Log('OnEngineRecordingStopped: path="%s"', [AOutputPath]);
+  if AOutputPath = '' then Exit;
+
+  // Persiste layout (canvas + monitores/webcams) + duracao em <hash>.json
+  // antes do PushRecordingAdded, pra o ScanSingleRecordingMeta (worker) ja
+  // achar o layout pronto. CurrentLayout segue valido — ReleaseRecordingObjects
+  // nao o limpa, e um novo recording fica bloqueado ate o stop concluir.
+  if Engine <> nil then
+  begin
+    Meta := Default(TRecordingMeta);
+    Meta.DurationSec := LastRecordingDuration;
+    Meta.Layout := Engine.CurrentLayout;
+    try
+      OBSPlayer.SaveRecordingMeta(AOutputPath, Meta);
+    except
+      on E: Exception do
+        Log('SaveRecordingMeta falhou: %s', [E.Message]);
+    end;
+  end;
+
+  PushRecordingAdded(AOutputPath, LastRecordingDuration);
+end;
+
 procedure HandleRecordStart;
 var
   OutputPath: string;
@@ -2259,13 +2324,27 @@ begin
   if MainWindowHandle <> 0 then
     KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
 
+  // Stop anterior ainda finalizando (sinal "stop" pendente)? Conclui agora
+  // — libera os objetos e adiciona o card da gravacao anterior — antes de
+  // montar a nova. Evita o "Ja esta gravando" se o user clicar start logo
+  // apos parar.
+  if (Engine <> nil) and Engine.IsStopping then
+  begin
+    if MainWindowHandle <> 0 then
+      KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
+    try Engine.ForceCompleteStop; except end;
+  end;
+
   T0 := GetTickCount64;
   Log('HandleRecordStart: inicio.');
   PushRefreshBusy(True, 'starting');
   try
     TStep := GetTickCount64;
     if Engine = nil then
+    begin
       Engine := TOBSEngine.Create;
+      Engine.OnStopped := OnEngineRecordingStopped;
+    end;
     Engine.EnsureInitialized;
     Log('HandleRecordStart: EnsureInitialized em %dms.',
       [GetTickCount64 - TStep]);
@@ -2313,7 +2392,7 @@ begin
       end;
     end;
     // Notificacao na bandeja (so dispara se o tray esta visivel).
-    MaybeNotifyRecord('NoOBS', 'Gravação iniciada.');
+    MaybeNotifyRecord('NoOBS', OBSLang.T('record.started'));
 
     // Indicador via LED Scroll Lock — opcional, default off. Pisca a
     // 1Hz enquanto a gravacao ativa. Util quando o app esta na bandeja
@@ -2337,7 +2416,7 @@ begin
       // antes do erro (defensivo — no-op se nunca trocou).
       try OBSTray.SetTrayRecording(False); except end;
       try OBSUI.SetWindowIconRecording(False); except end;
-      PostError('Falha ao iniciar gravacao: ' + E.Message);
+      PostError(OBSLang.T('error.recordStartFailed', ['error', E.Message]));
       PushRecordingState;
       Log('HandleRecordStart: FALHOU apos %dms: %s',
         [GetTickCount64 - T0, E.Message]);
@@ -2442,14 +2521,13 @@ begin
     OBSScrollLock.SetScrollLockState(False);
   Elapsed := Integer((GetTickCount - RecordingStartTickMs) div 1000);
 
+  // Caminho do arquivo ja e conhecido (geramos no start). O arquivo so
+  // estara COMPLETO quando o sinal "stop" do output disparar — por isso
+  // o card e o SaveRecordingMeta acontecem no callback OnEngineRecordingStopped,
+  // nao aqui (ver HandleRecordStart: Engine.OnStopped).
   OutputPath := '';
-  try
-    if Engine <> nil then
-      OutputPath := Engine.StopRecording;
-  except
-    on E: Exception do
-      Log('StopRecord falhou: %s', [E.Message]);
-  end;
+  if Engine <> nil then
+    OutputPath := Engine.OutputPath;
 
   RecordingActive := False;
   LastRecordingPath := OutputPath;
@@ -2458,31 +2536,26 @@ begin
   try OBSTray.SetTrayRecording(False); except end;
   try OBSUI.SetWindowIconRecording(False); except end;
   PushRecordingState;
-  if OutputPath <> '' then
+
+  // Pede o stop de forma ASSINCRONA (igual ao OBS: obs_output_stop e
+  // retorna). Quando o output terminar de verdade, o sinal "stop"
+  // dispara -> OnEngineRecordingStopped faz meta + card. Sem poll/Sleep,
+  // a UI nao trava. Timeout de seguranca caso o sinal nunca chegue.
+  if (Engine <> nil) and Engine.IsRecording then
   begin
-    // Persiste layout (canvas + monitores/webcams posicionados) +
-    // duracao em <hash>.json antes de PushRecordingAdded — assim o
-    // ScanSingleRecordingMeta (worker) ja encontra o layout pronto
-    // quando vai cachear a thumb. Sem o engine (raro: falha pre-stop)
-    // pulamos — fica so o que EnsureRecordingMeta puder probar.
-    if Engine <> nil then
-    begin
-      var Meta := Default(TRecordingMeta);
-      Meta.DurationSec := Elapsed;
-      Meta.Layout := Engine.CurrentLayout;
-      try
-        OBSPlayer.SaveRecordingMeta(OutputPath, Meta);
-      except
-        on E: Exception do
-          Log('SaveRecordingMeta falhou: %s', [E.Message]);
-      end;
+    try
+      Engine.RequestStop;
+      SetTimer(MainWindowHandle, TIMER_STOP_TIMEOUT, STOP_TIMEOUT_MS, nil);
+    except
+      on E: Exception do
+        Log('RequestStop falhou: %s', [E.Message]);
     end;
-    PushRecordingAdded(OutputPath, Elapsed);
   end;
 
   // Notifica fim da gravacao (so se em tray e config permite).
   MaybeNotifyRecord('NoOBS',
-    Format('Gravação finalizada (%dm %ds).', [Elapsed div 60, Elapsed mod 60]));
+    OBSLang.T('record.finished',
+      ['min', IntToStr(Elapsed div 60), 'sec', IntToStr(Elapsed mod 60)]));
 
   // Se o auto-minimize escondeu a janela na hora do start, restaura.
   // O user esperava continuar olhando o NoOBS apos parar a gravacao
@@ -2532,7 +2605,7 @@ begin
   if (AOldPath = '') or (ANewName = '') then Exit;
   if not TFile.Exists(AOldPath) then
   begin
-    PostError('Arquivo nao encontrado: ' + AOldPath);
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
 
@@ -2556,9 +2629,14 @@ begin
 
   if not RenameFile(AOldPath, NewPath) then
   begin
-    PostError('Falha ao renomear arquivo.');
+    PostError(OBSLang.T('error.renameFailed'));
     Exit;
   end;
+
+  // Migra o cache (thumb/duracao/mp4/json/audio tracks) do hash antigo
+  // pro novo — senao ficaria orfao ate o proximo GC e a gravacao
+  // renomeada regeneraria tudo do zero.
+  try OBSPlayer.RenameCacheEntries(AOldPath, NewPath); except end;
 
   // Notifica UI da mudanca de path/nome.
   Obj := TJSONObject.Create;
@@ -2573,7 +2651,7 @@ procedure HandleOpenRecordDir;
 begin
   if (RecordDir = '') or (not DirectoryExists(RecordDir)) then
   begin
-    PostError('Pasta de gravacoes nao encontrada.');
+    PostError(OBSLang.T('error.folderNotFound'));
     Exit;
   end;
   ShellExecute(0, 'open', PChar(RecordDir), nil, nil, SW_SHOWNORMAL);
@@ -2583,7 +2661,7 @@ procedure HandleOpenRecording(const APath: string);
 begin
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
   ShellExecute(0, 'open', PChar(APath), nil, nil, SW_SHOW);
@@ -2637,13 +2715,13 @@ begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
   Url := GetDirectUrl(APath);
   if Url = '' then
   begin
-    PostError('Falha ao preparar URL do video.');
+    PostError(OBSLang.T('error.prepareUrlFailed'));
     Exit;
   end;
   PushPlayUrl(APath, Url, 'direct');
@@ -2656,12 +2734,12 @@ begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
   if not FFmpegLibAvailable then
   begin
-    PostError('Biblioteca de media (libavformat) nao disponivel.');
+    PostError(OBSLang.T('error.mediaLibUnavailable'));
     Exit;
   end;
 
@@ -2686,8 +2764,8 @@ begin
           if Url <> '' then
             PushPlayUrl(APath, Url, 'transcoded')
           else
-            PostError('Falha ao transcodar video' +
-              IfThen(ErrMsg <> '', ': ' + ErrMsg, '.'));
+            PostError(OBSLang.T('error.transcodeFailed') +
+              IfThen(ErrMsg <> '', ' ' + ErrMsg, ''));
         end);
     end).Start;
 end;
@@ -2699,12 +2777,12 @@ begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
   if not FFmpegLibAvailable then
   begin
-    PostError('Biblioteca de media (libavformat) nao disponivel.');
+    PostError(OBSLang.T('error.mediaLibUnavailable'));
     Exit;
   end;
 
@@ -2725,7 +2803,7 @@ begin
       if not Ok then
       begin
         TThread.Queue(nil, procedure begin
-          PostError('Falha ao inspecionar video.'); end);
+          PostError(OBSLang.T('error.probeFailed')); end);
         Exit;
       end;
 
@@ -2844,7 +2922,7 @@ begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then
   begin
-    PostError('Arquivo nao encontrado.');
+    PostError(OBSLang.T('error.fileNotFound'));
     Exit;
   end;
 
@@ -2864,7 +2942,7 @@ begin
       if not Ok then
       begin
         TThread.Queue(nil, procedure begin
-          PostError('Falha ao extrair faixas de audio.'); end);
+          PostError(OBSLang.T('error.extractAudioFailed')); end);
         Exit;
       end;
 
@@ -3269,7 +3347,7 @@ begin
   end;
   if not DirectoryExists(APath) then
   begin
-    PostError('Pasta nao existe: ' + APath);
+    PostError(OBSLang.T('error.folderNotFound'));
     Exit;
   end;
 
@@ -3320,8 +3398,8 @@ begin
           if IsShuttingDown then Exit;
           if not Ok then
           begin
-            PostError('Falha ao excluir o arquivo: ' +
-              ExtractFileName(PathCopy));
+            PostError(OBSLang.T('error.deleteFailed',
+              ['file', ExtractFileName(PathCopy)]));
             Exit;
           end;
           // Limpa cache desse arquivo agora — GC pegaria no proximo
@@ -3359,6 +3437,7 @@ begin
   end;
   Obj := TJSONObject(Root);
   try
+   try
     MsgType := GetStrField(Obj, 'type');
     if (MsgType <> 'ui_log') and (MsgType <> 'player_state') then
       Log('Dispatch: type="%s"', [MsgType]);
@@ -3443,6 +3522,14 @@ begin
       PlayerOpen := GetBoolField(Obj, 'open');
       Log('PlayerOpen=%s', [BoolToStr(PlayerOpen, True)]);
     end;
+   except
+     // Barreira: um handler que lanca excecao NAO pode escapar pro
+     // WindowProc/DispatchMessage — isso mata o message pump e o app.
+     // Loga e segue (convencao do projeto: falha isolada nao trava o app).
+     on E: Exception do
+       Log('Dispatch: excecao no handler type="%s": %s [%s]',
+         [MsgType, E.Message, E.ClassName]);
+   end;
   finally
     Obj.Free;
   end;
@@ -3644,6 +3731,7 @@ end;
 
 procedure OnTimer(ATimerId: UINT_PTR);
 begin
+ try
   if ATimerId = TIMER_RECORDING_TICK then
   begin
     if RecordingActive then
@@ -3654,13 +3742,21 @@ begin
     if AudioRefreshInProgress then Exit; // continua agendado, tenta no proximo tick
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
     Log('TIMER_AUDIO_REFRESH: debounce fired.');
-    if not RecordingActive then
-      DoRefreshAudio;
+    // SEM guard de RecordingActive: o DoRefreshAudio ja trata gravacao
+    // internamente — durante a gravacao ele NAO atualiza a lista (que
+    // esta congelada), mas mostra o banner "dispositivos alterados" e
+    // marca PendingAudioRefresh pra aplicar no stop. Enumeracao roda em
+    // worker, entao nao trava a UI nem mexe no engine. O guard antigo
+    // pulava tudo e o usuario nao via mudanca nenhuma durante a gravacao.
+    DoRefreshAudio;
   end
   else if ATimerId = TIMER_MONITOR_REFRESH then
   begin
     if MonitorRefreshInProgress then Exit;
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
+    // Monitor/webcam ja tratam gravacao no proprio handler de evento
+    // (OnDisplayChange/OnDeviceNodeChange: banner + defer, sem armar o
+    // timer durante gravacao), entao mantemos o guard aqui.
     if not RecordingActive then
       DoRefreshMonitors;
   end
@@ -3688,6 +3784,7 @@ begin
     begin
       try
         Engine := TOBSEngine.Create;
+        Engine.OnStopped := OnEngineRecordingStopped;
         Engine.EnsureInitialized;
         Log('libobs: warmup pronto — proxima gravacao sera instantanea.');
         // Apos warmup, libobs ja conhece os encoders. Detecta + envia
@@ -3749,7 +3846,25 @@ begin
       Exit;
     end;
     OBSScrollLock.ToggleScrollLock;
+  end
+  else if ATimerId = TIMER_STOP_TIMEOUT then
+  begin
+    // O sinal "stop" do output nunca chegou no prazo. One-shot — desarma
+    // e forca a finalizacao (ForceCompleteStop dispara OnEngineRecordingStopped).
+    KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
+    Log('TIMER_STOP_TIMEOUT: sinal "stop" nao chegou — forcando finalizacao.');
+    if Engine <> nil then
+      try Engine.ForceCompleteStop; except on E: Exception do
+        Log('ForceCompleteStop falhou: %s', [E.Message]); end;
   end;
+ except
+   // Barreira: timers rodam via WM_TIMER no WindowProc. Uma excecao
+   // (ex.: falha WASAPI transitoria no meter de 100ms) escaparia pro
+   // DispatchMessage e mataria o pump. Loga e segue.
+   on E: Exception do
+     Log('OnTimer: excecao no timer %d: %s [%s]',
+       [Int64(ATimerId), E.Message, E.ClassName]);
+ end;
 end;
 
 procedure Shutdown;
@@ -3773,6 +3888,7 @@ begin
     KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
     KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
     KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
+    KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
   end;
   // Garante que o LED nao fique aceso se o app crashar/fechar mid-blink.
   try OBSScrollLock.SetScrollLockState(False); except end;
@@ -3820,6 +3936,7 @@ begin
   Log('Shutdown: Engine ok');
 
   Initialized := False;
+  DoInitStarted := False;
   Log('Shutdown: fim');
 end;
 

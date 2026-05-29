@@ -71,6 +71,12 @@ procedure SaveRecordingMeta(const APath: string;
 // listadas. ALivePaths sao os paths das gravacoes que ainda existem.
 procedure GarbageCollectCache(const ALivePaths: TArray<string>);
 
+// Migra os arquivos de cache (<hash>.dur/.jpg/.mp4/.json, <hash>_aN.m4a)
+// do hash do path antigo pro hash do novo apos um rename. Sem isso o
+// cache fica orfao (so limpo no proximo GC) e a gravacao renomeada perde
+// thumb/duracao ate regenerar. No-op se os hashes coincidirem.
+procedure RenameCacheEntries(const AOldPath, ANewPath: string);
+
 // Extrai todas as audio tracks da gravacao em arquivos separados (m4a)
 // e devolve URLs servidas pelo HTTP server. Idempotente: se ja extraiu
 // antes, retorna direto do cache (~ms). Primeira extracao usa ffmpeg
@@ -172,6 +178,45 @@ begin
   for i := 0 to 9 do
     Result := Result + IntToHex(Bytes[i], 2);
   Result := LowerCase(Result);
+end;
+
+procedure RenameCacheEntries(const AOldPath, ANewPath: string);
+var
+  Dir, OldHash, NewHash, Tail, NewName: string;
+  Files: TArray<string>;
+  F: string;
+begin
+  Dir := CacheDirFor(AOldPath);
+  if not DirectoryExists(Dir) then Exit;
+  OldHash := HashName(AOldPath);
+  NewHash := HashName(ANewPath);
+  if SameText(OldHash, NewHash) then Exit;
+  try
+    // <hash>* cobre .dur/.jpg/.mp4/.json e _aN.m4a (todos prefixados
+    // pelo hash de 20 chars hex). Colisao com outro arquivo e improvavel
+    // (SHA1 de paths distintos).
+    Files := TDirectory.GetFiles(Dir, OldHash + '*');
+  except
+    on E: Exception do
+    begin
+      Log('RenameCacheEntries: GetFiles falhou: %s', [E.Message]);
+      Exit;
+    end;
+  end;
+  for F in Files do
+  begin
+    // Tail = tudo apos o hash (ex.: ".dur", ".jpg", "_a1.m4a").
+    Tail := Copy(ExtractFileName(F), Length(OldHash) + 1, MaxInt);
+    NewName := IncludeTrailingPathDelimiter(Dir) + NewHash + Tail;
+    try
+      if TFile.Exists(NewName) then TFile.Delete(NewName);
+      TFile.Move(F, NewName);
+    except
+      on E: Exception do
+        Log('RenameCacheEntries: move %s falhou: %s',
+          [ExtractFileName(F), E.Message]);
+    end;
+  end;
 end;
 
 procedure SetMonitorThumb(const AId: string; const AJpeg: TBytes);
@@ -610,8 +655,8 @@ procedure ServeFileWithRange(AReq: TIdHTTPRequestInfo;
   AResp: TIdHTTPResponseInfo; const AFilePath: string);
 var
   FS: TFileStream;
-  TotalSize, RangeStart, RangeEnd, ContentLen: Int64;
-  RangeHdr, S: string;
+  TotalSize, RangeStart, RangeEnd, ContentLen, SuffixLen: Int64;
+  RangeHdr, S, StartStr: string;
   P: Integer;
 begin
   if not FileExists(AFilePath) then
@@ -630,14 +675,30 @@ begin
     RangeHdr := AReq.RawHeaders.Values['Range'];
     if (RangeHdr <> '') and StartsText('bytes=', RangeHdr) then
     begin
-      // formato "bytes=START-END" ou "bytes=START-"
+      // formato "bytes=START-END", "bytes=START-" ou "bytes=-N" (sufixo)
       S := Copy(RangeHdr, 7, MaxInt);
       P := Pos('-', S);
       if P > 0 then
       begin
-        RangeStart := StrToInt64Def(Copy(S, 1, P - 1), 0);
-        if P < Length(S) then
-          RangeEnd := StrToInt64Def(Copy(S, P + 1, MaxInt), TotalSize - 1);
+        StartStr := Copy(S, 1, P - 1);
+        if StartStr = '' then
+        begin
+          // Range de sufixo "bytes=-N" = ultimos N bytes (RFC 7233).
+          // Antes era interpretado como start=0 -> servia os bytes errados.
+          SuffixLen := StrToInt64Def(Copy(S, P + 1, MaxInt), 0);
+          if SuffixLen > 0 then
+          begin
+            if SuffixLen > TotalSize then SuffixLen := TotalSize;
+            RangeStart := TotalSize - SuffixLen;
+            RangeEnd := TotalSize - 1;
+          end;
+        end
+        else
+        begin
+          RangeStart := StrToInt64Def(StartStr, 0);
+          if P < Length(S) then
+            RangeEnd := StrToInt64Def(Copy(S, P + 1, MaxInt), TotalSize - 1);
+        end;
       end;
       if RangeEnd >= TotalSize then RangeEnd := TotalSize - 1;
       if RangeStart > RangeEnd then
@@ -769,6 +830,16 @@ begin
   Token := Copy(Doc, 4, MaxInt);
   P := Pos('.', Token);
   if P > 0 then Token := Copy(Token, 1, P - 1);
+
+  // Guard de shutdown: HandleGet roda numa worker thread do Indy. Se uma
+  // requisicao chega entre Server.Active:=False e o FreeAndNil(TokenLock)
+  // do StopPlayerServer, usar o lock liberado causa AV. Mesmo padrao de
+  // ServeMonitorThumb (que ja checa ThumbLock=nil).
+  if (TokenLock = nil) or (TokenMap = nil) then
+  begin
+    AResponse.ResponseNo := 503;
+    Exit;
+  end;
 
   TokenLock.Enter;
   try

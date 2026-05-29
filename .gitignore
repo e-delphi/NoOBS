@@ -21,3 +21,4 @@ exe/bin/64bit/*
 # diretorio ignorado, entao !lang/*.json sozinho nao funciona.
 !exe/bin/64bit/lang/
 !exe/bin/64bit/lang/*.json
+obs-studio-master/

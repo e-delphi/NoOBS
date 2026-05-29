@@ -1,4 +1,4 @@
-(*
+﻿(*
   OBSProbe - inspeciona arquivos de midia (codec, dimensoes, faixas,
   duracao, metadata). Usa libavformat (avformat-61.dll) diretamente
   via FFmpegLib. Sem dependencia de ffprobe.exe.
@@ -158,6 +158,9 @@ begin
 
     N := av_format_context_nb_streams(Fmt);
     SetLength(AReport.Streams, N);
+    // Guard pegadinha #24: N e Cardinal — se 0 (arquivo corrompido sem
+    // streams), `0 to N-1` faz underflow pra ~4 bilhoes e congela.
+    if N > 0 then
     for i := 0 to N - 1 do
     begin
       FillChar(Info, SizeOf(Info), 0);

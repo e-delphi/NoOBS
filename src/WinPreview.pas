@@ -83,7 +83,10 @@ begin
     // retorna os parametros ativos do monitor. Fallback 60 Hz se falhar.
     ZeroMemory(@DM, SizeOf(DM));
     DM.dmSize := SizeOf(DM);
-    if EnumDisplaySettings(PWideChar(Info.DeviceName), ENUM_CURRENT_SETTINGS_LOCAL, DM) then
+    // dmDisplayFrequency 0 ou 1 = "hardware default" (documentado), nao
+    // uma taxa real — trata como desconhecido e cai pro fallback 60.
+    if EnumDisplaySettings(PWideChar(Info.DeviceName), ENUM_CURRENT_SETTINGS_LOCAL, DM)
+       and (DM.dmDisplayFrequency > 1) then
       Info.RefreshRate := Integer(DM.dmDisplayFrequency)
     else
       Info.RefreshRate := 60;

@@ -93,6 +93,7 @@ type
   private
     FRef: Integer;
     FCallback: TAudioDeviceChangeProc;
+    FStopped: Boolean;  // setado por Stop: ignora callbacks em andamento
   public
     constructor Create(const ACallback: TAudioDeviceChangeProc);
     function QueryInterface(const IID: TGUID; out Obj): HRESULT; stdcall;
@@ -120,6 +121,7 @@ begin
   inherited Create;
   FRef := 0;
   FCallback := ACallback;
+  FStopped := False;
 end;
 
 function TNotifClient.QueryInterface(const IID: TGUID; out Obj): HRESULT;
@@ -152,7 +154,9 @@ end;
 procedure TNotifClient_Notify(Self: TNotifClient;
   AKind: TAudioDeviceChangeKind; const ADeviceId: string);
 begin
-  if Assigned(Self) and Assigned(Self.FCallback) then
+  // FStopped curto-circuita callbacks que chegam depois de Stop ter
+  // iniciado o teardown — evita disparar no Bridge ja desmontado.
+  if Assigned(Self) and (not Self.FStopped) and Assigned(Self.FCallback) then
   try
     Self.FCallback(AKind, ADeviceId);
   except
@@ -225,12 +229,23 @@ begin
 end;
 
 procedure Stop;
+var
+  LocalRef: IMMNotificationClient;
 begin
-  if (Enumerator <> nil) and (NotifAsClient <> nil) then
-    Enumerator.UnregisterEndpointNotificationCallback(NotifAsClient);
+  // 1. Sinaliza pro callback parar de disparar (antes do unregister).
+  if Notif <> nil then Notif.FStopped := True;
+  // 2. Segura uma ref forte local: garante que o objeto sobreviva ate
+  //    o fim do unregister, mesmo que a ref global caia a zero. Sem isso,
+  //    se um callback WASAPI estiver em andamento e o refcount chegar a 0
+  //    durante o NotifAsClient:=nil, o objeto e liberado debaixo do
+  //    callback -> use-after-free.
+  LocalRef := NotifAsClient;
+  if (Enumerator <> nil) and (LocalRef <> nil) then
+    Enumerator.UnregisterEndpointNotificationCallback(LocalRef);
   NotifAsClient := nil;
   Notif := nil;
   Enumerator := nil;
+  LocalRef := nil;  // libera por ultimo, ja sem registro ativo
 end;
 
 end.

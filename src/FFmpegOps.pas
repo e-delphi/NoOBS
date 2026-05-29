@@ -314,6 +314,7 @@ begin
   try
     if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
     N := av_format_context_nb_streams(SrcCtx);
+    if N = 0 then Exit; // pegadinha #24: N Cardinal, `0 to N-1` underflow.
     SetLength(AudioIdxs, 0);
     for i := 0 to N - 1 do
     begin
@@ -361,6 +362,7 @@ function ExtractFrameJpeg(const ASrc, ADstJpeg: string;
 var
   SrcCtx: AVFormatContext;
   SrcPath: UTF8String;
+  Opts: AVDictionary;
   DstPathW: string;
   VStream: PAVStream;
   VIdx, i: Integer;
@@ -406,7 +408,17 @@ begin
 
   try
   SrcPath := ToUtf8(ASrc);
-  if avformat_open_input(@SrcCtx, PAnsiChar(SrcPath), nil, nil) < 0 then
+  // Limita o trabalho do find_stream_info: pra thumb so precisamos de
+  // codecpar (w/h/codec_id) + time_base, que ja vem do header do MKV.
+  // Sem isso, em canvas multi-monitor (fonte ~4K de largura) com AV1/HEVC
+  // o find_stream_info decodifica varios frames em SOFTWARE -> 8s+ de
+  // espera so pra gerar a thumb. analyzeduration em microsegundos.
+  Opts := nil;
+  av_dict_set(@Opts, 'analyzeduration', '500000', 0);  // 0.5s de stream
+  av_dict_set(@Opts, 'probesize', '2000000', 0);       // 2 MB
+  Rc := avformat_open_input(@SrcCtx, PAnsiChar(SrcPath), nil, @Opts);
+  av_dict_free(@Opts);
+  if Rc < 0 then
   begin
     Log('Thumb: avformat_open_input falhou para %s', [ExtractFileName(ASrc)]);
     Exit;
@@ -483,14 +495,18 @@ begin
       av_seek_frame(SrcCtx, VIdx, SeekTs, AVSEEK_FLAG_BACKWARD);
     end;
 
-    // Frame alvo em PTS — pra parar de decodar quando passar.
     StartTs := SeekTs;
 
     Pkt := av_packet_alloc;
     Frame := av_frame_alloc;
     if (Pkt = nil) or (Frame = nil) then Exit;
 
-    // Decoda ate pegar 1 frame >= StartTs (ou EOF).
+    // Aceita o PRIMEIRO frame decodado apos o seek (o keyframe em que o
+    // seek BACKWARD nos posicionou) — NAO decodamos ate StartTs.
+    // Decodar dezenas de frames ate o timestamp exato e proibitivo em
+    // canvas multi-monitor (fonte ~4-5K) com AV1/HEVC por SOFTWARE: cada
+    // frame leva centenas de ms (eram ~8s pra thumb). Pra thumbnail o
+    // frame exato nao importa — o keyframe proximo serve. 1 frame.
     Got := False;
     while not Got do
     begin
@@ -500,14 +516,11 @@ begin
       begin
         if avcodec_send_packet(DecCtx, Pkt) = 0 then
         begin
-          while avcodec_receive_frame(DecCtx, Frame) = 0 do
+          if avcodec_receive_frame(DecCtx, Frame) = 0 then
           begin
-            if (Frame.pts < 0) or (Frame.pts >= StartTs) then
-            begin
-              Got := True;
-              Break;
-            end;
-            av_frame_unref(Frame);
+            Got := True;
+            av_packet_unref(Pkt);
+            Break;
           end;
         end;
       end;

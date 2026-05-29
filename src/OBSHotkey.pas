@@ -242,72 +242,75 @@ const
   M_W  = MOD_WIN;
 begin
   Result := True;
+  // AReason recebe uma CHAVE i18n (nao o texto). Quem chama (OBSBridge)
+  // resolve via OBSLang.T — assim OBSHotkey nao depende de OBSLang. As
+  // chaves vivem em settings.hotkey.reserved.* nos lang/*.json.
   AReason := '';
 
   // Combinacoes com Ctrl / Alt.
   if (AModifiers = (M_C or M_A)) and (AVk = VK_DELETE) then
-    AReason := 'Ctrl+Alt+Del é a chamada de atenção segura do Windows.'
+    AReason := 'settings.hotkey.reserved.ctrlAltDel'
   else if (AModifiers = M_A) and (AVk = VK_TAB) then
-    AReason := 'Alt+Tab é o alternador de tarefas do Windows.'
+    AReason := 'settings.hotkey.reserved.altTab'
   else if (AModifiers = M_A) and (AVk = VK_F4) then
-    AReason := 'Alt+F4 fecha a janela atual no Windows.'
+    AReason := 'settings.hotkey.reserved.altF4'
   else if (AModifiers = M_A) and (AVk = VK_ESCAPE) then
-    AReason := 'Alt+Esc alterna entre janelas no Windows.'
+    AReason := 'settings.hotkey.reserved.altEsc'
   else if (AModifiers = M_A) and (AVk = VK_SPACE) then
-    AReason := 'Alt+Space abre o menu de sistema da janela.'
+    AReason := 'settings.hotkey.reserved.altSpace'
   else if (AModifiers = M_C) and (AVk = VK_ESCAPE) then
-    AReason := 'Ctrl+Esc abre o menu Iniciar do Windows.'
+    AReason := 'settings.hotkey.reserved.ctrlEsc'
 
   // Combinacoes com Win — shell intercepta antes do RegisterHotKey.
   else if (AModifiers = M_W) and (AVk = Ord('L')) then
-    AReason := 'Win+L bloqueia a estação de trabalho no Windows.'
+    AReason := 'settings.hotkey.reserved.winL'
   else if (AModifiers = M_W) and (AVk = Ord('D')) then
-    AReason := 'Win+D mostra a área de trabalho no Windows.'
+    AReason := 'settings.hotkey.reserved.winD'
   else if (AModifiers = M_W) and (AVk = Ord('E')) then
-    AReason := 'Win+E abre o Explorador de Arquivos no Windows.'
+    AReason := 'settings.hotkey.reserved.winE'
   else if (AModifiers = M_W) and (AVk = Ord('R')) then
-    AReason := 'Win+R abre a caixa Executar do Windows.'
+    AReason := 'settings.hotkey.reserved.winR'
   else if (AModifiers = M_W) and (AVk = Ord('I')) then
-    AReason := 'Win+I abre as Configurações do Windows.'
+    AReason := 'settings.hotkey.reserved.winI'
   else if (AModifiers = M_W) and (AVk = Ord('X')) then
-    AReason := 'Win+X abre o menu de power user do Windows.'
+    AReason := 'settings.hotkey.reserved.winX'
   else if (AModifiers = M_W) and (AVk = Ord('A')) then
-    AReason := 'Win+A abre a Central de Ações do Windows.'
+    AReason := 'settings.hotkey.reserved.winA'
   else if (AModifiers = M_W) and (AVk = Ord('S')) then
-    AReason := 'Win+S abre a Pesquisa do Windows.'
+    AReason := 'settings.hotkey.reserved.winS'
   else if (AModifiers = M_W) and (AVk = Ord('Q')) then
-    AReason := 'Win+Q abre a Pesquisa do Windows.'
+    AReason := 'settings.hotkey.reserved.winQ'
   else if (AModifiers = M_W) and (AVk = Ord('M')) then
-    AReason := 'Win+M minimiza todas as janelas no Windows.'
+    AReason := 'settings.hotkey.reserved.winM'
   else if (AModifiers = M_W) and (AVk = Ord('P')) then
-    AReason := 'Win+P abre o seletor de projeção do Windows.'
+    AReason := 'settings.hotkey.reserved.winP'
   else if (AModifiers = M_W) and (AVk = Ord('V')) then
-    AReason := 'Win+V abre o histórico da área de transferência do Windows.'
+    AReason := 'settings.hotkey.reserved.winV'
   else if (AModifiers = M_W) and (AVk = Ord('G')) then
-    AReason := 'Win+G abre a Game Bar do Windows.'
+    AReason := 'settings.hotkey.reserved.winG'
   else if (AModifiers = M_W) and (AVk = Ord('K')) then
-    AReason := 'Win+K abre o Conectar do Windows.'
+    AReason := 'settings.hotkey.reserved.winK'
   else if (AModifiers = M_W) and (AVk = Ord('H')) then
-    AReason := 'Win+H abre o ditado por voz do Windows.'
+    AReason := 'settings.hotkey.reserved.winH'
   else if (AModifiers = M_W) and (AVk = Ord('U')) then
-    AReason := 'Win+U abre a Central de Facilidade de Acesso do Windows.'
+    AReason := 'settings.hotkey.reserved.winU'
   else if (AModifiers = M_W) and (AVk = Ord('B')) then
-    AReason := 'Win+B foca na bandeja do sistema do Windows.'
+    AReason := 'settings.hotkey.reserved.winB'
   else if (AModifiers = M_W) and (AVk = Ord('T')) then
-    AReason := 'Win+T foca na barra de tarefas do Windows.'
+    AReason := 'settings.hotkey.reserved.winT'
   else if (AModifiers = M_W) and (AVk = Ord('W')) then
-    AReason := 'Win+W abre os Widgets do Windows.'
+    AReason := 'settings.hotkey.reserved.winW'
   else if (AModifiers = M_W) and (AVk = VK_TAB) then
-    AReason := 'Win+Tab abre a Visão de Tarefas do Windows.'
+    AReason := 'settings.hotkey.reserved.winTab'
   else if (AModifiers = M_W) and ((AVk = VK_UP) or (AVk = VK_DOWN) or
                                   (AVk = VK_LEFT) or (AVk = VK_RIGHT)) then
-    AReason := 'Win+Setas controla o snap de janelas no Windows.'
+    AReason := 'settings.hotkey.reserved.winArrows'
   else if (AModifiers = M_W) and (AVk = VK_OEM_PERIOD) then
-    AReason := 'Win+. abre o seletor de emojis do Windows.'
+    AReason := 'settings.hotkey.reserved.winPeriod'
   else if (AModifiers = M_W) and (AVk = VK_OEM_1) then
-    AReason := 'Win+; abre o seletor de emojis do Windows.'
+    AReason := 'settings.hotkey.reserved.winSemicolon'
   else if (AModifiers = (M_W or M_S)) and (AVk = Ord('S')) then
-    AReason := 'Win+Shift+S abre a Captura de Tela do Windows.'
+    AReason := 'settings.hotkey.reserved.winShiftS'
 
   else
     Result := False;

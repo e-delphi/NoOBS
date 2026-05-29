@@ -68,6 +68,7 @@ const
   eRender   = 0;
   eCapture  = 1;
   DEVICE_STATE_ACTIVE = $00000001;
+  VT_LPWSTR = 31;  // PROPVARIANT.vt de uma string Unicode COM-alocada
 
   // AUDCLNT_SHAREMODE_SHARED = 0
   // Buffer de 200ms — suficiente; nao consumimos, so queremos a sessao
@@ -187,9 +188,11 @@ var
 
 procedure FreePropVariantString(var APV: TPropVariant);
 begin
-  // Em produção usariamos PropVariantClear; aqui o pwszVal e alocado
-  // pelo COM e liberado por CoTaskMemFree.
-  if APV.pwszVal <> nil then
+  // So libera se for realmente uma string LPWSTR alocada pelo COM.
+  // Pra outros vt (VT_EMPTY, VT_BLOB, ...), pwszVal aliasa outros bytes
+  // do union — CoTaskMemFree num ponteiro que o COM nao alocou
+  // corromperia a heap. Centraliza o check de vt aqui.
+  if (APV.vt = VT_LPWSTR) and (APV.pwszVal <> nil) then
     CoTaskMemFree(APV.pwszVal);
 end;
 
@@ -207,7 +210,7 @@ begin
   ZeroMemory(@PV, SizeOf(PV));
   if Succeeded(Store.GetValue(Key, PV)) then
   begin
-    if PV.pwszVal <> nil then
+    if (PV.vt = VT_LPWSTR) and (PV.pwszVal <> nil) then
       Result := string(PV.pwszVal);
     FreePropVariantString(PV);
   end;
@@ -236,7 +239,7 @@ begin
     ZeroMemory(@PV, SizeOf(PV));
     if Succeeded(Store.GetValue(Key, PV)) then
     begin
-      if PV.pwszVal <> nil then
+      if (PV.vt = VT_LPWSTR) and (PV.pwszVal <> nil) then
         EnumName := string(PV.pwszVal);
       FreePropVariantString(PV);
       if SameText(EnumName, 'BTHENUM') then Exit(True);
@@ -559,7 +562,13 @@ begin
   if CacheLock = nil then InitAudio;
   CacheLock.Enter;
   try
-    if Length(Cache) = 0 then RebuildCache;
+    // NAO chamar RebuildCache aqui: ReadPeakLevels roda na main thread
+    // via TIMER_AUDIO_METER (100ms). RebuildCache faz chamadas WASAPI
+    // bloqueantes (EnumAudioEndpoints/Activate/Initialize/Start) que podem
+    // travar 60s+ quando o servico de audio esta doente (pegadinha #30).
+    // O cache e populado pelo worker (DoRefreshAudio -> EnumerateAudioDevices).
+    // Se ainda nao populou, retorna vazio e tenta no proximo tick.
+    if Length(Cache) = 0 then Exit;
     for i := 0 to High(Cache) do
     begin
       if Cache[i].Meter = nil then Continue;

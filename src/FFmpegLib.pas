@@ -573,12 +573,19 @@ var
   Pkt: PAVPacket;
   S: PAVStream;
   EndPts, EndUs, Best: Int64;
+  TbUs: AVRational;
 begin
   Result := 0;
   if ic = nil then Exit;
   Pkt := av_packet_alloc;
   if Pkt = nil then Exit;
   Best := 0;
+  // Time_base alvo = microsegundos (1/AV_TIME_BASE). av_rescale_q faz a
+  // conversao com intermediario de 128 bits — multiplicar manualmente
+  // (pts * AV_TIME_BASE * num) estoura Int64 em time_bases finos (ns)
+  // de arquivos longos, gerando duracao negativa/lixo.
+  TbUs.num := 1;
+  TbUs.den := AV_TIME_BASE;
   try
     while av_read_frame(ic, Pkt) = 0 do
     begin
@@ -589,7 +596,7 @@ begin
         if Pkt.pts = AV_NOPTS_VALUE then Continue;
 
         EndPts := Pkt.pts + Pkt.duration;
-        EndUs := EndPts * AV_TIME_BASE * S.time_base.num div S.time_base.den;
+        EndUs := av_rescale_q(EndPts, S.time_base, TbUs);
         if EndUs > Best then Best := EndUs;
       finally
         av_packet_unref(Pkt);
@@ -609,6 +616,7 @@ var
   N, i: Cardinal;
   S: PAVStream;
   Best, DurUs: Int64;
+  TbUs: AVRational;
 begin
   Result := 0;
   if ic = nil then Exit;
@@ -618,13 +626,17 @@ begin
   N := av_format_context_nb_streams(ic);
   if N = 0 then Exit;
   Best := 0;
+  // Ver comentario em ScanDurationByPackets: av_rescale_q evita overflow
+  // Int64 da multiplicacao manual em time_bases finos.
+  TbUs.num := 1;
+  TbUs.den := AV_TIME_BASE;
   for i := 0 to N - 1 do
   begin
     S := GetStreamByIndex(ic, i);
     if S = nil then Continue;
     if (S.duration > 0) and (S.time_base.den > 0) then
     begin
-      DurUs := S.duration * AV_TIME_BASE * S.time_base.num div S.time_base.den;
+      DurUs := av_rescale_q(S.duration, S.time_base, TbUs);
       if DurUs > Best then Best := DurUs;
     end;
   end;

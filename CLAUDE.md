@@ -162,14 +162,21 @@ User clica "Iniciar Gravação" (ou hotkey Ctrl+Shift+F9):
     - Configura track bitmask (1 mix + N isolados, max 6)
     - SelectVideoEncoder: lê config codec, dispatch AV1/HEVC/H264/SW
     - Cria output ffmpeg_muxer (MKV) + obs_output_start
+    - Conecta o sinal "stop" do output (Engine.ConnectStopSignal)
   • PushRecordingState
 
-User clica "Parar Gravação":
-  • Engine.StopRecording:
-    - obs_output_stop (poll obs_output_active até parar)
-    - Release: output, encoders, sources, scene
-    - Core libobs permanece vivo
-  • PushRecordingAdded
+User clica "Parar Gravação" (assíncrono — pegadinha #41):
+  • HandleRecordStop:
+    - UI/som/ícones/timers AGORA (RecordingActive:=False, PushRecordingState)
+    - Engine.RequestStop → obs_output_stop e RETORNA na hora (não bloqueia)
+    - Arma TIMER_STOP_TIMEOUT (fallback 10s)
+  • Output termina de verdade → emite sinal "stop" (thread do OBS):
+    - StopSignalThunk → TThread.Queue → OnStopSignal (main)
+    - FinalizeStop: desconecta sinal → Release (output/encoders/sources/
+      scene; obs_output_release se auto-sincroniza) → OnStopped
+  • OnEngineRecordingStopped (main): arquivo já COMPLETO → SaveRecordingMeta
+    + PushRecordingAdded (sem Sleep)
+  • Core libobs permanece vivo.
   → Pronto pra próxima gravação.
 
 User clica em uma gravação pra tocar:
@@ -719,6 +726,69 @@ mostrar a taxa de quadros no painel de info do player (`29.97` pra
 NTSC, `30/60/144` pra inteiros). Se subir o major (61→62), validar
 contra `avformat.h` do release novo.
 
+### 41. **Stop de gravação é ASSÍNCRONO via sinal "stop" do output**
+
+Modelo copiado do frontend do OBS (`SimpleOutput::StopRecording` só chama
+`obs_output_stop` e retorna; o `RecordingStop` roda no callback do sinal
+"stop"). **Nunca** voltar a fazer poll de `obs_output_active` + release
+síncrono no caminho de UI, nem `Sleep` pra "esperar o arquivo terminar".
+
+Por que o jeito antigo era ruim:
+- `obs_output_active` cai pra `false` ANTES das threads internas de
+  encoder/muxer saírem. Liberar (output/encoders/sources/scene) nesse
+  instante = AV nativo em `obs.dll` (`%d frames left in the queue on
+  closing`). O poll + release síncrono também travava a UI ~centenas de ms.
+- Um `Sleep(500)` "settle" pós-stop mascarava o sintoma mas era remendo:
+  travava a main thread e era timing-dependent.
+
+Fluxo correto (`OBSEngine` + `OBSBridge`):
+1. `ConnectStopSignal` liga `StopSignalThunk` ao sinal `"stop"` do output
+   logo após `obs_output_start` (bindings em `LibOBS`:
+   `obs_output_get_signal_handler`, `signal_handler_connect/disconnect`).
+2. `RequestStop` chama `obs_output_stop` e **retorna na hora**. `HandleRecordStop`
+   atualiza UI/ícones/som imediatamente e arma `TIMER_STOP_TIMEOUT` (10s).
+3. Quando o output terminou DE VERDADE (arquivo completo, threads
+   encerradas) o sinal `"stop"` dispara numa thread do OBS →
+   `StopSignalThunk` só faz `TThread.Queue` (pegadinha #3) → `OnStopSignal`
+   na main → `FinalizeStop`: desconecta sinal, `ReleaseRecordingObjects`,
+   chama `OnStopped`.
+4. `OnEngineRecordingStopped` (Bridge, main) salva meta + `PushRecordingAdded`
+   — o arquivo já está íntegro (mesma garantia que o OBS usa pra dar
+   AutoRemux no "stop"; confirmado: `ffmpeg_mux` faz `os_process_pipe_destroy`
+   = espera o processo do muxer escrever o trailer ANTES de emitir "stop").
+
+Garantias que tornam isso seguro:
+- `obs_output_release`/`obs_output_destroy` **se auto-sincroniza**: faz
+  `os_event_wait(stopping_event)` + `pthread_join(end_data_capture_thread)`
+  antes de liberar. Então mesmo o caminho de timeout (`ForceCompleteStop`)
+  libera com segurança.
+- `FinalizeStop` é idempotente via `FStopping` — sinal e timeout podem
+  ambos chamar; só o primeiro age.
+- `StopRecording` síncrono (com poll) sobrou SÓ pro shutdown, onde não há
+  message loop pra drenar o `TThread.Queue` e bloquear é aceitável.
+- `Teardown` seta `FShuttingDown` + desconecta o sinal (callback enfileirado
+  remanescente vira no-op).
+
+`FStopSignalHandler` é tipado como `Pointer` (não `signal_handler_t`) na
+declaração da classe pra não puxar `LibOBS` pro `interface` do `OBSEngine`
+(`signal_handler_t = type Pointer`, então é compatível).
+
+### 42. **Thumbnail decodifica só 1 frame (o keyframe do seek)**
+
+`FFmpegOps.ExtractFrameJpeg` faz `av_seek_frame(BACKWARD)` e aceita o
+**primeiro** frame decodificado — NÃO decodifica até o timestamp exato.
+
+Por quê: em canvas multi-monitor a fonte é muito larga (~4-5K px). Decodar
+dezenas de frames em SOFTWARE (AV1/HEVC) até o ts alvo (1s) levava ~8s só
+pra gerar a thumb. Pra thumbnail o frame exato não importa — o keyframe
+em que o seek posicionou serve (início pra gravações curtas, ~10% da
+duração pra longas). Passou de ~30 frames decodados pra 1.
+
+Também: `analyzeduration`/`probesize` reduzidos no `avformat_open_input`
+do thumb (só precisamos de codecpar + time_base, que vêm do header MKV).
+O `Probe()` do painel de info fica intacto (precisa de mais detalhes:
+bitrate, `avg_frame_rate`).
+
 ---
 
 ## Caches
@@ -815,6 +885,7 @@ Atributos suportados pelo `I18n.apply()`:
 | `data-i18n-title` | atributo `title` | string |
 | `data-i18n-placeholder` | atributo `placeholder` | string |
 | `data-i18n-aria` | atributo `aria-label` | string |
+| `data-i18n-hint` | atributo `data-hint` (tooltip custom do módulo Hint) | string |
 | `data-i18n-list` | renderiza array como `<li>` filhos | array de string |
 
 **JS dinâmico** — `T(key, args)`:
@@ -928,6 +999,13 @@ Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
 - **NÃO esqueça** o BOM em `.pas` novos.
 - **NÃO bloqueie** a main thread por mais de ~1s sem mostrar overlay
   via `PushRefreshBusy(True, ...)` antes.
+- **NÃO faça** poll de `obs_output_active` + release síncrono nem `Sleep`
+  pra "esperar o arquivo" no caminho de stop da UI — o stop é assíncrono
+  via sinal "stop" do output (pegadinha #41). Release sai do callback do
+  sinal (ou do timeout). Poll síncrono sobrou só pro shutdown.
+- **NÃO decodifique** muitos frames pra gerar thumbnail — aceite o
+  primeiro keyframe após o seek (pegadinha #42). Decodar até o ts exato
+  em canvas multi-monitor (AV1/HEVC software) trava segundos.
 - **NÃO inicialize** libobs DIRETO no `DoInit` — pode travar o
   startup do app. Use o `TIMER_OBS_WARMUP` (one-shot ~1.5s depois)
   pra que a UI renderize antes do init bloquear ~300ms.

@@ -33,6 +33,15 @@ type
   obs_property_t   = type Pointer;
   video_t          = type Pointer;
   audio_t          = type Pointer;
+  signal_handler_t = type Pointer;
+  calldata_t       = type Pointer;
+
+// Callback de sinal do libobs (callback/signal.h):
+//   typedef void (*signal_callback_t)(void *data, calldata_t *cd);
+// cdecl. Chamado numa thread INTERNA do libobs — o handler so pode
+// fazer trabalho marshalado pra main thread (TThread.Queue).
+type
+  TOBSSignalCallback = procedure(data: Pointer; cd: calldata_t); cdecl;
 
 // -----------------------------------------------------------------------
 // Enums (MSVC x64: 4 bytes = Integer)
@@ -357,6 +366,24 @@ function obs_output_active(output: obs_output_t): ByteBool;
   cdecl; external 'obs.dll' delayed;
 
 function obs_output_get_last_error(output: obs_output_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+
+// -----------------------------------------------------------------------
+// Sinais do output (callback/signal.h). O output emite "stop" quando a
+// gravacao terminou de verdade (encoders drenados, trailer/cues escritos,
+// arquivo completo, threads internas encerradas) — mesmo evento que o
+// frontend do OBS usa pra so entao liberar e processar o arquivo.
+// -----------------------------------------------------------------------
+
+function obs_output_get_signal_handler(output: obs_output_t): signal_handler_t;
+  cdecl; external 'obs.dll' delayed;
+
+procedure signal_handler_connect(handler: signal_handler_t; const signal: PAnsiChar;
+  callback: TOBSSignalCallback; data: Pointer);
+  cdecl; external 'obs.dll' delayed;
+
+procedure signal_handler_disconnect(handler: signal_handler_t; const signal: PAnsiChar;
+  callback: TOBSSignalCallback; data: Pointer);
   cdecl; external 'obs.dll' delayed;
 
 // -----------------------------------------------------------------------

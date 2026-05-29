@@ -24,7 +24,10 @@
     "webcams": "Webcams",
     "default": "Default",
     "defaultDevice": "System default device",
-    "audioTracks": "Audio tracks"
+    "audioTracks": "Audio tracks",
+    "btDevice": "Bluetooth device",
+    "btMicWarn": "Warning: while this Bluetooth microphone is connected and NoOBS is open (even without selecting it to record — the level meters already open access to the mic), Windows keeps the headset in the HFP profile. The device's audio quality drops to mono 8 or 16 kHz and the volume usually goes to maximum. Bluetooth Classic limitation — unchecking here won't fix it. To restore HD, disable or disconnect the device in Windows, or use a separate USB microphone.",
+    "btSpeakerWarn": "Warning: Bluetooth speaker. When any app on Windows accesses a Bluetooth microphone (including NoOBS's level meters), this device automatically drops to phone-call quality (mono 8 or 16 kHz) and maximum volume. Bluetooth Classic limitation — for HD, disable the Bluetooth microphone in Windows, or use BT LE Audio (newer hardware + Windows 11)."
   },
   "record": {
     "start": "Start recording",
@@ -35,7 +38,8 @@
     "statusRecording": "Recording",
     "recordingFor": "Recording for {{time}}",
     "started": "Recording started.",
-    "finished": "Recording finished ({{min}}m {{sec}}s)."
+    "finished": "Recording finished ({{min}}m {{sec}}s).",
+    "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording."
   },
   "recordings": {
     "title": "Recordings",
@@ -51,11 +55,15 @@
     "spaceUsed": "{{size}} used",
     "spaceFree": "{{size}} free",
     "lowSpace": "Low free space",
+    "lowSpaceHint": "Disk space below 5 GB in the recordings folder. You may not be able to complete a recording without freeing up space.",
     "select": "Select",
     "selectAllInGroup": "Select all in this group",
     "confirmDeleteTitle": "Delete recordings",
     "confirmDeleteOne": "Move this recording to the Windows Recycle Bin?",
-    "confirmDeleteN": "Move {{count}} recordings to the Windows Recycle Bin?"
+    "confirmDeleteN": "Move {{count}} recordings to the Windows Recycle Bin?",
+    "confirmDeleteSingleTitle": "Delete recording",
+    "confirmDeleteNamed": "Move \"{{name}}\" to the Windows Recycle Bin?",
+    "deleteNShort": "Delete {{count}} selected"
   },
   "settings": {
     "title": "Settings",
@@ -84,6 +92,10 @@
       "av1Hw": "AV1 — hardware",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(unavailable)",
+      "hwSuffix": " — hardware",
+      "vendorNvidia": " (NVIDIA NVENC)",
+      "vendorAmd": " (AMD AMF)",
+      "vendorIntel": " (Intel QSV)",
       "maxRes": "Codec max resolution: {{w}} × {{h}}",
       "hint": "Automatic picks the best available option in the order H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Only choose manually if you know what you're doing."
     },
@@ -96,7 +108,51 @@
       "plus": "+",
       "hint": "Check the desired modifiers (Ctrl, Shift, Alt, Win) and pick a main key. Examples: Pause or Ctrl+Shift+G.",
       "noKey": "No hotkey set. Pick a main key (and optionally modifiers) to enable the global hotkey.",
-      "activeHint": "Current hotkey: <code>{{spec}}</code>. Uncheck all modifiers and pick <b>Not set</b> to disable."
+      "activeHint": "Current hotkey: <code>{{spec}}</code>. Uncheck all modifiers and pick <b>Not set</b> to disable.",
+      "notDefined": "Not set",
+      "chooseAnother": "Choose another combination.",
+      "groups": {
+        "function": "Function",
+        "letters": "Letters",
+        "numbers": "Numbers",
+        "special": "Special",
+        "arrows": "Arrows",
+        "numpad": "Numpad",
+        "chars": "Characters"
+      },
+      "invalidSpec": "Invalid hotkey — pick at least one main key (letter, number, F1-F12, Pause, etc).",
+      "reserved": {
+        "ctrlAltDel": "Ctrl+Alt+Del is the Windows secure attention sequence.",
+        "altTab": "Alt+Tab is the Windows task switcher.",
+        "altF4": "Alt+F4 closes the current window in Windows.",
+        "altEsc": "Alt+Esc cycles through windows in Windows.",
+        "altSpace": "Alt+Space opens the window's system menu.",
+        "ctrlEsc": "Ctrl+Esc opens the Windows Start menu.",
+        "winL": "Win+L locks the Windows workstation.",
+        "winD": "Win+D shows the Windows desktop.",
+        "winE": "Win+E opens File Explorer in Windows.",
+        "winR": "Win+R opens the Windows Run box.",
+        "winI": "Win+I opens Windows Settings.",
+        "winX": "Win+X opens the Windows power user menu.",
+        "winA": "Win+A opens the Windows Action Center.",
+        "winS": "Win+S opens Windows Search.",
+        "winQ": "Win+Q opens Windows Search.",
+        "winM": "Win+M minimizes all windows in Windows.",
+        "winP": "Win+P opens the Windows projection picker.",
+        "winV": "Win+V opens the Windows clipboard history.",
+        "winG": "Win+G opens the Windows Game Bar.",
+        "winK": "Win+K opens Windows Connect.",
+        "winH": "Win+H opens Windows voice typing.",
+        "winU": "Win+U opens the Windows Ease of Access Center.",
+        "winB": "Win+B focuses the Windows system tray.",
+        "winT": "Win+T focuses the Windows taskbar.",
+        "winW": "Win+W opens Windows Widgets.",
+        "winTab": "Win+Tab opens Windows Task View.",
+        "winArrows": "Win+Arrows controls window snapping in Windows.",
+        "winPeriod": "Win+. opens the Windows emoji picker.",
+        "winSemicolon": "Win+; opens the Windows emoji picker.",
+        "winShiftS": "Win+Shift+S opens the Windows Snipping tool."
+      }
     },
     "quality": {
       "label": "Recording quality",
@@ -230,7 +286,8 @@
       "channelsMono": "Mono",
       "channelsStereo": "Stereo",
       "channelsN": "{{count}} channels",
-      "sampleRate": "Sample rate"
+      "sampleRate": "Sample rate",
+      "trackVolume": "Track volume (0–200%)"
     }
   },
   "toast": {
@@ -249,7 +306,8 @@
     "updating": "Updating",
     "errorTitle": "Error",
     "unknownError": "Unknown error",
-    "languageChanged": "Language changed"
+    "languageChanged": "Language changed",
+    "andMore": "…and {{count}} more"
   },
   "error": {
     "loadVideo": "Error loading video.",
@@ -258,7 +316,13 @@
     "fileNotFound": "File not found",
     "folderNotFound": "Recordings folder not found",
     "deleteFailed": "Failed to delete file: {{file}}",
-    "renameFailed": "Failed to rename file."
+    "renameFailed": "Failed to rename file.",
+    "cantChangeSourcesWhileRecording": "Can't change video sources while recording.",
+    "prepareUrlFailed": "Failed to prepare video URL.",
+    "mediaLibUnavailable": "Media library (libavformat) unavailable.",
+    "transcodeFailed": "Failed to transcode video.",
+    "probeFailed": "Failed to inspect video.",
+    "extractAudioFailed": "Failed to extract audio tracks."
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."
@@ -292,8 +356,20 @@
   "common": {
     "cancel": "Cancel",
     "delete": "Delete",
+    "confirm": "Confirm",
+    "open": "Open",
+    "loading": "Loading resources",
     "yes": "Yes",
     "no": "No",
     "ok": "OK"
+  },
+  "banner": {
+    "audioTitle": "Audio device changed",
+    "monitorTitle": "Display configuration changed",
+    "body": "The list will update as soon as you stop recording."
+  },
+  "display": {
+    "monitor": "Display",
+    "webcam": "Webcam"
   }
 }

@@ -66,6 +66,22 @@ begin
   if FStopEvent <> 0 then SetEvent(FStopEvent);
 end;
 
+procedure QueueCallback(const ACb: TRecordChangeCallback);
+// Enfileira o callback pra main thread SEM capturar a thread (Self).
+// Procedure separada com parametro const = novo stack frame = captura
+// segura (pegadinha #6). Captura por valor o ponteiro do callback, entao
+// a closure nao depende do tempo de vida do objeto TRecordWatchThread
+// (que pode ser liberado por Stop antes do drain de CheckSynchronize ->
+// use-after-free). A guarda Assigned(GCallback) evita disparar depois de
+// um Stop deliberado (GCallback so e tocado na main thread).
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if Assigned(GCallback) and Assigned(ACb) then ACb();
+    end);
+end;
+
 procedure TRecordWatchThread.Execute;
 var
   ChangeHandle: THandle;
@@ -83,7 +99,10 @@ begin
     False, // bWatchSubtree = nao recursivo
     FILE_NOTIFY_CHANGE_FILE_NAME or FILE_NOTIFY_CHANGE_DIR_NAME);
 
-  if ChangeHandle = INVALID_HANDLE_VALUE then
+  // FindFirstChangeNotification retorna INVALID_HANDLE_VALUE OU NULL (0)
+  // em falha (ambos documentados). Sem checar 0, WaitForMultipleObjects
+  // esperaria num handle nulo pra sempre.
+  if (ChangeHandle = INVALID_HANDLE_VALUE) or (ChangeHandle = 0) then
   begin
     Log('OBSRecordWatch: FindFirstChangeNotification falhou (err=%d) em %s',
       [GetLastError, FDir]);
@@ -112,7 +131,7 @@ begin
         if Terminated then Break;
 
         if Assigned(FCallback) then
-          TThread.Queue(nil, procedure begin FCallback(); end);
+          QueueCallback(FCallback);
 
         FindNextChangeNotification(ChangeHandle);
       end;

@@ -42,7 +42,7 @@ implementation
 uses
   Winapi.Windows, Winapi.ShellAPI, Winapi.Messages,
   System.SysUtils, System.Classes,
-  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance;
+  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang;
 
 const
   // MUTEX_NAME e SHOW_MSG_NAME vem de OBSSingleInstance — compartilhados
@@ -287,10 +287,10 @@ var
   Pt: TPoint;
 begin
   Menu := CreatePopupMenu;
-  AppendMenuW(Menu, MF_STRING, ID_TRAY_RECORD, 'Iniciar gravação');
-  AppendMenuW(Menu, MF_STRING, ID_TRAY_OPEN,   'Abrir');
+  AppendMenuW(Menu, MF_STRING, ID_TRAY_RECORD, PWideChar(OBSLang.T('record.start')));
+  AppendMenuW(Menu, MF_STRING, ID_TRAY_OPEN,   PWideChar(OBSLang.T('common.open')));
   AppendMenuW(Menu, MF_SEPARATOR, 0, nil);
-  AppendMenuW(Menu, MF_STRING, ID_TRAY_QUIT,   'Fechar');
+  AppendMenuW(Menu, MF_STRING, ID_TRAY_QUIT,   PWideChar(OBSLang.T('header.close')));
   GetCursorPos(Pt);
   // Mesmo truque do OBSTray pro menu fechar quando clica fora.
   SetForegroundWindow(MainWindow);
@@ -363,6 +363,12 @@ var
   AtomResult: ATOM;
 begin
   Log('Hibernate: modo minimo iniciando.');
+
+  // i18n do menu da bandeja. Leve (le config + 1 JSON pequeno) — nao
+  // compromete o objetivo de RAM minima e garante que o menu apareca
+  // no idioma do usuario em vez de [chaves] ou portugues hardcoded.
+  try OBSLang.InitLanguage; except on E: Exception do
+    Log('Hibernate: InitLanguage falhou: %s', [E.Message]); end;
 
   // Single-instance — usa o MESMO mutex que o full. Se outra instancia
   // (hibernate ou full) ja esta rodando, saimos silenciosamente.

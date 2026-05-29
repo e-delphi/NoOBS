@@ -19,14 +19,30 @@ uses
   NoOBSTypes;
 
 type
+  // Callback de "gravacao parou de verdade" — invocado na MAIN thread
+  // depois que o output emitiu o sinal "stop" (arquivo completo) e os
+  // objetos foram liberados. APath = arquivo final. Bridge registra pra
+  // adicionar o card / salvar meta. Equivale ao RecordingStop do OBS.
+  TOBSStoppedProc = procedure(const AOutputPath: string);
+
   TOBSEngine = class
   private
     FInitialized: Boolean;
     FRecording: Boolean;
+    // Stop assincrono em andamento: obs_output_stop foi chamado, mas o
+    // sinal "stop" (release seguro) ainda nao chegou. Distinto de
+    // FRecording — durante o stopping ambos sao True ate FinalizeStop.
+    FStopping: Boolean;
+    FShuttingDown: Boolean;
+    // signal_handler_t (= Pointer) do output, guardado entre connect e
+    // disconnect. Tipado como Pointer aqui pra nao puxar LibOBS pra
+    // interface (LibOBS so e usado na implementation).
+    FStopSignalHandler: Pointer;
     FOutputPath: string;
     FExeDir: string;
     FObsPluginBinDir: string;
     FObsPluginDataDir: string;
+    FOnStopped: TOBSStoppedProc;
     // Layout do canvas atual — preenchido durante BuildAndStartRecording
     // conforme cada monitor/webcam vai sendo posicionado. Bridge le
     // depois do start pra persistir em <hash>.json (player usa pra
@@ -35,17 +51,31 @@ type
     procedure ResolvePaths;
     procedure LoadModules;
     procedure ReleaseRecordingObjects;
+    procedure ConnectStopSignal;
+    procedure DisconnectStopSignal;
+    procedure OnStopSignal;            // main thread (via TThread.Queue)
+    procedure FinalizeStop(AInvokeCallback: Boolean); // main thread
   public
     constructor Create;
     destructor Destroy; override;
     procedure EnsureInitialized;
     procedure BuildAndStartRecording(const AOutputPath: string);
-    function  StopRecording: string;
+    // Pede o stop e retorna NA HORA (nao bloqueia a UI). A conclusao
+    // chega depois via FOnStopped quando o sinal "stop" dispara. Modelo
+    // identico ao do OBS (SimpleOutput::StopRecording).
+    procedure RequestStop;
+    // Forca a finalizacao agora (usado pelo timeout do Bridge caso o
+    // sinal "stop" nunca chegue). Idempotente. Main thread.
+    procedure ForceCompleteStop;
+    function  StopRecording: string;   // sincrono — usado so no shutdown
     function  IsRecording: Boolean;
+    function  IsStopping: Boolean;
     procedure SetSourceMuted(const ASourceName: string; AMuted: Boolean);
     procedure Teardown;
     property Initialized: Boolean read FInitialized;
+    property OutputPath: string read FOutputPath;
     property CurrentLayout: TRecordingLayout read FCurrentLayout;
+    property OnStopped: TOBSStoppedProc read FOnStopped write FOnStopped;
   end;
 
 // Tipos publicos (TGpuVendor, TEncoderCaps, TObsAudioDev) ficam em
@@ -80,6 +110,9 @@ const
   // de 4096 pixels (multi-monitor lado a lado em telas 4K).
   SCENE_NAME = 'NoOBS';
   MANAGED_PREFIX = 'NoOBS ';
+  // Nome do sinal de output emitido quando a gravacao terminou de fato
+  // (ver output_signals[] em obs-output.c). ASCII puro.
+  SIG_STOP: AnsiString = 'stop';
 
 
 type
@@ -94,6 +127,19 @@ var
   GVideoEncoder: obs_encoder_t;
   GAudioEncoders: TArray<obs_encoder_t>;
   GSources: TArray<TSourceEntry>;
+
+procedure StopSignalThunk(data: Pointer; cd: calldata_t); cdecl;
+// Callback C do sinal "stop". Roda numa thread INTERNA do libobs —
+// proibido tocar libobs/UI aqui (pegadinha #3). So marshala pra main
+// thread, onde OnStopSignal faz o release + notifica o Bridge.
+begin
+  if data = nil then Exit;
+  TThread.Queue(nil,
+    procedure
+    begin
+      TOBSEngine(data).OnStopSignal;
+    end);
+end;
 
 // -----------------------------------------------------------------------
 // Helpers
@@ -481,6 +527,7 @@ begin
 
   ReleaseRecordingObjects;
 
+ try
   // 1. Inventario de monitores (Win32 — mesmo indexador da UI).
   Log('-- Inventario --');
   Monitors := MonitorsFromWinPreview;
@@ -885,20 +932,114 @@ begin
 
   FOutputPath := AOutputPath;
   FRecording := True;
+  FStopping := False;
+  // Conecta ao sinal "stop" do output — e por ele que sabemos, sem poll
+  // nem Sleep, que a gravacao terminou de verdade (arquivo completo,
+  // threads encerradas). Mesma estrategia do frontend do OBS.
+  ConnectStopSignal;
   Log('Gravacao iniciada.');
+ except
+   // Qualquer excecao no meio do build (encoder falhou, source nil,
+   // ResolveMonitorId, obs_output_create nil, etc.) deixaria scene/
+   // sources/encoders meio-criados e canais ligados a sources que
+   // serao destruidas. Limpa antes de propagar pro chamador.
+   ReleaseRecordingObjects;
+   raise;
+ end;
+end;
+
+procedure TOBSEngine.ConnectStopSignal;
+begin
+  if GOutput = nil then Exit;
+  FStopSignalHandler := obs_output_get_signal_handler(GOutput);
+  if FStopSignalHandler <> nil then
+    signal_handler_connect(FStopSignalHandler, PAnsiChar(SIG_STOP),
+      @StopSignalThunk, Self);
+end;
+
+procedure TOBSEngine.DisconnectStopSignal;
+begin
+  // Desconecta ANTES do release do output (o handler vive dentro do
+  // output; depois do release o ponteiro fica invalido). Idempotente.
+  if FStopSignalHandler <> nil then
+  begin
+    try
+      signal_handler_disconnect(FStopSignalHandler, PAnsiChar(SIG_STOP),
+        @StopSignalThunk, Self);
+    except
+    end;
+    FStopSignalHandler := nil;
+  end;
+end;
+
+procedure TOBSEngine.OnStopSignal;
+// Main thread (via TThread.Queue do StopSignalThunk). O sinal "stop"
+// disparou = arquivo completo + threads encerradas. Agora e seguro
+// liberar e notificar o Bridge.
+begin
+  if FShuttingDown then Exit;
+  FinalizeStop(True);
+end;
+
+procedure TOBSEngine.FinalizeStop(AInvokeCallback: Boolean);
+// Main thread. Libera os objetos da gravacao e (opcional) chama o
+// callback OnStopped. Idempotente via FStopping — o sinal "stop" e o
+// timeout do Bridge podem ambos chamar; so o primeiro age.
+var
+  P: string;
+begin
+  if not FStopping then Exit;
+  FStopping := False;
+  FRecording := False;
+  P := FOutputPath;
+  DisconnectStopSignal;
+  ReleaseRecordingObjects;
+  Log('Gravacao finalizada: %s', [P]);
+  if AInvokeCallback and Assigned(FOnStopped) then
+    try FOnStopped(P); except on E: Exception do
+      Log('OnStopped levantou: %s', [E.Message]); end;
+end;
+
+procedure TOBSEngine.RequestStop;
+// Pede o stop e retorna na hora. obs_output_stop e assincrono: o output
+// emite "stop" quando terminou, e StopSignalThunk -> OnStopSignal ->
+// FinalizeStop conduz o resto. NAO bloqueia a UI (sem poll, sem Sleep).
+begin
+  if (not FRecording) or FStopping then Exit;
+  FStopping := True;
+  Log('Parando gravacao (assincrono)...');
+  try obs_output_stop(GOutput); except on E: Exception do
+    Log('obs_output_stop levantou: %s', [E.Message]); end;
+end;
+
+procedure TOBSEngine.ForceCompleteStop;
+// Chamado pelo timeout do Bridge se o sinal "stop" nunca chegou. Forca
+// a finalizacao (o obs_output_release no FinalizeStop ainda espera/junta
+// as threads internamente, entao e seguro). Idempotente.
+begin
+  if not FStopping then Exit;
+  Log('ForceCompleteStop: sinal "stop" nao chegou — finalizando a forca.');
+  FinalizeStop(True);
 end;
 
 function TOBSEngine.StopRecording: string;
+// Caminho SINCRONO — usado so no shutdown do app, onde bloquear e
+// aceitavel e nao ha message loop pra drenar o TThread.Queue do sinal.
 var
   Deadline: Cardinal;
 begin
   Result := FOutputPath;
-  if not FRecording then Exit;
+  if not (FRecording or FStopping) then Exit;
 
-  Log('Parando gravacao...');
-  obs_output_stop(GOutput);
+  if not FStopping then
+  begin
+    FStopping := True;
+    Log('Parando gravacao (sincrono, shutdown)...');
+    try obs_output_stop(GOutput); except end;
+  end;
 
-  // Espera output parar (flush de buffers).
+  // Espera output parar (flush de buffers). obs_output_release no
+  // FinalizeStop tambem espera/junta, mas poll aqui evita o force-stop.
   Deadline := GetTickCount + 10000;
   while obs_output_active(GOutput) do
   begin
@@ -907,17 +1048,20 @@ begin
       Log('Timeout esperando output parar.');
       Break;
     end;
-    Sleep(100);
+    Sleep(50);
   end;
 
-  FRecording := False;
-  ReleaseRecordingObjects;
-  Log('Gravacao finalizada: %s', [FOutputPath]);
+  FinalizeStop(False); // sem callback — shutdown nao precisa de UI push
 end;
 
 function TOBSEngine.IsRecording: Boolean;
 begin
   Result := FRecording;
+end;
+
+function TOBSEngine.IsStopping: Boolean;
+begin
+  Result := FStopping;
 end;
 
 procedure TOBSEngine.SetSourceMuted(const ASourceName: string;
@@ -935,14 +1079,20 @@ var
   ShutdownThread: TThread;
   Wait: DWORD;
 begin
+  // Marca shutdown: qualquer OnStopSignal enfileirado que ainda venha a
+  // rodar (improvavel — o message loop ja saiu) vira no-op, evitando
+  // mexer em objetos meio-liberados pelo obs_shutdown.
+  FShuttingDown := True;
+  DisconnectStopSignal;
   // Para output ativo, mas NAO chama ReleaseRecordingObjects.
   // obs_shutdown libera tudo internamente (sources, encoders, output).
   // Liberar manualmente antes causa "Double destroy" porque obs_shutdown
   // tenta liberar sources que ja foram destruidos.
-  if FRecording then
+  if FRecording or FStopping then
   begin
     try obs_output_stop(GOutput); except end;
     FRecording := False;
+    FStopping := False;
   end;
   if FInitialized then
   begin

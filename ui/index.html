@@ -3001,8 +3001,8 @@
       </div>
     </div>
     <div class="confirm-footer">
-      <button class="confirm-btn" id="confirmCancel">Cancelar</button>
-      <button class="confirm-btn danger" id="confirmOk">Excluir</button>
+      <button class="confirm-btn" id="confirmCancel" data-i18n="common.cancel">Cancelar</button>
+      <button class="confirm-btn danger" id="confirmOk" data-i18n="common.delete">Excluir</button>
     </div>
   </div>
 </div>
@@ -3268,6 +3268,7 @@
       <button class="settings-btn" onclick="Settings.restoreDefaults()"
               data-i18n="settings.buttons.reset"
               data-i18n-title="settings.buttons.resetTitle"
+              data-i18n-hint="settings.buttons.resetTitle"
               data-hint="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
         Restaurar padrão
       </button>
@@ -3318,7 +3319,7 @@
         </div>
         <div class="about-row">
           <span class="about-label" data-i18n="about.labels.coAuthor">Co-autoria</span>
-          <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.7 <span style="color: var(--text-3)">1M</span></span>
+          <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.8 <span style="color: var(--text-3)">1M</span></span>
         </div>
         <div class="about-row">
           <span class="about-label" data-i18n="about.labels.repository">Repositório</span>
@@ -3404,24 +3405,24 @@
         </div>
         <div class="player-loading" id="playerLoading">
           <div class="spin"></div>
-          <div id="playerLoadingText">Preparando vídeo...</div>
+          <div id="playerLoadingText" data-i18n="player.loading">Preparando vídeo...</div>
         </div>
       </div>
       <aside class="player-info-panel" id="playerInfoPanel" aria-hidden="true">
         <div class="player-info-header">
-          <span>Informações do vídeo</span>
-          <button class="player-info-close" id="playerInfoClose" title="Fechar">×</button>
+          <span data-i18n="player.videoInfo">Informações do vídeo</span>
+          <button class="player-info-close" id="playerInfoClose" data-i18n-title="player.close" title="Fechar">×</button>
         </div>
         <div class="player-info-body" id="playerInfoBody">
           <div class="player-info-loading">
             <div class="spin"></div>
-            <span>Analisando arquivo...</span>
+            <span data-i18n="player.analyzing">Analisando arquivo...</span>
           </div>
         </div>
       </aside>
     </div>
     <div class="player-controls">
-      <button class="player-btn" id="playerPlay" title="Play/Pause (Espaço)">
+      <button class="player-btn" id="playerPlay" data-i18n-title="player.playPause" title="Play/Pause (Espaço)">
         <svg viewBox="0 0 24 24" id="playerPlayIcon"><path d="M8 5v14l11-7z"/></svg>
       </button>
       <span class="player-time" id="playerTime">00:00 / 00:00</span>
@@ -3432,17 +3433,17 @@
         <div class="player-waveform" id="playerWaveform" hidden></div>
       </div>
       <div class="player-volume-wrap">
-        <button class="player-btn" id="playerMute" title="Mudo (M)">
+        <button class="player-btn" id="playerMute" data-i18n-title="player.mute" title="Mudo (M)">
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
         </button>
         <!-- Range 0..200: 0..100 = atenuacao normal (HTMLMediaElement.volume),
              100..200 = boost via Web Audio GainNode. Bar fica vermelha
              alem dos 100% pra avisar que esta amplificando (pode distorcer
              dependendo do material). -->
-        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" title="Volume (0–200%)">
+        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" data-i18n-title="player.volume" title="Volume (0–200%)">
       </div>
       <div class="player-speed-wrap">
-        <button class="player-btn player-speed-btn" id="playerSpeedBtn" title="Velocidade de execução">
+        <button class="player-btn player-speed-btn" id="playerSpeedBtn" data-i18n-title="player.speed" title="Velocidade de execução">
           <span id="playerSpeedLabel">1×</span>
         </button>
         <div class="player-speed-menu" id="playerSpeedMenu" hidden>
@@ -3454,10 +3455,10 @@
           <div class="player-speed-option" data-speed="3">3×</div>
         </div>
       </div>
-      <button class="player-btn player-info-btn" id="playerInfo" title="Informações do vídeo">
+      <button class="player-btn player-info-btn" id="playerInfo" data-i18n-title="player.videoInfo" title="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
       </button>
-      <button class="player-btn" id="playerFs" title="Tela cheia (F / duplo clique)">
+      <button class="player-btn" id="playerFs" data-i18n-title="player.fullscreen" title="Tela cheia (F / duplo clique)">
         <svg viewBox="0 0 24 24" id="playerFsIcon">
           <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
         </svg>
@@ -3477,19 +3478,19 @@
       <!-- Loading overlay (cobre apenas a sidebar) -->
       <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
-        <div class="loading-text" id="loadingText"><span>Carregando recursos</span><span class="loading-dots"></span></div>
+        <div class="loading-text" id="loadingText"><span data-i18n="common.loading">Carregando recursos</span><span class="loading-dots"></span></div>
       </div>
 
       <!-- Banner pendente (hot-plug de audio durante gravacao) -->
       <div class="banner" id="audioRefreshBanner">
-        <div class="banner-title">Dispositivo de áudio mudou</div>
-        <div>A lista será atualizada assim que você parar a gravação.</div>
+        <div class="banner-title" data-i18n="banner.audioTitle">Dispositivo de áudio mudou</div>
+        <div data-i18n="banner.body">A lista será atualizada assim que você parar a gravação.</div>
       </div>
 
       <!-- Banner pendente (mudanca de display durante gravacao) -->
       <div class="banner" id="monitorRefreshBanner">
-        <div class="banner-title">Configuração de monitor mudou</div>
-        <div>A lista será atualizada assim que você parar a gravação.</div>
+        <div class="banner-title" data-i18n="banner.monitorTitle">Configuração de monitor mudou</div>
+        <div data-i18n="banner.body">A lista será atualizada assim que você parar a gravação.</div>
       </div>
 
       <!-- Cartao de gravacao: status + timer + botao circular + label.
@@ -3609,7 +3610,7 @@
 
 <!-- Context menu de gravacao (top-level, fora de .app) -->
 <div class="ctx-menu" id="ctxMenu" style="display:none">
-  <div class="ctx-item danger" data-action="delete">Excluir</div>
+  <div class="ctx-item danger" data-action="delete" data-i18n="common.delete">Excluir</div>
 </div>
 
 <script>
@@ -3694,6 +3695,11 @@ const I18n = {
     root.querySelectorAll('[data-i18n-aria]').forEach(el => {
       const k = el.getAttribute('data-i18n-aria');
       if (k) el.setAttribute('aria-label', this.t(k));
+    });
+    // data-hint = tooltip custom do modulo Hint (nao e o title nativo).
+    root.querySelectorAll('[data-i18n-hint]').forEach(el => {
+      const k = el.getAttribute('data-i18n-hint');
+      if (k) el.setAttribute('data-hint', this.t(k));
     });
     // Renderiza um array do bundle como <li> dentro do elemento. Usado em
     // listas de tamanho variavel (About: features, builtWith).
@@ -3908,7 +3914,7 @@ const Bridge = {
       // silent=true vem do load inicial do app; toast so faz sentido
       // pra hot-plug subsequente (user plugou/desplugou dispositivo).
       if (!data.silent)
-        Toast.show('Dispositivos atualizados',
+        Toast.show(T('toast.devicesUpdated'),
           formatDeviceChanges(data.changes),
           { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
@@ -3938,7 +3944,7 @@ const Bridge = {
       // mudanca visivel (ex.: troca de orientacao reportada como evento).
       const changes = data.changes || [];
       if (changes.length > 0)
-        Toast.show('Monitores atualizados',
+        Toast.show(T('toast.monitorsUpdated'),
           formatDeviceChanges(changes),
           { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
@@ -3951,7 +3957,7 @@ const Bridge = {
       // dispara refresh de audio + webcam ao mesmo tempo.
       const changes = data.changes || [];
       if (changes.length > 0)
-        Toast.show('Dispositivos atualizados',
+        Toast.show(T('toast.devicesUpdated'),
           formatDeviceChanges(changes),
           { warn: true, ttl: 4500 });
       updateRecordButtonAvailability();
@@ -3985,7 +3991,7 @@ const Bridge = {
       // Toast nao-bloqueante. loadingText nao serve porque o loading
       // some logo apos o erro (recording_state=false volta o estado
       // normal) e a mensagem desaparece com ele.
-      Toast.show('Erro', data.message || 'Erro desconhecido',
+      Toast.show(T('toast.errorTitle'), data.message || T('toast.unknownError'),
                  { warn: true, ttl: 8000 });
     }
   }
@@ -4166,7 +4172,7 @@ const Displays = {
       rect.appendChild(img);
       const label = document.createElement('div');
       label.className = 'display-label';
-      label.textContent = m.name || 'Monitor';
+      label.textContent = m.name || T('display.monitor');
       rect.appendChild(label);
       this._appendCheck(rect);
       rect.onclick = () => this._toggle(rect, m, 'monitor');
@@ -4201,7 +4207,7 @@ const Displays = {
       rect.appendChild(icon);
       const label = document.createElement('div');
       label.className = 'display-label';
-      label.textContent = c.name || 'Webcam';
+      label.textContent = c.name || T('display.webcam');
       label.style.position = 'absolute';
       label.style.bottom = '4px';
       label.style.left = '4px';
@@ -4504,7 +4510,7 @@ function renderSources(kindShort, listId, countId, items) {
     if (item.isBluetooth) {
       const bt = document.createElement('span');
       bt.className = 'source-bt-icon';
-      bt.setAttribute('data-hint', 'Dispositivo Bluetooth');
+      bt.setAttribute('data-hint', T('sources.btDevice'));
       bt.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
         'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -4514,21 +4520,7 @@ function renderSources(kindShort, listId, countId, items) {
       const warn = document.createElement('span');
       warn.className = 'source-bt-warn';
       warn.setAttribute('data-hint', (kindShort === 'mic')
-        ? 'Atenção: enquanto este microfone Bluetooth estiver conectado ' +
-          'e o NoOBS aberto (mesmo sem marcar pra gravar — os medidores ' +
-          'de nível já abrem acesso ao mic), o Windows mantém o fone no ' +
-          'perfil HFP. A qualidade do áudio do dispositivo cai pra mono ' +
-          '8 ou 16 kHz e o volume costuma ir pro máximo. Limitação do ' +
-          'Bluetooth Classic — desmarcar aqui não resolve. Pra recuperar ' +
-          'HD, desative ou desconecte o dispositivo no Windows, ou use ' +
-          'um microfone USB separado.'
-        : 'Atenção: alto-falante Bluetooth. Quando qualquer app no ' +
-          'Windows acessa um microfone Bluetooth (incluindo os ' +
-          'medidores de nível do NoOBS), este dispositivo cai pra ' +
-          'qualidade telefônica (mono 8 ou 16 kHz) e volume máximo ' +
-          'automaticamente. Limitação do Bluetooth Classic — pra HD, ' +
-          'desative o microfone Bluetooth no Windows, ou use BT LE ' +
-          'Audio (hardware mais novo + Windows 11).');
+        ? T('sources.btMicWarn') : T('sources.btSpeakerWarn'));
       // Mesmo SVG do LOW_DISK_ICON: triangulo com ! interno.
       warn.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
@@ -4716,9 +4708,9 @@ const RecSelection = {
       const n = this.ids.size;
       delBtn.disabled = (n === 0);
       delBtn.title = n === 0
-        ? 'Selecione gravações para excluir'
-        : (n === 1 ? 'Excluir 1 gravação selecionada'
-                   : `Excluir ${n} gravações selecionadas`);
+        ? T('recordings.selectToDelete')
+        : (n === 1 ? T('recordings.deleteOne')
+                   : T('recordings.deleteN', { count: n }));
     }
   }
 };
@@ -4732,11 +4724,11 @@ function bulkDeleteSelected() {
   const ids = RecSelection.all();
   if (ids.length === 0) return;
   Confirm.open({
-    title: 'Excluir gravações',
+    title: T('recordings.confirmDeleteTitle'),
     message: ids.length === 1
-      ? 'Mover esta gravação para a Lixeira do Windows?'
-      : `Mover ${ids.length} gravações para a Lixeira do Windows?`,
-    okLabel: 'Excluir',
+      ? T('recordings.confirmDeleteOne')
+      : T('recordings.confirmDeleteN', { count: ids.length }),
+    okLabel: T('common.delete'),
     onOk: () => {
       ids.forEach(rid => {
         const card = document.querySelector(
@@ -4793,7 +4785,7 @@ function buildRecCard(item) {
   // Checkbox de selecao no canto superior direito.
   const check = document.createElement('div');
   check.className = 'rec-check';
-  check.title = 'Selecionar';
+  check.title = T('recordings.select');
   check.innerHTML = CHECK_SVG;
   thumb.appendChild(check);
   if (item.thumb) {
@@ -4940,7 +4932,7 @@ function buildGroupTitle(label) {
   span.textContent = label;
   const check = document.createElement('div');
   check.className = 'rec-group-check';
-  check.title = 'Selecionar todos do período';
+  check.title = T('recordings.selectAllInGroup');
   check.dataset.state = 'none';
   check.innerHTML = CHECK_SVG;
   check.onclick = (e) => {
@@ -5014,18 +5006,20 @@ const LOW_DISK_THRESHOLD = 5 * 1024 * 1024 * 1024; // 5 GB
 // SVG inline do icone de aviso (triangulo laranja com !). Tamanho 13px
 // pra casar com a altura da linha do meta. Wrap em span com data-hint
 // pra disparar o tooltip custom (Hint) ao inves do nativo do browser.
-const LOW_DISK_ICON =
-  '<span data-hint="Espaço em disco abaixo de 5 GB na pasta de ' +
-  'gravações. Pode não dar pra fazer uma gravação completa sem ' +
-  'liberar espaço." ' +
-  'style="display:inline-flex;vertical-align:middle">' +
-  '<svg width="13" height="13" viewBox="0 0 24 24" ' +
-  'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
-  'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
-  'aria-label="Pouco espaço em disco">' +
-  '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
-  '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
-  '</svg></span>';
+// Funcao (nao const): T() precisa rodar em tempo de render, depois que o
+// bundle de i18n chegou do backend — um const top-level seria avaliado
+// antes do bundle carregar e congelaria a string no idioma de fallback.
+function lowDiskIcon() {
+  return '<span data-hint="' + T('recordings.lowSpaceHint') + '" ' +
+    'style="display:inline-flex;vertical-align:middle">' +
+    '<svg width="13" height="13" viewBox="0 0 24 24" ' +
+    'fill="none" stroke="#f59e0b" stroke-width="2.2" stroke-linecap="round" ' +
+    'stroke-linejoin="round" style="vertical-align:-2px;margin-left:5px" ' +
+    'aria-label="' + T('recordings.lowSpace') + '">' +
+    '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>' +
+    '<line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' +
+    '</svg></span>';
+}
 
 // Mesma logica de OBSEncoder.GetEncoderMaxDimension (Delphi) e do
 // Settings._syncCodecMaxRes — extraida em helper top-level pra ser
@@ -5065,7 +5059,7 @@ function buildRecMetaHtml(fileCount, totalBytes, freeBytes) {
     html += sep + T('recordings.spaceUsed', { size: formatBytes(totalBytes) });
   if (freeBytes >= 0) {
     html += sep + T('recordings.spaceFree', { size: formatBytes(freeBytes) });
-    if (freeBytes < LOW_DISK_THRESHOLD) html += LOW_DISK_ICON;
+    if (freeBytes < LOW_DISK_THRESHOLD) html += lowDiskIcon();
   }
   return html;
 }
@@ -5105,7 +5099,7 @@ function formatDeviceChanges(changes) {
   const MAX = 3;
   if (changes.length <= MAX) return changes.join(' · ');
   return changes.slice(0, MAX).join(' · ') +
-    ` · …e mais ${changes.length - MAX}`;
+    ' · ' + T('toast.andMore', { count: changes.length - MAX });
 }
 
 function formatBitrate(bps) {
@@ -5284,7 +5278,7 @@ function showLoading(message) {
   const tx = document.getElementById('loadingText');
   if (tx) {
     tx.innerHTML = '<span></span><span class="loading-dots"></span>';
-    tx.firstChild.textContent = message || 'Carregando recursos';
+    tx.firstChild.textContent = message || T('common.loading');
   }
   if (ov) ov.classList.remove('hidden');
 }
@@ -5626,10 +5620,10 @@ const Confirm = {
   },
   open(opts) {
     const { title, message, okLabel, cancelLabel, danger, onOk } = opts || {};
-    document.getElementById('confirmTitle').textContent = title || 'Confirmar';
+    document.getElementById('confirmTitle').textContent = title || T('common.confirm');
     document.getElementById('confirmMsg').textContent   = message || '';
-    document.getElementById('confirmOk').textContent    = okLabel || 'Excluir';
-    document.getElementById('confirmCancel').textContent = cancelLabel || 'Cancelar';
+    document.getElementById('confirmOk').textContent    = okLabel || T('common.delete');
+    document.getElementById('confirmCancel').textContent = cancelLabel || T('common.cancel');
     const ok = document.getElementById('confirmOk');
     ok.classList.toggle('danger', danger !== false);
     this._onOk = onOk || null;
@@ -5648,23 +5642,26 @@ const Confirm = {
 // EXATAMENTE com o que OBSHotkey.ParseHotkey/NameToVk espera no Delphi.
 // Mudancas aqui precisam de mudanca correspondente la. Modificadores
 // (Ctrl/Shift/Alt/Win) sao checkboxes a parte, fora desta lista.
+// labelKey (nao label): o nome do grupo e resolvido via T() no render do
+// dropdown (em _buildHotkeyDropdown), pois esta const e avaliada antes
+// do bundle de i18n chegar do backend.
 const HOTKEY_KEY_GROUPS = [
-  { label: 'Função', keys: [
+  { labelKey: 'settings.hotkey.groups.function', keys: [
       'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12']
   },
-  { label: 'Letras', keys: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('') },
-  { label: 'Números', keys: '0123456789'.split('') },
-  { label: 'Especiais', keys: [
+  { labelKey: 'settings.hotkey.groups.letters', keys: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('') },
+  { labelKey: 'settings.hotkey.groups.numbers', keys: '0123456789'.split('') },
+  { labelKey: 'settings.hotkey.groups.special', keys: [
       'Space','Enter','Tab','Esc','Insert','Delete','Home','End',
       'PageUp','PageDown','Backspace','Pause/Break']
   },
-  { label: 'Setas', keys: ['Left','Right','Up','Down'] },
-  { label: 'Numpad', keys: [
+  { labelKey: 'settings.hotkey.groups.arrows', keys: ['Left','Right','Up','Down'] },
+  { labelKey: 'settings.hotkey.groups.numpad', keys: [
       'Numpad0','Numpad1','Numpad2','Numpad3','Numpad4','Numpad5',
       'Numpad6','Numpad7','Numpad8','Numpad9',
       'NumpadAdd','NumpadSubtract','NumpadMultiply','NumpadDivide','NumpadDecimal']
   },
-  { label: 'Caracteres', keys: ['-','=',',','.',';','/','`','[','\\',']',"'"] },
+  { labelKey: 'settings.hotkey.groups.chars', keys: ['-','=',',','.',';','/','`','[','\\',']',"'"] },
 ];
 const HOTKEY_MODIFIERS = ['Ctrl','Shift','Alt','Win'];
 function isHotkeyModifier(k) { return HOTKEY_MODIFIERS.includes(k); }
@@ -5803,6 +5800,12 @@ const Settings = {
     this._syncCodecMaxRes();
     this._updateThemeButtons();
     document.getElementById('settingsOverlay').classList.add('visible');
+    // Reseta o scroll pro topo a cada abertura — senao reabrir mantem a
+    // posicao da sessao anterior (ficava no fim se o user havia rolado ate
+    // la). O overlay usa opacity/visibility (nao display:none), entao o
+    // .settings-body sempre esta no layout e scrollTop=0 aplica na hora.
+    const body = document.querySelector('#settingsOverlay .settings-body');
+    if (body) body.scrollTop = 0;
     Bridge.send('get_settings');
   },
   close() {
@@ -5864,7 +5867,7 @@ const Settings = {
         const validation = await validateHotkeyWithBackend(hotkey);
         if (!validation.ok) {
           Toast.show(T('toast.invalidHotkey'), validation.reason +
-            ' Escolha outra combinação.', { warn: true, ttl: 7000 });
+            ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
           return;
         }
       }
@@ -6312,10 +6315,10 @@ const Settings = {
     // Preserva selecao atual se ja foi construido antes (re-abrir modal).
     const prevValue = sel.value;
     sel.innerHTML = '';
-    sel.appendChild(this._makeOpt('', 'Não definida'));
+    sel.appendChild(this._makeOpt('', T('settings.hotkey.notDefined')));
     HOTKEY_KEY_GROUPS.forEach(group => {
       const og = document.createElement('optgroup');
-      og.label = group.label;
+      og.label = T(group.labelKey);
       group.keys.forEach(key => og.appendChild(this._makeOpt(key, key)));
       sel.appendChild(og);
     });
@@ -6382,15 +6385,18 @@ const Settings = {
       opt.disabled = !avail;
       // Label dinamico mostrando vendor pra hw options.
       if (opt.value === 'av1-hw' || opt.value === 'hevc-hw' || opt.value === 'h264-hw') {
+        // AV1 / HEVC / H.264 sao nomes de padrao (nao traduzem). O sufixo
+        // " — hardware", o vendor e "(indisponível)" vem do i18n.
         const base = opt.value === 'av1-hw' ? 'AV1' :
                      opt.value === 'hevc-hw' ? 'HEVC / H.265' : 'H.264';
-        const tag = caps.vendor === 'nvidia' ? ' (NVIDIA NVENC)' :
-                    caps.vendor === 'amd'    ? ' (AMD AMF)' :
-                    caps.vendor === 'intel'  ? ' (Intel QSV)' : '';
-        opt.textContent = base + ' — hardware' + (avail ? tag : ' (indisponível)');
+        const tag = caps.vendor === 'nvidia' ? T('settings.codec.vendorNvidia') :
+                    caps.vendor === 'amd'    ? T('settings.codec.vendorAmd') :
+                    caps.vendor === 'intel'  ? T('settings.codec.vendorIntel') : '';
+        opt.textContent = base + T('settings.codec.hwSuffix') +
+          (avail ? tag : ' ' + T('settings.codec.unavailable'));
       } else if (opt.value === 'h264-sw') {
-        opt.textContent = 'H.264 — software (x264, CPU)' +
-          (avail ? '' : ' (indisponível)');
+        opt.textContent = T('settings.codec.h264Sw') +
+          (avail ? '' : ' ' + T('settings.codec.unavailable'));
       }
     });
     // Logo do GPU ao lado do label.
@@ -6493,12 +6499,12 @@ const Player = {
         const ld = document.getElementById('playerLoading');
         const ldt = document.getElementById('playerLoadingText');
         if (ld) ld.classList.add('visible');
-        if (ldt) ldt.textContent = 'Codec não suportado, convertendo...';
+        if (ldt) ldt.textContent = T('error.unsupportedCodec');
         Bridge.send('request_transcode', { id: Player.currentId });
         return;
       }
       const t = document.getElementById('playerLoadingText');
-      if (t) t.textContent = 'Erro ao carregar vídeo.';
+      if (t) t.textContent = T('error.loadVideo');
       const ld = document.getElementById('playerLoading');
       if (ld) ld.classList.add('visible');
     });
@@ -6810,7 +6816,7 @@ const Player = {
     const v = document.getElementById('playerVideo');
     v.removeAttribute('src'); v.load();
     document.getElementById('playerTitle').textContent = '...';
-    if (ldt) ldt.textContent = 'Preparando vídeo...';
+    if (ldt) ldt.textContent = T('player.loading');
     ld.classList.add('visible');
     ov.classList.add('visible');
     // Avisa o backend pra suspender audio meters e thumb capture
@@ -6870,6 +6876,13 @@ const Player = {
       this.requestInfo();
     const v = document.getElementById('playerVideo');
     document.getElementById('playerTitle').textContent = name || '';
+    // crossOrigin DEVE vir ANTES do src: o video master recebe attachGain
+    // (MediaElementAudioSourceNode -> GainNode) quando o slider de volume
+    // entra em cena. Sem crossOrigin="anonymous", o elemento fica "tainted"
+    // por CORS e o GainNode produz SILENCIO. O servidor HTTP local retorna
+    // Access-Control-Allow-Origin: * (ver OBSPlayer.HandleGet), entao o
+    // load nao quebra. Mesma logica usada nos slaves de audio das tracks.
+    v.crossOrigin = 'anonymous';
     v.src = url;
     v.load();
     // Waveform: reseta state. Se cacheado, renderiza instantaneo;
@@ -6999,11 +7012,22 @@ const Player = {
     const body = document.getElementById('playerInfoBody');
     body.innerHTML =
       '<div class="player-info-loading">' +
-      '<div class="spin"></div><span>Analisando arquivo...</span></div>';
+      '<div class="spin"></div><span>' + T('player.analyzing') + '</span></div>';
     Bridge.send('request_video_info', { id: this.currentId });
   },
   renderInfo(data) {
-    if (!data || data.id !== this.currentId) return;
+    if (!data) return;
+    if (data.id !== this.currentId) {
+      // Resposta de um video antigo (user trocou de video enquanto a
+      // info carregava). Libera o lock — senao infoLoading ficaria preso
+      // em true e o painel do video atual nunca carregaria. Se o painel
+      // esta aberto, re-pede a info do video atual agora.
+      this.infoLoading = false;
+      if (this.currentId &&
+          document.getElementById('playerInfoPanel').classList.contains('open'))
+        this.requestInfo();
+      return;
+    }
     this.infoLoading = false;
     this.infoLoaded = data.id;
     const body = document.getElementById('playerInfoBody');
@@ -7015,13 +7039,13 @@ const Player = {
 
     // Geral
     html += '<div class="player-info-section">';
-    html += '<div class="player-info-section-title">Arquivo</div>';
-    html += infoRow('Nome', escapeHtml(data.fileName || ''));
-    html += infoRow('Container', escapeHtml(data.format || ''));
-    html += infoRow('Duração', formatDuration(Math.round(data.duration || 0)));
-    html += infoRow('Tamanho', formatBytes(data.size || 0));
+    html += '<div class="player-info-section-title">' + T('player.info.file') + '</div>';
+    html += infoRow(T('player.info.name'), escapeHtml(data.fileName || ''));
+    html += infoRow(T('player.info.container'), escapeHtml(data.format || ''));
+    html += infoRow(T('player.info.duration'), formatDuration(Math.round(data.duration || 0)));
+    html += infoRow(T('player.info.size'), formatBytes(data.size || 0));
     if (data.bitrate > 0)
-      html += infoRow('Bitrate total', formatBitrate(data.bitrate));
+      html += infoRow(T('player.info.totalBitrate'), formatBitrate(data.bitrate));
     html += '</div>';
 
     // Video
@@ -7059,12 +7083,12 @@ const Player = {
       this.selectedRegions.forEach(i => { if (i >= regs.length) this.selectedRegions.delete(i); });
       const isFullscreen = this.selectedRegions.size === 0;
       html += '<div class="player-info-section">';
-      html += '<div class="player-info-section-title">Visualização</div>';
+      html += '<div class="player-info-section-title">' + T('player.info.visualization') + '</div>';
       // "Tela cheia" — radio. Selecionado quando NAO ha regiao escolhida.
-      html += this._renderViewOption(-1, 'Tela cheia', 'full',
+      html += this._renderViewOption(-1, T('player.info.fullView'), 'full',
         isFullscreen, /*isRadio*/ true);
       regs.forEach((r, i) => {
-        html += this._renderViewOption(i, r.name || ('Região ' + (i+1)),
+        html += this._renderViewOption(i, r.name || T('player.info.region', { n: i+1 }),
           r.kind || 'monitor',
           this.selectedRegions.has(i), /*isRadio*/ false);
       });
@@ -7076,9 +7100,10 @@ const Player = {
     // Audio (multi-track) com volume slider por faixa
     if (audioStreams.length > 0) {
       html += '<div class="player-info-section">';
-      html += '<div class="player-info-section-title">Áudio (' +
-              audioStreams.length +
-              (audioStreams.length === 1 ? ' faixa' : ' faixas') + ')</div>';
+      const audioKey = audioStreams.length === 1
+        ? 'player.info.audio_one' : 'player.info.audio_other';
+      html += '<div class="player-info-section-title">' +
+              T(audioKey, { count: audioStreams.length }) + '</div>';
       // Inicializa volumes (Track 0 = 100, demais = 0) se ainda nao
       // foi feito pra este video.
       if (!Array.isArray(this.trackVolumes) ||
@@ -7090,31 +7115,33 @@ const Player = {
         const isMuted = volPct === 0;
         // Usa o title gravado nos metadata se houver; fallback "Faixa N".
         const label = (s.title && s.title.length > 0) ? s.title :
-          ('Faixa ' + (idx + 1) + (idx === 0 ? ' (mix)' : ''));
+          (idx === 0 ? T('player.info.trackMix', { n: idx + 1 })
+                     : T('player.info.track', { n: idx + 1 }));
         html += '<div class="player-info-track' +
                 (isMuted ? ' muted' : '') + '" data-track-row="' + idx + '">';
         html += '<div class="player-info-track-title">' +
                 escapeHtml(label) + '</div>';
-        html += infoRow('Codec', escapeHtml((s.codec || '').toUpperCase()));
+        html += infoRow(T('player.info.codec'), escapeHtml((s.codec || '').toUpperCase()));
         if (s.channels)
-          html += infoRow('Canais',
-            s.channels === 1 ? 'Mono' :
-            s.channels === 2 ? 'Estéreo' : (s.channels + ' canais'));
+          html += infoRow(T('player.info.channels'),
+            s.channels === 1 ? T('player.info.channelsMono') :
+            s.channels === 2 ? T('player.info.channelsStereo') :
+            T('player.info.channelsN', { count: s.channels }));
         if (s.sampleRate)
-          html += infoRow('Sample rate',
+          html += infoRow(T('player.info.sampleRate'),
             (s.sampleRate / 1000).toFixed(1) + ' kHz');
         if (s.bitrate > 0)
-          html += infoRow('Bitrate', formatBitrate(s.bitrate));
+          html += infoRow(T('player.info.bitrate'), formatBitrate(s.bitrate));
         // Slider de volume da faixa + botao de mutar.
         html += '<div class="player-info-vol-row">';
         html += '<button class="player-info-mute' +
                 (isMuted ? ' muted' : '') + '" ' +
                 'data-track-mute="' + idx + '" ' +
-                'title="' + (isMuted ? 'Desmutar' : 'Mutar') + '">' +
+                'title="' + (isMuted ? T('player.unmute') : T('player.muteShort')) + '">' +
                 MUTE_ICON_SVG(isMuted) + '</button>';
         html += '<input type="range" class="player-info-vol" ' +
                 'data-track="' + idx + '" min="0" max="200" ' +
-                'value="' + volPct + '" title="Volume da faixa (0–200%)">';
+                'value="' + volPct + '" title="' + T('player.info.trackVolume') + '">';
         html += '<span class="player-info-vol-val" data-track-val="' +
                 idx + '">' + volPct + '%</span>';
         html += '</div>';
@@ -7135,7 +7162,7 @@ const Player = {
       if (row) row.classList.toggle('muted', isMuted);
       if (muteBt) {
         muteBt.classList.toggle('muted', isMuted);
-        muteBt.title = isMuted ? 'Desmutar' : 'Mutar';
+        muteBt.title = isMuted ? T('player.unmute') : T('player.muteShort');
         muteBt.innerHTML = MUTE_ICON_SVG(isMuted);
       }
     };
@@ -7486,9 +7513,10 @@ const Player = {
     });
     this.audioEls = [];
     // Cria audio elements pras tracks 2..N (skipa idx 0 = video).
-    // SEM crossOrigin — forcaria CORS check, e o HTTP server local
-    // nao retorna Access-Control-Allow-Origin (WebView2 com
-    // NavigateToString nao tem origin definida = "null").
+    // COM crossOrigin="anonymous": o servidor HTTP local retorna
+    // Access-Control-Allow-Origin: * (ver OBSPlayer.HandleGet), o que
+    // permite o GainNode sem taintar/silenciar. WebView2 com
+    // NavigateToString tem origin "null"; ACAO=* satisfaz o CORS.
     const log = (msg) => Bridge.send('ui_log', { message: 'audio: ' + msg });
     for (let i = 1; i < urls.length; i++) {
       // crossOrigin DEVE ser setado ANTES do src (que ja foi via
@@ -7895,7 +7923,7 @@ function updateRecordButtonAvailability() {
   const anyEnabled = (mons + cams + mics + spks) > 0;
   btn.disabled = !anyEnabled;
   if (!anyEnabled)
-    btn.title = 'Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.';
+    btn.title = T('record.needDevice');
   else
     btn.removeAttribute('title');
 }
@@ -7956,8 +7984,8 @@ function showCtxMenu(clientX, clientY, recordingId) {
   const deleteItem = menu.querySelector('[data-action="delete"]');
   if (deleteItem) {
     deleteItem.textContent = useSelection
-      ? `Excluir ${selectedAll.length} selecionadas`
-      : 'Excluir';
+      ? T('recordings.deleteNShort', { count: selectedAll.length })
+      : T('common.delete');
   }
   menu.style.display = 'block';
   // Posiciona — clamp para nao escapar da janela.
@@ -7988,9 +8016,9 @@ function initCtxMenu() {
     const card = document.querySelector(`#recGrid .rec-card[data-id="${CSS.escape(id)}"]`);
     const name = card ? (card.querySelector('.when')?.textContent || id) : id;
     Confirm.open({
-      title: 'Excluir gravação',
-      message: `Mover "${name}" para a Lixeira do Windows?`,
-      okLabel: 'Excluir',
+      title: T('recordings.confirmDeleteSingleTitle'),
+      message: T('recordings.confirmDeleteNamed', { name: name }),
+      okLabel: T('common.delete'),
       onOk: () => {
         // Limpa selecao otimisticamente — evita race com o file watcher
         // que pode rebuildar a lista antes do recording_removed chegar.

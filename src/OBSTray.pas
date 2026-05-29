@@ -61,7 +61,7 @@ procedure HandleTrayCommand(AWnd: HWND; ACommandId: Integer);
 implementation
 
 uses
-  System.SysUtils, OBSAutostart, OBSRecordIcon;
+  System.SysUtils, OBSAutostart, OBSRecordIcon, OBSLang;
 
 var
   TrayIcon: TNotifyIconData;
@@ -191,21 +191,21 @@ begin
     Recording := False;
     try Recording := OnIsRecording; except end;
     if Recording then
-      AppendMenuW(Menu, MF_STRING, ID_TRAY_TOGGLE_RECORD, 'Parar gravação')
+      AppendMenuW(Menu, MF_STRING, ID_TRAY_TOGGLE_RECORD, PWideChar(OBSLang.T('record.stop')))
     else
-      AppendMenuW(Menu, MF_STRING, ID_TRAY_TOGGLE_RECORD, 'Iniciar gravação');
+      AppendMenuW(Menu, MF_STRING, ID_TRAY_TOGGLE_RECORD, PWideChar(OBSLang.T('record.start')));
     AppendMenuW(Menu, MF_SEPARATOR, 0, nil);
   end;
 
-  AppendMenuW(Menu, MF_STRING, ID_TRAY_SHOW, 'Abrir');
+  AppendMenuW(Menu, MF_STRING, ID_TRAY_SHOW, PWideChar(OBSLang.T('common.open')));
 
   AutoFlags := MF_STRING;
   if IsAutoStartEnabled then
     AutoFlags := AutoFlags or MF_CHECKED;
-  AppendMenuW(Menu, AutoFlags, ID_TRAY_AUTOSTART, 'Iniciar com o Windows');
+  AppendMenuW(Menu, AutoFlags, ID_TRAY_AUTOSTART, PWideChar(OBSLang.T('settings.autostart.label')));
 
   AppendMenuW(Menu, MF_SEPARATOR, 0, nil);
-  AppendMenuW(Menu, MF_STRING, ID_TRAY_QUIT, 'Fechar');
+  AppendMenuW(Menu, MF_STRING, ID_TRAY_QUIT, PWideChar(OBSLang.T('header.close')));
 
   GetCursorPos(Pt);
   // SetForegroundWindow + WM_NULL post-track e o "truque" classico pra

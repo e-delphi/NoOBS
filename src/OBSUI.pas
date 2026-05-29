@@ -97,6 +97,10 @@ procedure RemoveTrayIcon;
 // (com bolinha vermelha sobreposta). Idempotente.
 procedure SetWindowIconRecording(AOn: Boolean);
 
+// Aplica o tema (claro/escuro) no popup do menu de bandeja. Chamado pelo
+// OBSBridge quando o tema e resolvido/trocado — popup preto so no dark.
+procedure ApplyTrayMenuTheme(ADark: Boolean);
+
 // Registra atalho global do Windows. AModifiers e combinacao de
 // MOD_ALT/MOD_CONTROL/MOD_SHIFT/MOD_WIN (Winapi.Windows). AVk e o
 // virtual-key (VK_F9, etc). Retorna True se registrado com sucesso.
@@ -176,6 +180,8 @@ const
   PROTECTED_DACL_SECURITY_INFORMATION = DWORD($80000000);
   SDDL_REVISION_1                     = 1;
   PAM_ALLOW_DARK                      = 1;
+  PAM_FORCE_DARK                      = 2;
+  PAM_FORCE_LIGHT                     = 3;
 
   // DwmSetWindowAttribute attribute id (Windows 10 1903+; Win11 estavel).
   // Nao esta exposto em Winapi.DwmApi do RAD Studio 11, declaramos local.
@@ -801,8 +807,25 @@ begin
   @SetPreferredAppMode    := GetProcAddress(UxTheme, MAKEINTRESOURCE(135));
   @AllowDarkModeForWindow := GetProcAddress(UxTheme, MAKEINTRESOURCE(133));
   @FlushMenuThemes        := GetProcAddress(UxTheme, MAKEINTRESOURCE(136));
-  if Assigned(SetPreferredAppMode) then SetPreferredAppMode(PAM_ALLOW_DARK);
-  if Assigned(FlushMenuThemes)     then FlushMenuThemes;
+  // O tema do popup de bandeja e aplicado depois via ApplyTrayMenuTheme
+  // (chamado pelo OBSBridge.PushTheme/HandleSetTheme), seguindo o tema
+  // resolvido do app. Aqui so carregamos os procs do uxtheme privado —
+  // NAO forcamos dark de cara (popup preto em tema claro nao faz sentido).
+end;
+
+procedure ApplyTrayMenuTheme(ADark: Boolean);
+// Popup do menu de bandeja segue o tema do app: FORCE_DARK no escuro,
+// FORCE_LIGHT no claro. Mesma abordagem do OBSHibernate.InitMenuTheme.
+// O OBSBridge resolve 'system' antes de chamar.
+begin
+  if Assigned(SetPreferredAppMode) then
+  begin
+    if ADark then SetPreferredAppMode(PAM_FORCE_DARK)
+    else          SetPreferredAppMode(PAM_FORCE_LIGHT);
+  end;
+  if Assigned(AllowDarkModeForWindow) and (MainWindow <> 0) then
+    AllowDarkModeForWindow(MainWindow, ADark);
+  if Assigned(FlushMenuThemes) then FlushMenuThemes;
 end;
 
 procedure RestoreWindow(Wnd: HWND);

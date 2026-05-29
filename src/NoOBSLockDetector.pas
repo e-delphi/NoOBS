@@ -1,4 +1,4 @@
-// Eduardo/Claude - 30/06/2025
+﻿// Eduardo/Claude - 30/06/2025
 unit NoOBSLockDetector;
 
 interface
@@ -69,12 +69,16 @@ end;
 
 constructor TMachineLockDetector.Create;
 begin
-  inherited Create(False);
+  // Cria SUSPENSA: precisamos setar CurrentDetectorInstance antes de a
+  // thread comecar — senao Execute -> CreateMessageWindow -> WindowProc
+  // poderia rodar com CurrentDetectorInstance ainda nil (evento perdido).
+  inherited Create(True);
   FreeOnTerminate := False;
   FWindowHandle := 0;
   FIsInitialized := False;
   FLocked := False;
   CurrentDetectorInstance := Self;
+  Start;
 end;
 
 destructor TMachineLockDetector.Destroy;

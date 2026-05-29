@@ -24,7 +24,10 @@
     "webcams": "Webcams",
     "default": "Padrão",
     "defaultDevice": "Dispositivo padrão do sistema",
-    "audioTracks": "Faixas de áudio"
+    "audioTracks": "Faixas de áudio",
+    "btDevice": "Dispositivo Bluetooth",
+    "btMicWarn": "Atenção: enquanto este microfone Bluetooth estiver conectado e o NoOBS aberto (mesmo sem marcar pra gravar — os medidores de nível já abrem acesso ao mic), o Windows mantém o fone no perfil HFP. A qualidade do áudio do dispositivo cai pra mono 8 ou 16 kHz e o volume costuma ir pro máximo. Limitação do Bluetooth Classic — desmarcar aqui não resolve. Pra recuperar HD, desative ou desconecte o dispositivo no Windows, ou use um microfone USB separado.",
+    "btSpeakerWarn": "Atenção: alto-falante Bluetooth. Quando qualquer app no Windows acessa um microfone Bluetooth (incluindo os medidores de nível do NoOBS), este dispositivo cai pra qualidade telefônica (mono 8 ou 16 kHz) e volume máximo automaticamente. Limitação do Bluetooth Classic — pra HD, desative o microfone Bluetooth no Windows, ou use BT LE Audio (hardware mais novo + Windows 11)."
   },
   "record": {
     "start": "Iniciar gravação",
@@ -35,7 +38,8 @@
     "statusRecording": "Gravando",
     "recordingFor": "Gravando há {{time}}",
     "started": "Gravação iniciada.",
-    "finished": "Gravação finalizada ({{min}}m {{sec}}s)."
+    "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
+    "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação."
   },
   "recordings": {
     "title": "Gravações",
@@ -51,11 +55,15 @@
     "spaceUsed": "{{size}} usados",
     "spaceFree": "{{size}} livres",
     "lowSpace": "Pouco espaço livre",
+    "lowSpaceHint": "Espaço em disco abaixo de 5 GB na pasta de gravações. Pode não dar pra fazer uma gravação completa sem liberar espaço.",
     "select": "Selecionar",
     "selectAllInGroup": "Selecionar todos do período",
     "confirmDeleteTitle": "Excluir gravações",
     "confirmDeleteOne": "Mover esta gravação para a Lixeira do Windows?",
-    "confirmDeleteN": "Mover {{count}} gravações para a Lixeira do Windows?"
+    "confirmDeleteN": "Mover {{count}} gravações para a Lixeira do Windows?",
+    "confirmDeleteSingleTitle": "Excluir gravação",
+    "confirmDeleteNamed": "Mover \"{{name}}\" para a Lixeira do Windows?",
+    "deleteNShort": "Excluir {{count}} selecionadas"
   },
   "settings": {
     "title": "Configurações",
@@ -84,6 +92,10 @@
       "av1Hw": "AV1 — hardware",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(indisponível)",
+      "hwSuffix": " — hardware",
+      "vendorNvidia": " (NVIDIA NVENC)",
+      "vendorAmd": " (AMD AMF)",
+      "vendorIntel": " (Intel QSV)",
       "maxRes": "Resolução máxima do codec: {{w}} × {{h}}",
       "hint": "Automático escolhe a melhor opção disponível na ordem H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Use uma escolha manual só se souber o que está fazendo."
     },
@@ -96,7 +108,51 @@
       "plus": "+",
       "hint": "Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e escolha uma tecla principal. Exemplos: Pause ou Ctrl+Shift+G.",
       "noKey": "Nenhum atalho definido. Selecione uma tecla principal (e opcionalmente modificadores) para ativar o atalho global.",
-      "activeHint": "Atalho atual: <code>{{spec}}</code>. Desmarque todos os modificadores e selecione <b>Não definida</b> para desativar."
+      "activeHint": "Atalho atual: <code>{{spec}}</code>. Desmarque todos os modificadores e selecione <b>Não definida</b> para desativar.",
+      "notDefined": "Não definida",
+      "chooseAnother": "Escolha outra combinação.",
+      "groups": {
+        "function": "Função",
+        "letters": "Letras",
+        "numbers": "Números",
+        "special": "Especiais",
+        "arrows": "Setas",
+        "numpad": "Numpad",
+        "chars": "Caracteres"
+      },
+      "invalidSpec": "Atalho inválido — selecione pelo menos uma tecla principal (letra, número, F1-F12, Pause, etc).",
+      "reserved": {
+        "ctrlAltDel": "Ctrl+Alt+Del é a chamada de atenção segura do Windows.",
+        "altTab": "Alt+Tab é o alternador de tarefas do Windows.",
+        "altF4": "Alt+F4 fecha a janela atual no Windows.",
+        "altEsc": "Alt+Esc alterna entre janelas no Windows.",
+        "altSpace": "Alt+Space abre o menu de sistema da janela.",
+        "ctrlEsc": "Ctrl+Esc abre o menu Iniciar do Windows.",
+        "winL": "Win+L bloqueia a estação de trabalho no Windows.",
+        "winD": "Win+D mostra a área de trabalho no Windows.",
+        "winE": "Win+E abre o Explorador de Arquivos no Windows.",
+        "winR": "Win+R abre a caixa Executar do Windows.",
+        "winI": "Win+I abre as Configurações do Windows.",
+        "winX": "Win+X abre o menu de power user do Windows.",
+        "winA": "Win+A abre a Central de Ações do Windows.",
+        "winS": "Win+S abre a Pesquisa do Windows.",
+        "winQ": "Win+Q abre a Pesquisa do Windows.",
+        "winM": "Win+M minimiza todas as janelas no Windows.",
+        "winP": "Win+P abre o seletor de projeção do Windows.",
+        "winV": "Win+V abre o histórico da área de transferência do Windows.",
+        "winG": "Win+G abre a Game Bar do Windows.",
+        "winK": "Win+K abre o Conectar do Windows.",
+        "winH": "Win+H abre o ditado por voz do Windows.",
+        "winU": "Win+U abre a Central de Facilidade de Acesso do Windows.",
+        "winB": "Win+B foca na bandeja do sistema do Windows.",
+        "winT": "Win+T foca na barra de tarefas do Windows.",
+        "winW": "Win+W abre os Widgets do Windows.",
+        "winTab": "Win+Tab abre a Visão de Tarefas do Windows.",
+        "winArrows": "Win+Setas controla o snap de janelas no Windows.",
+        "winPeriod": "Win+. abre o seletor de emojis do Windows.",
+        "winSemicolon": "Win+; abre o seletor de emojis do Windows.",
+        "winShiftS": "Win+Shift+S abre a Captura de Tela do Windows."
+      }
     },
     "quality": {
       "label": "Qualidade da gravação",
@@ -230,7 +286,8 @@
       "channelsMono": "Mono",
       "channelsStereo": "Estéreo",
       "channelsN": "{{count}} canais",
-      "sampleRate": "Sample rate"
+      "sampleRate": "Sample rate",
+      "trackVolume": "Volume da faixa (0–200%)"
     }
   },
   "toast": {
@@ -249,7 +306,8 @@
     "updating": "Atualizando",
     "errorTitle": "Erro",
     "unknownError": "Erro desconhecido",
-    "languageChanged": "Idioma alterado"
+    "languageChanged": "Idioma alterado",
+    "andMore": "…e mais {{count}}"
   },
   "error": {
     "loadVideo": "Erro ao carregar vídeo.",
@@ -258,7 +316,13 @@
     "fileNotFound": "Arquivo não encontrado",
     "folderNotFound": "Pasta de gravações não encontrada",
     "deleteFailed": "Falha ao excluir o arquivo: {{file}}",
-    "renameFailed": "Falha ao renomear arquivo."
+    "renameFailed": "Falha ao renomear arquivo.",
+    "cantChangeSourcesWhileRecording": "Não dá pra alterar fontes de vídeo durante a gravação.",
+    "prepareUrlFailed": "Falha ao preparar URL do vídeo.",
+    "mediaLibUnavailable": "Biblioteca de mídia (libavformat) não disponível.",
+    "transcodeFailed": "Falha ao transcodar vídeo.",
+    "probeFailed": "Falha ao inspecionar vídeo.",
+    "extractAudioFailed": "Falha ao extrair faixas de áudio."
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."
@@ -292,8 +356,20 @@
   "common": {
     "cancel": "Cancelar",
     "delete": "Excluir",
+    "confirm": "Confirmar",
+    "open": "Abrir",
+    "loading": "Carregando recursos",
     "yes": "Sim",
     "no": "Não",
     "ok": "OK"
+  },
+  "banner": {
+    "audioTitle": "Dispositivo de áudio mudou",
+    "monitorTitle": "Configuração de monitor mudou",
+    "body": "A lista será atualizada assim que você parar a gravação."
+  },
+  "display": {
+    "monitor": "Monitor",
+    "webcam": "Webcam"
   }
 }

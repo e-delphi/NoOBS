@@ -397,16 +397,19 @@ silencioso). Hoje `OBSUI.StartNavigate` mapeia a pasta `exe\bin\64bit\ui\`
 `SetVirtualHostNameToFolderMapping('noobs.app', folder, ALLOW)` e navega pra
 `https://noobs.app/index.html`. Resultado: origin `https://` **real**, então
 Notification API funciona e **URLs relativas resolvem** — por isso a UI é
-dividida em `index.html` + `styles.css` + `app.js` (+ logos `*.png`),
-referenciados por `<link>`/`<script src>`/`<img>`, sem bundler nem passo de
-concatenação; o WebView2 serve cada arquivo do disco mapeado.
+dividida em `index.html` + `css/` + `js/` (+ logos `*.png`), referenciados
+por `<link>`/`<script src>`/`<img>`, sem bundler nem passo de concatenação;
+o WebView2 serve cada arquivo do disco mapeado.
 
-Um segundo host `https://cache.noobs.app` mapeia a pasta de cache
-(`%LOCALAPPDATA%\NoOBS\cache`) com `ACCESS_KIND_DENY_CORS` (= 2, serve com
-headers `Access-Control-Allow-*`) pra o waveform fazer `fetch()` +
-`decodeAudioData` das M4A sem mixed content (UI roda em `https://`). Os
-vídeos em si continuam servidos pelo `OBSPlayer` (HTTP em
-127.0.0.1:ephemeral) com range requests pra streaming.
+**Não há segundo virtual host.** Os arquivos de cache (M4A das faixas de
+áudio, thumbs `.jpg`, MP4 remuxado) são servidos pelo `OBSPlayer` — HTTP em
+`127.0.0.1:ephemeral`, com range requests (streaming/seek) e header
+`Access-Control-Allow-Origin: *` (os slaves `<audio>` por faixa usam
+`crossOrigin` + Web Audio `GainNode`, que exige CORS; mesmo de um origin
+`https://noobs.app` o `127.0.0.1` é cross-origin). A waveform **não** faz
+`fetch()` de M4A: `OBSBridge.HandleRequestWaveform` chama
+`FFmpegOps.ComputeAudioPeaks`, que decodifica a gravação no Delphi e manda só
+os números pra UI.
 
 ### 17. Port 0 = ephemeral
 
@@ -854,9 +857,16 @@ no parse Delphi.
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.dur` | Duração da gravação (texto, segundos)     |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.jpg` | Thumbnail (gerado via libav decode+sws+mjpeg) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.mp4` | MP4 remuxado (libavformat `-c copy` equivalente) |
-| `%LOCALAPPDATA%\NoOBS\cache\<hash>_aN.m4a` | Audio track isolada N (libavformat extract) |
+| `%LOCALAPPDATA%\NoOBS\cache\<hash>_aN.m4a` | Audio track isolada N, **N≥1** (libavformat extract) |
 
 `<hash>` = primeiros 10 bytes hex do SHA1 do path original.
+
+**O mix (track 1 / stream de áudio 0) NÃO é extraído** (`_a0.m4a` não existe).
+O `<video>` do player toca o mix nativamente (áudio embutido do MP4/MKV,
+controlado por `master × trackVolumes[0]`); os slaves `<audio>` cobrem só as
+isoladas (`urls[1..]`). Por isso `OBSPlayer.GetAudioTrackUrls` chama
+`ExtractAudioTracks(..., AAudioStartIndex := 1)` e deixa `AUrls[0]=''`. Não é
+bug — extrair o mix seria arquivo nunca consumido.
 
 GC: a cada `ScanRecordingsMeta` (no startup) os arquivos cuja
 gravação original não existe mais são removidos. Também roda após

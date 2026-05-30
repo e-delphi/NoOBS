@@ -27,12 +27,12 @@ uses
 // Retorna True em sucesso.
 function RemuxFile(const ASrc, ADst: string): Boolean;
 
-// Extrai cada faixa de audio do source pra um arquivo separado (M4A,
-// AAC stream copy). AOutputs deve ter Length = numero de audio streams
-// em ASrc (descobre via probe interno). Faz UMA passada de demux.
-// Retorna True se todas faixas foram escritas.
+// Extrai faixas de audio do source pra arquivos separados (M4A, AAC stream
+// copy). AOutputs[j] recebe o (j+AAudioStartIndex)-esimo audio stream — use
+// AAudioStartIndex=1 pra pular o mix (track 1) e extrair so as isoladas.
+// Faz UMA passada de demux. Retorna True se todas as faixas foram escritas.
 function ExtractAudioTracks(const ASrc: string;
-  const AOutputs: TArray<string>): Boolean;
+  const AOutputs: TArray<string>; AAudioStartIndex: Integer = 0): Boolean;
 
 // Extrai um frame em ATimestampSec e salva como JPEG. Faz seek pro
 // keyframe anterior, decoda frames ate alcancar ATimestampSec, scala
@@ -289,7 +289,7 @@ begin
 end;
 
 function ExtractAudioTracks(const ASrc: string;
-  const AOutputs: TArray<string>): Boolean;
+  const AOutputs: TArray<string>; AAudioStartIndex: Integer): Boolean;
 // Cada audio stream do source vai pra um arquivo separado. Faz UMA
 // passada de demux — performance equivalente a `ffmpeg -i ... -map ...
 // -map ... -c copy`. AOutputs[i] corresponde ao i-esimo stream de
@@ -331,14 +331,17 @@ begin
   end;
 
   if Length(AudioIdxs) = 0 then Exit;
-  if Length(AOutputs) > Length(AudioIdxs) then Exit;
+  // AAudioStartIndex pula os primeiros N streams de audio (ex.: 1 = ignora
+  // o mix). AOutputs[j] mapeia pro (j+offset)-esimo stream de audio.
+  if (AAudioStartIndex < 0) or
+     (Length(AOutputs) + AAudioStartIndex > Length(AudioIdxs)) then Exit;
 
   // Cada output recebe so um audio stream.
   SetLength(Targets, Length(AOutputs));
   for j := 0 to High(AOutputs) do
   begin
     SetLength(T, 1);
-    T[0] := AudioIdxs[j];
+    T[0] := AudioIdxs[j + AAudioStartIndex];
     Targets[j] := T;
   end;
   Result := RemuxDispatch(ASrc, Targets, AOutputs);

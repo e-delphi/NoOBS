@@ -114,6 +114,11 @@ const Player = {
     VolTooltip.wire(vol);
 
     // Sync audio elements ao seek/play/pause/ratechange do video.
+    // 'seeking' PAUSA os slaves na hora: sem isso eles continuam tocando o
+    // trecho ANTIGO durante o gap do seek do <video> e, quando 'seeked'
+    // chega e re-sincroniza, da uma "repetida"/eco de alguns ms. Pausados,
+    // o 'seeked' reposiciona (currentTime no ponto novo) e retoma limpo.
+    v.addEventListener('seeking', () => Player.pauseAudios());
     v.addEventListener('seeked', () => Player.syncAudios(true));
     v.addEventListener('play',  () => Player.syncAudios(false));
     v.addEventListener('pause', () => Player.pauseAudios());
@@ -1104,8 +1109,9 @@ const Player = {
     // Cria audio elements pras tracks 2..N (skipa idx 0 = video).
     // COM crossOrigin="anonymous": o servidor HTTP local retorna
     // Access-Control-Allow-Origin: * (ver OBSPlayer.HandleGet), o que
-    // permite o GainNode sem taintar/silenciar. WebView2 com
-    // NavigateToString tem origin "null"; ACAO=* satisfaz o CORS.
+    // permite o GainNode sem taintar/silenciar. A UI roda em
+    // https://noobs.app e o audio vem de http://127.0.0.1 (origem cross);
+    // ACAO=* satisfaz o CORS.
     const log = (msg) => Bridge.send('ui_log', { message: 'audio: ' + msg });
     for (let i = 1; i < urls.length; i++) {
       // crossOrigin DEVE ser setado ANTES do src (que ja foi via

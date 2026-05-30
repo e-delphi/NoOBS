@@ -94,10 +94,9 @@ procedure RenameCacheEntries(const AOldPath, ANewPath: string);
 function GetAudioTrackUrls(const APath: string;
   out AUrls: TArray<string>): Boolean;
 
-// Pasta raiz do cache (%LOCALAPPDATA%\NoOBS\cache\) — exposta pra
-// OBSUI mapear como virtual host (https://cache.noobs.app/...) usado
-// pela waveform. Fetch via HTTP local seria bloqueado por mixed content
-// (UI roda em origem https://).
+// Pasta raiz do cache (%LOCALAPPDATA%\NoOBS\cache\) — onde ficam os
+// <hash>.json/.dur/.jpg/.mp4 e as faixas <hash>_aN.m4a. Servida ao player
+// pelo HTTP local (MakeUrl), nao por virtual host.
 function CacheRootDir: string;
 
 implementation
@@ -644,8 +643,8 @@ var
   Live: TDictionary<string, Boolean>;
   Dir: string;
   Files: TArray<string>;
-  i: Integer;
-  Base, Hash: string;
+  i, k: Integer;
+  FileName, Hash: string;
   Removed: Integer;
 begin
   Dir := CacheRootDir;
@@ -661,9 +660,21 @@ begin
     Removed := 0;
     for i := 0 to High(Files) do
     begin
-      // Nome cache: <hash>.<ext>. Hash = nome sem extensao.
-      Base := ChangeFileExt(ExtractFileName(Files[i]), '');
-      Hash := LowerCase(Base);
+      // Hash = prefixo antes do 1o '.' OU '_'. Cache e <hash>.<ext>
+      // (.json/.dur/.jpg/.mp4) OU <hash>_aN.m4a (faixas de audio). O hash
+      // sao 20 hex (sem '.'/'_'), entao cortar no 1o separador recupera ele.
+      // ChangeFileExt sozinho deixava "<hash>_a0" -> nunca casava com o set
+      // vivo -> apagava TODAS as faixas de audio em cada GC (cache de audio
+      // nunca reaproveitado entre plays/sessoes).
+      FileName := ExtractFileName(Files[i]);
+      Hash := FileName;
+      for k := 1 to Length(FileName) do
+        if (FileName[k] = '.') or (FileName[k] = '_') then
+        begin
+          Hash := Copy(FileName, 1, k - 1);
+          Break;
+        end;
+      Hash := LowerCase(Hash);
       if not Live.ContainsKey(Hash) then
       begin
         try
@@ -695,8 +706,8 @@ function GetAudioTrackUrls(const APath: string;
 // libavformat — sem fork de ffmpeg.exe. Cacheia por hash do path.
 var
   Report: TProbeReport;
-  CacheDir, Token, TrackFile: string;
-  TrackFiles: TArray<string>;
+  CacheDir, Token: string;
+  TrackFiles, IsoFiles: TArray<string>;
   AudioStreams: TStreamArray;
   i, TrackCount, NeedExtract: Integer;
   T0: UInt64;
@@ -715,10 +726,17 @@ begin
   if not DirectoryExists(CacheDir) then ForceDirectories(CacheDir);
   Token := HashName(APath);
 
-  // Constroi lista de arquivos esperados + checa cache.
+  SetLength(AUrls, TrackCount);
+  // Track 0 (1a stream de audio) = MIX: NAO e extraido. O <video> do player
+  // toca o mix da propria fonte (MP4/MKV) e o JS pula urls[0] — extrair seria
+  // desperdicio (arquivo nunca consumido). AUrls[0] fica vazio.
+  AUrls[0] := '';
+  if TrackCount = 1 then Exit(True);  // so o mix: nada isolado a extrair
+
+  // Tracks 1..N-1 = faixas isoladas (cache <hash>_aN.m4a). Checa cache.
   SetLength(TrackFiles, TrackCount);
   NeedExtract := 0;
-  for i := 0 to TrackCount - 1 do
+  for i := 1 to TrackCount - 1 do
   begin
     TrackFiles[i] := IncludeTrailingPathDelimiter(CacheDir) +
       Format('%s_a%d.m4a', [Token, i]);
@@ -728,9 +746,12 @@ begin
   if NeedExtract > 0 then
   begin
     T0 := GetTickCount64;
-    Log('Player: extraindo %d audio tracks de %s',
-      [TrackCount, ExtractFileName(APath)]);
-    if not ExtractAudioTracks(APath, TrackFiles) then
+    Log('Player: extraindo %d faixa(s) de audio isolada(s) de %s',
+      [TrackCount - 1, ExtractFileName(APath)]);
+    // IsoFiles = TrackFiles[1..N-1]; offset 1 no extract pula o stream do mix.
+    SetLength(IsoFiles, TrackCount - 1);
+    for i := 1 to TrackCount - 1 do IsoFiles[i - 1] := TrackFiles[i];
+    if not ExtractAudioTracks(APath, IsoFiles, 1) then
     begin
       Log('Player: extract audio falhou.');
       Exit;
@@ -738,13 +759,9 @@ begin
     Log('Player: extract em %dms.', [GetTickCount64 - T0]);
   end;
 
-  // Monta URLs (todas ja registradas no token map via MakeUrl).
-  SetLength(AUrls, TrackCount);
-  for i := 0 to TrackCount - 1 do
-  begin
-    TrackFile := TrackFiles[i];
-    AUrls[i] := MakeUrl(Format('-a%d', [i]), TrackFile, '.m4a');
-  end;
+  // URLs das isoladas (mix em AUrls[0] fica vazio — JS pula).
+  for i := 1 to TrackCount - 1 do
+    AUrls[i] := MakeUrl(Format('-a%d', [i]), TrackFiles[i], '.m4a');
   Result := True;
 end;
 
@@ -985,9 +1002,10 @@ var
 begin
   Doc := ARequest.Document;
 
-  // CORS pra todos os responses. WebView2 com NavigateToString tem
-  // origin "null"; sem ACAO=*, MediaElementAudioSourceNode marca o
-  // recurso como "tainted" e o GainNode produz SILENCIO (mesmo que
+  // CORS pra todos os responses. A UI roda em https://noobs.app e o audio
+  // das faixas vem de http://127.0.0.1 (origem cross); sem ACAO=*,
+  // MediaElementAudioSourceNode marca o recurso como "tainted" e o GainNode
+  // produz SILENCIO (mesmo que
   // o <video>/<audio> sem Web Audio tocasse normalmente). Setamos
   // crossOrigin="anonymous" no JS — daqui o browser exige header
   // de CORS no response. '*' satisfaz any-origin pra requests sem

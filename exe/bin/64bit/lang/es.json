@@ -127,6 +127,15 @@
         "prev": "⏮ Pista anterior",
         "next": "⏭ Pista siguiente"
       },
+      "keys": {
+        "space": "Espacio",
+        "left": "← Izquierda",
+        "right": "→ Derecha",
+        "up": "↑ Arriba",
+        "down": "↓ Abajo",
+        "pageUp": "Re Pág",
+        "pageDown": "Av Pág"
+      },
       "invalidSpec": "Atajo inválido — elige al menos una tecla principal (letra, número, F1-F12, Pause, etc).",
       "reserved": {
         "ctrlAltDel": "Ctrl+Alt+Del es la secuencia de atención segura de Windows.",

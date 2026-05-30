@@ -127,6 +127,15 @@
         "prev": "⏮ Previous track",
         "next": "⏭ Next track"
       },
+      "keys": {
+        "space": "Space",
+        "left": "← Left",
+        "right": "→ Right",
+        "up": "↑ Up",
+        "down": "↓ Down",
+        "pageUp": "Page Up",
+        "pageDown": "Page Down"
+      },
       "invalidSpec": "Invalid hotkey — pick at least one main key (letter, number, F1-F12, Pause, etc).",
       "reserved": {
         "ctrlAltDel": "Ctrl+Alt+Del is the Windows secure attention sequence.",

@@ -28,6 +28,7 @@ Só abrir e gravar.
 | Detecção em tempo real | Reconhece quando você conecta ou desconecta microfones, alto-falantes, monitores e webcams — inclusive troca de dispositivo padrão no Painel de Som |
 | Codec automático | Detecta sua placa de vídeo e usa o melhor encoder disponível (H.264 hardware → x264 → AV1 → HEVC) — priorizando compatibilidade. Default é H.264 hardware |
 | Qualidade ajustável | Slider de 5 níveis pra balancear tamanho de arquivo e qualidade visual |
+| Taxa de quadros ajustável | Escolha o FPS da gravação (padrão 30, mais compacto que os 60 do OBS) até a taxa máxima do monitor |
 | Faixa "Mix" + isoladas | Faixa 1 é o mix de tudo; faixas 2–6 individuais por dispositivo (até 6 no total) |
 | Dispositivo padrão preservado | O microfone e alto-falante padrão do Windows sempre ficam em faixas individuais quando possível |
 
@@ -35,6 +36,7 @@ Só abrir e gravar.
 | Recurso | Descrição |
 |---|---|
 | Tema claro/escuro | Segue o tema do sistema na primeira execução; alternável depois nas Configurações |
+| Múltiplos idiomas | Interface em português, inglês e espanhol; detecta o idioma do Windows na primeira execução e permite trocar nas Configurações |
 | Botão de gravação cinematográfico | Botão circular com halo pulsante, timer com centésimos de segundo e onda radial vermelha ao iniciar |
 | Preview ao vivo | Miniaturas dos monitores e webcams atualizando a 2 FPS, identifica facilmente o que será gravado |
 | Legenda de faixas de áudio | Mostra qual dispositivo está em qual faixa do vídeo, com cores distintas |
@@ -46,7 +48,7 @@ Só abrir e gravar.
 ### Atalhos e automação
 | Recurso | Descrição |
 |---|---|
-| Atalho global configurável | Padrão: tecla `Pause`. Configurável com até 4 teclas (Ctrl+Shift+Alt+G, etc.) |
+| Atalho global configurável | Padrão: tecla `Pause`. Configurável com modificadores (Ctrl/Shift/Alt/Win) + uma tecla — incluindo as teclas de mídia do teclado (Play/Pause, Stop, faixa anterior/próxima) |
 | Som de início/fim | Opção pra tocar uma sequência curta de duas notas ao iniciar (ascendente) e parar (descendente) a gravação — discreto, confirmação auditiva |
 | Indicador no LED Scroll Lock | Opção pra piscar o LED de Scroll Lock do teclado enquanto grava — útil quando o app está na bandeja |
 | Bandeja do sistema | Ícone próximo ao relógio com menu para iniciar/parar gravação, abrir e fechar. Ícone troca pra uma bolinha vermelha enquanto grava |

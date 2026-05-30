@@ -359,8 +359,11 @@ Usa `obs_open_module` + `obs_init_module` por plugin (não
 ### 14. Encoders que viraram "Obsoleto" em OBS 31+
 
 `jim_hevc_nvenc` foi marcado obsoleto em favor de `obs_nvenc_hevc_tex`.
-`OBSEncoder.SelectVideoEncoder` testa o novo primeiro, com
-fallback chain AV1 → HEVC → H.264 hardware → x264 CPU.
+`OBSEncoder` testa o ID novo primeiro dentro de cada família. A ordem
+de **auto/fallback** do `SelectVideoEncoder` prioriza compatibilidade:
+H.264 hw → x264 (sw) → AV1 hw → HEVC hw (H.264 abre em qualquer
+player/editor; x264 sempre presente; AV1/HEVC por último pois exigem hw
+moderno). Mesma ordem descrita no README.
 
 OBS recente retorna handle "phantom" pra encoder ID não registrado —
 `EncoderTypeExists` valida via `obs_enum_encoder_types` antes de
@@ -893,6 +896,17 @@ Padrão alinhado com i18next: JSON aninhado, dot-notation, interpolação
 - **Detecção 1ª execução**: `OBSLang.InitLanguage` lê `GetUserDefaultLocaleName`,
   faz match exato (`pt-BR.json`) e depois por prefixo (`pt-*`); fallback
   final `en`. Resultado fica em `config.language` (vazio = `auto`).
+- **Idioma-base = `en`, NÃO pt-BR.** `OBSLang.DEFAULT_LANGUAGE = 'en'` é tanto
+  o fallback final da detecção quanto o *fallback bundle* (consultado quando
+  uma chave falta no idioma ativo). Consequência: **nenhum `lang\*.json` é
+  opcional — nem o `pt-BR.json`.** Apesar do texto-fallback em português
+  embutido no HTML (`data-i18n="...">Configurações`), o app **não** é
+  "pt-BR nativo" em runtime — remover `pt-BR.json` faz uma máquina pt-BR
+  subir em inglês (a detecção cai pro `en`). O fallback embutido no HTML
+  cobre só elementos estáticos e é sobrescrito pelo bundle no `I18n.apply()`;
+  strings dinâmicas (JS `T()`) e de backend (Delphi `OBSLang.T()`) **não têm
+  fallback no HTML** — sem a chave no bundle ativo nem no `en`, `T()` retorna
+  `[chave]`. Por isso a regra "nunca hardcode": todo texto vive no JSON.
 - **Instalador**: já coberto pelo `File /r "exe\bin\64bit\*.*"` (a pasta
   `lang\` é subpasta de `bin\64bit\`, vai junto sem bloco separado).
 - **Validação startup**: `OBSStartupCheck` reporta pasta `lang\` ausente

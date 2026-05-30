@@ -127,6 +127,15 @@
         "prev": "⏮ Faixa anterior",
         "next": "⏭ Próxima faixa"
       },
+      "keys": {
+        "space": "Espaço",
+        "left": "← Esquerda",
+        "right": "→ Direita",
+        "up": "↑ Cima",
+        "down": "↓ Baixo",
+        "pageUp": "Página acima",
+        "pageDown": "Página abaixo"
+      },
       "invalidSpec": "Atalho inválido — selecione pelo menos uma tecla principal (letra, número, F1-F12, Pause, etc).",
       "reserved": {
         "ctrlAltDel": "Ctrl+Alt+Del é a chamada de atenção segura do Windows.",

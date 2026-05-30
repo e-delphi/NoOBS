@@ -3,8 +3,10 @@
 
   Logica isolada de codec: detecta encoders registrados, classifica por
   vendor (NVIDIA/AMD/Intel/x264), tenta criar instancia priorizando o
-  que o user pediu (config.codec) com fallback AV1 → HEVC → H.264 hw
-  → x264 CPU.
+  que o user pediu (config.codec). Auto (e fallback de qualquer escolha
+  que falhe) prioriza COMPATIBILIDADE: H.264 hw → x264 (sw) → AV1 hw →
+  HEVC hw — H.264 abre em qualquer player/editor; x264 esta sempre
+  presente; AV1/HEVC ficam por ultimo (requerem hw moderno).
 
   Esta unit nao guarda estado — `DetectEncoderCaps` e `SelectVideoEncoder`
   sao funcoes puras (apenas leem do config e enumeram libobs).

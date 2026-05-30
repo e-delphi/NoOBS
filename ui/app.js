@@ -2087,14 +2087,32 @@ const HOTKEY_KEY_GROUPS = [
   { labelKey: 'settings.hotkey.groups.letters', keys: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('') },
   { labelKey: 'settings.hotkey.groups.numbers', keys: '0123456789'.split('') },
   { labelKey: 'settings.hotkey.groups.special', keys: [
-      'Space','Enter','Tab','Esc','Insert','Delete','Home','End',
-      'PageUp','PageDown','Backspace','Pause/Break']
+      { k: 'Space', labelKey: 'settings.hotkey.keys.space' },
+      'Enter','Tab','Esc','Insert','Delete','Home','End',
+      { k: 'PageUp',   labelKey: 'settings.hotkey.keys.pageUp' },
+      { k: 'PageDown', labelKey: 'settings.hotkey.keys.pageDown' },
+      'Backspace','Pause/Break']
   },
-  { labelKey: 'settings.hotkey.groups.arrows', keys: ['Left','Right','Up','Down'] },
+  { labelKey: 'settings.hotkey.groups.arrows', keys: [
+      { k: 'Left',  labelKey: 'settings.hotkey.keys.left' },
+      { k: 'Right', labelKey: 'settings.hotkey.keys.right' },
+      { k: 'Up',    labelKey: 'settings.hotkey.keys.up' },
+      { k: 'Down',  labelKey: 'settings.hotkey.keys.down' }]
+  },
+  // Numpad: labels literais (iguais em todos os idiomas), com os simbolos
+  // impressos nas teclas (+ - * / .). "NumpadMultiply" e obscuro; "Num *"
+  // casa com o teclado. O valor (k) continua canonico pro backend.
   { labelKey: 'settings.hotkey.groups.numpad', keys: [
-      'Numpad0','Numpad1','Numpad2','Numpad3','Numpad4','Numpad5',
-      'Numpad6','Numpad7','Numpad8','Numpad9',
-      'NumpadAdd','NumpadSubtract','NumpadMultiply','NumpadDivide','NumpadDecimal']
+      { k:'Numpad0', label:'Num 0' }, { k:'Numpad1', label:'Num 1' },
+      { k:'Numpad2', label:'Num 2' }, { k:'Numpad3', label:'Num 3' },
+      { k:'Numpad4', label:'Num 4' }, { k:'Numpad5', label:'Num 5' },
+      { k:'Numpad6', label:'Num 6' }, { k:'Numpad7', label:'Num 7' },
+      { k:'Numpad8', label:'Num 8' }, { k:'Numpad9', label:'Num 9' },
+      { k:'NumpadAdd',      label:'Num +' },
+      { k:'NumpadSubtract', label:'Num -' },
+      { k:'NumpadMultiply', label:'Num *' },
+      { k:'NumpadDivide',   label:'Num /' },
+      { k:'NumpadDecimal',  label:'Num .' }]
   },
   { labelKey: 'settings.hotkey.groups.chars', keys: ['-','=',',','.',';','/','`','[','\\',']',"'"] },
   // Teclas de midia (controle de reproducao em teclados multimidia). Aqui
@@ -2768,10 +2786,11 @@ const Settings = {
       // Item pode ser string (value == label) ou objeto { k, labelKey }
       // (value = k canonico, label traduzido). Ver HOTKEY_KEY_GROUPS.
       group.keys.forEach(key => {
-        if (typeof key === 'string')
-          og.appendChild(this._makeOpt(key, key));
-        else
-          og.appendChild(this._makeOpt(key.k, T(key.labelKey)));
+        if (typeof key === 'string') { og.appendChild(this._makeOpt(key, key)); return; }
+        // objeto: { k, labelKey } (rotulo traduzido via T) ou { k, label }
+        // (rotulo literal, ex. "Num +", igual em todos os idiomas).
+        const text = key.labelKey ? T(key.labelKey) : (key.label || key.k);
+        og.appendChild(this._makeOpt(key.k, text));
       });
       sel.appendChild(og);
     });

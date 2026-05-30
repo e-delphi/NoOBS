@@ -1,0 +1,929 @@
+  /* ===== Player modal ===== */
+  .player-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 200ms ease, visibility 200ms ease;
+  }
+  .player-overlay.visible { opacity: 1; visibility: visible; }
+  .player {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  /* Fullscreen: nada de especial precisa mudar — overlay e player ja
+     ocupam tela toda. Mantemos o data-fs no body so pra outros codigos
+     (ex: idle timer detectar edge zones). */
+
+  /* Tema claro: letterbox e overlay ficam brancos em vez de preto.
+     Floating header/controls continuam com gradiente escuro
+     (legibilidade sobre qualquer video). */
+  [data-theme="light"] .player-overlay {
+    background: rgba(255,255,255,0.85);
+  }
+  [data-theme="light"] .player,
+  [data-theme="light"] .player-body,
+  [data-theme="light"] .player-stage,
+  [data-theme="light"] .player-stage video {
+    background: #fff;
+  }
+  /* Auto-hide header + controles apos 2s de inatividade do mouse
+     (so quando playing — pausado mantem visivel pro usuario interagir). */
+  .player.idle { cursor: none; }
+  .player.idle .player-header,
+  .player.idle .player-controls {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .player-header,
+  .player-controls {
+    transition: opacity 220ms ease;
+  }
+  /* Header e controles flutuam SOBRE o video (estilo YouTube). O body
+     ocupa o player inteiro, e header/controles sao absolute com
+     gradiente pra contraste com fundos claros. */
+  .player-header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px 18px;
+    background: linear-gradient(to bottom,
+      rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
+  }
+  .player-title {
+    flex: 1;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .player-close {
+    background: rgba(0,0,0,0.4);
+    border: none;
+    color: #fff;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    line-height: 1;
+    transition: background 150ms ease;
+  }
+  .player-close:hover { background: rgba(0,0,0,0.7); }
+  .player-title {
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+
+  .player-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    background: #000;
+    /* Body ocupa o player inteiro — header/controles ficam absolute por cima. */
+    position: relative;
+  }
+  .player-stage {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    background: #000;
+    overflow: hidden;
+  }
+  .player-stage.zoomed { cursor: grab; }
+  .player-stage.zoomed.dragging { cursor: grabbing; }
+  .player-stage video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+    transform-origin: 0 0;
+    transition: none;
+    will-change: transform;
+  }
+  /* Canvas de composicao multi-regiao — sobreposto ao video quando o
+     user seleciona 2+ regioes. Video continua tocando "atras" (audio
+     + decode), so escondido visualmente. */
+  .player-composite {
+    position: absolute;
+    /* centralizado no stage; tamanho fica limitado por max-* + aspect-ratio
+       inline (set no JS) — isso replica "object-fit: contain", que nao
+       funciona em <canvas>. Usamos a propriedade CSS `translate` (nao o
+       `transform`) pro centering, pra nao colidir com o transform inline
+       que o JS de zoom/pan aplica. */
+    top: 50%;
+    left: 50%;
+    translate: -50% -50%;
+    transform-origin: center center;
+    max-width: 100%;
+    max-height: 100%;
+    background: #000;
+    pointer-events: none;  /* clicks atravessam pro video underneath */
+    z-index: 1;
+  }
+  .player-composite[hidden] { display: none; }
+  /* Quando o canvas esta ativo, escondemos o video visualmente mas
+     mantemos a area do layout — visibility:hidden nao pausa playback
+     nem corta o audio. */
+  .player-stage.compositing video { visibility: hidden; }
+  /* Zoom badge fica DENTRO do .player-stage, que tem stacking context
+     abaixo do .player-header (z-index: 5). Com top: 10px o badge
+     coincidia visualmente com o close button e ficava parcialmente
+     escondido por ele. top: 56px posiciona logo abaixo do header
+     (padding-top 12 + close button 32 + 12px gap = ~56px), em
+     espaco livre. Right: 12px alinha com o close button — fica
+     pendurado direto abaixo dele. */
+  .player-zoom-badge {
+    position: absolute;
+    top: 56px;
+    right: 12px;
+    padding: 4px 8px;
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 200ms ease;
+  }
+  .player-stage.zoomed .player-zoom-badge { opacity: 1; }
+
+  /* Indicador central de pause — agora EFEMERO: aparece como flash
+     curto (~1.2s) so no momento que o user pausa o video, confirmando
+     a acao. Some sozinho depois pro user poder ver o quadro limpo.
+     Estado persistente de "pausado" e dado pelo badge no canto (abaixo)
+     + pelo botao Play na barra de controles. */
+  .player-pause-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.85);
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.95);
+    /* Halo radial: escuro no centro, transparente nas pontas. */
+    background: radial-gradient(circle at center,
+      rgba(0, 0, 0, 0.45) 0%,
+      rgba(0, 0, 0, 0.30) 35%,
+      rgba(0, 0, 0, 0)    75%);
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .player-pause-indicator svg {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+  }
+  /* Animacao do flash: fade in rapido (180ms), hold (520ms), fade out
+     com leve crescimento (500ms). Total 1200ms. animation-fill-mode:
+     forwards mantem opacity:0 no fim (== voltar ao estado default).
+     Re-trigger: JS remove a classe, forca reflow e re-adiciona. */
+  .player-pause-indicator.flash {
+    animation: noobs-pause-flash 1200ms ease forwards;
+  }
+  @keyframes noobs-pause-flash {
+    0%   { opacity: 0;    transform: translate(-50%, -50%) scale(0.7); }
+    15%  { opacity: 0.95; transform: translate(-50%, -50%) scale(1.0); }
+    58%  { opacity: 0.95; transform: translate(-50%, -50%) scale(1.0); }
+    100% { opacity: 0;    transform: translate(-50%, -50%) scale(1.15); }
+  }
+
+  /* Badge persistente de "pausado" no canto superior esquerdo do
+     stage. Discreto (semi-transparente), nunca cobre conteudo
+     importante do video. Aparece enquanto v.paused/ended, some no
+     play. Posicao top-left porque o zoom badge ja ocupa o top-right. */
+  /* Badge vive DENTRO do .player-header (flex container com gap:12px
+     e align-items:center). Sem position:absolute — flex layout cuida
+     do alinhamento vertical com o close button. flex-shrink: 0 evita
+     que ele seja espremido se o titulo for muito longo. Entra com
+     slide horizontal sutil da direita pra esquerda — mais natural
+     quando vem ao lado de outro elemento (close button) do que vindo
+     de cima. */
+  .player-pause-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 9px 4px 7px;
+    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.95);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(6px);
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+  .player-pause-badge svg {
+    width: 10px;
+    height: 10px;
+    display: block;
+  }
+  .player-pause-badge.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  /* Nao usamos display:none quando hidden — quebraria a transition
+     (display nao e animavel). Em vez disso, badge sempre ocupa seu
+     slot no flex (apenas opacity vai a 0). Custo: o titulo perde
+     ~95px de espaco em ambos os estados, mas a posicao do X fica
+     estavel (sem "pulo" lateral ao pausar) e a animacao funciona. */
+
+  .player-loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: #fff;
+    font-size: 13px;
+    background: rgba(0,0,0,0.5);
+  }
+  .player-loading.visible { display: flex; }
+  .player-loading .spin {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.15);
+    border-top-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+
+  /* Painel lateral de informacoes do video.
+     padding top/bottom = altura do header e controles flutuantes
+     (~56/60px) pra que o conteudo nao fique obscurecido. O fundo
+     do painel se estende edge-to-edge dentro dessa janela visivel. */
+  .player-info-panel {
+    width: 0;
+    overflow: hidden;
+    background: rgba(15,15,15,0.96);
+    border-left: 1px solid rgba(255,255,255,0.06);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    transition: width 220ms ease;
+    flex-shrink: 0;
+    padding-top: 56px;
+    padding-bottom: 60px;
+    box-sizing: border-box;
+  }
+  .player-info-panel.open { width: 320px; }
+  .player-info-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .player-info-close {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.6);
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    font-size: 18px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 120ms, color 120ms;
+  }
+  .player-info-close:hover {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+  }
+  .player-info-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    font-size: 12px;
+    width: 320px;
+    box-sizing: border-box;
+  }
+  .player-info-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 40px 0;
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+  }
+  .player-info-loading .spin {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255,255,255,0.15);
+    border-top-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+  .player-info-section {
+    margin-bottom: 18px;
+  }
+  .player-info-section:last-child { margin-bottom: 0; }
+  .player-info-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .player-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 0;
+    line-height: 1.4;
+  }
+  .player-info-key {
+    color: rgba(255,255,255,0.55);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .player-info-val {
+    color: rgba(255,255,255,0.92);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+  }
+  .player-info-track {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+  }
+  .player-info-track-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--success);
+    margin-bottom: 4px;
+  }
+  .player-info-vol-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  /* Per-track slider: identico ao master em logica (0..200 com
+     transicao verde→vermelho em 100%), mas usa --success como cor
+     "natural" pra harmonizar com o painel de info (verde = OK,
+     vermelho = boost > 100%). */
+  .player-info-vol {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    border-radius: 2px;
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(255,255,255,0.35) calc(50% - 0.5px),
+        rgba(255,255,255,0.35) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        var(--success) 0%, var(--success) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(255,255,255,0.15) var(--vp, 0%),
+        rgba(255,255,255,0.15) 100%);
+    cursor: pointer;
+    outline: none;
+  }
+  .player-info-vol::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--thumb-color, #fff);
+    cursor: pointer;
+  }
+  /* "200%" precisa de mais espaco que "100%" — 38px era apertado. */
+  .player-info-vol-val {
+    min-width: 42px;
+  }
+
+  /* Tooltip flutuante mostrado durante drag/click dos sliders de
+     volume (master + per-faixa). Singleton no body — posicao
+     calculada via JS pra centralizar no thumb. Acima do z-index
+     do overlay do player (9000) e do toast (9998). */
+  .vol-tooltip {
+    position: fixed;
+    z-index: 10000;
+    background: rgba(20, 20, 20, 0.95);
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+    transform: translate(-50%, -100%);  /* horiz center, vert above */
+    margin-top: -8px;                    /* gap acima do slider */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    user-select: none;
+  }
+  .vol-tooltip[hidden] { display: none; }
+  /* Acima de 100% — mesma cor da barra/thumb pra reforcar feedback. */
+  .vol-tooltip.boost {
+    background: var(--danger-2, #ef4444);
+  }
+  .player-info-vol-val {
+    font-size: 10px;
+    color: rgba(255,255,255,0.65);
+    width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Botao de mutar/desmutar uma faixa. Click toggla; estado mutado
+     muda o icone (speaker -> speaker-x) e zera o slider (guarda o
+     volume anterior em data-restore pra restaurar no unmute). */
+  .player-info-mute {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.12s, background 0.12s;
+  }
+  .player-info-mute:hover {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+  }
+  .player-info-mute.muted { color: var(--danger-2, #ef4444); }
+  .player-info-mute.muted:hover { background: rgba(239,68,68,0.12); }
+  .player-info-mute svg { width: 14px; height: 14px; }
+  /* Aparencia da faixa mutada: tudo levemente apagado pra reforcar
+     que ela nao esta soando. */
+  .player-info-track.muted {
+    opacity: 0.55;
+  }
+  .player-info-track.muted .player-info-track-title {
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+  [data-theme="light"] .player-info-mute {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-mute:hover {
+    background: rgba(0,0,0,0.06);
+    color: rgba(0,0,0,0.85);
+  }
+  [data-theme="light"] .player-info-vol-row {
+    border-top: 1px solid rgba(0,0,0,0.06);
+  }
+  [data-theme="light"] .player-info-vol {
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(0,0,0,0.35) calc(50% - 0.5px),
+        rgba(0,0,0,0.35) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        var(--success) 0%, var(--success) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(0,0,0,0.12) var(--vp, 0%), rgba(0,0,0,0.12) 100%);
+  }
+  [data-theme="light"] .player-info-vol::-webkit-slider-thumb {
+    background: var(--thumb-color, var(--success));
+  }
+  [data-theme="light"] .player-info-vol-val {
+    color: rgba(0,0,0,0.6);
+  }
+  /* Seletor de visualizacao (monitor/webcam) no painel de info do
+     player. Aparece com check estilo radio (so um selecionado por vez)
+     + icone monitor/webcam + nome do dispositivo. Click aplica zoom
+     via object-view-box no <video>. */
+  .player-view-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    margin-bottom: 4px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .player-view-option:hover {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.12);
+  }
+  .player-view-option.selected {
+    background: rgba(16,185,129,0.12);
+    border-color: rgba(16,185,129,0.45);
+  }
+  .player-view-check {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid rgba(255,255,255,0.35);
+    border-radius: 4px;
+    position: relative;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  /* Variante radio (circular) — usada na opcao "Tela cheia". Visual
+     diferente dos checkboxes (quadrados) pra deixar claro: "ou tela
+     cheia, ou combinacao de monitores". */
+  .player-view-check.radio {
+    border-radius: 50%;
+  }
+  .player-view-option.selected .player-view-check {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  /* Checkmark SVG centralizado (sem aproximacoes de translate em
+     elementos rotacionados). Aparece so quando o item esta selecionado. */
+  .player-view-check::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: no-repeat center/65% url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .player-view-option.selected .player-view-check::after { opacity: 1; }
+  /* No radio (Tela cheia), o "selecionado" e o ponto cheio centralizado,
+     nao um check. Sobrescreve o ::after acima. */
+  .player-view-check.radio::after {
+    background: none;
+    inset: auto;
+    left: 50%; top: 50%;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background-color: #fff;
+    transform: translate(-50%, -50%);
+  }
+  .player-view-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: rgba(255,255,255,0.55);
+  }
+  .player-view-option.selected .player-view-icon { color: var(--success); }
+  .player-view-icon svg { width: 18px; height: 18px; }
+  .player-view-label {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  [data-theme="light"] .player-view-option {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-view-option:hover {
+    background: rgba(0,0,0,0.06);
+  }
+  [data-theme="light"] .player-view-option.selected {
+    background: rgba(16,185,129,0.10);
+  }
+  [data-theme="light"] .player-view-check {
+    border-color: rgba(0,0,0,0.35);
+  }
+  [data-theme="light"] .player-view-icon { color: rgba(0,0,0,0.45); }
+
+  .player-info-btn { color: rgba(255,255,255,0.85); }
+  .player-info-btn.active {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+  }
+
+  /* ===== Tema CLARO do painel de info =====
+     Floating header/controls sobre o video continuam escuros (gradiente
+     funciona em qualquer video). Apenas o painel lateral muda — fica
+     com fundo claro pra integrar com o app em tema claro. */
+  [data-theme="light"] .player-info-panel {
+    background: rgba(255,255,255,0.97);
+    border-left: 1px solid rgba(0,0,0,0.08);
+    color: #1f2937;
+  }
+  [data-theme="light"] .player-info-header {
+    color: rgba(0,0,0,0.7);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-info-close {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-close:hover {
+    background: rgba(0,0,0,0.06);
+    color: #000;
+  }
+  [data-theme="light"] .player-info-loading {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-loading .spin {
+    border-color: rgba(0,0,0,0.12);
+    border-top-color: var(--success);
+  }
+  [data-theme="light"] .player-info-section-title {
+    color: rgba(0,0,0,0.45);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-info-key {
+    color: rgba(0,0,0,0.55);
+  }
+  [data-theme="light"] .player-info-val {
+    color: rgba(0,0,0,0.88);
+  }
+  [data-theme="light"] .player-info-track {
+    background: rgba(0,0,0,0.03);
+    border: 1px solid rgba(0,0,0,0.08);
+  }
+
+  .player-controls {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 16px 14px;
+    background: linear-gradient(to top,
+      rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%);
+    color: #fff;
+  }
+  .player-btn {
+    background: transparent;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 150ms ease;
+  }
+  .player-btn:hover { background: rgba(255,255,255,0.12); }
+  .player-btn svg { width: 18px; height: 18px; fill: currentColor; }
+
+  .player-time {
+    font-size: 12px;
+    color: rgba(255,255,255,0.85);
+    font-variant-numeric: tabular-nums;
+    min-width: 90px;
+    text-align: center;
+  }
+
+  /* Wrap contem o seek e a waveform — mas o wrap so toma a altura do
+     seek (4px). A waveform e posicionada absoluto abaixo (top: 100%),
+     ficando dentro do padding-bottom da .player-controls. Resultado:
+     o seek mantem exatamente a mesma posicao vertical que tinha antes
+     da waveform existir; a waveform aparece embaixo, no espaco do
+     padding, sem mexer com o flex/align dos outros controles. */
+  .player-seek-wrap {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+  .player-seek {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0%, var(--success) var(--p, 0%),
+      rgba(255,255,255,0.15) var(--p, 0%), rgba(255,255,255,0.15) 100%);
+    outline: none;
+    cursor: pointer;
+  }
+  /* Waveform: posicionada ABSOLUTAMENTE logo abaixo do seek. Fica
+     fora do fluxo flex — nao afeta a altura do wrap nem desloca os
+     outros controles. Renderiza no espaco do padding-bottom da
+     controls bar.
+     Posicao vertical: `calc(50% + 2px)` = centro do wrap + metade da
+     espessura do track (4px / 2). Isso faz a waveform encostar
+     exatamente na borda inferior do track visivel do seek bar (que
+     fica no meio da altura do input element). `top: 100%` daria a
+     borda inferior do INPUT BOX, que tem altura maior que o track por
+     causa do thumb (14px) — sobra um espacinho. */
+  .player-waveform {
+    position: absolute;
+    top: calc(50% + 2px);
+    left: 0;
+    right: 0;
+    height: 14px;
+    opacity: 0.55;
+    pointer-events: none;  /* nao intercepta clique do seek */
+  }
+  .player-waveform[hidden] { display: none; }
+  /* Barras crescem PRA BAIXO a partir do topo (top: 0) — formato de
+     "reflexo" abaixo do seek bar. Cristas altas chegam no fundo, baixas
+     ficam coladas no topo. Sem border-radius porque em 1-2px de
+     largura arredondar borra a silhueta. */
+  .wf-bar {
+    position: absolute;
+    top: 0;
+    background: rgba(255, 255, 255, 0.75);
+    min-height: 1px;
+  }
+  [data-theme="light"] .wf-bar {
+    background: rgba(0, 0, 0, 0.60);
+  }
+  .player-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    cursor: pointer;
+    box-shadow: 0 0 0 0 rgba(16,185,129,0);
+    transition: box-shadow 150ms ease;
+  }
+  /* Pausado: seek bar fica CINZA pra reforcar "video parado".
+     Override do gradient + cor do thumb + glow do hover. Dark e
+     light theme tem cinzas diferentes pra preservar contraste. */
+  .player.paused .player-seek {
+    background: linear-gradient(to right,
+      rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.55) var(--p, 0%),
+      rgba(255,255,255,0.15) var(--p, 0%), rgba(255,255,255,0.15) 100%);
+  }
+  .player.paused .player-seek::-webkit-slider-thumb {
+    background: rgba(255,255,255,0.85);
+  }
+  .player.paused .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(255,255,255,0.18);
+  }
+  [data-theme="light"] .player.paused .player-seek {
+    background: linear-gradient(to right,
+      rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.45) var(--p, 0%),
+      rgba(0,0,0,0.12) var(--p, 0%), rgba(0,0,0,0.12) 100%);
+  }
+  [data-theme="light"] .player.paused .player-seek::-webkit-slider-thumb {
+    background: rgba(0,0,0,0.65);
+  }
+  [data-theme="light"] .player.paused .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(0,0,0,0.18);
+  }
+  .player-seek:hover::-webkit-slider-thumb {
+    box-shadow: 0 0 0 6px rgba(16,185,129,0.2);
+  }
+
+  .player-volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Volume slider master: range 0..200. Visual em 3 segmentos:
+       0..100  → branco (zona "normal", --vp-mid fica igual a --vp)
+       100..200 → vermelho-clamp (boost via GainNode, pode distorcer)
+       resto     → track gray
+     Tick fino em 50% da largura marca onde fica o 100% — referencia
+     visual rapida pro user saber se esta abaixo/acima do "natural". */
+  .player-volume {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 90px;
+    height: 4px;
+    border-radius: 2px;
+    background:
+      linear-gradient(to right, transparent 0,
+        transparent calc(50% - 0.5px),
+        rgba(255,255,255,0.45) calc(50% - 0.5px),
+        rgba(255,255,255,0.45) calc(50% + 0.5px),
+        transparent calc(50% + 0.5px), transparent 100%),
+      linear-gradient(to right,
+        rgba(255,255,255,0.85) 0%,
+        rgba(255,255,255,0.85) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp-mid, 0%),
+        var(--danger-2, #ef4444) var(--vp, 0%),
+        rgba(255,255,255,0.15) var(--vp, 0%),
+        rgba(255,255,255,0.15) 100%);
+    cursor: pointer;
+  }
+  /* Cor do thumb segue a zona — vermelho quando boost ativo
+     pra reforcar que esta acima de 100%. */
+  .player-volume::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: var(--thumb-color, #fff);
+    cursor: pointer;
+  }
+
+  /* ===== Speed selector ===== */
+  .player-speed-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .player-speed-btn {
+    min-width: 42px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    padding: 0 8px;
+  }
+  .player-speed-btn:hover { color: #fff; }
+  .player-speed-btn.active {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+  }
+  .player-speed-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 22, 0.96);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 76px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .player-speed-menu[hidden] { display: none; }
+  .player-speed-option {
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    color: var(--text-1);
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .player-speed-option:hover { background: rgba(255,255,255,0.08); }
+  .player-speed-option.selected {
+    background: rgba(16,185,129,0.18);
+    color: var(--success);
+    font-weight: 600;
+  }
+  /* Tema claro: o player permanece em fundo escuro (chrome do video),
+     mas o popup do speed flutua FORA da area do video — entao precisa
+     casar com o resto da UI em light. Usamos surface clara + texto
+     escuro pra contraste. */
+  [data-theme="light"] .player-speed-menu {
+    background: rgba(255, 255, 255, 0.98);
+    border-color: rgba(0, 0, 0, 0.10);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  }
+  [data-theme="light"] .player-speed-option { color: #1f2937; }
+  [data-theme="light"] .player-speed-option:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  [data-theme="light"] .player-speed-option.selected {
+    background: rgba(16, 185, 129, 0.14);
+    color: #047857;
+  }
+

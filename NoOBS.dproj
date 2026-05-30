@@ -202,33 +202,6 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\WinWebcam.pas"/>
         <DCCReference Include="src\NoOBSLockDetector.pas"/>
         <DCCReference Include="src\OBSLang.pas"/>
-        <RcItem Include="ui\index.html">
-            <ContainerId>ResourceItem</ContainerId>
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>UIHTML</ResourceId>
-        </RcItem>
-        <RcItem Include="ui\styles.css">
-            <ContainerId>ResourceItem</ContainerId>
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>UICSS</ResourceId>
-        </RcItem>
-        <RcItem Include="ui\app.js">
-            <ContainerId>ResourceItem</ContainerId>
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>UIJS</ResourceId>
-        </RcItem>
-        <RcItem Include="ui\amd.png">
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>AMD</ResourceId>
-        </RcItem>
-        <RcItem Include="ui\nvidia.png">
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>NVIDIA</ResourceId>
-        </RcItem>
-        <RcItem Include="ui\intel.png">
-            <ResourceType>RCDATA</ResourceType>
-            <ResourceId>INTEL</ResourceId>
-        </RcItem>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

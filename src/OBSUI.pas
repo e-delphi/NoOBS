@@ -1,5 +1,5 @@
 ﻿{
-  OBSUI — host WebView2 que carrega a UI embutida (RCDATA UIHTML/UICSS/UIJS).
+  OBSUI — host WebView2 que carrega a UI de exe\bin\64bit\ui\ via virtual host.
   Baseado em NV.dpr (Eduardo, 15/03/2026), reduzido para o nosso caso.
 
   Mantido:
@@ -392,108 +392,20 @@ begin
   Ctrl.SetBoundsAndZoomFactor(r, 1.0);
 end;
 
-function LoadHtmlFromResource(const AResName: string): string;
-// Le um RCDATA do exe e devolve como string UTF-8.
-var
-  HResInfo: HRSRC;
-  HResData: HGLOBAL;
-  Ptr: Pointer;
-  Sz: DWORD;
-  Bytes: TBytes;
-begin
-  Result := '';
-  HResInfo := FindResource(HInstance, PChar(AResName), RT_RCDATA);
-  if HResInfo = 0 then Exit;
-  HResData := LoadResource(HInstance, HResInfo);
-  if HResData = 0 then Exit;
-  Ptr := LockResource(HResData);
-  if Ptr = nil then Exit;
-  Sz := SizeofResource(HInstance, HResInfo);
-  if Sz = 0 then Exit;
-  SetLength(Bytes, Sz);
-  Move(Ptr^, Bytes[0], Sz);
-  Result := TEncoding.UTF8.GetString(Bytes);
-end;
-
-// Onde a UI HTML extraida fica em disco. Usada como source pro
-// SetVirtualHostNameToFolderMapping — WebView2 le do disco quando
-// navegamos pra https://noobs.app/index.html.
+// Pasta da UI em disco, ao lado do exe: <ExeDir>\ui (em dev e em producao
+// e exe\bin\64bit\ui\). Contem index.html, styles.css, app.js e os logos
+// de GPU (amd/nvidia/intel.png). Mesmo padrao do lang\: fonte de verdade
+// source-controlled, NAO embutida em resource — editar a UI nao exige
+// recompilar o exe.
 //
-// Por que disco e nao NavigateToString:
-// NavigateToString seta origin pra "about:blank" (origem opaca). A Web
-// Notifications API exige contexto seguro (HTTPS / localhost / virtual
-// host). Sem origin real, `new Notification(...)` falha silencioso —
-// permissao ate pode ser concedida mas a notificacao nunca dispara.
-// SetVirtualHostNameToFolderMapping da pra UI um origin https:// real,
-// e a Notification API passa a funcionar como num navegador comum.
+// Servida via SetVirtualHostNameToFolderMapping (origin https://noobs.app
+// real), NAO via NavigateToString — esse seta origin opaco "about:blank"
+// e a Notification API exige contexto seguro (https/localhost/virtual
+// host). Com origin https:// real, a Notification API e as URLs relativas
+// (styles.css, app.js, amd.png) funcionam como num navegador comum.
 function GetUiFolderPath: string;
-var
-  AppData: string;
 begin
-  AppData := GetEnvironmentVariable('LOCALAPPDATA');
-  if AppData = '' then AppData := GetEnvironmentVariable('TEMP');
-  Result := IncludeTrailingPathDelimiter(AppData) + 'NoOBS\ui';
-end;
-
-function WriteUiResourceToFile(const AResName, AFolder, AFileName: string): Boolean;
-// Le um RCDATA (UTF-8) e grava como arquivo em <AFolder>\<AFileName>.
-// UTF-8 sem BOM — assets web (css/js) nao querem BOM. False se a resource
-// faltar/vier vazia ou a escrita falhar (sempre logado).
-var
-  Content, FilePath: string;
-  Bytes: TBytes;
-  Stream: TFileStream;
-begin
-  Result := False;
-  Content := LoadHtmlFromResource(AResName);
-  if Content = '' then
-  begin
-    Log('UI: resource "%s" RCDATA nao encontrada (ou vazia) no exe.', [AResName]);
-    Exit;
-  end;
-  FilePath := IncludeTrailingPathDelimiter(AFolder) + AFileName;
-  try
-    Bytes := TEncoding.UTF8.GetBytes(Content);
-    Stream := TFileStream.Create(FilePath, fmCreate);
-    try
-      if Length(Bytes) > 0 then
-        Stream.WriteBuffer(Bytes[0], Length(Bytes));
-    finally
-      Stream.Free;
-    end;
-    Result := True;
-  except
-    on E: Exception do
-      Log('UI: falha escrevendo "%s": %s', [AFileName, E.Message]);
-  end;
-end;
-
-function ExtractUiHtmlToDisk: string;
-// Extrai os 3 RCDATA da UI pra <ui-folder>: UIHTML->index.html,
-// UICSS->styles.css, UIJS->app.js. O index.html referencia os outros dois
-// por URL relativa (<link href="styles.css">, <script src="app.js">), que
-// resolvem porque a UI e servida via SetVirtualHostNameToFolderMapping com
-// origin https://noobs.app real (NAO via NavigateToString). Retorna o
-// folder; '' se o index.html (obrigatorio) falhar.
-var
-  Folder: string;
-begin
-  Result := '';
-  Folder := GetUiFolderPath;
-  if not ForceDirectories(Folder) then
-  begin
-    Log('UI: nao consegui criar pasta "%s".', [Folder]);
-    Exit;
-  end;
-
-  // index.html e obrigatorio — sem ele nao ha o que navegar.
-  if not WriteUiResourceToFile('UIHTML', Folder, 'index.html') then Exit;
-  // CSS/JS: se faltarem, a UI sobe quebrada, mas seguimos com log claro
-  // (melhor que abortar o app inteiro por causa de um asset).
-  WriteUiResourceToFile('UICSS', Folder, 'styles.css');
-  WriteUiResourceToFile('UIJS',  Folder, 'app.js');
-
-  Result := Folder;
+  Result := ExtractFilePath(ParamStr(0)) + 'ui';
 end;
 
 procedure StartNavigate;
@@ -518,10 +430,10 @@ begin
     Log('StartNavigate: WebView=nil — abortando.');
     Exit;
   end;
-  Folder := ExtractUiHtmlToDisk;
-  if Folder = '' then
+  Folder := GetUiFolderPath;
+  if not DirectoryExists(Folder) then
   begin
-    Log('StartNavigate: ExtractUiHtmlToDisk retornou vazio — abortando.');
+    Log('StartNavigate: pasta UI "%s" nao existe — abortando.', [Folder]);
     Exit;
   end;
   Log('StartNavigate: UI folder="%s".', [Folder]);

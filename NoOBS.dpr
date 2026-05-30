@@ -21,8 +21,6 @@ program NoOBS;
 
 {$R *.res}
 
-{$R *.dres}
-
 uses
   Winapi.Windows,
   System.SysUtils,

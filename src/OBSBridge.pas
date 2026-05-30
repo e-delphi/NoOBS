@@ -3738,34 +3738,6 @@ begin
   PostOwned(Obj);
 end;
 
-function LoadResourceAsDataUrl(const AResName, AMime: string): string;
-// Le um recurso RCDATA do .exe e devolve uma data URL (base64) usavel
-// como src de <img> no WebView. Retorna '' se o recurso nao existir.
-var
-  Stream: TResourceStream;
-  Bytes: TBytes;
-  Base64: string;
-begin
-  Result := '';
-  if FindResource(HInstance, PChar(AResName), RT_RCDATA) = 0 then Exit;
-  try
-    Stream := TResourceStream.Create(HInstance, AResName, RT_RCDATA);
-    try
-      SetLength(Bytes, Stream.Size);
-      if Stream.Size > 0 then Stream.ReadBuffer(Bytes[0], Stream.Size);
-    finally
-      Stream.Free;
-    end;
-    Base64 := TNetEncoding.Base64.EncodeBytesToString(Bytes);
-    // Remove quebras de linha que TNetEncoding adiciona.
-    Base64 := StringReplace(Base64, #13#10, '', [rfReplaceAll]);
-    Base64 := StringReplace(Base64, #10, '', [rfReplaceAll]);
-    Result := 'data:' + AMime + ';base64,' + Base64;
-  except
-    Result := '';
-  end;
-end;
-
 procedure PushEncoderCaps;
 // Detecta encoders disponiveis e envia pra UI: quais codecs sao
 // suportados + logo do vendor do GPU. UI usa pra habilitar opcoes
@@ -3782,9 +3754,11 @@ begin
   end;
 
   case Caps.Vendor of
-    gvNvidia: begin VendorStr := 'nvidia'; VendorLogo := LoadResourceAsDataUrl('NVIDIA', 'image/png'); end;
-    gvAmd:    begin VendorStr := 'amd';    VendorLogo := LoadResourceAsDataUrl('AMD',    'image/png'); end;
-    gvIntel:  begin VendorStr := 'intel';  VendorLogo := LoadResourceAsDataUrl('INTEL',  'image/png'); end;
+    // VendorLogo e uma URL relativa servida da pasta ui\ pelo virtual host
+    // (resolve contra https://noobs.app/ -> https://noobs.app/nvidia.png).
+    gvNvidia: begin VendorStr := 'nvidia'; VendorLogo := 'nvidia.png'; end;
+    gvAmd:    begin VendorStr := 'amd';    VendorLogo := 'amd.png'; end;
+    gvIntel:  begin VendorStr := 'intel';  VendorLogo := 'intel.png'; end;
   else
     begin VendorStr := ''; VendorLogo := ''; end;
   end;

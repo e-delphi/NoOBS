@@ -1,0 +1,91 @@
+  .app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border-radius: 5px;
+    overflow: hidden;
+    transition: box-shadow 0.25s;
+  }
+
+  @keyframes pulse { 50% { opacity: 0.35; } }
+
+  /* Icon button (acoes do header de gravacoes) */
+  .icon-btn {
+    width: 30px; height: 30px;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--text-2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+  }
+  .icon-btn:hover { background: var(--panel-2); color: var(--text); }
+  .icon-btn:disabled,
+  .icon-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .icon-btn:disabled:hover,
+  .icon-btn[disabled]:hover {
+    background: var(--panel);
+    color: var(--text-2);
+  }
+  /* Botao de excluir selecionadas: estrutura visual identica aos
+     outros botoes da header (borda/fundo iguais), so o icone (SVG
+     stroke via currentColor) muda de cor pra vermelho quando
+     habilitado. Comunica "destrutivo" sem dominar a header. Hover
+     pinta o fundo bem de leve em vermelho. */
+  .delete-selected-btn:not([disabled]) {
+    color: var(--danger-2, #ef4444);
+  }
+  .delete-selected-btn:not([disabled]):hover {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--danger-2, #ef4444);
+  }
+
+  /* === Main === */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(360px, 400px) 1fr;
+    min-height: 0;
+  }
+
+  /* === Sources === */
+  .sources {
+    position: relative;
+    border-right: 1px solid var(--border);
+    overflow: hidden;          /* o scroll vive so na .sources-scroll */
+    padding: 14px 12px 0;      /* padding-bottom: 0 — .sources-scroll cuida */
+    background: var(--panel);
+    /* Flex column: record-block (topo, fixo) + sources-scroll (rolavel,
+       flex:1). Sem isso o scroll cobriria a lateral inteira incluindo
+       o cartao de gravacao, que deve permanecer sempre visivel. */
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Area rolavel da sidebar — engloba as listas de dispositivos
+     (microfones, alto-falantes) e a legenda de faixas. O cartao de
+     gravacao fica FORA dela (acima), sempre visivel.
+     Flex column pra que a `.track-legend` (margin-top:auto) seja
+     empurrada pro rodape quando o conteudo cabe. Quando nao cabe, a
+     legenda vai naturalmente pro fim do scroll-content e fica abaixo
+     da fold (user precisa rolar pra ver). */
+  .sources-scroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;             /* permite o flex item encolher */
+    padding-bottom: 14px;      /* substitui o padding-bottom da .sources */
+    margin: 0 -12px;           /* extende ate a borda da sidebar */
+    padding-left: 12px;
+    padding-right: 12px;
+    display: flex;
+    flex-direction: column;
+  }
+

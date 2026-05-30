@@ -42,14 +42,15 @@ exatamente no lugar onde libobs espera.
 - **libavformat/avcodec/avutil/swscale** (FFmpeg 7.x) carregadas
   in-process via `external delayed`. Bundled pelo OBS portátil.
 - **Indy** (`TIdHTTPServer`) — RTL.
-- **HTML/CSS/JS puro** (sem framework) embutido como RCDATA (UIHTML/UICSS/UIJS).
+- **HTML/CSS/JS puro** (sem framework) servido do disco (`exe\bin\64bit\ui\`, não embutido).
 
 ## Estrutura do projeto
 
 ```
 src/      ← .pas (todo código Delphi)
-ui/       ← index.html + styles.css + app.js (compilados como RCDATA)
-exe/      ← runtime: build output em bin/64bit/ + OBS bundled
+exe/      ← runtime: build output + OBS bundled em bin/64bit/
+            bin/64bit/ui/   ← index.html + css/ (8 comp.) + js/ (10 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
 ```
@@ -99,15 +100,25 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 
-A UI vive em `ui/` separada por tipo: `index.html` (shell + markup),
-`styles.css` e `app.js`. Os três são embutidos como RCDATA
-(`UIHTML`/`UICSS`/`UIJS`) via `NoOBSResource.rc` → `NoOBS.dres`. No startup,
-`OBSUI.ExtractUiHtmlToDisk` extrai os três pra `%LOCALAPPDATA%\NoOBS\ui\` e a
-UI é servida via `SetVirtualHostNameToFolderMapping` num origin
-`https://noobs.app` real (ver pegadinha #16 — não `NavigateToString`). O
-`index.html` referencia os assets por URL relativa (`<link href="styles.css">`,
-`<script src="app.js">`), que resolvem contra esse origin. Não há dependência
-de arquivo externo em runtime — tudo vem do `.exe`.
+A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
+markup), `css/` (8 arquivos por componente: base, layout, record, displays,
+recordings, player, settings, widgets) e `js/` (10 módulos: i18n, bridge,
+displays, recordings, record, widgets, hotkey, settings, player, main), além
+dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
+fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
+recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
+`SetVirtualHostNameToFolderMapping` num origin `https://noobs.app` real (ver
+pegadinha #16 — não `NavigateToString`) e navega pra `https://noobs.app/index.html`.
+
+Os `js/*` são **scripts comuns (NÃO ES modules)** carregados em ordem no
+`index.html` — escopo global compartilhado, exigido pelos handlers inline do
+HTML (`onclick="Settings..."` etc.). A ordem reflete a sequência do código
+original (cada módulo é uma fatia contígua do antigo `app.js`); `main.js`
+(bootstrap `DOMContentLoaded`) carrega por último. Os `css/*` carregam via
+`<link>` na ordem (a cascata depende dela). Ao adicionar/dividir módulos:
+manter a ordem de carga e o escopo global (não converter pra `type="module"`,
+quebraria os handlers inline). Os logos resolvem por URL relativa
+(`vendorLogo`=`nvidia.png`) contra o origin `https://noobs.app`.
 
 ### Mensageria UI ↔ Delphi
 
@@ -381,14 +392,14 @@ constantes `LIB_*` em `FFmpegLib.pas` e revalidar offsets de struct
 
 A UI **NÃO usa mais `NavigateToString`** (que dava origin opaco
 "about:blank" — a Notification API exige contexto seguro e falhava
-silencioso). Hoje `OBSUI.StartNavigate` extrai os RCDATA pra
-`%LOCALAPPDATA%\NoOBS\ui\`, mapeia a pasta via
+silencioso). Hoje `OBSUI.StartNavigate` mapeia a pasta `exe\bin\64bit\ui\`
+(arquivos em disco, **não** RCDATA) via
 `SetVirtualHostNameToFolderMapping('noobs.app', folder, ALLOW)` e navega pra
 `https://noobs.app/index.html`. Resultado: origin `https://` **real**, então
-Notification API funciona e **URLs relativas resolvem** — por isso a UI pôde
-ser dividida em `index.html` + `styles.css` + `app.js` (referenciados por
-`<link>`/`<script src>`) sem bundler nem passo de concatenação; o WebView2
-serve cada arquivo do disco mapeado.
+Notification API funciona e **URLs relativas resolvem** — por isso a UI é
+dividida em `index.html` + `styles.css` + `app.js` (+ logos `*.png`),
+referenciados por `<link>`/`<script src>`/`<img>`, sem bundler nem passo de
+concatenação; o WebView2 serve cada arquivo do disco mapeado.
 
 Um segundo host `https://cache.noobs.app` mapeia a pasta de cache
 (`%LOCALAPPDATA%\NoOBS\cache`) com `ACCESS_KIND_DENY_CORS` (= 2, serve com

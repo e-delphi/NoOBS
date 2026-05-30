@@ -1,0 +1,285 @@
+  /* Cartao de gravacao no topo — fixo (nao rolavel). Margem negativa
+     + padding compensam o padding do .sources, fazendo o fundo cobrir
+     toda a largura da sidebar. */
+  .record-block {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    padding: 0 12px 14px;
+    margin: 0 -12px 14px;
+    flex-shrink: 0;
+  }
+  /* ===== Record card — cartao com header + timer + botao circular =====
+     Inspirado no design SIGNAL/REC mas com a paleta atual do NoOBS.
+     Estado de gravacao adiciona .recording ao .record-card, que
+     dispara mudancas em cor da borda, glow vermelho de fundo, pulse
+     do dot, e animacao do botao. */
+  .record-card {
+    position: relative;
+    background: linear-gradient(135deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 14px 16px;
+    overflow: hidden;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .record-card.recording {
+    border-color: var(--danger-2, #ef4444);
+    background: linear-gradient(135deg, #2a1816, var(--panel));
+  }
+  .record-card.recording::before {
+    /* halo vermelho sutil que vem do topo. */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 0%, rgba(239,68,68,0.18), transparent 70%);
+    pointer-events: none;
+  }
+
+  /* Linha superior: status (esquerda) + icone de configuracoes (direita). */
+  .rec-header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-bottom: 10px;
+  }
+  .rec-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .rec-state-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .record-card.recording .rec-state {
+    color: var(--danger-2, #ef4444);
+    font-weight: 600;
+  }
+  .record-card.recording .rec-state-dot {
+    background: var(--danger-2, #ef4444);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .record-settings-btn {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+  }
+
+  /* Timer com centesimos. Fonte monospace, tabular-nums pra largura
+     estavel dos digitos. Atualizado por JS interval (~50ms) — vide
+     startRecordingAnimation. */
+  .rec-timer {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 38px;
+    font-weight: 300;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-1);
+    margin: 4px 0 14px;
+  }
+  .rec-timer-ms {
+    font-size: 22px;
+    color: var(--text-3);
+    margin-left: 1px;
+  }
+  .record-card.recording .rec-timer { color: var(--text-1); }
+
+  /* Botao circular grande. .recording troca cor + adiciona pulse no
+     box-shadow + transforma o glyph em quadrado (stop). */
+  .record-btn {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 72px;
+    height: 72px;
+    margin: 0 auto;
+    border-radius: 50%;
+    border: 3px solid var(--panel);
+    background: #b1322f;
+    cursor: pointer;
+    transition: transform 0.12s, background 0.2s;
+    box-shadow:
+      0 0 0 2px #b1322f,
+      0 0 26px rgba(177, 50, 47, 0.35),
+      0 6px 16px rgba(0, 0, 0, 0.35);
+  }
+  .record-btn:hover { background: #c43a37; box-shadow:
+      0 0 0 2px #c43a37,
+      0 0 32px rgba(196, 58, 55, 0.45),
+      0 6px 16px rgba(0, 0, 0, 0.35); }
+  .record-btn:active { transform: scale(0.94); }
+  .record-btn .icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 24px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 50%;
+    transition: width 0.2s, height 0.2s, border-radius 0.2s;
+  }
+  .record-btn.recording {
+    background: #ef4444;
+    box-shadow:
+      0 0 0 2px #ef4444,
+      0 0 36px rgba(239, 68, 68, 0.55),
+      0 6px 18px rgba(0, 0, 0, 0.4);
+    animation: recBtnPulse 1.8s ease-in-out infinite;
+  }
+  .record-btn.recording:hover { background: #f87171; }
+  .record-btn.recording .icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+  @keyframes recBtnPulse {
+    0%, 100% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 24px rgba(239, 68, 68, 0.4),
+        0 6px 18px rgba(0, 0, 0, 0.4);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 48px rgba(239, 68, 68, 0.65),
+        0 6px 18px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  /* Estado desabilitado (sem nenhuma source ativada). */
+  .record-btn:disabled,
+  .record-btn[disabled] {
+    background: var(--surface-2, #3a3a3a);
+    box-shadow:
+      0 0 0 2px var(--border),
+      0 4px 10px rgba(0, 0, 0, 0.25);
+    cursor: not-allowed;
+    animation: none;
+  }
+  .record-btn:disabled:hover,
+  .record-btn[disabled]:hover { background: var(--surface-2, #3a3a3a); }
+  .record-btn:disabled:active,
+  .record-btn[disabled]:active { transform: none; }
+  .record-btn:disabled .icon,
+  .record-btn[disabled] .icon { background: var(--text-3, rgba(255,255,255,0.3)); }
+
+  .record-label {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    margin-top: 12px;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .record-card.recording .record-label { color: var(--text-1); }
+
+  /* ===== Ripple ao iniciar gravacao =====
+     Onda radial vermelha que comeca exatamente no centro do botao de
+     gravar e expande ate cobrir a tela inteira. Criado via JS
+     (triggerRecordRipple) no momento do click.
+     - position: fixed + posicionado por inline style left/top
+     - transform: translate(-50%,-50%) mantem centrado durante o scale
+     - radial-gradient transparente nos cantos -> o "ricochete" nos
+       limites da tela e visualmente impossivel (gradiente ja some)
+     - will-change pra GPU layer
+     - pointer-events: none pra nao bloquear clicks subsequentes
+     - z-index 9998 fica atras do overlay de loading (9999) mas
+       acima de tudo na UI */
+  .record-ripple {
+    position: fixed;
+    z-index: 9998;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    pointer-events: none;
+    /* Anel definido via BORDER em vez de gradient — a borda escala
+       junto com o elemento (scale uniforme), produzindo um anel sharp
+       que sempre tem espessura proporcional. Sem fundo: o "interior"
+       do anel e literalmente vazio (background: transparent). */
+    background: transparent;
+    border: 4px solid #ef4444;
+    box-shadow:
+      0 0 30px rgba(239, 68, 68, 0.6),
+      inset 0 0 12px rgba(239, 68, 68, 0.4);
+    /* Estado inicial — sera sobrescrito imediatamente pela WAAPI no
+       JS (triggerRecordRipple). Manter scale(0) aqui evita um flash
+       de elemento full-size caso a animacao demore 1 frame pra
+       comecar. */
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 1;
+    will-change: transform, opacity;
+  }
+
+  /* ===== Tema claro: ajustes do record-card =====
+     As cores acima (especialmente o `#2a1816` no fundo da gravacao e
+     as box-shadows com rgba(0,0,0,0.35..0.4)) sao calibradas pro dark.
+     No light precisamos:
+       - Fundo da gravacao: red wash claro (red-50/100 do Tailwind) em
+         vez do marrom escuro
+       - Halo radial menos intenso (rgba reduzida)
+       - Box-shadows do botao mais leves (light theme sombras suaves) */
+  [data-theme="light"] .record-card.recording {
+    background: linear-gradient(135deg, #fee2e2, var(--panel));
+  }
+  [data-theme="light"] .record-card.recording::before {
+    background: radial-gradient(circle at 50% 0%, rgba(239, 68, 68, 0.08), transparent 70%);
+  }
+  [data-theme="light"] .record-btn {
+    box-shadow:
+      0 0 0 2px #b1322f,
+      0 0 18px rgba(177, 50, 47, 0.20),
+      0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+  [data-theme="light"] .record-btn:hover {
+    box-shadow:
+      0 0 0 2px #c43a37,
+      0 0 22px rgba(196, 58, 55, 0.28),
+      0 4px 10px rgba(0, 0, 0, 0.12);
+  }
+  [data-theme="light"] .record-btn.recording {
+    box-shadow:
+      0 0 0 2px #ef4444,
+      0 0 24px rgba(239, 68, 68, 0.30),
+      0 4px 12px rgba(0, 0, 0, 0.15);
+    /* sobrescreve o keyframe pra que o pulse fique mais suave no light */
+    animation: recBtnPulseLight 1.8s ease-in-out infinite;
+  }
+  @keyframes recBtnPulseLight {
+    0%, 100% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 18px rgba(239, 68, 68, 0.25),
+        0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px #ef4444,
+        0 0 32px rgba(239, 68, 68, 0.45),
+        0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+  }
+

@@ -1,0 +1,653 @@
+  /* ===== Settings modal ===== */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 8500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease, visibility 180ms ease;
+  }
+  .settings-overlay.visible { opacity: 1; visibility: visible; }
+  .settings-modal {
+    width: 100%;
+    max-width: 760px;
+    /* Limita altura pra caber em telas 1366x768 (descontando taskbar +
+       titlebar). Body rola se passar disso. */
+    max-height: min(92vh, 660px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-header {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .settings-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+  }
+  /* Theme toggle no header: espacamento extra antes dos botoes. */
+  .settings-header .theme-toggle { margin-right: 8px; }
+  /* Botao "?" de ajuda/sobre no header das configuracoes. */
+  .settings-help-btn {
+    background: transparent;
+    border: 0;
+    color: var(--text-2);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    transition: background 120ms, color 120ms;
+  }
+  .settings-help-btn:hover {
+    background: var(--surface-2);
+    color: var(--text-1);
+  }
+  /* About modal — variante mais estreita do settings modal.
+     Layout column: header + logo/desc (fixos) + scroll area + footer
+     fixo. Sobrescreve o overflow-y:auto herdado de .settings-body —
+     o scroll vive so na .about-scroll, footer fica sempre visivel. */
+  .about-modal {
+    max-width: 460px;
+    /* Sobrescreve o `max-height: 660px` do .settings-modal — o About
+       precisa de mais altura pra caber Logo + descricao + info +
+       Recursos (7) + Construido com (4) + licenca sem scrollar.
+       Em telas pequenas (<92vh < 800) o min(92vh, 800) ainda cai pro
+       92vh, evitando que o modal extrapole o viewport. */
+    max-height: min(92vh, 800px);
+  }
+  .about-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;          /* anula o auto do .settings-body */
+  }
+  /* Especificidade dupla (.settings-body.about-body) pra ganhar da
+     regra `.settings-body { flex: 1 1 auto }` que vem depois no CSS
+     e dominaria com mesma specificity. Sem isso o body estica ate o
+     max-height do modal e sobra espaco vazio entre as listas e o
+     footer de licenca. flex:0 1 auto = tamanho do conteudo (modal
+     acompanha). */
+  .settings-body.about-body {
+    flex: 0 1 auto;
+  }
+  .about-scroll {
+    overflow-y: auto;
+    /* flex:0 1 auto — nao crescer alem do conteudo (o footer fica
+       colado embaixo). So encolhe (+ scroll aparece) se o conteudo
+       passar do espaco disponivel no modal. Antes era flex:1 1 auto,
+       que fazia o area de scroll esticar e deixar um gap vazio
+       grande entre os recursos e o footer de licenca. */
+    flex: 0 1 auto;
+    min-height: 0;
+    margin: 0 -6px 0 0;        /* compensa visual da scrollbar */
+    padding-right: 6px;
+  }
+  .about-fixed-footer {
+    flex-shrink: 0;
+  }
+  .about-logo {
+    text-align: center;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+  .about-icon {
+    width: 48px;
+    height: 48px;
+    display: block;
+    margin: 0 auto 8px;
+    color: var(--danger, #ef4444);
+  }
+  .about-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-1);
+  }
+  .about-tagline {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+  .about-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* Separa visualmente do bloco de recursos abaixo. */
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  .about-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .about-label {
+    flex-shrink: 0;
+    width: 96px;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  .about-value { color: var(--text-1); }
+  .about-link {
+    color: var(--success);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .about-link:hover { text-decoration: underline; }
+  .about-footer-note {
+    margin-top: 4px;
+    padding-top: 4px;
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+  /* Paragrafo descritivo + listas (recursos / tecnologia) no About.
+     .about-desc agora e container de varios <p>; gap entre eles cria
+     respiro visual entre os 3 momentos da descricao (origem, proposta,
+     posicionamento). */
+  .about-desc {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-2);
+    margin-bottom: 8px;
+  }
+  .about-desc p + p { margin-top: 8px; }
+  .about-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin: 4px 0 4px;
+    font-weight: 600;
+  }
+  .about-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .about-list li {
+    padding: 1px 0 1px 14px;
+    position: relative;
+  }
+  .about-list li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .about-list b {
+    color: var(--text-1);
+    font-weight: 600;
+  }
+  /* Body rola quando os campos nao cabem na altura maxima do modal. */
+  .settings-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  /* Compacta gap entre campos pra economizar altura. */
+  .settings-body > .settings-field + .settings-field,
+  .settings-body > .settings-divider + .settings-field,
+  .settings-body > .settings-field + .settings-divider {
+    margin-top: 10px;
+  }
+  .settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* Divisor sutil entre campos de configuracao. */
+  .settings-divider {
+    border: 0;
+    border-top: 1px solid var(--border-1);
+    margin: 6px 0;
+  }
+  /* Toggle de tema: 2 botoes segmentados (Claro / Escuro). */
+  .theme-toggle {
+    display: inline-flex;
+    background: var(--surface-2);
+    border: 1px solid var(--border-1);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+    align-self: flex-start;
+  }
+  .theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 120ms, color 120ms;
+  }
+  .theme-toggle-btn:hover { color: var(--text-1); }
+  .theme-toggle-btn.active {
+    background: var(--surface-1);
+    color: var(--text-1);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+  .settings-field label {
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .settings-input-row {
+    display: flex;
+    gap: 8px;
+  }
+  .settings-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .settings-check-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--success);
+    cursor: pointer;
+    margin: 0;
+  }
+  /* Estado desabilitado: checkbox cinza, label esmaecido, cursor padrao.
+     Aplicado via JS quando dependencias (master switch) nao satisfeitas. */
+  .settings-check-row.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .settings-check-row.disabled input[type="checkbox"] {
+    cursor: not-allowed;
+  }
+  /* Hotkey builder: 4 checkboxes (modificadores) + "+" + dropdown (tecla principal). */
+  .hotkey-builder {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .hotkey-mods {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .hotkey-mod {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-1);
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    transition: background 120ms, border-color 120ms;
+  }
+  .hotkey-mod:hover { background: var(--surface-3); }
+  .hotkey-mod input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--success);
+    cursor: pointer;
+  }
+  .hotkey-mod:has(input:checked) {
+    background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
+    border-color: var(--success);
+  }
+  .hotkey-key {
+    flex: 1;
+    min-width: 120px;
+  }
+  .hotkey-plus {
+    color: var(--text-3);
+    font-weight: 600;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .settings-input {
+    flex: 1;
+    padding: 8px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 150ms ease;
+  }
+  .settings-input:focus { border-color: var(--success); }
+  /* select hereda .settings-input mas precisa de seta customizada
+     (browser nao estiliza o caret default em todos os temas). */
+  select.settings-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) calc(50% - 2px),
+      calc(100% - 11px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+  /* Slider de qualidade de gravacao — 5 posicoes (-2 a +2). */
+  .quality-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  /* Slider customizado — estilizamos track + thumb explicitamente pra
+     ter controle exato das dimensoes. Sem isso, o thumb usa o tamanho
+     default do WebView2 (que varia entre versoes / temas / OS), e o
+     alinhamento dos ticks com o centro do thumb fica impossivel de
+     calibrar (cada ambiente renderiza com radius diferente — uns 4-5px,
+     outros ate 8px). Fixando em 14px, o raio e exato 7px, e o padding
+     61px das classes .quality-ticks / .fps-ticks alinha perfeitamente.
+     Trade-off: perdemos o look "nativo" do Windows, mas em troca temos
+     consistencia visual com o resto da UI (cor --success) e ticks
+     alinhados. */
+  /* Slider customizado — estilizamos track + thumb explicitamente. Com
+     `appearance: none` o tamanho do thumb fica EXATO (14px), sem
+     depender de defaults do WebView2/OS theme que variam de 8 a 16px.
+     Isso e pre-requisito pra alinhar os ticks com o centro do thumb. */
+  .quality-slider-row input[type="range"] {
+    width: 100%;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    display: block;
+  }
+  /* Track com fill verde a esquerda do thumb. --val (0..1) e atualizado
+     via JS pelo helper Settings._syncSliderFill toda vez que o slider
+     muda. O ponto de troca do gradient bate exato com o centro do thumb:
+     7px (raio do thumb a partir do inicio do track) + ratio * (100% - 14px). */
+  .quality-slider-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .quality-slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    border: none;
+    cursor: pointer;
+    /* Centra o thumb verticalmente na track de 4px: (14-4)/2 = 5 */
+    margin-top: -5px;
+  }
+  .quality-end-label {
+    font-size: 11px;
+    color: var(--text-2);
+    min-width: 44px;
+  }
+  .quality-end-label:last-of-type { text-align: right; }
+
+  /* Wrapper que envolve <input> + <ticks>. Ocupa o espaco do meio do
+     row (flex: 1, entre os labels). Como o wrapper TEM A MESMA LARGURA
+     do input (input com width: 100%), os ticks dentro dele alinham
+     naturalmente com o thumb — basta compensar o raio do thumb (7px)
+     nas pontas. Sem isso (estrutura antiga com ticks fora do row),
+     o calculo dependia de label-width + gap + thumb-radius, que e
+     fragil. */
+  .slider-with-ticks {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* CENTRALIZAR cada tick no centro do thumb naquela posicao. Math:
+       thumb-center = ratio * (slider-width - thumb-width) + thumb-radius
+       tick-left    = thumb-center - tick-width/2
+     CSS resolve isso com `left: thumb-center` + `translateX(-50%)`,
+     que desloca o tick PRA ESQUERDA por metade da PROPRIA largura
+     (independente do que esteja escrito — "20", "160", "-2", "+1"
+     todos centralizam certo). Sem isso (flex space-between ou
+     translateX:0/-100% nas pontas), o ALINHAMENTO bate pela borda
+     do texto, nao pelo centro — primeiro tick aparece a direita do
+     thumb, ultimo a esquerda. */
+  .slider-with-ticks .quality-ticks {
+    position: relative;
+    height: 14px;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .slider-with-ticks .quality-ticks span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  /* 5 ticks evenly-spaced (-2, -1, 0, +1, +2). Cada um em ratio 0,
+     0.25, 0.5, 0.75, 1.0. Posicao = thumb-center naquele valor. */
+  .slider-with-ticks .quality-ticks span:nth-child(1) { left: 7px; }
+  .slider-with-ticks .quality-ticks span:nth-child(2) { left: calc(7px + 0.25 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(3) { left: calc(7px + 0.50 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(4) { left: calc(7px + 0.75 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(5) { left: calc(100% - 7px); }
+  /* Tick marks do slider de FPS — mesma logica, posicionamento via JS
+     porque a quantidade de ticks varia com maxMonitorHz. */
+  .slider-with-ticks .fps-ticks {
+    position: relative;
+    height: 14px;
+    padding: 0;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .fps-ticks .fps-tick {
+    position: absolute;
+    top: 0;
+    /* SEMPRE centraliza — independente do tick ser o primeiro, ultimo
+       ou intermediario. translateX(-50%) desloca o label pra esquerda
+       pela metade da propria largura, alinhando o centro do texto com
+       o centro do thumb naquela posicao. Antes tinha .at-start /
+       .at-end fazendo translateX(0) / -100% pra "encostar nas bordas",
+       o que desalinhava (texto comecava AO INVES DE CENTRAR no thumb). */
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .settings-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.4;
+  }
+  /* Logo do fabricante da GPU ao lado direito do dropdown de codec.
+     Mora dentro do mesmo .settings-input-row do dropdown — assim o gap
+     label-para-row fica identico aos outros campos. Logo centralizado
+     no eixo cross sem afetar a altura da row (dropdown define a altura). */
+  .settings-gpu-logo {
+    height: 32px;
+    width: auto;
+    max-width: 80px;
+    object-fit: contain;
+    flex-shrink: 0;
+    align-self: center;
+    display: none;  /* so aparece quando data-show=1 (vendor detectado). */
+  }
+  .settings-gpu-logo[data-show="1"] { display: block; }
+  .settings-btn {
+    padding: 8px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .settings-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .settings-btn.primary {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+  }
+  .settings-btn.primary:hover { filter: brightness(1.1); }
+  .settings-footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    flex-shrink: 0;
+  }
+  .settings-footer-right {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* ===== Confirm modal ===== */
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 160ms ease, visibility 160ms ease;
+  }
+  .confirm-overlay.visible { opacity: 1; visibility: visible; }
+  .confirm-modal {
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+    transform: scale(0.96);
+    transition: transform 160ms ease;
+  }
+  .confirm-overlay.visible .confirm-modal { transform: scale(1); }
+  .confirm-body {
+    padding: 22px 22px 8px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .confirm-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger-2);
+  }
+  .confirm-icon svg { width: 22px; height: 22px; fill: currentColor; }
+  .confirm-text { flex: 1; min-width: 0; }
+  .confirm-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .confirm-msg {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .confirm-footer {
+    padding: 14px 22px 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .confirm-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .confirm-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .confirm-btn.danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  .confirm-btn.danger:hover { filter: brightness(1.1); }
+
+  /* ===== Banner persistente (na sidebar) ===== */
+  .banner {
+    background: #facc15;
+    color: #1c1917;
+    border: 1px solid #ca8a04;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner .banner-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+

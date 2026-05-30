@@ -4,7 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NoOBS</title>
-<link rel="stylesheet" href="styles.css">
+<!-- CSS modularizado em css/ — carregados nesta ordem (a cascata depende da
+     ordem: base/tokens primeiro, depois componentes na mesma sequencia do
+     styles.css original). -->
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/record.css">
+<link rel="stylesheet" href="css/displays.css">
+<link rel="stylesheet" href="css/recordings.css">
+<link rel="stylesheet" href="css/player.css">
+<link rel="stylesheet" href="css/settings.css">
+<link rel="stylesheet" href="css/widgets.css">
 </head>
 <body>
 
@@ -639,7 +649,20 @@
   <div class="ctx-item danger" data-action="delete" data-i18n="common.delete">Excluir</div>
 </div>
 
-<script src="app.js"></script>
+<!-- JS modularizado em js/ — carregados nesta ordem (escopo global compartilhado,
+     scripts comuns, NAO modules: os handlers inline do HTML dependem dos objetos
+     globais). A ordem reflete a sequencia original do app.js; main.js (bootstrap
+     DOMContentLoaded) por ultimo. -->
+<script src="js/i18n.js"></script>
+<script src="js/bridge.js"></script>
+<script src="js/displays.js"></script>
+<script src="js/recordings.js"></script>
+<script src="js/record.js"></script>
+<script src="js/widgets.js"></script>
+<script src="js/hotkey.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/player.js"></script>
+<script src="js/main.js"></script>
 
 </body>
 </html>

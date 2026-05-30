@@ -1,0 +1,458 @@
+  /* Section */
+  .section { margin-bottom: 18px; }
+  .record-block + .section { margin-top: 14px; }
+  .section:last-child { margin-bottom: 0; }
+  .section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px;
+    margin-bottom: 6px;
+  }
+  .section-title h3 {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+  }
+  .section-title .count {
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+
+  /* ===== Display layout (monitores + webcams visuais) ===== */
+  .display-layout {
+    position: relative;
+    width: 100%;
+    height: 250px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+  }
+  /* Bloco "Telas" no topo do painel de gravacoes (dentro do
+     .recordings que ja tem padding lateral de 22px). */
+  .displays-block {
+    padding-top: 14px;
+    margin-bottom: 6px;
+  }
+  .displays-block .section-title {
+    margin: 0 0 8px;
+    padding: 0;
+  }
+  /* Titulo "Telas" + meta (resolucao total) no mesmo padrao do
+     "Gravacoes  N arquivos · X GB" da seccao de gravacoes. */
+  .displays-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+  .displays-block .section-title h3 {
+    font-size: 16px;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .displays-title .meta {
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  body.recording .display-layout { pointer-events: none; opacity: 0.6; }
+  .display-rect {
+    position: absolute;
+    border: 1.5px solid var(--border-2);
+    border-radius: 4px;
+    background: var(--thumb-bg);
+    color: var(--text-3);
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s, opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* <img> de preview dentro do rect — preenche tudo, mantem aspect. */
+  .display-rect .display-thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+  }
+  .display-rect[data-enabled="true"] {
+    border-color: var(--success);
+    box-shadow: 0 0 0 1px var(--success);
+  }
+  .display-rect[data-enabled="false"] { opacity: 0.5; }
+  .display-rect:hover { opacity: 1; }
+  .display-rect .display-label {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    background: rgba(0,0,0,0.6);
+    color: rgba(255,255,255,0.92);
+    border-radius: 3px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  /* Tipo webcam: cor de fundo distinta + icone */
+  .display-rect[data-type="webcam"] {
+    background: linear-gradient(135deg, #1e3a5f 0%, #0f2240 100%);
+  }
+  .display-rect[data-type="webcam"] .display-cam-icon {
+    width: 28px;
+    height: 28px;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+  /* Check no canto superior direito do rect — mesmo estilo do .rec-check. */
+  .display-check {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255,255,255,0.75);
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    transition: background 0.12s, border-color 0.12s;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+  }
+  .display-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .display-rect[data-enabled="true"] .display-check {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .display-rect[data-enabled="true"] .display-check svg { stroke: white; }
+
+  .source-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.1s;
+    user-select: none;
+    position: relative;
+  }
+  .source-item:hover { background: var(--panel-2); }
+  [data-theme="light"] .source-item:hover { background: var(--panel-3); }
+
+  /* Faixa colorida de 3px no lado esquerdo indicando qual track de
+     audio o dispositivo gravara. Pseudo-elemento com left:-12px
+     compensa o padding da sidebar (.sources tem padding-left:12px),
+     fazendo a faixa encostar na borda esquerda da janela.
+     Sem border-radius — barra reta colada no canto. */
+  .source-item[data-track]::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--track-color, transparent);
+  }
+  /* Paleta sem verde/vermelho — essas cores tem semantica reservada
+     (verde = bolinha de default, vermelho = botao de gravar/stop) e
+     misturadas nas tracks confundiriam o user. Magenta foi descartado
+     por ficar muito proximo do roxo. Amarelo foi descartado por ficar
+     muito proximo do laranja. */
+  .source-item[data-track="2"] { --track-color: #3b82f6; } /* azul */
+  .source-item[data-track="3"] { --track-color: #06b6d4; } /* ciano */
+  .source-item[data-track="4"] { --track-color: #f59e0b; } /* laranja */
+  .source-item[data-track="5"] { --track-color: #a855f7; } /* roxo */
+  .source-item[data-track="6"] { --track-color: #f472b6; } /* rosa */
+
+  /* Audio devices desabilitados (mic/speaker sem .selected): barra
+     cinza no mesmo lugar pra manter o alinhamento visual com os
+     habilitados. No tema dark usa um cinza um pouco mais claro que
+     a --border pra ficar visivel contra o painel; no tema light usa
+     a --border padrao. */
+  .source-item[data-kind="mic"]:not(.selected)::before,
+  .source-item[data-kind="speaker"]:not(.selected)::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: #52525b; /* zinc-600 — visivel no tema dark */
+    opacity: 0.7;
+  }
+  [data-theme="light"] .source-item[data-kind="mic"]:not(.selected)::before,
+  [data-theme="light"] .source-item[data-kind="speaker"]:not(.selected)::before {
+    background: var(--border);
+  }
+
+  /* Legenda das cores de faixa — mostra so cores presentes nos
+     dispositivos visiveis. Atualizada toda vez que a lista de devices
+     muda (renderSources -> refreshTrackColors -> buildTrackLegend).
+
+     Fica no rodape da sidebar:
+       - margin-top:auto empurra pro fundo quando o conteudo cabe
+       - position:sticky bottom:0 mantem visivel ao rolar
+       - background opaco evita transparencia quando scrolla por tras */
+  .track-legend {
+    margin-top: auto;
+    background: var(--panel);
+    padding: 14px 0 4px;
+    border-top: 1px solid var(--border);
+  }
+  .track-legend[hidden] { display: none; }
+  .track-legend-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-3);
+    padding: 0 6px;
+    margin-bottom: 8px;
+  }
+  .track-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.3;
+  }
+  .track-legend-color {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 8px;          /* largura igual pra todos os itens alinharem */
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .track-legend-color::after {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 14px;
+    background: var(--track-color, var(--border));
+  }
+  .track-legend-item[data-track="mix"] { --track-color: var(--text-2); }
+  .track-legend-item[data-track="2"]   { --track-color: #3b82f6; }
+  .track-legend-item[data-track="3"]   { --track-color: #06b6d4; }
+  .track-legend-item[data-track="4"]   { --track-color: #f59e0b; }
+  .track-legend-item[data-track="5"]   { --track-color: #a855f7; }
+  .track-legend-item[data-track="6"]   { --track-color: #f472b6; }
+  /* Item "Sem faixa" (disabled) — mesma cor do indicador no card de
+     device desabilitado. Tema dark: cinza mais claro (#52525b); tema
+     light: --border. Opacity 0.7 igual a do indicador no card. */
+  .track-legend-item[data-track="off"] {
+    --track-color: #52525b;
+    opacity: 0.7;
+  }
+  [data-theme="light"] .track-legend-item[data-track="off"] {
+    --track-color: var(--border);
+  }
+  .track-legend-item[data-track="off"] .track-legend-track {
+    color: var(--text-3, var(--text-2));
+  }
+  /* Item "Dispositivo padrao": substitui o bar vertical por uma bolinha
+     verde igual a usada no card do device. Centro alinhado com a coluna
+     da .track-legend-color via flex parent. */
+  .track-legend-item[data-track="default"] .track-legend-color::after {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 0 4px rgba(34,197,94,0.55);
+  }
+  .track-legend-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+  }
+  .track-legend-track {
+    display: inline-block;
+    min-width: 52px;     /* coluna fixa alinhando "Faixa N" / "Padrão" / "Sem faixa" */
+    font-weight: 600;
+    color: var(--text-2);
+    margin-right: 4px;
+  }
+
+  /* Durante gravacao: bloqueia interacao com sources e dim o visual.
+     Hover/click ficam inertes; toggles ficam congelados no estado atual. */
+  body.recording .source-item {
+    pointer-events: none;
+    opacity: 0.5;
+    transition: opacity 0.25s;
+  }
+
+  /* Toggle switch (iOS-style) */
+  .toggle {
+    width: 32px;
+    height: 18px;
+    background: var(--border-2);
+    border-radius: 9px;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s cubic-bezier(0.4, 0.0, 0.2, 1);
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.35),
+      0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  }
+  .source-item.selected .toggle { background: var(--success); }
+  .source-item.selected .toggle::after { transform: translateX(14px); }
+
+  .source-meta { flex: 1; min-width: 0; position: relative; }
+  /* Meter de audio: 7px de altura, dividida em duas barras de 3px com
+     gap de 1px no meio. data-channels="2" -> L+R; "1" -> R escondida e
+     L ocupa tudo. Atualizado por updateAudioMeters() conforme audio_meters. */
+  .source-meter {
+    position: relative;
+    height: 7px;
+    margin-top: 4px;
+    background: transparent;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .source-meter-track {
+    position: absolute;
+    left: 0; right: 0;
+    height: 3px;
+    border-radius: 1.5px;
+    overflow: hidden;
+    /* Gradient fixo em largura total — cores ABSOLUTAS por posicao,
+       nao por percentual do fill. Assim a "borda" vermelha so aparece
+       quando o sinal real passa de ~85%; nivel baixo so mostra verde.
+       Cores:
+         0–60% : verde (audio normal)
+         60–75%: transicao verde -> laranja (#f59e0b — mesmo amber dos
+                 outros avisos da UI, ex: low-disk + codec-limit)
+         75–95%: transicao laranja -> vermelho
+         95–100%: vermelho solido (clipping iminente) */
+    background: linear-gradient(to right,
+      var(--success) 0%,
+      var(--success) 60%,
+      #f59e0b 75%,
+      var(--danger-2) 95%,
+      var(--danger-2) 100%);
+  }
+  .source-meter-track[data-ch="l"] { top: 0; }
+  .source-meter-track[data-ch="r"] { bottom: 0; }
+  .source-meter-fill {
+    /* Apesar do nome "fill", este elemento e na verdade o COVER da
+       parte NAO-preenchida do meter. Cobre tudo por default e desliza
+       pra direita conforme o sinal sobe — left: 0% = sinal zero (cover
+       tudo); left: 100% = clipping (cover colapsado, gradient inteiro
+       visivel). updateAudioMeters() seta o left em pixels relativos. */
+    position: absolute;
+    inset: 0;
+    background: var(--panel-3);
+    transition: left 90ms linear;
+  }
+  /* Mono: esconde a track R, expande L pra ocupar tudo. */
+  .source-meter[data-channels="1"] .source-meter-track[data-ch="r"] { display: none; }
+  .source-meter[data-channels="1"] .source-meter-track[data-ch="l"] {
+    top: 0; bottom: 0;
+    height: auto;
+  }
+  /* Source desativada: meter quase invisivel. Dimma a TRACK (gradient)
+     em vez do fill (cover) — invertido por causa da troca de onde a
+     cor vive. */
+  .source-item:not(.selected) .source-meter-track { opacity: 0.25; }
+  .source-thumb {
+    width: 110px;
+    height: 62px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--panel-3);
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+  }
+  .source-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .source-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .source-default-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15), 0 0 4px rgba(34,197,94,0.55);
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  /* Icones ao lado do nome de devices Bluetooth:
+       .source-bt-icon  — azul, informativo ("este device e BT")
+       .source-bt-warn  — triangulo ambar, mesmo visual do icone de
+                          pouco espaco em disco — sinaliza o problema
+                          de qualidade HFP via hint detalhado.
+     Ambos com vertical-align: middle pra centralizar com a bolinha
+     default e o texto (que ja usam o mesmo align). display:block na
+     SVG remove o gap de baseline inline. */
+  .source-bt-icon, .source-bt-warn {
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    margin-right: 6px;
+    vertical-align: middle;
+    flex-shrink: 0;
+    /* cursor: help vem do seletor global [data-hint] */
+  }
+  .source-bt-icon svg, .source-bt-warn svg {
+    display: block;
+    width: 13px;
+    height: 13px;
+  }
+  .source-bt-icon { color: #1da1f2; }  /* azul Bluetooth */
+  .source-bt-warn { color: #f59e0b; }  /* amber — mesmo dos outros avisos */
+  .source-info {
+    font-size: 10.5px;
+    color: var(--text-3);
+    margin-top: 1px;
+  }
+

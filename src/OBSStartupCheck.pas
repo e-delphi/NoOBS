@@ -1,4 +1,4 @@
-(*
+﻿(*
   OBSStartupCheck - validacao dos arquivos necessarios na inicializacao
   do app. Chamado por OBSUI.Run antes de criar a janela.
 
@@ -83,7 +83,7 @@ end;
 
 function ValidateRuntime: TMissingFileArray;
 var
-  PluginBin, PluginData, DataLibobs, LangDir: string;
+  PluginBin, PluginData, DataLibobs, LangDir, UiIndex: string;
 begin
   SetLength(Result, 0);
 
@@ -123,6 +123,16 @@ begin
     AddMissing(Result, LangDir,
       'Pasta de traducoes (lang\). Sem ela o app exibe chaves brutas — UI ' +
       'continua funcional mas sem textos traduzidos.', mkRecommended);
+
+  // Interface do app - ui\index.html (+ styles.css, app.js, logos), em
+  // <ExeDir>\ui\, source-controlled (igual ao lang\, sem embutir em
+  // resource). Recomendada: sem ela a janela abre em branco, mas gravar
+  // via hotkey/bandeja ainda funciona.
+  UiIndex := ExeDir + 'ui\index.html';
+  if not FileExists(UiIndex) then
+    AddMissing(Result, UiIndex,
+      'Interface do app (ui\index.html + styles.css + app.js). Sem ela a ' +
+      'janela abre em branco.', mkRecommended);
 
   // -- Recomendados: feature degrada se faltar ----------------------------
   PluginBin  := ResolveRel('..\..\obs-plugins\64bit');

@@ -21,4 +21,9 @@ exe/bin/64bit/*
 # diretorio ignorado, entao !lang/*.json sozinho nao funciona.
 !exe/bin/64bit/lang/
 !exe/bin/64bit/lang/*.json
+# UI (HTML/CSS/JS + logos de GPU) — fonte de verdade aqui, servida do disco
+# via virtual host (nao mais embutida em resource). Mesma cascata do lang\:
+# un-ignora a pasta ANTES dos arquivos.
+!exe/bin/64bit/ui/
+!exe/bin/64bit/ui/*
 obs-studio-master/

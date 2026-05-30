@@ -1,0 +1,75 @@
+  /* === Tema dark (default) === */
+  :root {
+    --bg:        #0a0a0c;
+    --panel:     #131316;
+    --panel-2:   #1a1a1e;
+    --panel-3:   #202024;
+    --border:    #26262b;
+    --border-2:  #36363c;
+    --text:      #e4e4e7;
+    --text-2:    #a1a1aa;
+    --text-3:    #71717a;
+    --accent:    #3b82f6;
+    --accent-2:  #60a5fa;
+    --accent-bg: rgba(59, 130, 246, 0.10);
+    --accent-bd: rgba(59, 130, 246, 0.20);
+    --danger:    #dc2626;
+    --danger-2:  #ef4444;
+    --success:   #10b981;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --thumb-bg:  linear-gradient(135deg, #1f1f23 0%, #0f0f12 100%);
+    --thumb-fg:  rgba(255, 255, 255, 0.3);
+  }
+  /* === Tema light === */
+  [data-theme="light"] {
+    --bg:        #f4f4f5;
+    --panel:     #ffffff;
+    --panel-2:   #fafafa;
+    --panel-3:   #f4f4f5;
+    --border:    #e4e4e7;
+    --border-2:  #d4d4d8;
+    --text:      #18181b;
+    --text-2:    #52525b;
+    --text-3:    #71717a;
+    --accent:    #2563eb;
+    --accent-2:  #3b82f6;
+    --accent-bg: rgba(37, 99, 235, 0.07);
+    --accent-bd: rgba(37, 99, 235, 0.18);
+    --danger:    #dc2626;
+    --danger-2:  #ef4444;
+    --success:   #059669;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --thumb-bg:  linear-gradient(135deg, #e4e4e7 0%, #d4d4d8 100%);
+    --thumb-fg:  rgba(0, 0, 0, 0.22);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.4;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background 0.25s, color 0.2s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Permite selecao em campos editaveis */
+  input, textarea, [contenteditable="true"], .editing {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  /* Bloqueia drag-and-save de imagens (logo do app, thumbs de gravacao,
+     logos de GPU, etc). Sem isso o usuario pode arrastar pra fora do
+     app e salvar. Listener JS global complementa pra cobrir edge cases. */
+  img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    -webkit-touch-callout: none;
+  }
+

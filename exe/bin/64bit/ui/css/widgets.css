@@ -1,0 +1,89 @@
+  /* ===== Hint (tooltip custom) =====
+     Elemento unico no body, ativado por delegacao quando o user passa
+     o mouse sobre algo com [data-hint]. Estilizado pra casar com o
+     resto da UI (dark/light) — substitui o tooltip nativo do browser
+     que tem aparencia inconsistente e demora ~1s pra aparecer. */
+  .hint {
+    position: fixed;
+    z-index: 9900;
+    background: var(--panel-3);
+    color: var(--text-1);
+    padding: 7px 11px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    max-width: 320px;
+    white-space: normal;
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.40);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+  .hint.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  [data-theme="light"] .hint {
+    background: #fff;
+    color: #1f2937;
+    border-color: rgba(0,0,0,0.10);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+  }
+  /* Cursor "help" (seta com ?) em qualquer elemento que tem data-hint
+     — sinaliza visualmente que tem info extra disponivel ao passar o
+     mouse, sem precisar declarar em cada componente individualmente. */
+  [data-hint] { cursor: help; }
+
+  /* ===== Toast notifications ===== */
+  .toast-stack {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 8800;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+    pointer-events: none;
+  }
+  .toast {
+    pointer-events: auto;
+    /* Sem min-width fixo: toast se ajusta ao conteudo. Toasts curtos
+       (ex: "Dispositivos atualizados") ficam compactos, e longos
+       crescem ate max-width. */
+    max-width: 380px;
+    padding: 10px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    color: var(--text);
+    font-size: 13px;
+    opacity: 0;
+    transform: translateY(-12px);
+    transition: opacity 200ms ease, transform 200ms ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.warn {
+    background: #facc15;
+    border-color: #ca8a04;
+    color: #1c1917;
+  }
+  .toast.warn .toast-msg { color: #44403c; }
+  .toast .toast-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .toast .toast-msg {
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+  ::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,393 @@
+  /* === Recordings === */
+  .recordings {
+    overflow-y: auto;
+    padding: 0 22px 18px;
+  }
+  .recordings-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* flex-wrap permite que `.recordings-actions` (search + icon
+       buttons) caia pra uma 2.a linha quando a largura do painel nao
+       acomoda tudo na mesma linha — sem isso o input empurra os
+       textos e fica overlapping. */
+    flex-wrap: wrap;
+    row-gap: 10px;
+    /* Margem negativa horizontal pra cobrir o padding lateral do
+       .recordings (22px) — sem isso os 22px de cada lado ficam
+       transparentes durante o scroll e os cards aparecem por tras.
+       margin-bottom=0: sem gap entre header e primeiro divisor de
+       data, pra a altura sticky bater com a rest. */
+    margin: 0 -22px 0;
+    padding: 14px 22px;
+    background: var(--bg);
+    /* sem border-bottom: o separador eh o border-bottom do
+       .rec-group-title que vem logo abaixo. Com border aqui, em rest
+       sobra 1px entre header e titulo que desaparece em sticky
+       (o titulo cobre o border) — quebra a igualdade visual. */
+  }
+  .recordings-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    /* flex-basis: 200px = encolhe ate 200px na mesma linha; abaixo
+       disso wrappa pra cima do .recordings-actions. */
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .recordings-title h2 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .recordings-title .meta { font-size: 11px; color: var(--text-3); }
+  /* Separador visivel entre os pedacos de info no recMeta (arquivos /
+     total / livres). Pipe vertical mais espacado, sutilmente colorido
+     pra destacar sem competir com o texto. */
+  .meta-sep {
+    display: inline-block;
+    margin: 0 8px;
+    color: var(--border-2, rgba(255,255,255,0.2));
+    font-weight: 400;
+    user-select: none;
+  }
+  /* Grupo "input de busca + botoes de acao" — wrappa pra 2.a linha
+     quando nao cabe junto do titulo na mesma linha. */
+  .recordings-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .search {
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 12px;
+    width: 220px;
+    transition: all 0.12s;
+  }
+  .search:focus {
+    outline: none;
+    border-color: var(--success);
+    background: var(--panel-2);
+  }
+  .search::placeholder { color: var(--text-3); }
+
+  .recording-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .rec-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    /* Sticky logo abaixo do .recordings-header (~58px). Estende
+       lateralmente com margem negativa pra cobrir o padding do
+       .recordings (22px) — sem isso os cards aparecem nas laterais
+       quando o titulo gruda. */
+    position: sticky;
+    top: 58px;
+    z-index: 20;
+    margin: 0 -22px 8px;
+    padding: 6px 22px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  /* Checkbox quadrado do grupo (seleciona/desseleciona o periodo).
+     Mesma estetica do .rec-check pra consistencia. */
+  .rec-group-check {
+    position: relative;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid var(--border-2);
+    background: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .rec-group-check:hover { border-color: var(--success); }
+  .rec-group-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .rec-group-check[data-state="all"] {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .rec-group-check[data-state="all"] svg { stroke: white; }
+  /* Indeterminate: tracinho horizontal branco em vez do check. */
+  .rec-group-check[data-state="some"] {
+    background: var(--success);
+    border-color: var(--success);
+  }
+  .rec-group-check[data-state="some"]::after {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 2px;
+    background: white;
+    border-radius: 1px;
+  }
+  .rec-group-check[data-state="some"] svg { stroke: transparent; }
+  .rec-group-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-3);
+    font-size: 13px;
+  }
+  .rec-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .rec-card:hover {
+    border-color: var(--border-2);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .rec-card .thumb {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: var(--thumb-bg);
+    color: var(--thumb-fg);
+    font-size: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  /* Checkbox quadrado (com check SVG) no canto superior DIREITO da
+     thumb. Escondido por padrao, aparece em hover do card OU sempre
+     quando algum card ja esta selecionado (modo selecao). */
+  .rec-check {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1.5px solid rgba(255,255,255,0.75);
+    background: rgba(0,0,0,0.55);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, border-color 0.12s;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.3);
+  }
+  .rec-check svg {
+    width: 10px;
+    height: 10px;
+    stroke: transparent;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+    transition: stroke 0.12s;
+  }
+  .rec-card:hover .rec-check,
+  body.rec-select-mode .rec-check { opacity: 1; }
+  .rec-card[data-selected="true"] .rec-check {
+    background: var(--success);
+    border-color: var(--success);
+    opacity: 1;
+  }
+  .rec-card[data-selected="true"] .rec-check svg { stroke: white; }
+  .rec-card[data-selected="true"] {
+    box-shadow: 0 0 0 2px var(--success);
+  }
+  .rec-card .thumb-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .rec-card .duration {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    background: rgba(0,0,0,0.85);
+    color: rgba(255,255,255,0.95);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid rgba(255,255,255,0.06);
+    font-weight: 500;
+  }
+  .rec-card .body { padding: 8px 10px 10px; }
+  .rec-card .when {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 4px;
+    margin: -2px -4px;
+    padding: 2px 4px;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .rec-card .when.editing {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    background: var(--panel-2);
+    box-shadow: 0 0 0 1.5px var(--success);
+    cursor: text;
+    outline: none;
+  }
+  .rec-card .size {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Context menu (right-click) */
+  .ctx-menu {
+    position: fixed;
+    background: var(--panel);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    z-index: 1000;
+    min-width: 150px;
+    user-select: none;
+  }
+  .ctx-item {
+    padding: 7px 12px;
+    font-size: 12px;
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .ctx-item:hover { background: var(--panel-3); }
+  .ctx-item.danger { color: var(--danger-2); }
+  .ctx-item.danger:hover { background: var(--danger); color: white; }
+  .ctx-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+  /* ===== Loading overlay (apenas sobre a sidebar de sources) ===== */
+  .loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: var(--panel);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 18px;
+    border-radius: inherit;
+    transition: opacity 280ms ease, visibility 280ms ease;
+  }
+  .loading-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .loading-spinner {
+    width: 42px;
+    height: 42px;
+    position: relative;
+  }
+  .loading-spinner::before,
+  .loading-spinner::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid transparent;
+  }
+  .loading-spinner::before {
+    border-top-color: var(--success);
+    border-right-color: var(--success);
+    animation: spin 900ms linear infinite;
+  }
+  .loading-spinner::after {
+    border: 3px solid var(--border);
+    opacity: 0.4;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .loading-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.5px;
+  }
+  .loading-brand .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 12px var(--success);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.4; transform: scale(0.85); }
+    50%      { opacity: 1;   transform: scale(1.1); }
+  }
+  .loading-text {
+    font-size: 13px;
+    color: var(--text-2);
+    letter-spacing: 0.3px;
+  }
+  .loading-dots::after {
+    content: '';
+    display: inline-block;
+    width: 1.2em;
+    text-align: left;
+    animation: dots 1.4s steps(4, end) infinite;
+  }
+  @keyframes dots {
+    0%   { content: ''; }
+    25%  { content: '.'; }
+    50%  { content: '..'; }
+    75%  { content: '...'; }
+  }
+

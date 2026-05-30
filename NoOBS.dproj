@@ -205,7 +205,17 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <RcItem Include="ui\index.html">
             <ContainerId>ResourceItem</ContainerId>
             <ResourceType>RCDATA</ResourceType>
-            <ResourceId>UI</ResourceId>
+            <ResourceId>UIHTML</ResourceId>
+        </RcItem>
+        <RcItem Include="ui\styles.css">
+            <ContainerId>ResourceItem</ContainerId>
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>UICSS</ResourceId>
+        </RcItem>
+        <RcItem Include="ui\app.js">
+            <ContainerId>ResourceItem</ContainerId>
+            <ResourceType>RCDATA</ResourceType>
+            <ResourceId>UIJS</ResourceId>
         </RcItem>
         <RcItem Include="ui\amd.png">
             <ResourceType>RCDATA</ResourceType>

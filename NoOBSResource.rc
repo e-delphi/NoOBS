@@ -1,4 +1,6 @@
-UI RCDATA "ui\\index.html"
+UIHTML RCDATA "ui\\index.html"
+UICSS RCDATA "ui\\styles.css"
+UIJS RCDATA "ui\\app.js"
 AMD RCDATA "ui\\amd.png"
 NVIDIA RCDATA "ui\\nvidia.png"
 INTEL RCDATA "ui\\intel.png"

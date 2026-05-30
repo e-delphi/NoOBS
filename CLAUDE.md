@@ -42,13 +42,13 @@ exatamente no lugar onde libobs espera.
 - **libavformat/avcodec/avutil/swscale** (FFmpeg 7.x) carregadas
   in-process via `external delayed`. Bundled pelo OBS portátil.
 - **Indy** (`TIdHTTPServer`) — RTL.
-- **HTML/CSS/JS puro** (sem framework) embutido como `RCDATA "UI"`.
+- **HTML/CSS/JS puro** (sem framework) embutido como RCDATA (UIHTML/UICSS/UIJS).
 
 ## Estrutura do projeto
 
 ```
 src/      ← .pas (todo código Delphi)
-ui/       ← index.html (compilado como RCDATA)
+ui/       ← index.html + styles.css + app.js (compilados como RCDATA)
 exe/      ← runtime: build output em bin/64bit/ + OBS bundled
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -99,9 +99,15 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 
-A UI HTML/CSS/JS está em `ui/index.html`. É compilada via `NoOBSResource.rc`
-em `NoOBS.dres` e carregada por `WebView.NavigateToString`. Não há
-dependência de arquivo em runtime.
+A UI vive em `ui/` separada por tipo: `index.html` (shell + markup),
+`styles.css` e `app.js`. Os três são embutidos como RCDATA
+(`UIHTML`/`UICSS`/`UIJS`) via `NoOBSResource.rc` → `NoOBS.dres`. No startup,
+`OBSUI.ExtractUiHtmlToDisk` extrai os três pra `%LOCALAPPDATA%\NoOBS\ui\` e a
+UI é servida via `SetVirtualHostNameToFolderMapping` num origin
+`https://noobs.app` real (ver pegadinha #16 — não `NavigateToString`). O
+`index.html` referencia os assets por URL relativa (`<link href="styles.css">`,
+`<script src="app.js">`), que resolvem contra esse origin. Não há dependência
+de arquivo externo em runtime — tudo vem do `.exe`.
 
 ### Mensageria UI ↔ Delphi
 
@@ -368,11 +374,25 @@ OBS portátil. Se o OBS subir de major (61→62, etc.), atualizar as
 constantes `LIB_*` em `FFmpegLib.pas` e revalidar offsets de struct
 (pegadinha #26).
 
-### 16. WebView2 e `file://`
+### 16. WebView2 servido via virtual host (origin `https://noobs.app`)
 
-`NavigateToString` (que usamos) não tem origem de URL. `file://` e
-URLs relativas não funcionam. Tudo que precisa ser servido (vídeos,
-thumbs) vai pelo `OBSPlayer` que sobe um HTTP em 127.0.0.1:ephemeral.
+A UI **NÃO usa mais `NavigateToString`** (que dava origin opaco
+"about:blank" — a Notification API exige contexto seguro e falhava
+silencioso). Hoje `OBSUI.StartNavigate` extrai os RCDATA pra
+`%LOCALAPPDATA%\NoOBS\ui\`, mapeia a pasta via
+`SetVirtualHostNameToFolderMapping('noobs.app', folder, ALLOW)` e navega pra
+`https://noobs.app/index.html`. Resultado: origin `https://` **real**, então
+Notification API funciona e **URLs relativas resolvem** — por isso a UI pôde
+ser dividida em `index.html` + `styles.css` + `app.js` (referenciados por
+`<link>`/`<script src>`) sem bundler nem passo de concatenação; o WebView2
+serve cada arquivo do disco mapeado.
+
+Um segundo host `https://cache.noobs.app` mapeia a pasta de cache
+(`%LOCALAPPDATA%\NoOBS\cache`) com `ACCESS_KIND_DENY_CORS` (= 2, serve com
+headers `Access-Control-Allow-*`) pra o waveform fazer `fetch()` +
+`decodeAudioData` das M4A sem mixed content (UI roda em `https://`). Os
+vídeos em si continuam servidos pelo `OBSPlayer` (HTTP em
+127.0.0.1:ephemeral) com range requests pra streaming.
 
 ### 17. Port 0 = ephemeral
 

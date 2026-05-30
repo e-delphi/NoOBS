@@ -1,5 +1,5 @@
 ﻿{
-  OBSUI — host WebView2 que carrega a UI embutida como resource RCDATA "UI".
+  OBSUI — host WebView2 que carrega a UI embutida (RCDATA UIHTML/UICSS/UIJS).
   Baseado em NV.dpr (Eduardo, 15/03/2026), reduzido para o nosso caso.
 
   Mantido:
@@ -435,32 +435,25 @@ begin
   Result := IncludeTrailingPathDelimiter(AppData) + 'NoOBS\ui';
 end;
 
-function ExtractUiHtmlToDisk: string;
-// Escreve o RCDATA 'UI' em <ui-folder>\index.html. Retorna o folder
-// (sem o nome do arquivo). String vazia se algo falhar.
+function WriteUiResourceToFile(const AResName, AFolder, AFileName: string): Boolean;
+// Le um RCDATA (UTF-8) e grava como arquivo em <AFolder>\<AFileName>.
+// UTF-8 sem BOM — assets web (css/js) nao querem BOM. False se a resource
+// faltar/vier vazia ou a escrita falhar (sempre logado).
 var
-  Folder, FilePath, Html: string;
+  Content, FilePath: string;
   Bytes: TBytes;
   Stream: TFileStream;
 begin
-  Result := '';
-  Html := LoadHtmlFromResource('UI');
-  if Html = '' then
+  Result := False;
+  Content := LoadHtmlFromResource(AResName);
+  if Content = '' then
   begin
-    Log('UI: resource "UI" RCDATA nao encontrada no exe.');
+    Log('UI: resource "%s" RCDATA nao encontrada (ou vazia) no exe.', [AResName]);
     Exit;
   end;
-
-  Folder := GetUiFolderPath;
-  if not ForceDirectories(Folder) then
-  begin
-    Log('UI: nao consegui criar pasta "%s".', [Folder]);
-    Exit;
-  end;
-
-  FilePath := IncludeTrailingPathDelimiter(Folder) + 'index.html';
+  FilePath := IncludeTrailingPathDelimiter(AFolder) + AFileName;
   try
-    Bytes := TEncoding.UTF8.GetBytes(Html);
+    Bytes := TEncoding.UTF8.GetBytes(Content);
     Stream := TFileStream.Create(FilePath, fmCreate);
     try
       if Length(Bytes) > 0 then
@@ -468,11 +461,39 @@ begin
     finally
       Stream.Free;
     end;
-    Result := Folder;
+    Result := True;
   except
     on E: Exception do
-      Log('UI: falha escrevendo index.html: %s', [E.Message]);
+      Log('UI: falha escrevendo "%s": %s', [AFileName, E.Message]);
   end;
+end;
+
+function ExtractUiHtmlToDisk: string;
+// Extrai os 3 RCDATA da UI pra <ui-folder>: UIHTML->index.html,
+// UICSS->styles.css, UIJS->app.js. O index.html referencia os outros dois
+// por URL relativa (<link href="styles.css">, <script src="app.js">), que
+// resolvem porque a UI e servida via SetVirtualHostNameToFolderMapping com
+// origin https://noobs.app real (NAO via NavigateToString). Retorna o
+// folder; '' se o index.html (obrigatorio) falhar.
+var
+  Folder: string;
+begin
+  Result := '';
+  Folder := GetUiFolderPath;
+  if not ForceDirectories(Folder) then
+  begin
+    Log('UI: nao consegui criar pasta "%s".', [Folder]);
+    Exit;
+  end;
+
+  // index.html e obrigatorio — sem ele nao ha o que navegar.
+  if not WriteUiResourceToFile('UIHTML', Folder, 'index.html') then Exit;
+  // CSS/JS: se faltarem, a UI sobe quebrada, mas seguimos com log claro
+  // (melhor que abortar o app inteiro por causa de um asset).
+  WriteUiResourceToFile('UICSS', Folder, 'styles.css');
+  WriteUiResourceToFile('UIJS',  Folder, 'app.js');
+
+  Result := Folder;
 end;
 
 procedure StartNavigate;

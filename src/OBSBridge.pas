@@ -2795,8 +2795,46 @@ begin
       Obj, StreamObj: TJSONObject;
       Streams: TJSONArray;
       S: TStreamInfo;
+      CachedStr: string;
+      Cached: TJSONValue;
+      CachedObj: TJSONObject;
+      Vsz: TJSONValue;
+      CurSz: Int64;
     begin
       if IsShuttingDown then Exit;
+
+      // Cache hit? O Probe (find_stream_info) e caro em arquivos grandes —
+      // o resultado fica cacheado no <hash>.json e e reusado na reabertura.
+      // Valida pelo tamanho do arquivo (gravacao e imutavel, mas defensivo).
+      CachedStr := OBSPlayer.LoadMetaSubObjectJson(APath, 'videoInfo');
+      if CachedStr <> '' then
+      begin
+        Cached := TJSONObject.ParseJSONValue(CachedStr);
+        if Cached is TJSONObject then
+        begin
+          CachedObj := TJSONObject(Cached);
+          Vsz := CachedObj.GetValue('size');
+          try CurSz := TFile.GetSize(APath); except CurSz := -1; end;
+          if (Vsz is TJSONNumber) and (CurSz > 0) and
+             (TJSONNumber(Vsz).AsInt64 = CurSz) then
+          begin
+            // O cache guarda id/fileName de quando foi criado. Apos um
+            // rename, o conteudo (hash) e o mesmo mas o caminho mudou —
+            // sobrescreve pra bater com o request atual. Sem isso, a UI ve
+            // data.id != currentId e entra em LOOP re-pedindo (cache hit =
+            // resposta instantanea = loop apertado, disco a 8 MB/s).
+            CachedObj.RemovePair('id').Free;
+            CachedObj.AddPair('id', APath);
+            CachedObj.RemovePair('fileName').Free;
+            CachedObj.AddPair('fileName', ExtractFileName(APath));
+            TThread.Queue(nil, procedure begin PostOwned(CachedObj); end);
+            Exit;  // CachedObj passa a ser do PostOwned
+          end;
+          CachedObj.Free;  // stale — reprobe
+        end
+        else if Cached <> nil then Cached.Free;
+      end;
+
       Ok := False;
       try Ok := Probe(APath, Report); except end;
       if IsShuttingDown then Exit;
@@ -2870,6 +2908,9 @@ begin
         Obj.AddPair('layout', LayoutObj);
       end;
 
+      // Cacheia a mensagem montada (probe + layout) no <hash>.json pra
+      // acelerar reaberturas. ToJSON nao consome Obj.
+      OBSPlayer.SaveMetaSubObjectJson(APath, 'videoInfo', Obj.ToJSON);
       TThread.Queue(nil, procedure begin PostOwned(Obj); end);
     end).Start;
 end;
@@ -2877,7 +2918,8 @@ end;
 procedure HandleRequestWaveform(const APath: string; ABuckets: Integer);
 // Calcula peaks da 1a faixa de audio via libav (em worker thread) e
 // envia pra UI como JSON. UI renderiza as barras embaixo do seek bar.
-// Sem cache em arquivo por enquanto — cada open recompute (~500ms-2s).
+// O resultado e cacheado no <hash>.json (chave 'waveform') — decodar o
+// audio inteiro custa ~500ms-2s, entao reaberturas vem do cache.
 begin
   if APath = '' then Exit;
   if not TFile.Exists(APath) then Exit;
@@ -2891,8 +2933,37 @@ begin
       i: Integer;
       Obj: TJSONObject;
       Arr: TJSONArray;
+      CachedStr: string;
+      Cached: TJSONValue;
+      CachedObj: TJSONObject;
+      Vb: TJSONValue;
     begin
       if IsShuttingDown then Exit;
+
+      // Cache hit? (so reusa se o numero de buckets bate com o pedido).
+      CachedStr := OBSPlayer.LoadMetaSubObjectJson(APath, 'waveform');
+      if CachedStr <> '' then
+      begin
+        Cached := TJSONObject.ParseJSONValue(CachedStr);
+        if Cached is TJSONObject then
+        begin
+          CachedObj := TJSONObject(Cached);
+          Vb := CachedObj.GetValue('buckets');
+          if (Vb is TJSONNumber) and (TJSONNumber(Vb).AsInt = ABuckets) then
+          begin
+            // Sobrescreve o id pro caminho atual (apos rename, o cache
+            // guarda o id antigo e o JS ignoraria a resposta — waveform
+            // nao renderizaria). Os peaks sao do conteudo, validos.
+            CachedObj.RemovePair('id').Free;
+            CachedObj.AddPair('id', APath);
+            TThread.Queue(nil, procedure begin PostOwned(CachedObj); end);
+            Exit;  // CachedObj passa a ser do PostOwned
+          end;
+          CachedObj.Free;  // contagem de buckets diferente — recomputa
+        end
+        else if Cached <> nil then Cached.Free;
+      end;
+
       Ok := False;
       try Ok := FFmpegOps.ComputeAudioPeaks(APath, ABuckets, Peaks); except end;
       if IsShuttingDown then Exit;
@@ -2905,11 +2976,14 @@ begin
       Obj := TJSONObject.Create;
       Obj.AddPair('type', 'waveform_ready');
       Obj.AddPair('id', APath);
+      Obj.AddPair('buckets', TJSONNumber.Create(ABuckets)); // pra validar o cache
       Arr := TJSONArray.Create;
       for i := 0 to High(Peaks) do
         Arr.AddElement(TJSONNumber.Create(Peaks[i]));
       Obj.AddPair('peaks', Arr);
 
+      // Cacheia no <hash>.json pra acelerar reaberturas.
+      OBSPlayer.SaveMetaSubObjectJson(APath, 'waveform', Obj.ToJSON);
       TThread.Queue(nil, procedure begin PostOwned(Obj); end);
     end).Start;
 end;

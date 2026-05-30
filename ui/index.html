@@ -5474,13 +5474,18 @@ const RecordingSounds = {
 // Custo runtime: zero. Barras sao DOM estatico painted pelo compositor.
 // =====================================================================
 const Waveform = {
-  cache: new Map(),     // recId → array de peaks
+  cache: new Map(),     // recId → array de peaks (resolucao de armazenamento)
   currentRecId: null,
-  // 500 buckets — pra video de 30 min, ~3.6s por bucket (vs 18s com
-  // 100). Visualmente cada barra fica ~1.5px em seek bar de 800px,
-  // o que com gap minimo da o aspecto de waveform continua estilo
-  // SoundCloud em vez de tracinhos isolados.
-  BUCKETS: 500,
+  // Resolucao de ARMAZENAMENTO (nao de exibicao). O backend decodifica o
+  // audio uma vez e compacta nesta quantidade; o cache guarda isso. Na
+  // hora de renderizar, _render faz downsample pra largura REAL em pixels
+  // (PX_PER_BAR), entao a densidade visual fica consistente em qualquer
+  // duracao e qualquer largura (janela/fullscreen) SEM recomputar. 2000 e
+  // mais que qualquer seek bar em px, entao nunca falta detalhe na tela.
+  BUCKETS: 2000,
+  // Largura alvo de cada barra (barra + gap) em px. ~2px da o aspecto de
+  // waveform continuo estilo SoundCloud.
+  PX_PER_BAR: 2,
 
   // Chamado em Player.play quando troca de gravacao. Se ja temos peaks
   // em cache, renderiza instantaneo. Senao dispara request_waveform.
@@ -5503,9 +5508,18 @@ const Waveform = {
     if (this.currentRecId === data.id) this._render(data.peaks);
   },
 
-  _render(peaks) {
+  _render(storedPeaks) {
     const el = document.getElementById('playerWaveform');
-    if (!el || !peaks || peaks.length === 0) return;
+    if (!el || !storedPeaks || storedPeaks.length === 0) return;
+    // Mostra ANTES de medir: o elemento usa [hidden] (display:none), e
+    // display:none zera clientWidth. O overlay do player e opacity/
+    // visibility (sempre no layout), entao com o waveform visivel a
+    // largura ja reflete o seek bar.
+    el.hidden = false;
+    // Downsample da resolucao de ARMAZENAMENTO (BUCKETS) pra quantidade de
+    // barras que cabem na largura REAL do elemento — densidade visual
+    // consistente em qualquer duracao/largura.
+    const peaks = this._downsampleToWidth(storedPeaks, el);
     // Normaliza pelo pico maximo (ocupa altura total) pra audio
     // baixo tambem mostrar barras visiveis.
     let maxPeak = 0;
@@ -5514,8 +5528,7 @@ const Waveform = {
     if (maxPeak < 0.0001) maxPeak = 0.0001;
 
     const widthPct = 100 / peaks.length;
-    // Com 500+ buckets, cada slot fica ~1.5px em seek bar de 800px.
-    // Bar width = 88% do slot = ~1.3px com gap minimo.
+    // Bar width = 88% do slot (deixa um gap minimo entre barras).
     const barWidth = widthPct * 0.88;
     // Curva gamma (pow 0.5 = sqrt) na razao peak/max — amplifica
     // pequenas variacoes de amplitude que sao tipicas em audio com
@@ -5539,12 +5552,50 @@ const Waveform = {
     el.hidden = false;
   },
 
+  // Agrega o array guardado (max por slot) pro numero de barras que cabem
+  // na largura atual. Max-of-max e idempotente, entao nao perde picos. Se
+  // a tela comporta mais barras que o stored, usa o stored como esta (nao
+  // da pra inventar detalhe).
+  _downsampleToWidth(stored, el) {
+    let w = el.clientWidth || el.offsetWidth || 0;
+    if (w <= 0) w = 800;  // ainda sem layout: fallback razoavel
+    const target = Math.max(1, Math.floor(w / this.PX_PER_BAR));
+    if (target >= stored.length) return stored;
+    const out = new Array(target);
+    for (let i = 0; i < target; i++) {
+      const start = Math.floor(i * stored.length / target);
+      let end = Math.floor((i + 1) * stored.length / target);
+      if (end <= start) end = start + 1;
+      let m = 0;
+      for (let j = start; j < end; j++) if (stored[j] > m) m = stored[j];
+      out[i] = m;
+    }
+    return out;
+  },
+
+  // Re-renderiza a partir do cache pra largura nova (resize/fullscreen).
+  // NAO recomputa no backend — so re-agrega o array ja guardado.
+  relayout() {
+    if (!this.currentRecId) return;
+    const el = document.getElementById('playerWaveform');
+    if (!el || el.hidden) return;
+    const peaks = this.cache.get(this.currentRecId);
+    if (peaks) this._render(peaks);
+  },
+
   hide() {
     this.currentRecId = null;
     const el = document.getElementById('playerWaveform');
     if (el) { el.hidden = true; el.innerHTML = ''; }
   }
 };
+
+// Re-agrega o waveform pra nova largura em resize/fullscreen (debounce).
+// So age se o player estiver aberto (relayout checa currentRecId/hidden).
+window.addEventListener('resize', () => {
+  clearTimeout(Waveform._resizeTimer);
+  Waveform._resizeTimer = setTimeout(() => Waveform.relayout(), 120);
+});
 
 // =====================================================================
 // Toast (notificacao nao-bloqueante)
@@ -5662,6 +5713,17 @@ const HOTKEY_KEY_GROUPS = [
       'NumpadAdd','NumpadSubtract','NumpadMultiply','NumpadDivide','NumpadDecimal']
   },
   { labelKey: 'settings.hotkey.groups.chars', keys: ['-','=',',','.',';','/','`','[','\\',']',"'"] },
+  // Teclas de midia (controle de reproducao em teclados multimidia). Aqui
+  // cada item e um objeto { k, labelKey } em vez de string: o VALOR (k) e o
+  // nome canonico que o backend entende ('MediaPlayPause' etc.), e o LABEL
+  // visivel e traduzido via labelKey (com simbolo). Normalmente usadas SEM
+  // modificador.
+  { labelKey: 'settings.hotkey.groups.media', keys: [
+      { k: 'MediaPlayPause', labelKey: 'settings.hotkey.media.playPause' },
+      { k: 'MediaStop',      labelKey: 'settings.hotkey.media.stop' },
+      { k: 'MediaPrev',      labelKey: 'settings.hotkey.media.prev' },
+      { k: 'MediaNext',      labelKey: 'settings.hotkey.media.next' },
+  ]},
 ];
 const HOTKEY_MODIFIERS = ['Ctrl','Shift','Alt','Win'];
 function isHotkeyModifier(k) { return HOTKEY_MODIFIERS.includes(k); }
@@ -6319,7 +6381,14 @@ const Settings = {
     HOTKEY_KEY_GROUPS.forEach(group => {
       const og = document.createElement('optgroup');
       og.label = T(group.labelKey);
-      group.keys.forEach(key => og.appendChild(this._makeOpt(key, key)));
+      // Item pode ser string (value == label) ou objeto { k, labelKey }
+      // (value = k canonico, label traduzido). Ver HOTKEY_KEY_GROUPS.
+      group.keys.forEach(key => {
+        if (typeof key === 'string')
+          og.appendChild(this._makeOpt(key, key));
+        else
+          og.appendChild(this._makeOpt(key.k, T(key.labelKey)));
+      });
       sel.appendChild(og);
     });
     if (prevValue) sel.value = prevValue;
@@ -6980,8 +7049,9 @@ const Player = {
   },
 
   // -- Painel lateral de informacoes (ffprobe) --
-  infoLoaded: null,    // id do video pra qual ja temos dados
+  infoLoaded: null,        // id do video pra qual ja temos dados
   infoLoading: false,
+  infoRequestedId: null,   // id do ultimo request_video_info (guard anti-loop)
   toggleInfoPanel() {
     const panel = document.getElementById('playerInfoPanel');
     const btn = document.getElementById('playerInfo');
@@ -7009,6 +7079,7 @@ const Player = {
     if (!this.currentId) return;
     if (this.infoLoading) return;
     this.infoLoading = true;
+    this.infoRequestedId = this.currentId;  // guard anti-loop (ver renderInfo)
     const body = document.getElementById('playerInfoBody');
     body.innerHTML =
       '<div class="player-info-loading">' +
@@ -7018,12 +7089,14 @@ const Player = {
   renderInfo(data) {
     if (!data) return;
     if (data.id !== this.currentId) {
-      // Resposta de um video antigo (user trocou de video enquanto a
-      // info carregava). Libera o lock — senao infoLoading ficaria preso
-      // em true e o painel do video atual nunca carregaria. Se o painel
-      // esta aberto, re-pede a info do video atual agora.
+      // Resposta com id != video atual. Libera o lock (senao infoLoading
+      // ficaria preso e o painel nunca carregaria).
       this.infoLoading = false;
-      if (this.currentId &&
+      // Re-pede SO se o video atual mudou desde o ultimo request (resposta
+      // velha de outro video, trocado durante o load). Se o id divergente
+      // veio do PROPRIO request atual (ex.: backend devolvendo id de cache
+      // desatualizado), NAO re-pede — evitaria um loop apertado.
+      if (this.currentId && this.currentId !== this.infoRequestedId &&
           document.getElementById('playerInfoPanel').classList.contains('open'))
         this.requestInfo();
       return;

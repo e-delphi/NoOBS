@@ -118,7 +118,14 @@
         "special": "Special",
         "arrows": "Arrows",
         "numpad": "Numpad",
-        "chars": "Characters"
+        "chars": "Characters",
+        "media": "Media"
+      },
+      "media": {
+        "playPause": "⏯ Play/Pause",
+        "stop": "⏹ Stop",
+        "prev": "⏮ Previous track",
+        "next": "⏭ Next track"
       },
       "invalidSpec": "Invalid hotkey — pick at least one main key (letter, number, F1-F12, Pause, etc).",
       "reserved": {

@@ -67,6 +67,15 @@ function LoadRecordingMeta(const APath: string;
 procedure SaveRecordingMeta(const APath: string;
   const AMeta: TRecordingMeta);
 
+// Cache generico de sub-objeto JSON no <hash>.json (merge — preserva o
+// layout e as outras chaves). Usado pra cachear o resultado do Probe
+// (info do video) e do waveform, evitando reprocessar a cada abertura.
+//   LoadMetaSubObjectJson: devolve o texto JSON do sub-objeto, '' se nao houver.
+//   SaveMetaSubObjectJson: mescla AValueJson (parseado) sob AKey.
+// Interface em string de proposito (nao expoe System.JSON aqui).
+function LoadMetaSubObjectJson(const APath, AKey: string): string;
+procedure SaveMetaSubObjectJson(const APath, AKey, AValueJson: string);
+
 // Remove arquivos de cache que nao pertencem a nenhuma das gravacoes
 // listadas. ALivePaths sao os paths das gravacoes que ainda existem.
 procedure GarbageCollectCache(const ALivePaths: TArray<string>);
@@ -135,6 +144,12 @@ var
   ThumbMap: TDictionary<string, TBytes> = nil;
   ThumbVersion: Integer = 0;
   ThumbLock: TCriticalSection = nil;
+
+  // Serializa leitura/escrita do <hash>.json (layout + cache de probe e
+  // waveform). Sem isso, dois saves concorrentes (info + waveform) fazem
+  // read-modify-write em corrida e um perde a chave do outro. Criado no
+  // initialization (sempre disponivel, antes de qualquer op de meta).
+  MetaLock: TCriticalSection = nil;
 
 function ExeDir: string;
 begin
@@ -342,7 +357,9 @@ begin
   MetaFile := MetaFilePath(APath);
   if not FileExists(MetaFile) then Exit;
 
+  if MetaLock <> nil then MetaLock.Enter;
   try
+   try
     Content := TFile.ReadAllText(MetaFile, TEncoding.UTF8);
     Root := TJSONObject.ParseJSONValue(Content);
     if Root is TJSONObject then
@@ -388,10 +405,13 @@ begin
       Root.Free;
     end
     else if Root <> nil then Root.Free;
-  except
-    on E: Exception do
-      Log('LoadRecordingMeta: erro lendo %s: %s',
-        [ExtractFileName(MetaFile), E.Message]);
+   except
+     on E: Exception do
+       Log('LoadRecordingMeta: erro lendo %s: %s',
+         [ExtractFileName(MetaFile), E.Message]);
+   end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
   end;
 end;
 
@@ -403,8 +423,13 @@ var
   Arr: TJSONArray;
   i: Integer;
 begin
+  // NOTA: sobrescreve o <hash>.json (duration/canvas/monitors). E seguro
+  // porque so e chamado no stop da gravacao, ANTES de qualquer cache de
+  // videoInfo/waveform (que sao salvos via merge depois, sob MetaLock).
   MetaFile := MetaFilePath(APath);
+  if MetaLock <> nil then MetaLock.Enter;
   try
+   try
     ForceDirectories(ExtractFilePath(MetaFile));
     Obj := TJSONObject.Create;
     try
@@ -436,10 +461,86 @@ begin
     finally
       Obj.Free;
     end;
-  except
-    on E: Exception do
-      Log('SaveRecordingMeta: erro escrevendo %s: %s',
-        [ExtractFileName(MetaFile), E.Message]);
+   except
+     on E: Exception do
+       Log('SaveRecordingMeta: erro escrevendo %s: %s',
+         [ExtractFileName(MetaFile), E.Message]);
+   end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
+  end;
+end;
+
+function LoadMetaSubObjectJson(const APath, AKey: string): string;
+var
+  MetaFile, Content: string;
+  Root, V: TJSONValue;
+begin
+  Result := '';
+  MetaFile := MetaFilePath(APath);
+  if MetaLock <> nil then MetaLock.Enter;
+  try
+    if not FileExists(MetaFile) then Exit;
+    try
+      Content := TFile.ReadAllText(MetaFile, TEncoding.UTF8);
+      Root := TJSONObject.ParseJSONValue(Content);
+      if Root <> nil then
+      try
+        if Root is TJSONObject then
+        begin
+          V := TJSONObject(Root).GetValue(AKey);
+          if V <> nil then Result := V.ToJSON;
+        end;
+      finally
+        Root.Free;
+      end;
+    except
+      on E: Exception do
+        Log('LoadMetaSubObjectJson(%s): %s', [AKey, E.Message]);
+    end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
+  end;
+end;
+
+procedure SaveMetaSubObjectJson(const APath, AKey, AValueJson: string);
+var
+  MetaFile, Content: string;
+  Root: TJSONObject;
+  Parsed, NewVal: TJSONValue;
+  OldPair: TJSONPair;
+begin
+  if AValueJson = '' then Exit;
+  NewVal := TJSONObject.ParseJSONValue(AValueJson);
+  if NewVal = nil then Exit;  // valor invalido — nao grava
+  Root := nil;
+  MetaFile := MetaFilePath(APath);
+  if MetaLock <> nil then MetaLock.Enter;
+  try
+    try
+      // Le o .json existente pra preservar layout + outras chaves.
+      if FileExists(MetaFile) then
+      begin
+        Content := TFile.ReadAllText(MetaFile, TEncoding.UTF8);
+        Parsed := TJSONObject.ParseJSONValue(Content);
+        if Parsed is TJSONObject then Root := TJSONObject(Parsed)
+        else if Parsed <> nil then Parsed.Free;
+      end;
+      if Root = nil then Root := TJSONObject.Create;
+      OldPair := Root.RemovePair(AKey);
+      if OldPair <> nil then OldPair.Free;
+      Root.AddPair(AKey, NewVal);
+      NewVal := nil;  // Root assumiu a posse
+      ForceDirectories(ExtractFilePath(MetaFile));
+      TFile.WriteAllText(MetaFile, Root.ToJSON, TEncoding.UTF8);
+    except
+      on E: Exception do
+        Log('SaveMetaSubObjectJson(%s): %s', [AKey, E.Message]);
+    end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
+    Root.Free;     // libera Root (e NewVal se foi adicionado)
+    NewVal.Free;   // libera NewVal so se NAO foi adicionado (senao e nil)
   end;
 end;
 
@@ -723,12 +824,6 @@ end;
 
 procedure ServeFileWithRange(AReq: TIdHTTPRequestInfo;
   AResp: TIdHTTPResponseInfo; const AFilePath: string);
-const
-  // Tamanho maximo servido por resposta. Mesmo num range aberto
-  // ("bytes=N-"), respondemos no maximo isso (206 parcial) e o browser
-  // re-pede os proximos blocos conforme reproduz. Limita IO/latencia por
-  // requisicao -> seek quase instantaneo mesmo em HD/SSD lento.
-  SERVE_CHUNK_MAX = 8 * 1024 * 1024;  // 8 MB
 var
   TotalSize, RangeStart, RangeEnd, ContentLen, SuffixLen: Int64;
   RangeHdr, S, StartStr: string;
@@ -798,11 +893,12 @@ begin
         Format('bytes */%d', [TotalSize]);
       Exit;
     end;
-    // Cap: nunca serve mais que SERVE_CHUNK_MAX por resposta. Servir menos
-    // bytes que o range pedido e valido (RFC 7233) — o Chromium re-pede o
-    // proximo range. Content-Range reflete o que REALMENTE foi servido.
-    if (RangeEnd - RangeStart + 1) > SERVE_CHUNK_MAX then
-      RangeEnd := RangeStart + SERVE_CHUNK_MAX - 1;
+    // Serve EXATAMENTE o range pedido (sem cap). O streaming do
+    // TRangeFileStream ja mantem a RAM baixa e o seek instantaneo — nao
+    // precisamos truncar. Cap por chunk QUEBRAVA MP4 com moov no fim
+    // (transcode): o Chromium pede a cauda do arquivo pra achar o moov;
+    // servir so o inicio da janela pedida nunca entregava o moov e o
+    // player entrava em loop re-pedindo (disco a 8 MB/s sem parar).
     AResp.ResponseNo := 206;
     AResp.CustomHeaders.Values['Content-Range'] :=
       Format('bytes %d-%d/%d', [RangeStart, RangeEnd, TotalSize]);
@@ -997,5 +1093,14 @@ begin
   FreeAndNil(ThumbLock);
   ServerPort := 0;
 end;
+
+initialization
+  // Lock do <hash>.json criado cedo (antes de qualquer op de meta, que so
+  // acontecem depois do StartPlayerServer/scan). Serializa os read-modify-
+  // write do cache de probe/waveform.
+  MetaLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(MetaLock);
 
 end.

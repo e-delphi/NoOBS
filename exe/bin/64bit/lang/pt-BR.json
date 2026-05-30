@@ -118,7 +118,14 @@
         "special": "Especiais",
         "arrows": "Setas",
         "numpad": "Numpad",
-        "chars": "Caracteres"
+        "chars": "Caracteres",
+        "media": "Mídia"
+      },
+      "media": {
+        "playPause": "⏯ Reproduzir/Pausar",
+        "stop": "⏹ Parar",
+        "prev": "⏮ Faixa anterior",
+        "next": "⏭ Próxima faixa"
       },
       "invalidSpec": "Atalho inválido — selecione pelo menos uma tecla principal (letra, número, F1-F12, Pause, etc).",
       "reserved": {

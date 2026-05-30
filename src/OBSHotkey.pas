@@ -7,7 +7,8 @@
     Tecla: F1..F24, A..Z, 0..9, Space, Enter, Tab, Esc, Insert, Delete,
            Home, End, PageUp, PageDown, Arrows (Left/Right/Up/Down),
            Numpad0..Numpad9, NumpadAdd, NumpadSubtract, NumpadMultiply,
-           NumpadDivide, NumpadDecimal, Backquote, etc.
+           NumpadDivide, NumpadDecimal, Backquote,
+           MediaPlayPause, MediaStop, MediaPrev, MediaNext, etc.
 
   Exemplo: "Ctrl+Shift+F9" -> Modifiers=MOD_CONTROL or MOD_SHIFT, Vk=VK_F9
 
@@ -49,6 +50,17 @@ implementation
 
 uses
   System.SysUtils, System.StrUtils;
+
+const
+  // VKs das teclas de midia (controle de reproducao). Alguns RTLs antigos do
+  // Delphi nao expoem VK_MEDIA_* em Winapi.Windows; declaramos local (valores
+  // oficiais do Win32) pra garantir compilacao em qualquer versao. Sao
+  // registraveis via RegisterHotKey, normalmente SEM modificador (uso natural
+  // da tecla — apertar Play/Pause inicia/para a gravacao direto).
+  VKEY_MEDIA_NEXT_TRACK = $B0;
+  VKEY_MEDIA_PREV_TRACK = $B1;
+  VKEY_MEDIA_STOP       = $B2;
+  VKEY_MEDIA_PLAY_PAUSE = $B3;
 
 function VkToName(AVk: UINT): string;
 begin
@@ -94,6 +106,10 @@ begin
     VK_OEM_5:      Result := '\';
     VK_OEM_6:      Result := ']';
     VK_OEM_7:      Result := '''';
+    VKEY_MEDIA_PLAY_PAUSE: Result := 'MediaPlayPause';
+    VKEY_MEDIA_STOP:       Result := 'MediaStop';
+    VKEY_MEDIA_PREV_TRACK: Result := 'MediaPrev';
+    VKEY_MEDIA_NEXT_TRACK: Result := 'MediaNext';
   else
     Result := '';  // tecla nao mapeada
   end;
@@ -108,10 +124,30 @@ begin
   S := AName.Trim;
   if S = '' then Exit;
 
-  // Letras / digitos isolados.
+  // Letras / digitos isolados + pontuacao OEM (tudo single-char). Pegadinha:
+  // pra letra/digito Ord() == VK code, mas pra pontuacao NAO. Ex: Ord('-')=45
+  // que por acaso e VK_INSERT — sem o mapeamento abaixo, "Ctrl+-" round-trip
+  // (via FormatHotkey->VkToName) virava "Ctrl+Insert"; ';' (Ord=59) nem tem VK
+  // e o atalho sumia. Espelho exato dos VK_OEM_* de VkToName.
   if Length(S) = 1 then
   begin
-    Result := UINT(Ord(UpCase(S[1])));
+    case S[1] of
+      'A'..'Z', 'a'..'z', '0'..'9':
+                Result := UINT(Ord(UpCase(S[1])));
+      '-':      Result := VK_OEM_MINUS;
+      '=':      Result := VK_OEM_PLUS;
+      ',':      Result := VK_OEM_COMMA;
+      '.':      Result := VK_OEM_PERIOD;
+      ';':      Result := VK_OEM_1;
+      '/':      Result := VK_OEM_2;
+      '`':      Result := VK_OEM_3;
+      '[':      Result := VK_OEM_4;
+      '\':      Result := VK_OEM_5;
+      ']':      Result := VK_OEM_6;
+      '''':     Result := VK_OEM_7;
+    else
+      Result := 0;
+    end;
     Exit;
   end;
 
@@ -156,7 +192,11 @@ begin
   else if S = 'NUMPADSUBTRACT' then Result := VK_SUBTRACT
   else if S = 'NUMPADMULTIPLY' then Result := VK_MULTIPLY
   else if S = 'NUMPADDIVIDE'   then Result := VK_DIVIDE
-  else if S = 'NUMPADDECIMAL'  then Result := VK_DECIMAL;
+  else if S = 'NUMPADDECIMAL'  then Result := VK_DECIMAL
+  else if S = 'MEDIAPLAYPAUSE' then Result := VKEY_MEDIA_PLAY_PAUSE
+  else if S = 'MEDIASTOP'      then Result := VKEY_MEDIA_STOP
+  else if S = 'MEDIAPREV'      then Result := VKEY_MEDIA_PREV_TRACK
+  else if S = 'MEDIANEXT'      then Result := VKEY_MEDIA_NEXT_TRACK;
 end;
 
 function ParseHotkey(const ASpec: string): THotkeySpec;

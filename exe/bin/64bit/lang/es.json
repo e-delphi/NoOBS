@@ -118,7 +118,14 @@
         "special": "Especiales",
         "arrows": "Flechas",
         "numpad": "Teclado numérico",
-        "chars": "Caracteres"
+        "chars": "Caracteres",
+        "media": "Multimedia"
+      },
+      "media": {
+        "playPause": "⏯ Reproducir/Pausar",
+        "stop": "⏹ Detener",
+        "prev": "⏮ Pista anterior",
+        "next": "⏭ Pista siguiente"
       },
       "invalidSpec": "Atajo inválido — elige al menos una tecla principal (letra, número, F1-F12, Pause, etc).",
       "reserved": {

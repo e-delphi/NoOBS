@@ -789,6 +789,26 @@ do thumb (só precisamos de codecpar + time_base, que vêm do header MKV).
 O `Probe()` do painel de info fica intacto (precisa de mais detalhes:
 bitrate, `avg_frame_rate`).
 
+### 43. **`Ord(char)` ≠ VK code pra pontuação OEM (hotkey `Ctrl+;`/`Ctrl+-`)**
+
+`OBSHotkey.NameToVk` mapeia tecla→VK. Pro caso single-char tinha um atalho
+ingênuo: `Result := Ord(UpCase(S[1]))`. Pra **letra/dígito** isso é correto
+(`Ord('A')`=65=`VK_A`, `Ord('5')`=53=`VK_5`), mas pra **pontuação OEM NÃO**:
+o teclado usa `VK_OEM_*` que não casa com o ASCII do símbolo.
+
+Pior: o valor errado coincide com OUTRA tecla. `Ord('-')`=45=`VK_INSERT`,
+`Ord('.')`=46=`VK_DELETE`, `Ord('''')`=39=`VK_RIGHT`, `` Ord('`') ``=96=
+`VK_NUMPAD0`. Como `HandleSetHotkey` re-canoniza via `FormatHotkey`→`VkToName`
+antes de persistir, `Ctrl+-` round-tripava pra `Ctrl+Insert`, `Ctrl+.` pra
+`Ctrl+Delete`. E pra `;`/`,`/`=`/`/`/`[`/`\`/`]` o `Ord` não tem VK nenhum no
+`VkToName` → string vazia → o atalho era **salvo vazio** (sumia).
+
+**Solução**: no ramo `Length(S)=1` de `NameToVk`, um `case S[1] of` que só
+aplica `Ord(UpCase())` pra `'A'..'Z','a'..'z','0'..'9'` e mapeia a pontuação
+pros `VK_OEM_*` corretos — espelho exato do `VkToName` (inverso). O lado JS
+(`HOTKEY_KEY_GROUPS` grupo "chars") já mandava o símbolo certo; o bug era só
+no parse Delphi.
+
 ---
 
 ## Caches

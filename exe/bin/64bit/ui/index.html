@@ -177,7 +177,7 @@
                lista Settings.fpsPresets (0..N-1, step=1), nao o fps em si.
                Settings._currentFpsFromSlider faz a conversao indice -> fps.
                Lista padrao: [20, 30, 60, 90, ..., max do monitor]. -->
-          <span class="quality-end-label" id="settingsFpsMinLabel">20 fps</span>
+          <span class="quality-end-label" id="settingsFpsMinLabel" data-i18n="settings.fps.lessFluid">Menos fluido</span>
           <div class="slider-with-ticks">
             <input type="range" id="settingsRecordingFps"
                    min="0" max="2" step="1" value="1"
@@ -186,7 +186,7 @@
                  _populateFpsTicks com left = 7px + ratio * (100% - 14px). -->
             <div class="fps-ticks" id="fpsTicks"></div>
           </div>
-          <span class="quality-end-label" id="settingsFpsMaxLabel">60 fps</span>
+          <span class="quality-end-label" id="settingsFpsMaxLabel" data-i18n="settings.fps.moreFluid">Mais fluido</span>
         </div>
         <div class="settings-hint" id="settingsFpsHint">
           30 fps — suave, padrão de vídeo. Arquivo compacto.

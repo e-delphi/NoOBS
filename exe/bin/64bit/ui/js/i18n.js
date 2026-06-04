@@ -53,6 +53,33 @@ const I18n = {
     }
     return (cur === undefined) ? null : cur;
   },
+  // Allowlist minima pra data-i18n-html / data-i18n-list. Os bundles
+  // lang/*.json sao TRUSTED (source-controlled, escritos pelos devs),
+  // entao isto e defesa em profundidade: SE um dia traducoes virarem
+  // contribuicao da comunidade ou editaveis pelo usuario, marcacao
+  // perigosa (<script>, on*, href=javascript:) e removida — so as tags
+  // de formatacao basica sobrevivem, sem nenhum atributo. NAO e um
+  // sanitizador completo; a fonte continua sendo a fronteira de confianca.
+  _sanitizeHtml(html) {
+    const ALLOWED = { B:1, I:1, EM:1, STRONG:1, CODE:1, BR:1 };
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(html == null ? '' : html);
+    const walk = (node) => {
+      Array.from(node.childNodes).forEach(child => {
+        if (child.nodeType === 1) {
+          if (!ALLOWED[child.tagName]) {
+            child.replaceWith(document.createTextNode(child.textContent));
+          } else {
+            while (child.attributes.length)
+              child.removeAttribute(child.attributes[0].name);
+            walk(child);
+          }
+        }
+      });
+    };
+    walk(tpl.content);
+    return tpl.innerHTML;
+  },
   // Aplica traducao a todos os elementos com data-i18n* dentro de root.
   // Walk separado por tipo de atributo pra precisao.
   apply(root) {
@@ -63,10 +90,10 @@ const I18n = {
     });
     root.querySelectorAll('[data-i18n-html]').forEach(el => {
       // Variante que aceita HTML simples (<b>, <i>, <code>) — usado em
-      // textos longos do About modal. Limita risco mantendo bundles
-      // sob controle dos devs (nao vem de user input).
+      // textos longos do About modal. Bundles sao source-controlled;
+      // _sanitizeHtml e defesa em profundidade (ver nota la).
       const k = el.getAttribute('data-i18n-html');
-      if (k) el.innerHTML = this.t(k);
+      if (k) el.innerHTML = this._sanitizeHtml(this.t(k));
     });
     root.querySelectorAll('[data-i18n-title]').forEach(el => {
       const k = el.getAttribute('data-i18n-title');
@@ -91,7 +118,8 @@ const I18n = {
       const k = el.getAttribute('data-i18n-list');
       const arr = this.get(k);
       if (Array.isArray(arr))
-        el.innerHTML = arr.map(item => '<li>' + item + '</li>').join('');
+        el.innerHTML = arr.map(item =>
+          '<li>' + this._sanitizeHtml(item) + '</li>').join('');
     });
   },
 };

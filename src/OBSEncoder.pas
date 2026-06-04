@@ -317,20 +317,43 @@ const
 var
   Pref: string;
   Caps: TEncoderCaps;
+
+  // Max-dim do fallback automatico. A chain do SelectVideoEncoder e
+  // H.264 hw → x264 → AV1 hw → HEVC hw; como x264 esta SEMPRE presente,
+  // o fallback sempre aterrissa em H.264 hw (4096, se existir) ou x264
+  // (8192). Nunca chega em AV1/HEVC pelo fallback (x264 intercepta).
+  function FallbackMax: Integer;
+  begin
+    if Caps.H264Hw then Result := MAX_H264_HW else Result := MAX_OTHER;
+  end;
+
 begin
   Pref := LowerCase(GetConfigStr('codec', 'auto'));
-
-  if Pref = 'h264-hw' then Exit(MAX_H264_HW);
-  if (Pref = 'h264-sw') or (Pref = 'hevc-hw') or (Pref = 'av1-hw') then
-    Exit(MAX_OTHER);
-
-  // 'auto' (ou valor desconhecido): a chain priorizada e H.264 hw →
-  // x264 → AV1 → HEVC. Se h264-hw esta disponivel, vai bater nele
-  // primeiro e o limite efetivo e MAX_H264_HW. Sem h264-hw, cai em
-  // x264 que aceita o canvas maior.
   Caps := DetectEncoderCaps;
-  if Caps.H264Hw then Exit(MAX_H264_HW);
-  Result := MAX_OTHER;
+
+  // Espelha o encoder que SelectVideoEncoder vai REALMENTE criar — senao
+  // o clamp e o encoder podem discordar: pedir 'hevc-hw' (clamp 8192) mas,
+  // se o HEVC-hw nao existe, o fallback pega H.264 hw (max 4096) e o
+  // obs_output_start falha com canvas > 4096 (reintroduzia a pegadinha #7).
+  if Pref = 'h264-hw' then
+  begin
+    if Caps.H264Hw then Exit(MAX_H264_HW);
+    Exit(FallbackMax);
+  end;
+  if Pref = 'hevc-hw' then
+  begin
+    if Caps.HevcHw then Exit(MAX_OTHER);
+    Exit(FallbackMax);
+  end;
+  if Pref = 'av1-hw' then
+  begin
+    if Caps.Av1Hw then Exit(MAX_OTHER);
+    Exit(FallbackMax);
+  end;
+  if Pref = 'h264-sw' then Exit(MAX_OTHER);  // x264 sempre presente
+
+  // 'auto' (ou valor desconhecido): comeca do topo da chain = FallbackMax.
+  Result := FallbackMax;
 end;
 
 end.

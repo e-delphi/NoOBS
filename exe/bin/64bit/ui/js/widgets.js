@@ -215,8 +215,14 @@ const Waveform = {
   // Backend manda waveform_ready. Cacheamos e renderizamos.
   onReady(data) {
     if (!data || !data.id || !Array.isArray(data.peaks)) return;
-    this.cache.set(data.id, data.peaks);
-    if (this.currentRecId === data.id) this._render(data.peaks);
+    // Sanitiza cada elemento: o array vira parte de um style string em
+    // innerHTML (_render). Garante numeros finitos >= 0 — um valor
+    // nao-numerico (cache corrompido / mensagem forjada) viraria
+    // "height:NaN%" ou pior. Coercao defensiva na entrada.
+    const clean = data.peaks.map(p =>
+      (typeof p === 'number' && isFinite(p) && p >= 0) ? p : 0);
+    this.cache.set(data.id, clean);
+    if (this.currentRecId === data.id) this._render(clean);
   },
 
   _render(storedPeaks) {

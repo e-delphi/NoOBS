@@ -69,7 +69,9 @@ function BuildTrackNames(ATotalTracks: Integer;
 implementation
 
 uses
-  OBSLog;
+  Winapi.ActiveX,
+  OBSLog,
+  OBSLang;
 
 function CountTrue(const A: TArray<Boolean>): Integer;
 var i: Integer;
@@ -128,6 +130,16 @@ function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>
 // chamada pode travar 60s+. Rodamos em worker e damos 3s — se nao
 // retornar, devolve lista vazia (gravacao continua sem audio).
 // 3s e folga: caso saudavel retorna em <50ms.
+//
+// Por que e seguro chamar libobs FORA da main thread aqui (apesar da
+// pegadinha #3): o OBS Studio faz a MESMA sequencia (obs_get_source_
+// properties + obs_property_list_item_*) — vide OBSBasicSettings::
+// LoadAudioDevices. Essas funcoes nao tocam o render loop / video / output
+// ativo; sao lookup do source_info (imutavel pos-load), get_defaults e o
+// callback get_properties do plugin (enumeracao WASAPI). Alem disso, a
+// main thread fica BLOQUEADA no WaitForSingleObject abaixo enquanto o
+// worker roda — nao ha acesso libobs concorrente. A pegadinha #3 vale pras
+// chamadas de GRAFICOS/render, nao pra enumeracao de propriedades.
 const
   TIMEOUT_MS = 3000;
 var
@@ -141,15 +153,29 @@ begin
   Log('   enum %s: iniciando (timeout=%dms)...', [string(AKind), TIMEOUT_MS]);
   Worker := TThread.CreateAnonymousThread(
     procedure
+    var
+      ComOk: Boolean;
     begin
+      // CoInitializeEx NESTA thread: o get_properties do win-wasapi faz
+      // CoCreateInstance(MMDeviceEnumerator), que exige COM inicializado na
+      // thread chamadora. Mesmo padrao de WinAudioMeter/WinWebcam e do
+      // worker de DoRefreshAudio (OBSBridge). Sem isto, so funcionava por
+      // acaso quando havia um MTA do processo vivo cobrindo a thread
+      // (implicit MTA) — fragil e timing-dependent. MTA (0) pra casar com
+      // o resto do codigo.
+      ComOk := Succeeded(CoInitializeEx(nil, COINIT_MULTITHREADED));
       try
-        Output := EnumerateObsAudioDevicesRaw(AKind);
-      except
-        on E: Exception do
-        begin
-          SetLength(Output, 0);
-          Log('   enum %s: excecao no worker: %s', [string(AKind), E.Message]);
+        try
+          Output := EnumerateObsAudioDevicesRaw(AKind);
+        except
+          on E: Exception do
+          begin
+            SetLength(Output, 0);
+            Log('   enum %s: excecao no worker: %s', [string(AKind), E.Message]);
+          end;
         end;
+      finally
+        if ComOk then CoUninitialize;
       end;
     end);
   Worker.FreeOnTerminate := False;
@@ -423,7 +449,10 @@ begin
   SetLength(Result, ATotalTracks);
   if ATotalTracks <= 0 then Exit;
 
-  Result[0] := 'Mix';
+  // Nomes vao como metadata "title" do MKV (visiveis no player e em
+  // editores externos) — localizados via OBSLang (pegadinha: nunca
+  // hardcode texto visivel). Refletem o idioma ativo no momento da gravacao.
+  Result[0] := T('tracks.mixName');
 
   // TrackDevs/TrackKind sao indexados como Result (0-based):
   // TrackDevs[k] tem devices da track (k+1). TrackDevs[0] fica vazio
@@ -460,7 +489,7 @@ begin
   for j := 1 to ATotalTracks - 1 do
   begin
     if Length(TrackDevs[j]) = 0 then
-      Result[j] := Format('Faixa %d', [j + 1])
+      Result[j] := T('tracks.track', ['n', IntToStr(j + 1)])
     else if Length(TrackDevs[j]) = 1 then
       Result[j] := TrackDevs[j][0]
     else
@@ -475,10 +504,13 @@ begin
       else
       begin
         case TrackKind[j] of
-          1: Result[j] := Format('Microfones (%d)', [Length(TrackDevs[j])]);
-          2: Result[j] := Format('Saidas (%d)', [Length(TrackDevs[j])]);
+          1: Result[j] := T('tracks.micsGroup',
+               ['count', IntToStr(Length(TrackDevs[j]))]);
+          2: Result[j] := T('tracks.outputsGroup',
+               ['count', IntToStr(Length(TrackDevs[j]))]);
         else
-          Result[j] := Format('Audio agrupado (%d)', [Length(TrackDevs[j])]);
+          Result[j] := T('tracks.groupedAudio',
+               ['count', IntToStr(Length(TrackDevs[j]))]);
         end;
       end;
     end;

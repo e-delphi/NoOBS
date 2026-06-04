@@ -184,6 +184,8 @@
     },
     "fps": {
       "label": "Cuadros por segundo de la grabación",
+      "lessFluid": "Menos fluido",
+      "moreFluid": "Más fluido",
       "unitFps": "{{n}} fps",
       "hint": {
         "low": "{{fps}} fps — baja tasa, el movimiento puede verse irregular. Archivo menor.",
@@ -359,6 +361,10 @@
     "mixLabel": "Mezcla (todos)",
     "mixHint": "Mezcla de todos los dispositivos habilitados. Grabada como la primera pista de audio del archivo final.",
     "noTrack": "Sin pista",
+    "mixName": "Mezcla",
+    "micsGroup": "Micrófonos ({{count}})",
+    "outputsGroup": "Salidas ({{count}})",
+    "groupedAudio": "Audio agrupado ({{count}})",
     "devicesGrouped_one": "{{count}} dispositivo agrupado",
     "devicesGrouped_other": "{{count}} dispositivos agrupados",
     "devicesDisabled_one": "{{count}} dispositivo deshabilitado",

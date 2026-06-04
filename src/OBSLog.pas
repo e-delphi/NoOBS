@@ -61,6 +61,10 @@ begin
   if (LogLock = nil) or (LogStream = nil) then Exit;
   LogLock.Enter;
   try
+    // Recheck sob o lock: DoneLog pode ter fechado o stream entre o
+    // nil-check acima e a entrada no lock (workers que ainda logam
+    // durante o teardown — ex.: thread WASAPI vazada no timeout de enum).
+    if LogStream = nil then Exit;
     if AMsg = '' then
       WriteLineRaw('')
     else
@@ -136,20 +140,29 @@ end;
 
 procedure DoneLog;
 begin
-  if LogStream <> nil then
-  begin
-    try
-      WriteLineRaw('=== ' + FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) +
-        '  SESSION END ===');
-    except end;
-    try LogStream.Free except end;
-    LogStream := nil;
+  if LogLock = nil then Exit;
+  // Fecha o stream SOB o lock e o nila antes de liberar — assim qualquer
+  // worker que ja esteja dentro de DoLog ve LogStream=nil no recheck e sai
+  // sem escrever em handle liberado.
+  LogLock.Enter;
+  try
+    if LogStream <> nil then
+    begin
+      try
+        WriteLineRaw('=== ' + FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) +
+          '  SESSION END ===');
+      except end;
+      try LogStream.Free except end;
+      LogStream := nil;
+    end;
+  finally
+    LogLock.Leave;
   end;
-  if LogLock <> nil then
-  begin
-    LogLock.Free;
-    LogLock := nil;
-  end;
+  // NAO liberamos LogLock de proposito: no shutdown ainda pode haver
+  // worker thread viva (pegadinha #30: enum WASAPI vazada no timeout) que
+  // chama Log(). Liberar o lock aqui criaria janela de use-after-free no
+  // LogLock.Enter desses workers. Vazar uma TCriticalSection ate o
+  // ExitProcess e inofensivo — o OS recupera tudo no fim do processo.
 end;
 
 // Vectored exception handler — captura crashes nativos (access
@@ -283,9 +296,11 @@ begin
     except end;
     Log('FATAL: TID=%d', [GetCurrentThreadId]);
     // Forca flush — FlushFileBuffers ja roda dentro de WriteLineRaw,
-    // mas garantido aqui antes do processo morrer.
-    if LogStream <> nil then
-      try FlushFileBuffers(LogStream.Handle); except end;
+    // mas garantido aqui antes do processo morrer. Snapshot em local
+    // pra evitar leitura rasgada se DoneLog nilar LogStream em paralelo.
+    var LS: TFileStream := LogStream;
+    if LS <> nil then
+      try FlushFileBuffers(LS.Handle); except end;
   except end;
 end;
 

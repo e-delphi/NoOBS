@@ -591,14 +591,26 @@ begin
   CanvasW := BoundingW;
   CanvasH := BoundingH;
 
+  // NV12 (4:2:0) exige largura E altura PARES — chroma subsampled por 2.
+  // A correcao Odd acima so rodava DENTRO do branch de clamp; no caminho
+  // sem clamp (bounding <= max), um total impar de larguras de monitor ou
+  // uma resolucao incomum chegava cru no obs_reset_video. Forca par sempre.
+  if Odd(CanvasW) then Dec(CanvasW);
+  if Odd(CanvasH) then Dec(CanvasH);
+  if CanvasW < 2 then CanvasW := 2;
+  if CanvasH < 2 then CanvasH := 2;
+
   // 2. Configura video (canvas). obs_reset_video pode ser chamado
   // entre gravacoes sem problemas — so nao durante output ativo.
   var FpsVal: Integer := OBSConfig.GetConfigInt('recordingFps', 30);
   // 0 = nao configurado (config vazio) → usa 30 (padrao do NoOBS, mais
   // compacto que o 60fps do OBS Studio). User pode subir no slider de
-  // Configuracoes ate o Hz do monitor mais rapido. Clamp defensivo pra
-  // 30 se vier valor invalido < 10.
-  if FpsVal < 10 then FpsVal := 30;
+  // Configuracoes ate o Hz do monitor mais rapido. Clamp defensivo nos
+  // DOIS extremos (single source of truth): < 10 → 30; teto sanitario de
+  // 1000 pra um config.json editado a mao nao mandar fps_num absurdo
+  // (ex.: 100000000) direto pro obs_reset_video.
+  if FpsVal < 10 then FpsVal := 30
+  else if FpsVal > 1000 then FpsVal := 1000;
   Log('-- Configurando video %dx%d @ %d fps --', [CanvasW, CanvasH, FpsVal]);
   GraphicsModule := 'libobs-d3d11';
   FillChar(OVI, SizeOf(OVI), 0);

@@ -74,8 +74,12 @@ procedure ComputeCanvas(const Monitors: TOBSMonitorArray;
 var
   i, MinX, MinY, MaxXPlus, MaxYPlus: Integer;
 begin
+  // Sem monitores: devolve canvas zerado em vez de levantar excecao
+  // (esta unit e "pura" e nao deve lancar string hardcoded; o caso
+  // audio-only — 0 monitores — e tratado pelo caller, pegadinha #8).
+  Width := 0; Height := 0; OriginX := 0; OriginY := 0;
   if Length(Monitors) = 0 then
-    raise Exception.Create('Nenhum monitor encontrado.');
+    Exit;
   MinX := Monitors[0].PositionX;
   MinY := Monitors[0].PositionY;
   MaxXPlus := Monitors[0].PositionX + Monitors[0].Width;

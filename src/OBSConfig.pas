@@ -57,7 +57,8 @@ uses
   System.SysUtils,
   System.IOUtils,
   System.Classes,
-  System.SyncObjs;
+  System.SyncObjs,
+  OBSLog;
 
 const
   // Incrementar quando mudar o schema do config.json de forma
@@ -107,13 +108,29 @@ end;
 
 procedure WriteToDisk; forward;
 
+function JsonNumAsIntClamped(V: TJSONValue; ADefault: Integer): Integer;
+// Le um TJSONNumber como Integer com range-check. AsInt cru trunca/faz
+// wrap silencioso de valores fora de Int32 (ex.: "recordingFps":
+// 9999999999 viraria lixo, ate negativo). Le como Int64 e clampa; se a
+// conversao falhar (numero gigante/fracionario invalido), devolve default.
+begin
+  Result := ADefault;
+  if not (V is TJSONNumber) then Exit;
+  try
+    var I64: Int64 := TJSONNumber(V).AsInt64;
+    if I64 < Low(Integer) then Result := Low(Integer)
+    else if I64 > High(Integer) then Result := High(Integer)
+    else Result := Integer(I64);
+  except
+    Result := ADefault;
+  end;
+end;
+
 function GetVersion(AObj: TJSONObject): Integer;
-var V: TJSONValue;
 begin
   Result := 0;
   if AObj = nil then Exit;
-  V := AObj.GetValue('version');
-  if V is TJSONNumber then Result := TJSONNumber(V).AsInt;
+  Result := JsonNumAsIntClamped(AObj.GetValue('version'), 0);
 end;
 
 procedure EnsureLoaded;
@@ -164,23 +181,36 @@ procedure WriteToDisk;
 var
   Stream: TFileStream;
   Bytes: TBytes;
-  Dir: string;
+  Dir, FinalPath, TmpPath: string;
 begin
   if CachedJson = nil then Exit;
   Dir := ConfigDir;
   if not DirectoryExists(Dir) then
     ForceDirectories(Dir);
+  FinalPath := ConfigFilePath;
+  TmpPath := FinalPath + '.tmp';
   try
     Bytes := TEncoding.UTF8.GetBytes(PrettyJson(CachedJson));
-    Stream := TFileStream.Create(ConfigFilePath, fmCreate);
+    // Escreve num temp e renomeia por cima (atomico via MoveFileEx) — sem
+    // isso, uma escrita interrompida deixava config.json truncado, e o
+    // fmCreate exclusivo colidia silenciosamente quando full + /hibernate
+    // gravavam juntos (pegadinha #36). Falha agora e LOGADA, nao engolida.
+    Stream := TFileStream.Create(TmpPath, fmCreate);
     try
       if Length(Bytes) > 0 then
         Stream.WriteBuffer(Bytes[0], Length(Bytes));
     finally
       Stream.Free;
     end;
+    if not MoveFileEx(PChar(TmpPath), PChar(FinalPath),
+         MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+      raise Exception.CreateFmt('MoveFileEx falhou (err=%d)', [GetLastError]);
   except
-    on E: Exception do ;
+    on E: Exception do
+    begin
+      Log('OBSConfig: falha ao gravar "%s": %s', [FinalPath, E.Message]);
+      try if FileExists(TmpPath) then TFile.Delete(TmpPath); except end;
+    end;
   end;
 end;
 
@@ -262,10 +292,7 @@ begin
   try
     EnsureLoaded;
     V := CachedJson.GetValue(AKey);
-    if V is TJSONNumber then
-      Result := TJSONNumber(V).AsInt
-    else
-      Result := ADefault;
+    Result := JsonNumAsIntClamped(V, ADefault);
   finally
     ConfigLock.Leave;
   end;

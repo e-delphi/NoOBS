@@ -486,22 +486,27 @@ end;
 // ---------------------------------------------------------------------
 //
 // AVFormatContext NAO e ABI-stable, mas os primeiros campos sao
-// fixos no FFmpeg 7.x. Layout (parcial, ate bit_rate):
+// fixos no FFmpeg 7.x. Layout (parcial, ate bit_rate) — Win64,
+// natural alignment. ATENCAO: a unica fonte de verdade dos offsets
+// e o bloco `const OFFS_*` logo abaixo; este comentario apenas o
+// explica. `ctx_flags` (int @40) NAO tem padding antes de
+// `nb_streams` (uint @44) porque ambos sao 4-byte alinhados:
 //
-//   const AVClass*  av_class;            // 0
-//   const AVInputFormat *iformat;        // 8
-//   const AVOutputFormat *oformat;       // 16
-//   void *priv_data;                     // 24
-//   AVIOContext *pb;                     // 32
-//   int ctx_flags;                       // 40 (4 bytes + 4 padding)
-//   unsigned int nb_streams;             // 48 ← USAMOS
-//   AVStream **streams;                  // 56 ← USAMOS
-//   ... outros campos ...
-//   int64_t duration;                    // offset ~104 ← USAMOS
-//   int64_t bit_rate;                    // offset ~112 ← USAMOS
+//   const AVClass*       av_class;    // 0
+//   const AVInputFormat *iformat;     // 8
+//   const AVOutputFormat*oformat;     // 16
+//   void               *priv_data;    // 24
+//   AVIOContext        *pb;           // 32  ← USAMOS (OFFS_PB)
+//   int                 ctx_flags;    // 40
+//   unsigned int        nb_streams;   // 44  ← USAMOS (OFFS_NB_STREAMS)
+//   AVStream          **streams;      // 48  ← USAMOS (OFFS_STREAMS)
+//   const char         *url;          // 56
+//   int64_t             start_time;   // 64
+//   int64_t             duration;     // 72  ← USAMOS (OFFS_DURATION)
+//   int64_t             bit_rate;     // 80  ← USAMOS (OFFS_BIT_RATE)
 //
 // Esses offsets sao validos pra FFmpeg 7.x (avformat-61). Se a major
-// version mudar, recalcular.
+// version mudar (61->62), recalcular contra avformat.h do release novo.
 
 type
   PCardinalUns = ^Cardinal;

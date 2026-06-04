@@ -12,7 +12,13 @@ const Bridge = {
       return;
     }
     window.chrome.webview.addEventListener('message', (e) => {
-      const data = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+      let data;
+      try {
+        data = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+      } catch (err) {
+        console.warn('Bridge: mensagem JSON invalida ignorada:', err);
+        return;
+      }
       if (!data || !data.type) return;
       const handler = Bridge.handlers[data.type];
       if (handler) handler(data);

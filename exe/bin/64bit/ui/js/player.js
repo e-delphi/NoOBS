@@ -443,9 +443,12 @@ const Player = {
       this.audiosReadyForId = null;
       this.trackVolumes = null;
       // Reseta seletor de visualizacao — gravacao nova abre em "Tela
-      // cheia" por padrao mesmo se a anterior estava em zoom.
+      // cheia" por padrao mesmo se a anterior estava em zoom. Limpa
+      // selectedRegions (Set usado de fato pelo resto do codigo) pra a
+      // selecao do video anterior nao vazar numa troca direta de video
+      // sem passar por close() — mesma garantia da pegadinha #37.
       this.currentLayout = null;
-      this.selectedRegionIndex = -1;
+      this.selectedRegions = new Set();
       this.applyRegionView();
     }
     // Reset do MASTER em TODA abertura fresh (mesmo reabrindo o

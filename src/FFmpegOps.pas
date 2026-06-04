@@ -186,7 +186,8 @@ var
   Rc, i: Integer;
   SrcStream, DstStream: PAVStream;
   DstStreamIdx: Integer;
-  AnyHeader: Boolean;
+  AnyHeader, WriteFailed: Boolean;
+  WrRc: Integer;
 begin
   Result := False;
   if not FFmpegLibAvailable then Exit;
@@ -216,7 +217,8 @@ begin
     // Loop principal: le pacotes do source, despacha pra cada output
     // que mapeie esse stream. av_packet_rescale_ts converte timestamps
     // entre time_base do source e do output.
-    while av_read_frame(SrcCtx, Pkt) = 0 do
+    WriteFailed := False;
+    while (not WriteFailed) and (av_read_frame(SrcCtx, Pkt) = 0) do
     begin
       try
         for i := 0 to High(Outs) do
@@ -234,7 +236,21 @@ begin
           Pkt.stream_index := DstStreamIdx;
           av_packet_rescale_ts(Pkt, SrcStream.time_base, DstStream.time_base);
           Pkt.pos := -1;
-          try av_interleaved_write_frame(Outs[i].Ctx, Pkt); except end;
+          // Captura o retorno: ignorar erros de write produzia MP4
+          // cacheado truncado servido ao player como se fosse sucesso
+          // (disco cheio, codec incompativel). Falha de muxer e
+          // efetivamente fatal — aborta e devolve False.
+          try
+            WrRc := av_interleaved_write_frame(Outs[i].Ctx, Pkt);
+          except
+            WrRc := -1;
+          end;
+          if WrRc < 0 then
+          begin
+            Log('Remux: av_interleaved_write_frame falhou (rc=%d) — abortando.',
+              [WrRc]);
+            WriteFailed := True;
+          end;
           // Restaura stream_index pro proximo output que tambem
           // queira esse pacote — diferencas de time_base sao
           // recalculadas pelo rescale a cada output.
@@ -245,7 +261,7 @@ begin
       end;
     end;
 
-    Result := True;
+    Result := not WriteFailed;
   finally
     if Pkt <> nil then av_packet_free(@Pkt);
     for i := 0 to High(Outs) do CloseOutput(Outs[i]);
@@ -701,10 +717,9 @@ var
   DurUs: Int64;
   DurSec: Double;
   SampleIdx: Int64;
-  s: Integer;
+  s, ch, ChCount: Integer;
   Channel0Ptr: PByte;
-  V: Single;
-  Vi16: SmallInt;
+  V, SampleV: Single;
   NbStreams: Cardinal;
 begin
   Result := False;
@@ -801,30 +816,41 @@ begin
           begin
             Fmt := Frame.format;
             Channel0Ptr := Frame.data[0];
+            // Le o pico entre TODOS os canais por sample — sem isso, audio
+            // so no canal direito (ou com canal 0 mudo) gerava waveform
+            // achatada. Planar usa um ponteiro por canal em data[ch],
+            // limitado a 8 (AV_NUM_DATA_POINTERS); interleaved entrelaca
+            // tudo em data[0] com stride NumChannels.
+            ChCount := NumChannels;
+            if (Fmt = AV_SAMPLE_FMT_FLTP) or (Fmt = AV_SAMPLE_FMT_S16P) then
+              if ChCount > 8 then ChCount := 8;
             if Channel0Ptr <> nil then
             begin
               for s := 0 to Frame.nb_samples - 1 do
               begin
                 V := 0;
-                case Fmt of
-                  AV_SAMPLE_FMT_FLTP:
-                    V := PSingle(Channel0Ptr + s * SizeOf(Single))^;
-                  AV_SAMPLE_FMT_FLT:
-                    V := PSingle(Channel0Ptr +
-                      s * NumChannels * SizeOf(Single))^;
-                  AV_SAMPLE_FMT_S16P:
-                    begin
-                      Vi16 := PSmallInt(Channel0Ptr + s * SizeOf(SmallInt))^;
-                      V := Vi16 / 32768.0;
-                    end;
-                  AV_SAMPLE_FMT_S16:
-                    begin
-                      Vi16 := PSmallInt(Channel0Ptr +
-                        s * NumChannels * SizeOf(SmallInt))^;
-                      V := Vi16 / 32768.0;
-                    end;
+                for ch := 0 to ChCount - 1 do
+                begin
+                  SampleV := 0;
+                  case Fmt of
+                    AV_SAMPLE_FMT_FLTP:
+                      if Frame.data[ch] <> nil then
+                        SampleV := PSingle(Frame.data[ch] +
+                          s * SizeOf(Single))^;
+                    AV_SAMPLE_FMT_FLT:
+                      SampleV := PSingle(Channel0Ptr +
+                        (s * NumChannels + ch) * SizeOf(Single))^;
+                    AV_SAMPLE_FMT_S16P:
+                      if Frame.data[ch] <> nil then
+                        SampleV := PSmallInt(Frame.data[ch] +
+                          s * SizeOf(SmallInt))^ / 32768.0;
+                    AV_SAMPLE_FMT_S16:
+                      SampleV := PSmallInt(Channel0Ptr +
+                        (s * NumChannels + ch) * SizeOf(SmallInt))^ / 32768.0;
+                  end;
+                  if SampleV < 0 then SampleV := -SampleV;
+                  if SampleV > V then V := SampleV;
                 end;
-                if V < 0 then V := -V;
 
                 // Hi-res bucket por sample count real (NAO duracao
                 // declarada). Cresce o array se ultrapassar inicial.

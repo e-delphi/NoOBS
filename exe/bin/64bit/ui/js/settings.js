@@ -488,11 +488,11 @@ const Settings = {
       slider.step = 1;
       slider.value = String(this._fpsToIndex(this.currentRecordingFps));
     }
-    const minLbl = document.getElementById('settingsFpsMinLabel');
-    if (minLbl) minLbl.textContent = this.fpsPresets[0] + ' fps';
-    const maxLbl = document.getElementById('settingsFpsMaxLabel');
-    if (maxLbl)
-      maxLbl.textContent = this.fpsPresets[this.fpsPresets.length - 1] + ' fps';
+    // Os rotulos das pontas sao estaticos e localizados ("Menos fluido" /
+    // "Mais fluido", via data-i18n no HTML) — mais claros pro usuario leigo
+    // que os antigos "20 fps" / "max fps". Os numeros exatos continuam
+    // visiveis nos ticks abaixo do slider e no hint. Por isso NAO setamos
+    // textContent aqui (sobrescreveria a traducao do I18n.apply).
   },
   // Tick por preset, espacados igualmente (cada step do slider = 1 tick).
   // Container .fps-ticks vive dentro de .slider-with-ticks, que tem a

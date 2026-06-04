@@ -131,6 +131,7 @@ uses
   System.Classes,
   System.Math,
   System.SysUtils,
+  System.StrUtils,
   OBSConfig,
   OBSLog,
   OBSPlayer,
@@ -366,17 +367,39 @@ type
     function Invoke(const sender: ICoreWebView2; const args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT; stdcall;
   end;
 
-  // Aprova automaticamente toda permissao que o WebView2 pedir. Em
-  // particular precisamos de NOTIFICATIONS (kind=4) pra que o JS possa
-  // chamar `new Notification(...)` — usado pelo Bridge handler
-  // 'show_notification' (avisos de inicio/fim de gravacao). Como o
-  // conteudo HTML e RCDATA empacotado no proprio binario (sem origem
-  // remota), liberar tudo nao tem risco — nao tem terceiro carregando
-  // pagina ali.
+  // Aprova SO a permissao NOTIFICATIONS (kind=4) — usada pelo JS pra
+  // `new Notification(...)` nos avisos de inicio/fim de gravacao. Todo o
+  // resto (camera, mic, geolocation, clipboard, ...) e NEGADO: o app nao
+  // usa nenhuma capability de browser (webcam vem do DirectShow no Delphi,
+  // nao de getUserMedia). Liberar tudo era amplo demais — se um dia
+  // entrasse conteudo inesperado, auto-conceder camera/mic seria ruim.
   TPermissionRequestedHandler = class(TInterfacedObject, ICoreWebView2PermissionRequestedEventHandler)
   public
     function Invoke(const sender: ICoreWebView2;
       const args: ICoreWebView2PermissionRequestedEventArgs): HRESULT; stdcall;
+  end;
+
+  // Cancela navegacao pra qualquer origin que nao seja a UI local
+  // (https://noobs.app) ou about:. Sem isso, um script injetado poderia
+  // navegar pra um site remoto que herdaria o canal
+  // window.chrome.webview.postMessage e acionaria os handlers nativos
+  // (abrir/deletar/renomear arquivos). Defesa em profundidade.
+  TNavigationStartingHandler = class(TInterfacedObject,
+    ICoreWebView2NavigationStartingEventHandler)
+  public
+    function Invoke(const sender: ICoreWebView2;
+      const args: ICoreWebView2NavigationStartingEventArgs): HRESULT; stdcall;
+  end;
+
+  // Impede a abertura de janelas WebView2 novas (window.open / target=
+  // _blank). Links externos http(s) vao pro browser do sistema; o resto
+  // e descartado. Sem isso, um popup abriria num WebView sem as travas
+  // (DevTools/menus sao configurados por-webview, nao herdados).
+  TNewWindowRequestedHandler = class(TInterfacedObject,
+    ICoreWebView2NewWindowRequestedEventHandler)
+  public
+    function Invoke(const sender: ICoreWebView2;
+      const args: ICoreWebView2NewWindowRequestedEventArgs): HRESULT; stdcall;
   end;
 
 procedure SetSizeWindow(Window: HWND; Ctrl: ICoreWebView2Controller);
@@ -493,6 +516,10 @@ begin
 
   WebView.add_WebMessageReceived(TWebMessageReceivedHandler.Create, Token);
   WebView.add_PermissionRequested(TPermissionRequestedHandler.Create, Token);
+  // Travas de navegacao (defesa em profundidade): so a UI local pode
+  // navegar; janelas novas sao bloqueadas (links externos vao pro browser).
+  WebView.add_NavigationStarting(TNavigationStartingHandler.Create, Token);
+  WebView.add_NewWindowRequested(TNewWindowRequestedHandler.Create, Token);
 
   StartNavigate;
 
@@ -548,10 +575,58 @@ end;
 
 function TPermissionRequestedHandler.Invoke(const sender: ICoreWebView2;
   const args: ICoreWebView2PermissionRequestedEventArgs): HRESULT;
+var
+  Kind: COREWEBVIEW2_PERMISSION_KIND;
 begin
-  if args <> nil then
-    args.Set_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW);
   Result := S_OK;
+  if args = nil then Exit;
+  Kind := COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
+  args.Get_PermissionKind(Kind);
+  // So NOTIFICATIONS e necessario; todo o resto e negado.
+  if Kind = COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS then
+    args.Set_State(COREWEBVIEW2_PERMISSION_STATE_ALLOW)
+  else
+    args.Set_State(COREWEBVIEW2_PERMISSION_STATE_DENY);
+end;
+
+function TNavigationStartingHandler.Invoke(const sender: ICoreWebView2;
+  const args: ICoreWebView2NavigationStartingEventArgs): HRESULT;
+var
+  Uri: PWideChar;
+  S: string;
+begin
+  Result := S_OK;
+  if args = nil then Exit;
+  Uri := nil;
+  if Failed(args.Get_uri(Uri)) or (Uri = nil) then Exit;
+  S := string(Uri);
+  CoTaskMemFree(Uri);
+  // Permite apenas a UI local (https://noobs.app) e about: (blank inicial).
+  if StartsText('https://noobs.app', S) or StartsText('about:', S) then Exit;
+  Log('NavigationStarting: cancelando navegacao pra "%s"', [Copy(S, 1, 120)]);
+  args.Set_Cancel(1);
+end;
+
+function TNewWindowRequestedHandler.Invoke(const sender: ICoreWebView2;
+  const args: ICoreWebView2NewWindowRequestedEventArgs): HRESULT;
+var
+  Uri: PWideChar;
+  S: string;
+begin
+  Result := S_OK;
+  if args = nil then Exit;
+  // Handled=1 impede o WebView2 de abrir uma janela nova.
+  args.Set_Handled(1);
+  Uri := nil;
+  if Succeeded(args.Get_uri(Uri)) and (Uri <> nil) then
+  begin
+    S := string(Uri);
+    CoTaskMemFree(Uri);
+    // Link externo http(s) -> browser do sistema (mesma politica do
+    // handler 'open_url' do Bridge). Qualquer outro esquema e descartado.
+    if StartsText('http://', S) or StartsText('https://', S) then
+      ShellExecute(0, 'open', PChar(S), nil, nil, SW_SHOWNORMAL);
+  end;
 end;
 
 function TWebMessageReceivedHandler.Invoke(const sender: ICoreWebView2; const args: ICoreWebView2WebMessageReceivedEventArgs): HRESULT;

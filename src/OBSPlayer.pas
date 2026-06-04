@@ -1003,16 +1003,22 @@ begin
   Doc := ARequest.Document;
 
   // CORS pra todos os responses. A UI roda em https://noobs.app e o audio
-  // das faixas vem de http://127.0.0.1 (origem cross); sem ACAO=*,
+  // das faixas vem de http://127.0.0.1 (origem cross); sem ACAO,
   // MediaElementAudioSourceNode marca o recurso como "tainted" e o GainNode
-  // produz SILENCIO (mesmo que
-  // o <video>/<audio> sem Web Audio tocasse normalmente). Setamos
-  // crossOrigin="anonymous" no JS — daqui o browser exige header
-  // de CORS no response. '*' satisfaz any-origin pra requests sem
-  // credenciais (que e o caso, tudo aqui e localhost sem cookie).
-  // Range requests passam transparente — Chromium so usa ACAO pra
-  // habilitar Web Audio, nao afeta o playback regular.
-  AResponse.CustomHeaders.Values['Access-Control-Allow-Origin'] := '*';
+  // produz SILENCIO (mesmo que o <video>/<audio> sem Web Audio tocasse
+  // normalmente). Setamos crossOrigin="anonymous" no JS — daqui o browser
+  // exige header de CORS no response.
+  //
+  // Restrito ao origin EXATO da UI (https://noobs.app) em vez de '*': o
+  // unico consumidor legitimo e o WebView2. '*' deixava qualquer pagina
+  // web no navegador normal do usuario (que pode escanear 127.0.0.1) ler
+  // cross-origin os thumbs de monitor (/thumb/<id>.jpg = screenshot do
+  // desktop ao vivo, com id ADIVINHAVEL "NoOBS Monitor N"). Os tokens de
+  // /v/ sao SHA1 (nao adivinhaveis), mas os de thumb nao — entao restringir
+  // o ACAO fecha a leitura cross-origin sem quebrar a UI (cujo origin e
+  // exatamente noobs.app). Range requests passam transparente.
+  AResponse.CustomHeaders.Values['Access-Control-Allow-Origin'] := 'https://noobs.app';
+  AResponse.CustomHeaders.Values['Vary'] := 'Origin';
 
   // /thumb/<id>.jpg — thumbs volateis de monitor
   if StartsText('/thumb/', Doc) then

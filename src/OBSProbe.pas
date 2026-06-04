@@ -148,7 +148,14 @@ begin
     // Custa O(N) pacotes mas funciona pra MKV sem Duration EBML
     // (comum quando OBS muxa sem trailer limpo).
     if AReport.Duration = 0 then
+    begin
       AReport.Duration := ScanDurationByPackets(Fmt) / AV_TIME_BASE;
+      // ScanDurationByPackets consome o cursor do demuxer ate EOF. A
+      // enumeracao de streams abaixo so le metadata (codecpar/time_base),
+      // entao funcionaria mesmo sem isto — mas re-seek pro inicio deixa o
+      // contexto limpo pra qualquer leitura de pacote futura (robustez).
+      av_seek_frame(Fmt, -1, 0, AVSEEK_FLAG_BACKWARD);
+    end;
 
     // Ultimo fallback de bit_rate: derivar do tamanho/duracao quando
     // container e streams nao expoem (comum em MKV gerado por OBS).

@@ -119,6 +119,12 @@ const
   PFX_OUT     = 'NoOBS Out - ';
   PFX_WEBCAM  = 'NoOBS Webcam - ';
 
+  // Extensoes de video reconhecidas como gravacao. Fonte unica usada por
+  // ListRecordings e pela whitelist de open_recording (pegadinha de
+  // seguranca: nao deixar a UI mandar ShellExecute('open') num .exe).
+  RECORDING_EXTS: array[0..6] of string = (
+    '.mkv', '.mp4', '.mov', '.m4v', '.ts', '.flv', '.webm');
+
 type
   // Trigger periodico pra captura de thumbnails. Roda em thread propria
   // porque WM_TIMER e suprimido pelo modal sizemove loop do Windows
@@ -573,10 +579,6 @@ end;
 function ListRecordings(const ADir: string): TStringDynArray;
 // Lista todos os arquivos de video da pasta de gravacao. Cobre os
 // formatos que o OBS gera (mkv, mp4, mov, ts, fragmented mp4, flv).
-const
-  EXTS: array[0..6] of string = (
-    '.mkv', '.mp4', '.mov', '.m4v', '.ts', '.flv', '.webm'
-  );
 var
   All: TStringDynArray;
   i, n: Integer;
@@ -590,13 +592,43 @@ begin
   for i := 0 to High(All) do
   begin
     Ext := LowerCase(ExtractFileExt(All[i]));
-    if MatchStr(Ext, EXTS) then
+    if MatchStr(Ext, RECORDING_EXTS) then
     begin
       Result[n] := All[i];
       Inc(n);
     end;
   end;
   SetLength(Result, n);
+end;
+
+function IsRecordingExt(const APath: string): Boolean;
+// True se a extensao e de um formato de gravacao conhecido.
+begin
+  Result := MatchStr(LowerCase(ExtractFileExt(APath)), RECORDING_EXTS);
+end;
+
+function IsPathInRecordDir(const APath: string): Boolean;
+// Defesa em profundidade: so operamos em arquivos DENTRO da pasta de
+// gravacao. Toda gravacao legitima vem de ListRecordings(RecordDir), entao
+// o path enviado pela UI sempre cai aqui. Bloqueia mensagens forjadas
+// (ex.: via XSS ou navegacao indevida do WebView) de mirar arquivos
+// arbitrarios do disco — sem isto, open_recording -> ShellExecute('open')
+// executaria qualquer .exe, e delete/rename atingiriam qualquer arquivo.
+var
+  Base, Full: string;
+begin
+  Result := False;
+  if (APath = '') or (RecordDir = '') then Exit;
+  try
+    Base := IncludeTrailingPathDelimiter(
+      TPath.GetFullPath(ExcludeTrailingPathDelimiter(RecordDir)));
+    Full := TPath.GetFullPath(APath);
+  except
+    Exit;
+  end;
+  // StartsText = case-insensitive (Windows). Base tem delimitador final,
+  // entao "C:\Vids\" nao casa com um vizinho "C:\VidsOutro\rec.mkv".
+  Result := StartsText(Base, Full);
 end;
 
 function FormatBytesShort(ABytes: Int64): string;
@@ -2603,6 +2635,12 @@ var
   Obj: TJSONObject;
 begin
   if (AOldPath = '') or (ANewName = '') then Exit;
+  if not IsPathInRecordDir(AOldPath) then
+  begin
+    Log('HandleRenameRecording: path fora da pasta de gravacao, ignorado: %s',
+      [AOldPath]);
+    Exit;
+  end;
   if not TFile.Exists(AOldPath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -2659,6 +2697,16 @@ end;
 
 procedure HandleOpenRecording(const APath: string);
 begin
+  // So abre arquivos de gravacao DENTRO da pasta de gravacao.
+  // ShellExecute('open') num path arbitrario executaria .exe/.bat/.lnk
+  // com o handler default — a UI nunca manda isso, mas e defesa em
+  // profundidade contra mensagem forjada (XSS/navegacao).
+  if (not IsPathInRecordDir(APath)) or (not IsRecordingExt(APath)) then
+  begin
+    Log('HandleOpenRecording: rejeitado (fora da pasta ou ext nao-midia): %s',
+      [APath]);
+    Exit;
+  end;
   if not TFile.Exists(APath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -2713,6 +2761,7 @@ var
   Url: string;
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -2732,6 +2781,7 @@ procedure HandleRequestTranscode(const APath: string);
 // Faz remux via libavformat (worker thread) e devolve URL do MP4.
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -2775,6 +2825,7 @@ procedure HandleRequestVideoInfo(const APath: string);
 // mas pode picar em arquivos grandes/remotos). UI mostra loading.
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -2922,8 +2973,12 @@ procedure HandleRequestWaveform(const APath: string; ABuckets: Integer);
 // audio inteiro custa ~500ms-2s, entao reaberturas vem do cache.
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then Exit;
-  if ABuckets <= 0 then ABuckets := 100;
+  // Clamp dos dois lados: < 1 → 100 (default); teto pra uma mensagem
+  // forjada nao pedir um array de bilhoes de buckets (OOM).
+  if ABuckets <= 0 then ABuckets := 100
+  else if ABuckets > 20000 then ABuckets := 20000;
 
   TThread.CreateAnonymousThread(
     procedure
@@ -2994,6 +3049,7 @@ procedure HandleRequestAudioTracks(const APath: string);
 // per-track em tempo real.
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then
   begin
     PostError(OBSLang.T('error.fileNotFound'));
@@ -3449,6 +3505,12 @@ var
   PathCopy: string;
 begin
   if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then
+  begin
+    Log('HandleDeleteRecording: path fora da pasta de gravacao, ignorado: %s',
+      [APath]);
+    Exit;
+  end;
   if not TFile.Exists(APath) then
   begin
     // Pode ser race: bulk-delete chamou pra um arquivo que outro

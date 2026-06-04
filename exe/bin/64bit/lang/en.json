@@ -184,6 +184,8 @@
     },
     "fps": {
       "label": "Recording framerate",
+      "lessFluid": "Less smooth",
+      "moreFluid": "Smoother",
       "unitFps": "{{n}} fps",
       "hint": {
         "low": "{{fps}} fps — low framerate, motion may look choppy. Smaller files.",
@@ -359,6 +361,10 @@
     "mixLabel": "Mix (all)",
     "mixHint": "Mix of all enabled devices. Recorded as the first audio track of the output file.",
     "noTrack": "No track",
+    "mixName": "Mix",
+    "micsGroup": "Microphones ({{count}})",
+    "outputsGroup": "Outputs ({{count}})",
+    "groupedAudio": "Grouped audio ({{count}})",
     "devicesGrouped_one": "{{count}} device grouped",
     "devicesGrouped_other": "{{count}} devices grouped",
     "devicesDisabled_one": "{{count}} device disabled",

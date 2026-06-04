@@ -548,7 +548,13 @@ function infoRow(key, val) {
     '<span class="player-info-val">' + val + '</span></div>';
 }
 
-function cssEscape(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+// Usa CSS.escape nativo (lida com ] , espacos, ids iniciando com digito
+// etc.); fallback so se indisponivel.
+function cssEscape(s) {
+  return (window.CSS && CSS.escape)
+    ? CSS.escape(String(s))
+    : String(s).replace(/["\\]/g, '\\$&');
+}
 
 // =====================================================================
 // Editor de nome (rename de gravacao)
@@ -573,7 +579,15 @@ function editName(event, el, id) {
     el.contentEditable = 'false';
     el.classList.remove('editing');
     if (!commit) { el.textContent = original; return; }
-    const newName = el.textContent.replace(/[\r\n]+/g, ' ').trim();
+    // Sanitiza no cliente: remove quebras e caracteres ilegais de nome de
+    // arquivo (\ / : * ? " < > |) e limita o tamanho. O backend tambem
+    // sanitiza (HandleRenameRecording), mas isto evita round-trip e da
+    // feedback imediato no DOM com o nome que sera realmente usado.
+    const newName = el.textContent
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/[\\/:*?"<>|]/g, '')
+      .trim()
+      .slice(0, 150);
     if (newName === '' || newName === original) {
       el.textContent = original;
       return;

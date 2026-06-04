@@ -186,7 +186,6 @@ function FindMatchingLanguage(const ALocale: string): string;
 var
   Folder, Prefix, Code, FileName: string;
   Files: TArray<string>;
-  i: Integer;
 begin
   Folder := LangFolder;
 
@@ -207,9 +206,13 @@ begin
       except
         SetLength(Files, 0);
       end;
-      for i := 0 to High(Files) do
+      // Ordena pra escolha deterministica — TDirectory.GetFiles nao
+      // garante ordem; sem isso, com varios 'pt-*.json' o resultado
+      // dependeria do filesystem.
+      if Length(Files) > 0 then
       begin
-        FileName := ExtractFileName(Files[i]);
+        TArray.Sort<string>(Files);
+        FileName := ExtractFileName(Files[0]);
         Code := ChangeFileExt(FileName, '');
         Exit(Code);
       end;
@@ -250,17 +253,56 @@ function InterpolateArgs(const ATemplate: string;
   const AArgs: array of string): string;
 // Substitui {{nome}} pelos pares (chave, valor) recebidos. Sem args =
 // passa direto.
+//
+// Varredura single-pass da ESQUERDA pra DIREITA: cada {{nome}} do
+// template original e substituido no maximo uma vez, e o texto inserido
+// NUNCA e reexaminado. Sem isso (StringReplace sequencial), o valor de um
+// arg que contivesse um literal {{outro}} seria re-substituido por um par
+// posterior — ex.: um device chamado "{{sec}}" virava o valor de 'sec'.
 var
-  i: Integer;
-  Key: string;
+  i, q, k: Integer;
+  Name: string;
+  Found: Boolean;
+  SB: TStringBuilder;
 begin
-  Result := ATemplate;
-  i := 0;
-  while i + 1 <= High(AArgs) do
-  begin
-    Key := '{{' + AArgs[i] + '}}';
-    Result := StringReplace(Result, Key, AArgs[i + 1], [rfReplaceAll]);
-    Inc(i, 2);
+  if Length(AArgs) < 2 then Exit(ATemplate);
+  SB := TStringBuilder.Create(Length(ATemplate));
+  try
+    i := 1;
+    while i <= Length(ATemplate) do
+    begin
+      if (i < Length(ATemplate)) and (ATemplate[i] = '{') and
+         (ATemplate[i + 1] = '{') then
+      begin
+        q := Pos('}}', ATemplate, i + 2);   // fim do placeholder
+        if q > 0 then
+        begin
+          Name := Copy(ATemplate, i + 2, q - (i + 2));
+          Found := False;
+          k := 0;
+          while k + 1 <= High(AArgs) do
+          begin
+            if AArgs[k] = Name then
+            begin
+              SB.Append(AArgs[k + 1]);
+              Found := True;
+              Break;
+            end;
+            Inc(k, 2);
+          end;
+          if Found then
+          begin
+            i := q + 2;   // pula o placeholder inteiro
+            Continue;
+          end;
+        end;
+      end;
+      SB.Append(ATemplate[i]);
+      Inc(i);
+    end;
+    Result := SB.ToString;
+  finally
+    SB.Free;
   end;
 end;
 

@@ -1024,59 +1024,101 @@ begin
   OBSTray.RemoveTrayIcon;
 end;
 
+// ---------------------------------------------------------------------
+// Badge de gravacao na taskbar via ITaskbarList3.SetOverlayIcon
+// ---------------------------------------------------------------------
+// API correta pra um selo de status no botao da taskbar (a mesma que apps
+// usam pra mudo/nao-lido). CONFIAVEL — diferente do WM_SETICON, que NAO
+// reflete no botao da taskbar de forma garantida (o explorer faz cache do
+// icone do botao; era o que "falhava as vezes"). Declarada local (vtable
+// completa ate SetOverlayIcon) pra nao depender da versao do RTL.
+const
+  CLSID_TaskbarList: TGUID = '{56FDF344-FD6D-11D0-958A-006097C9A090}';
+  IID_ITaskbarList3: TGUID = '{EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF}';
+type
+  ITaskbarList3 = interface(IUnknown)
+    ['{EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF}']
+    // ITaskbarList
+    function HrInit: HResult; stdcall;
+    function AddTab(hwnd: HWND): HResult; stdcall;
+    function DeleteTab(hwnd: HWND): HResult; stdcall;
+    function ActivateTab(hwnd: HWND): HResult; stdcall;
+    function SetActiveAlt(hwnd: HWND): HResult; stdcall;
+    // ITaskbarList2
+    function MarkFullscreenWindow(hwnd: HWND; fFullscreen: BOOL): HResult; stdcall;
+    // ITaskbarList3
+    function SetProgressValue(hwnd: HWND; ullCompleted, ullTotal: UInt64): HResult; stdcall;
+    function SetProgressState(hwnd: HWND; tbpFlags: Integer): HResult; stdcall;
+    function RegisterTab(hwndTab, hwndMDI: HWND): HResult; stdcall;
+    function UnregisterTab(hwndTab: HWND): HResult; stdcall;
+    function SetTabOrder(hwndTab, hwndInsertBefore: HWND): HResult; stdcall;
+    function SetTabActive(hwndTab, hwndMDI: HWND; dwReserved: DWORD): HResult; stdcall;
+    function ThumbBarAddButtons(hwnd: HWND; cButtons: UINT; pButton: Pointer): HResult; stdcall;
+    function ThumbBarUpdateButtons(hwnd: HWND; cButtons: UINT; pButton: Pointer): HResult; stdcall;
+    function ThumbBarSetImageList(hwnd: HWND; himl: THandle): HResult; stdcall;
+    function SetOverlayIcon(hwnd: HWND; hIcon: HICON; pszDescription: PWideChar): HResult; stdcall;
+    function SetThumbnailTooltip(hwnd: HWND; pszTip: PWideChar): HResult; stdcall;
+    function SetThumbnailClip(hwnd: HWND; var prcClip: TRect): HResult; stdcall;
+  end;
+
 var
-  // Caches dos icones da janela (ICON_BIG + ICON_SMALL) — gerados lazy
-  // na 1a chamada de SetWindowIconRecording. Vivos pelo resto do
-  // processo; Windows libera no termino. (Delphi nao aceita init em
-  // declaracoes multi-var, entao cada um na sua linha.)
-  WinIconBigBase:     HICON = 0;
-  WinIconBigRec:      HICON = 0;
-  WinIconSmallBase:   HICON = 0;
-  WinIconSmallRec:    HICON = 0;
+  GTaskbar:      ITaskbarList3 = nil;
+  GTaskbarTried: Boolean = False;
+  // Icone "so bolinha" (vermelho solido, sem borda) usado como overlay.
+  // Lazy; vivo pelo resto do processo (Windows libera no termino).
+  WinIconDot:         HICON = 0;
   WindowRecordingNow: Boolean = False;
 
+function GetTaskbar: ITaskbarList3;
+// Lazy: cria o objeto COM uma vez. nil se indisponivel — degrada em
+// silencio. Roda na main thread, onde a COM ja foi inicializada
+// (CoInitialize no startup).
+begin
+  if not GTaskbarTried then
+  begin
+    GTaskbarTried := True;
+    if Succeeded(CoCreateInstance(CLSID_TaskbarList, nil,
+       CLSCTX_INPROC_SERVER, IID_ITaskbarList3, GTaskbar)) and
+       (GTaskbar <> nil) then
+    begin
+      if Failed(GTaskbar.HrInit) then GTaskbar := nil;
+    end
+    else
+      GTaskbar := nil;
+  end;
+  Result := GTaskbar;
+end;
+
 procedure SetWindowIconRecording(AOn: Boolean);
+// Indicador de "gravando" = overlay no botao da taskbar (ITaskbarList3).
+// NAO compoe a bolinha no icone da janela (WM_SETICON) de proposito: isso
+// duplicaria com o overlay e usava o caminho que falhava as vezes. O overlay
+// e a UNICA bolinha — vermelha solida, sem borda, canto inferior direito
+// (posicao fixada pelo Windows).
 var
-  SizeBig, SizeSmall: Integer;
+  TB: ITaskbarList3;
+  DotSz: Integer;
 begin
   if MainWindow = 0 then Exit;
   if AOn = WindowRecordingNow then Exit;
   WindowRecordingNow := AOn;
 
-  if WinIconBigBase = 0 then
-  begin
-    SizeBig := GetSystemMetrics(SM_CXICON);
-    if SizeBig < 32 then SizeBig := 32;
-    WinIconBigBase := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
-      SizeBig, SizeBig, LR_DEFAULTCOLOR);
-    if WinIconBigBase = 0 then
-      WinIconBigBase := LoadIconW(HInstance, 'MAINICON');
-    WinIconBigRec := OBSRecordIcon.CreateRecordingOverlayIcon(
-      WinIconBigBase, SizeBig);
-  end;
-  if WinIconSmallBase = 0 then
-  begin
-    SizeSmall := GetSystemMetrics(SM_CXSMICON);
-    if SizeSmall < 16 then SizeSmall := 16;
-    WinIconSmallBase := LoadImage(HInstance, 'MAINICON', IMAGE_ICON,
-      SizeSmall, SizeSmall, LR_DEFAULTCOLOR);
-    if WinIconSmallBase = 0 then
-      WinIconSmallBase := LoadIconW(HInstance, 'MAINICON');
-    WinIconSmallRec := OBSRecordIcon.CreateRecordingOverlayIcon(
-      WinIconSmallBase, SizeSmall);
-  end;
-
-  // ICON_SMALL afeta a barra de titulo + Alt+Tab pequeno; ICON_BIG
-  // afeta o icone da taskbar e Alt+Tab grande.
-  if AOn then
-  begin
-    SendMessage(MainWindow, WM_SETICON, ICON_BIG,   LPARAM(WinIconBigRec));
-    SendMessage(MainWindow, WM_SETICON, ICON_SMALL, LPARAM(WinIconSmallRec));
-  end
-  else
-  begin
-    SendMessage(MainWindow, WM_SETICON, ICON_BIG,   LPARAM(WinIconBigBase));
-    SendMessage(MainWindow, WM_SETICON, ICON_SMALL, LPARAM(WinIconSmallBase));
+  try
+    TB := GetTaskbar;
+    if TB = nil then Exit;
+    if AOn then
+    begin
+      if WinIconDot = 0 then
+      begin
+        DotSz := GetSystemMetrics(SM_CXSMICON);
+        if DotSz < 16 then DotSz := 16;
+        WinIconDot := OBSRecordIcon.CreateRecordingDotIcon(DotSz);
+      end;
+      TB.SetOverlayIcon(MainWindow, WinIconDot, nil);
+    end
+    else
+      TB.SetOverlayIcon(MainWindow, 0, nil);
+  except
   end;
 end;
 
@@ -1152,6 +1194,14 @@ begin
   // visivel pra facilitar a alternancia.
   if not GetConfigBool('closeToTray', False) then
     OBSTray.RemoveTrayIcon;
+
+  // Se gravando enquanto a janela estava escondida na bandeja, o botao da
+  // taskbar foi recriado ao reaparecer e o overlay se perde — re-aplica.
+  if WindowRecordingNow and (WinIconDot <> 0) and (GetTaskbar <> nil) then
+  try
+    GetTaskbar.SetOverlayIcon(MainWindow, WinIconDot, nil);
+  except
+  end;
 
   if Assigned(OnUIWindowRestored) then OnUIWindowRestored;
 end;

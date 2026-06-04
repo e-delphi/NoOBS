@@ -846,6 +846,32 @@ pros `VK_OEM_*` corretos — espelho exato do `VkToName` (inverso). O lado JS
 (`HOTKEY_KEY_GROUPS` grupo "chars") já mandava o símbolo certo; o bug era só
 no parse Delphi.
 
+### 44. **Badge "gravando" na taskbar é `ITaskbarList3::SetOverlayIcon`, NÃO `WM_SETICON`**
+
+`WM_SETICON` (trocar o ícone da janela) atualiza **Alt+Tab + barra de título**
+de forma confiável, mas **NÃO** o botão da **taskbar** de forma garantida (o
+explorer faz cache do ícone do botão) — era o "às vezes não aparecia". A API
+correta pra um selo de status no botão é **`ITaskbarList3::SetOverlayIcon`** (a
+mesma que apps usam pra mudo/não-lido), e é **confiável**.
+
+`OBSUI.SetWindowIconRecording` usa **só** `SetOverlayIcon`: declara a COM local
+(vtable completa até `SetOverlayIcon`, pra não depender da versão do RTL), cria
+o objeto lazy via `CoCreateInstance` (`GetTaskbar`, degrada pra no-op se a COM
+falhar) e sobrepõe um ícone **só-bolinha** (`OBSRecordIcon.CreateRecordingDotIcon`
+— círculo vermelho sólido, **sem borda**, ~16px) no start; limpa (`hIcon=0`) no
+stop. O Windows posiciona o overlay no **canto inferior direito** do botão.
+
+**Não compõe a bolinha no ícone da janela** (`WM_SETICON` +
+`CreateRecordingOverlayIcon`) de propósito: isso (a) duplicava — apareciam duas
+bolinhas, uma do ícone e outra do overlay — e (b) era o caminho que falhava na
+taskbar. Trade-off aceito: Alt+Tab/barra de título **não** mostram a bolinha
+(só a taskbar). `CreateRecordingOverlayIcon` continua existindo — é usado pelo
+**tray** (`OBSTray`, via `Shell_NotifyIcon`, controle direto, sempre funciona).
+
+Pegadinha secundária: o overlay **não sobrevive** a esconder→mostrar a janela
+(o botão da taskbar é recriado). Por isso `RestoreFromTray` re-aplica o overlay
+se `WindowRecordingNow` — cobre "minimizar ao gravar" + "fechar pra bandeja".
+
 ---
 
 ## Caches

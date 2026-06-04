@@ -5,7 +5,7 @@
 
   Tudo em runtime via GDI/VCL.Graphics — nao precisa de um segundo .ico
   no projeto. Carrega o MAINICON, desenha numa DIB 32-bit ARGB, sobrepoe
-  a bolinha vermelha com borda branca, gera HICON.
+  a bolinha vermelha (solida, anti-aliased, SEM borda), gera HICON.
 
   Uso:
     Icon := CreateRecordingOverlayIcon(BaseIcon, 32);
@@ -22,6 +22,13 @@ uses
 // Cria um HICON novo: base icon + bolinha vermelha sobreposta.
 // Caller e responsavel por chamar DestroyIcon no resultado.
 function CreateRecordingOverlayIcon(ABaseIcon: HICON; ASize: Integer): HICON;
+
+// Cria um HICON "so bolinha" (circulo vermelho solido, anti-aliased, SEM
+// borda, sobre fundo transparente) pra usar como OVERLAY de status na taskbar
+// via ITaskbarList3.SetOverlayIcon. NAO inclui o icone do app — so o ponto; o
+// Windows posiciona no canto inferior direito do botao e escala pra ~16px.
+// Caller chama DestroyIcon no resultado.
+function CreateRecordingDotIcon(ASize: Integer): HICON;
 
 implementation
 
@@ -115,6 +122,75 @@ begin
       Result := CreateIconIndirect(IconInfo);
       // CreateIconIndirect copia internamente — seguro destruir os
       // bitmaps depois.
+    finally
+      DeleteObject(MaskBmp);
+    end;
+  finally
+    Bmp.Free;
+  end;
+end;
+
+function CreateRecordingDotIcon(ASize: Integer): HICON;
+const
+  DOT_R: Byte = 220;  // #DC2626 — mesmo --danger da UI
+  DOT_G: Byte = 38;
+  DOT_B: Byte = 38;
+var
+  Bmp: TBitmap;
+  IconInfo: TIconInfo;
+  MaskBmp: HBITMAP;
+  Row: PByte;
+  iy, ix: Integer;
+  CenterX, CenterY, Radius, Dx, Dy, Dist, EdgeFade, Alpha: Double;
+  A: Byte;
+begin
+  if ASize < 8 then ASize := 8;
+
+  Bmp := TBitmap.Create;
+  try
+    Bmp.PixelFormat := pf32bit;
+    Bmp.SetSize(ASize, ASize);
+    Bmp.AlphaFormat := afDefined;
+    for iy := 0 to ASize - 1 do
+      FillChar(Bmp.ScanLine[iy]^, ASize * 4, 0);
+
+    // Bolinha CENTRADA no canvas (NAO ancorada a um canto). O Windows ja
+    // desenha o overlay no canto inferior direito do botao da taskbar — entao
+    // uma bolinha centrada no icone ja aparece exatamente la. Ancorar dentro
+    // do icone (tentativas anteriores) so empurrava ela pra fora do lugar (+
+    // o bitmap bottom-up inverte a vertical). ~72% do tamanho (um pouco
+    // menor), vermelha solida, sem borda.
+    Radius  := (ASize * 0.72) / 2.0;
+    CenterX := ASize / 2.0;
+    CenterY := ASize / 2.0;
+
+    for iy := 0 to ASize - 1 do
+    begin
+      Row := PByte(Bmp.ScanLine[iy]);
+      for ix := 0 to ASize - 1 do
+      begin
+        Dx := (ix + 0.5) - CenterX;
+        Dy := (iy + 0.5) - CenterY;
+        Dist := Sqrt(Dx * Dx + Dy * Dy);
+        EdgeFade := Radius - Dist;
+        if EdgeFade <= 0.0 then Continue;        // fora do circulo
+        if EdgeFade >= 1.0 then Alpha := 1.0 else Alpha := EdgeFade;
+        A := Byte(Round(Alpha * 255));
+        // Pre-multiplied alpha (afDefined): RGB * A / 255.
+        Row[ix * 4 + 0] := Byte((DOT_B * A) div 255);
+        Row[ix * 4 + 1] := Byte((DOT_G * A) div 255);
+        Row[ix * 4 + 2] := Byte((DOT_R * A) div 255);
+        Row[ix * 4 + 3] := A;
+      end;
+    end;
+
+    MaskBmp := CreateBitmap(ASize, ASize, 1, 1, nil);
+    try
+      FillChar(IconInfo, SizeOf(IconInfo), 0);
+      IconInfo.fIcon := True;
+      IconInfo.hbmMask  := MaskBmp;
+      IconInfo.hbmColor := Bmp.Handle;
+      Result := CreateIconIndirect(IconInfo);
     finally
       DeleteObject(MaskBmp);
     end;

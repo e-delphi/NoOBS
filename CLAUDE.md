@@ -872,6 +872,30 @@ Pegadinha secundária: o overlay **não sobrevive** a esconder→mostrar a janel
 (o botão da taskbar é recriado). Por isso `RestoreFromTray` re-aplica o overlay
 se `WindowRecordingNow` — cobre "minimizar ao gravar" + "fechar pra bandeja".
 
+### 45. **`TThread.Create(True)` + `Start` no construtor → double-start (EThread)**
+
+Subclasse de `TThread` cujo construtor faz `inherited Create(True)`
+(suspensa) e depois chama `Start` (ou `Resume`) **dentro do próprio
+construtor** quebra no Delphi atual: o `Start` zera `FCreateSuspended` e
+faz o 1º `ResumeThread`; em seguida o `AfterConstruction` da `TThread`
+(que o runtime chama automaticamente ao fim do construtor mais derivado)
+vê `FCreateSuspended = False` e dispara um **2º** `ResumeThread` numa
+thread já rodando → `EThread "Cannot call Start on a running or suspended
+thread"`. A exceção sobe pelo `Create`, o objeto é destruído e a
+referência fica `nil`.
+
+Sintoma real: `TMachineLockDetector` nunca subia (`LockDetector: falha ao
+iniciar: Cannot call Start...` no log), então "parar gravação ao bloquear
+a tela" (Win+L / bloqueio automático / troca de usuário) **não fazia
+nada** mesmo com `stopOnLock = true`.
+
+**Solução**: criar **não-suspensa** (`inherited Create(False)`) e **não**
+chamar `Start`. O `AfterConstruction` faz o único `ResumeThread`, e como
+ele só roda depois do construtor inteiro, qualquer estado que a thread
+precise (ex.: `CurrentDetectorInstance := Self`) já está setado — sem race
+e sem evento perdido. (Alternativa equivalente: manter `Create(True)` e
+chamar `Start` **fora** do construtor, no chamador.)
+
 ---
 
 ## Caches

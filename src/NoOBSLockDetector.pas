@@ -69,16 +69,22 @@ end;
 
 constructor TMachineLockDetector.Create;
 begin
-  // Cria SUSPENSA: precisamos setar CurrentDetectorInstance antes de a
-  // thread comecar — senao Execute -> CreateMessageWindow -> WindowProc
-  // poderia rodar com CurrentDetectorInstance ainda nil (evento perdido).
-  inherited Create(True);
+  // Cria NAO-suspensa. O ResumeThread real acontece no AfterConstruction da
+  // TThread, que so roda DEPOIS deste construtor terminar por inteiro — entao
+  // CurrentDetectorInstance ja esta setado quando a thread executa
+  // CreateMessageWindow -> WindowProc (sem race, sem evento perdido).
+  //
+  // NAO chamar Start aqui (e nao usar Create(True)): com Create(True)+Start, o
+  // Start zerava FCreateSuspended e o AfterConstruction subsequente disparava
+  // um SEGUNDO ResumeThread numa thread ja rodando -> EThread "Cannot call
+  // Start on a running or suspended thread". Resultado: o detector nunca subia
+  // e o bloqueio de tela (Win+L / automatico) nao parava a gravacao.
+  inherited Create(False);
   FreeOnTerminate := False;
   FWindowHandle := 0;
   FIsInitialized := False;
   FLocked := False;
   CurrentDetectorInstance := Self;
-  Start;
 end;
 
 destructor TMachineLockDetector.Destroy;

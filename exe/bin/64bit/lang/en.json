@@ -274,6 +274,7 @@
     "videoInfo": "Video info",
     "close": "Close",
     "playPause": "Play/Pause (Space)",
+    "clockTitle": "Recording clock time at this position",
     "mute": "Mute (M)",
     "unmute": "Unmute",
     "muteShort": "Mute",

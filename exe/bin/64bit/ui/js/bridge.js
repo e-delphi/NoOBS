@@ -255,7 +255,7 @@ const Bridge = {
     },
     recording_meta(data) { updateRecordingMeta(data); },
     play_pending(data) { Player.showPending(data.id); },
-    play_url(data) { Player.play(data.url, data.name, data.mode, data.id); },
+    play_url(data) { Player.play(data.url, data.name, data.mode, data.id, data.startClockSec); },
     video_info(data) { Player.renderInfo(data); },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     waveform_ready(data) { Waveform.onReady(data); },

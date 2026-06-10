@@ -720,6 +720,26 @@
     text-align: center;
   }
 
+  /* Hora-do-relogio na posicao atual (inicio da gravacao + offset).
+     Mais discreto que o tempo de reproducao, com icone de relogio. */
+  .player-clock {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .player-clock svg {
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+    opacity: 0.85;
+  }
+  /* O atributo [hidden] tem que vencer o display:inline-flex acima. */
+  .player-clock[hidden] { display: none; }
+
   /* Wrap contem o seek e a waveform — mas o wrap so toma a altura do
      seek (4px). A waveform e posicionada absoluto abaixo (top: 100%),
      ficando dentro do padding-bottom da .player-controls. Resultado:

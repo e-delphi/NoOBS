@@ -413,7 +413,7 @@ const Player = {
     // enquanto o player estiver visivel — a UI atras esta escondida.
     Bridge.send('player_state', { open: true });
   },
-  play(url, name, mode, id) {
+  play(url, name, mode, id, startClockSec) {
     const ov = document.getElementById('playerOverlay');
     // "Fresh open" = overlay nao estava visivel antes desta chamada.
     // Distincto de "video novo" — user pode reabrir o mesmo video
@@ -462,6 +462,10 @@ const Player = {
     }
     this.currentId = id;
     this.currentMode = mode || 'direct';
+    // Hora-do-relogio do inicio da gravacao (segundos desde meia-noite).
+    // >= 0 ativa o campo de horario; < 0 (desconhecido) mantem oculto.
+    this.startClockSec =
+      (typeof startClockSec === 'number' && startClockSec >= 0) ? startClockSec : -1;
     this.pendingId = null;
     // Se o painel de info ja esta aberto e o video mudou, recarrega.
     if (changed &&
@@ -521,6 +525,10 @@ const Player = {
     this.currentId = null;
     this.currentMode = null;
     this.triedTranscode = false;
+    // Esconde o campo de hora-do-relogio (proximo video traz o seu).
+    this.startClockSec = -1;
+    const clk = document.getElementById('playerClock');
+    if (clk) clk.hidden = true;
     this.closeInfoPanel();
     this.resetZoom();
     // Reseta selecao de monitor/regiao + layout cacheado + flag de info
@@ -1038,6 +1046,19 @@ const Player = {
     seek.value = p;
     seek.style.setProperty('--p', (dur > 0 ? (cur / dur) * 100 : 0) + '%');
     tm.textContent = fmtTime(cur) + ' / ' + fmtTime(dur);
+    // Hora-do-relogio = inicio da gravacao + posicao atual. % 86400 cobre
+    // gravacoes que cruzam a meia-noite (volta pra 00:xx).
+    const clk = document.getElementById('playerClock');
+    if (clk) {
+      if (this.startClockSec >= 0) {
+        const wall = (this.startClockSec + Math.floor(cur)) % 86400;
+        const txt = document.getElementById('playerClockText');
+        if (txt) txt.textContent = fmtClock(wall);
+        clk.hidden = false;
+      } else {
+        clk.hidden = true;
+      }
+    }
   },
 
   // -- Atualizacao da barra de progresso via rAF (60fps).
@@ -1423,6 +1444,15 @@ function fmtTime(s) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
   const pad = (n) => n.toString().padStart(2, '0');
   return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
+}
+
+// Hora-do-relogio (segundos desde meia-noite) -> "HH:MM:SS". Normaliza pra
+// [0..86399] (lida com cruzar a meia-noite e valores negativos).
+function fmtClock(sec) {
+  sec = ((Math.floor(sec) % 86400) + 86400) % 86400;
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  const pad = (n) => n.toString().padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
 // Timer com centesimos animado por JS. Backend so manda elapsed em

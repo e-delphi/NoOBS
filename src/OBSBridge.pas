@@ -2738,6 +2738,46 @@ begin
   PostOwned(Obj);
 end;
 
+function ResolveRecordingStartClockSec(const APath: string): Integer;
+// Segundos desde a meia-noite (0..86399) da hora em que a gravacao
+// COMECOU. O player usa pra mostrar a hora-do-relogio correspondente a
+// posicao atual (inicio + offset). Retorna -1 se nao der pra determinar.
+//
+// Fontes, em ordem de preferencia:
+//   1. Nome NoOBS_yyyy-mm-dd_hh-nn-ss(.ext) — instante exato do start (o
+//      nome e gerado com Now() em HandleRecordStart). Sobrevive copia,
+//      nao sobrevive rename.
+//   2. Data de CRIACAO do arquivo — o muxer cria o arquivo no inicio da
+//      gravacao, entao creation time ~= start. Sobrevive rename; copia
+//      entre volumes reseta. Cobre renomeados e arquivos importados.
+var
+  Name: string;
+  Y, Mo, D, H, Mi, S: Integer;
+  Hh, Mm, Ss, Ms: Word;
+begin
+  // 1. Parse do nome NoOBS_YYYY-MM-DD_HH-NN-SS (25 chars no minimo).
+  Name := ChangeFileExt(ExtractFileName(APath), '');
+  if (Length(Name) >= 25) and StartsText('NoOBS_', Name) then
+    if TryStrToInt(Copy(Name, 7, 4), Y) and
+       TryStrToInt(Copy(Name, 12, 2), Mo) and
+       TryStrToInt(Copy(Name, 15, 2), D) and
+       TryStrToInt(Copy(Name, 18, 2), H) and
+       TryStrToInt(Copy(Name, 21, 2), Mi) and
+       TryStrToInt(Copy(Name, 24, 2), S) and
+       (Y >= 2000) and (Mo >= 1) and (Mo <= 12) and (D >= 1) and (D <= 31) and
+       (H >= 0) and (H <= 23) and (Mi >= 0) and (Mi <= 59) and
+       (S >= 0) and (S <= 59) then
+      Exit(H * 3600 + Mi * 60 + S);
+
+  // 2. Data de criacao do arquivo (TFile.GetCreationTime ja vem em local).
+  try
+    DecodeTime(TFile.GetCreationTime(APath), Hh, Mm, Ss, Ms);
+    Result := Hh * 3600 + Mm * 60 + Ss;
+  except
+    Result := -1;
+  end;
+end;
+
 procedure PushPlayUrl(const APath, AUrl, AMode: string);
 // AMode: 'direct' (arquivo original) ou 'transcoded' (cache MP4 H.264).
 // UI usa pra saber se pode pedir transcode em caso de falha.
@@ -2750,6 +2790,10 @@ begin
   Obj.AddPair('name', ChangeFileExt(ExtractFileName(APath), ''));
   Obj.AddPair('url', AUrl);
   Obj.AddPair('mode', AMode);
+  // Hora-do-relogio do inicio da gravacao (segundos desde meia-noite) pra
+  // o player exibir o horario real na posicao atual. -1 = desconhecido.
+  Obj.AddPair('startClockSec',
+    TJSONNumber.Create(ResolveRecordingStartClockSec(APath)));
   PostOwned(Obj);
 end;
 

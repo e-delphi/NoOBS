@@ -274,6 +274,7 @@
     "videoInfo": "Información del video",
     "close": "Cerrar",
     "playPause": "Play/Pause (Espacio)",
+    "clockTitle": "Hora de grabación en esta posición",
     "mute": "Silenciar (M)",
     "unmute": "Reactivar audio",
     "muteShort": "Silenciar",

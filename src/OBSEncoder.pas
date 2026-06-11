@@ -191,6 +191,17 @@ begin
     else
       Log('Encoder quality: nivel=0 (usando default do encoder).');
 
+    // Intervalo de keyframe (chave padrao de TODOS os encoders do OBS: x264,
+    // NVENC, AMF, QSV). Sem isto o default e 0 = "auto", que poe keyframes
+    // muito espacados (~8s); ai pedacos curtos ficam com 1 so keyframe e nao
+    // dao pra dividir/subdividir no player (stream copy so corta em I-frame).
+    // Configuravel pelo usuario (1..10s, default 2 = padrao de streaming).
+    var KeyframeSec: Integer := GetConfigInt('recordingKeyframeSec', 2);
+    if KeyframeSec < 1  then KeyframeSec := 1;
+    if KeyframeSec > 10 then KeyframeSec := 10;
+    obs_data_set_int(Settings, 'keyint_sec', KeyframeSec);
+    Log('Encoder keyint: %ds', [KeyframeSec]);
+
     Result := obs_video_encoder_create(PAnsiChar(AId),
       'NoOBS Video Encoder', Settings, nil);
   finally

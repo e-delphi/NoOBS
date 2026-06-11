@@ -711,6 +711,9 @@
   }
   .player-btn:hover { background: rgba(255,255,255,0.12); }
   .player-btn svg { width: 18px; height: 18px; fill: currentColor; }
+  /* Botao desabilitado (ex.: dividir no inicio/fim do video). */
+  .player-btn:disabled { opacity: 0.3; cursor: default; }
+  .player-btn:disabled:hover { background: transparent; }
 
   .player-time {
     font-size: 12px;

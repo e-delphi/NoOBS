@@ -65,6 +65,7 @@ const Settings = {
   currentStopOnLock: false,
   currentHibernate: false,
   currentRecordingQuality: 0,
+  currentRecordingKeyframe: 2,
   currentRecordingFps: 30,
   maxMonitorHz: 60,
   // Predefinicoes do slider de fps — computadas a partir de maxMonitorHz.
@@ -103,6 +104,10 @@ const Settings = {
     this._applyFpsPresetsToSlider();
     this._populateFpsTicks();
     this._syncFpsHint();
+    document.getElementById('settingsRecordingKeyframe').value =
+      String(this.currentRecordingKeyframe | 0);
+    this._populateKeyframeTicks();
+    this._syncKeyframeHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -156,6 +161,7 @@ const Settings = {
       // Slider snap nas predefinicoes — _currentFpsFromSlider mapeia
       // indice -> fps direto da lista, garantindo valor valido [20..max].
       const recordingFps = this._currentFpsFromSlider();
+      const recordingKeyframe = parseInt(document.getElementById('settingsRecordingKeyframe').value, 10) | 0;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
         minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
         recordingQuality, recordingFps,
@@ -209,6 +215,8 @@ const Settings = {
         Bridge.send('set_recording_quality', { level: recordingQuality });
       if (recordingFps !== this.currentRecordingFps)
         Bridge.send('set_recording_fps', { fps: recordingFps });
+      if (recordingKeyframe !== this.currentRecordingKeyframe)
+        Bridge.send('set_recording_keyframe', { sec: recordingKeyframe });
       if (language !== this.currentLanguagePref)
         Bridge.send('set_language', { language });
       // Atualiza cache local imediato pra evitar reenvio de uma mesma
@@ -227,6 +235,7 @@ const Settings = {
       this.currentHibernate = hibernate;
       this.currentRecordingQuality = recordingQuality;
       this.currentRecordingFps = recordingFps;
+      this.currentRecordingKeyframe = recordingKeyframe;
       this.currentLanguagePref = language;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
       // tenha um limite diferente do anterior (ex.: h264-hw → av1-hw
@@ -276,6 +285,12 @@ const Settings = {
     let fps = parseInt(data.recordingFps, 10);
     if (!Number.isFinite(fps) || fps < 10) fps = 30;
     this.currentRecordingFps = fps;
+    // recordingKeyframeSec: 1..10, default 2.
+    let kf = parseInt(data.recordingKeyframeSec, 10);
+    if (!Number.isFinite(kf)) kf = 2;
+    if (kf < 1)  kf = 1;
+    if (kf > 10) kf = 10;
+    this.currentRecordingKeyframe = kf;
     // maxMonitorHz: taxa maxima detectada no backend (Win32 EnumDisplaySettings).
     let maxHz = parseInt(data.maxMonitorHz, 10);
     if (!Number.isFinite(maxHz) || maxHz < 10) maxHz = 60;
@@ -319,6 +334,10 @@ const Settings = {
     this._applyFpsPresetsToSlider();
     this._populateFpsTicks();
     this._syncFpsHint();
+    const kfEl = document.getElementById('settingsRecordingKeyframe');
+    if (kfEl) kfEl.value = String(this.currentRecordingKeyframe);
+    this._populateKeyframeTicks();
+    this._syncKeyframeHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -346,6 +365,9 @@ const Settings = {
   },
   onFpsChange() {
     this._syncFpsHint();
+  },
+  onKeyframeChange() {
+    this._syncKeyframeHint();
   },
   onLanguageChange() {
     // Mudanca local — so commita no backend quando o user clica Salvar.
@@ -436,6 +458,33 @@ const Settings = {
     else               bucket = 'veryHigh';
     hint.textContent = T('settings.fps.hint.' + bucket, { fps: v });
     this._syncSliderFill(document.getElementById('settingsRecordingFps'));
+  },
+  _syncKeyframeHint() {
+    const el = document.getElementById('settingsRecordingKeyframe');
+    const hint = document.getElementById('settingsKeyframeHint');
+    if (!el || !hint) return;
+    const v = parseInt(el.value, 10) | 0;
+    let bucket;
+    if (v <= 1)      bucket = 'precise';
+    else if (v <= 2) bucket = 'balanced';
+    else if (v <= 5) bucket = 'medium';
+    else             bucket = 'spaced';
+    hint.textContent = T('settings.keyframe.hint.' + bucket, { sec: v });
+    this._syncSliderFill(el);
+  },
+  // Ticks de referencia (1, 2, 5, 10s) posicionados pelo VALOR real no range
+  // 1..10 — mesma matematica de alinhamento ao thumb dos outros sliders
+  // (left = 7px + ratio*(100% - 14px)).
+  _populateKeyframeTicks() {
+    const el = document.getElementById('keyframeTicks');
+    if (!el) return;
+    const ticks = [1, 2, 5, 10];
+    const min = 1, max = 10;
+    el.innerHTML = ticks.map(v => {
+      const ratio = (v - min) / (max - min);
+      const left = `calc(7px + ${ratio} * (100% - 14px))`;
+      return `<span class="fps-tick" style="left: ${left}">${v}s</span>`;
+    }).join('');
   },
   // Calcula as predefinicoes validas dado o maxMonitorHz atual. Ver
   // comentario da propriedade fpsPresets pra regra completa.
@@ -588,11 +637,15 @@ const Settings = {
         this.fpsPresets = this._computeFpsPresets();
         this._applyFpsPresetsToSlider();
         this._populateFpsTicks();
+        // Keyframe: default 2s.
+        document.getElementById('settingsRecordingKeyframe').value = '2';
+        this._populateKeyframeTicks();
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
         this._syncQualityHint();
         this._syncFpsHint();
+        this._syncKeyframeHint();
         this._syncCodecMaxRes();
         Toast.show(T('toast.fieldsReset'),
           T('toast.fieldsResetBody'), { ttl: 4000 });

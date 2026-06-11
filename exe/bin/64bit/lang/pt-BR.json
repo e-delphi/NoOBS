@@ -195,6 +195,17 @@
         "veryHigh": "{{fps}} fps — altíssima fluidez. Arquivo maior."
       }
     },
+    "keyframe": {
+      "label": "Intervalo de keyframe",
+      "precise": "Corte exato",
+      "compact": "Arquivo menor",
+      "hint": {
+        "precise": "A cada {{sec}} segundo — cortes bem precisos ao dividir no player. Arquivo levemente maior.",
+        "balanced": "A cada {{sec}} segundos — bom equilíbrio entre pontos de corte e tamanho. (Recomendado)",
+        "medium": "A cada {{sec}} segundos — arquivo um pouco menor; cortes menos precisos.",
+        "spaced": "A cada {{sec}} segundos — arquivo menor; a divisão pode desviar bastante do ponto escolhido."
+      }
+    },
     "autostart": {
       "label": "Iniciar com o Windows",
       "hint": "O NoOBS sobe automaticamente quando você loga no Windows."
@@ -275,6 +286,8 @@
     "close": "Fechar",
     "playPause": "Play/Pause (Espaço)",
     "clockTitle": "Hora da gravação nesta posição",
+    "split": "Dividir aqui",
+    "splitting": "Dividindo vídeo...",
     "mute": "Mudo (M)",
     "unmute": "Desmutar",
     "muteShort": "Mutar",
@@ -324,7 +337,10 @@
     "startingRecord": "Iniciando gravação",
     "updating": "Atualizando",
     "errorTitle": "Erro",
+    "clickToClose": "Clique para fechar",
     "unknownError": "Erro desconhecido",
+    "splitDone": "Vídeo dividido",
+    "splitDoneMsg": "Dividido em 2 partes. O original foi para a lixeira.",
     "languageChanged": "Idioma alterado",
     "andMore": "…e mais {{count}}"
   },
@@ -336,6 +352,9 @@
     "folderNotFound": "Pasta de gravações não encontrada",
     "deleteFailed": "Falha ao excluir o arquivo: {{file}}",
     "renameFailed": "Falha ao renomear arquivo.",
+    "splitFailed": "Falha ao dividir o vídeo.",
+    "splitNoCutPoint": "Não foi possível dividir aqui — este trecho não tem um ponto de corte nesta posição. Tente outro ponto.",
+    "splitNoSpace": "Espaço insuficiente em disco para dividir. As duas partes precisam de ~{{needed}} livres, mas só há {{free}}. Libere espaço e tente de novo.",
     "cantChangeSourcesWhileRecording": "Não dá pra alterar fontes de vídeo durante a gravação.",
     "prepareUrlFailed": "Falha ao preparar URL do vídeo.",
     "mediaLibUnavailable": "Biblioteca de mídia (libavformat) não disponível.",

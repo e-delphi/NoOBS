@@ -345,7 +345,15 @@ function buildGroupTitle(label) {
 }
 
 function addRecordingCard(item) {
+  if (!item || !item.id) return;
   const grid = document.getElementById('recGrid');
+  // Dedup: nunca cria um 2o card pro mesmo id. Cobre a corrida entre o
+  // recording_added otimista (ex.: as duas partes de uma divisão, que
+  // chegam quase juntas) e o re-render do file watcher, que pode listar o
+  // arquivo novo ANTES. Dois cards com o mesmo data-id faziam a seleção/
+  // clique mirar no card errado (querySelector pega sempre o primeiro) —
+  // era o "seleciona outro" ao escolher uma gravação recém-dividida.
+  if (grid.querySelector(`.rec-card[data-id="${cssEscape(item.id)}"]`)) return;
   const p = periodKey(item.date);
   let group = grid.querySelector(`.rec-group[data-group-key="${p.key}"]`);
   if (!group) {

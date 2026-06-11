@@ -318,6 +318,14 @@ window.addEventListener('resize', () => {
 // Toast (notificacao nao-bloqueante)
 // =====================================================================
 const Toast = {
+  // Fecha um toast imediatamente (clique do usuário ou fim do TTL).
+  // Idempotente — clique + timeout podem chamar; só o 1o age de fato.
+  _dismiss(el) {
+    if (!el) return;
+    if (el._dismissTimer) { clearTimeout(el._dismissTimer); el._dismissTimer = null; }
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 220);
+  },
   show(title, msg, opts) {
     const stack = document.getElementById('toastStack');
     if (!stack) return;
@@ -329,15 +337,16 @@ const Toast = {
       CSS.escape(title || '') + '"]');
     if (existing) {
       if (existing._dismissTimer) clearTimeout(existing._dismissTimer);
-      existing._dismissTimer = setTimeout(() => {
-        existing.classList.remove('show');
-        setTimeout(() => existing.remove(), 220);
-      }, ttl);
+      existing._dismissTimer = setTimeout(() => this._dismiss(existing), ttl);
       return;
     }
     const el = document.createElement('div');
     el.className = 'toast' + (opts && opts.warn ? ' warn' : '');
     el.dataset.title = title || '';
+    // Clicar fecha o toast na hora — libera o que estiver embaixo dele
+    // (ex.: o botão de fechar do player, que fica no mesmo canto).
+    el.title = T('toast.clickToClose');
+    el.addEventListener('click', () => this._dismiss(el));
     if (title) {
       const t = document.createElement('div');
       t.className = 'toast-title';
@@ -352,10 +361,7 @@ const Toast = {
     }
     stack.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
-    el._dismissTimer = setTimeout(() => {
-      el.classList.remove('show');
-      setTimeout(() => el.remove(), 220);
-    }, ttl);
+    el._dismissTimer = setTimeout(() => this._dismiss(el), ttl);
   }
 };
 

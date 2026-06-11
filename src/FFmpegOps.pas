@@ -27,6 +27,20 @@ uses
 // Retorna True em sucesso.
 function RemuxFile(const ASrc, ADst: string): Boolean;
 
+type
+  // Resultado da divisao. soNoCutPoint = nao ha keyframe interno pra cortar
+  // nesta posicao (comum em pedacos curtos com keyframes espacados) — a UI
+  // mostra uma dica em vez de "falha" generica.
+  TSplitOutcome = (soOk, soNoCutPoint, soError);
+
+// Divide o arquivo em DOIS (stream copy, sem reencode) no keyframe mais
+// proximo de APosSec: ADstA = [inicio, corte), ADstB = [corte, fim) com
+// timestamps rebaseados pra comecar em ~0. Como stream copy so corta em
+// I-frame, o ponto real "snap" pro keyframe (pode desviar do APosSec
+// conforme o keyint do encoder). Worker thread.
+function SplitFileAtKeyframe(const ASrc, ADstA, ADstB: string;
+  APosSec: Double): TSplitOutcome;
+
 // Extrai faixas de audio do source pra arquivos separados (M4A, AAC stream
 // copy). AOutputs[j] recebe o (j+AAudioStartIndex)-esimo audio stream — use
 // AAudioStartIndex=1 pra pular o mix (track 1) e extrair so as isoladas.
@@ -54,6 +68,12 @@ uses
   Winapi.Windows,
   OBSLog,
   FFmpegLib;
+
+const
+  // AV_NOPTS_VALUE vive na implementation de FFmpegLib (nao exportado na
+  // interface), entao redeclaramos aqui pro roteamento de pacotes do split.
+  // Mesmo valor de avutil (INT64_MIN).
+  AV_NOPTS_VALUE = Int64($8000000000000000);
 
 // =====================================================================
 // RemuxToContainer — base de RemuxFile e ExtractAudioTracks
@@ -89,6 +109,20 @@ begin
   else if Ext = '.mov' then Result := 'mov'
   else if Ext = '.aac' then Result := 'adts'
   else Result := 'mp4'; // default
+end;
+
+procedure CopyStreamTag(ASrc, ADst: PAVStream; const AKey: PAnsiChar);
+// Copia UMA tag de metadata (ex.: 'title', 'language') de um stream pro
+// outro, se existir. Usado no lugar de av_dict_copy pra NAO arrastar tags
+// que ficam invalidas apos corte/remux (DURATION, _STATISTICS_*, NUMBER_OF_*
+// — o demuxer le DURATION e reportaria a duracao do arquivo original).
+var
+  Entry: PAVDictionaryEntry;
+begin
+  if (ASrc = nil) or (ADst = nil) then Exit;
+  Entry := av_dict_get(ASrc.metadata, AKey, nil, 0);
+  if (Entry <> nil) and (Entry.value <> nil) then
+    av_dict_set(@ADst.metadata, AKey, Entry.value, 0);
 end;
 
 function OpenOutputForStreams(const ASrcCtx: AVFormatContext;
@@ -131,6 +165,13 @@ begin
     if avcodec_parameters_copy(DstStream.codecpar, SrcStream.codecpar) < 0 then Exit;
     // codec_tag = 0 deixa o muxer escolher conforme container.
     DstStream.codecpar.codec_tag := 0;
+    // Preserva SO o title (nome da faixa de audio) e o language. NAO copia a
+    // metadata inteira (av_dict_copy): o Matroska guarda tags DURATION e
+    // _STATISTICS_*/NUMBER_OF_* POR STREAM que ficam ERRADAS depois do corte
+    // — o demuxer usa a tag DURATION pra reportar a duracao, entao copiar
+    // tudo fazia a parte mostrar a duracao do ORIGINAL na lista.
+    CopyStreamTag(SrcStream, DstStream, 'title');
+    CopyStreamTag(SrcStream, DstStream, 'language');
     AOut.StreamMap[AKeepStreamIdx[i]] := DstStream.index;
   end;
 
@@ -302,6 +343,204 @@ begin
   SetLength(Outputs, 1);
   Outputs[0] := ADst;
   Result := RemuxDispatch(ASrc, Targets, Outputs);
+end;
+
+function FindCutKeyframeSec(const ASrcCtx: AVFormatContext;
+  AVideoIdx: Integer; APosSec: Double): Double;
+// Passada de descoberta: pts-time (segundos) do keyframe de video escolhido
+// pro corte. Preferencia: o PRIMEIRO keyframe com pts_time >= APosSec (a 2a
+// parte comeca num keyframe limpo). Se nao houver nenhum depois da posicao
+// (corte perto do fim), usa o ULTIMO keyframe antes dela. -1 se nao houver
+// keyframe valido.
+const
+  AV_PKT_FLAG_KEY = 1;
+var
+  Pkt: PAVPacket;
+  S: PAVStream;
+  Tb: AVRational;
+  PtsTime, LastKf: Double;
+begin
+  Result := -1;
+  LastKf := -1;
+  S := GetStreamByIndex(ASrcCtx, Cardinal(AVideoIdx));
+  if (S = nil) or (S.time_base.den <= 0) then Exit;
+  Tb := S.time_base;
+
+  Pkt := av_packet_alloc;
+  if Pkt = nil then Exit;
+  try
+    while av_read_frame(ASrcCtx, Pkt) = 0 do
+    begin
+      try
+        if (Pkt.stream_index = AVideoIdx) and
+           ((Pkt.flags and AV_PKT_FLAG_KEY) <> 0) and
+           (Pkt.pts <> AV_NOPTS_VALUE) then
+        begin
+          PtsTime := Pkt.pts * (Tb.num / Tb.den);
+          LastKf := PtsTime;
+          if PtsTime >= APosSec then
+          begin
+            Result := PtsTime;   // 1o keyframe >= posicao (ordem crescente)
+            Exit;
+          end;
+        end;
+      finally
+        av_packet_unref(Pkt);
+      end;
+    end;
+  finally
+    av_packet_free(@Pkt);
+  end;
+  // Nenhum keyframe depois da posicao — usa o ultimo antes dela.
+  Result := LastKf;
+end;
+
+function SplitFileAtKeyframe(const ASrc, ADstA, ADstB: string;
+  APosSec: Double): TSplitOutcome;
+const
+  AV_PKT_FLAG_KEY = 1;
+var
+  SrcCtx: AVFormatContext;
+  OutA, OutB: TOutputStream;
+  Pkt: PAVPacket;
+  NbStreams: Cardinal;
+  AllIdx: TArray<Cardinal>;
+  CutInTb: TArray<Int64>;
+  i, VideoIdx, Sidx, DstIdx: Integer;
+  S, SrcStream, DstStream: PAVStream;
+  CutSec, PktSec: Double;
+  TbS, TbUs: AVRational;
+  RefUs: Int64;
+  WriteFailed, ToB: Boolean;
+  WrRc: Integer;
+begin
+  Result := soError;
+  if not FFmpegLibAvailable then Exit;
+  if (ASrc = '') or (ADstA = '') or (ADstB = '') then Exit;
+
+  FillChar(OutA, SizeOf(OutA), 0);
+  FillChar(OutB, SizeOf(OutB), 0);
+  SrcCtx := nil;
+  Pkt := nil;
+
+  if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(ASrc)), nil, nil) < 0 then Exit;
+  try
+    if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
+    NbStreams := av_format_context_nb_streams(SrcCtx);
+    if NbStreams = 0 then Exit;
+
+    // 1o stream de video (referencia de keyframe).
+    VideoIdx := -1;
+    for i := 0 to Integer(NbStreams) - 1 do
+    begin
+      S := GetStreamByIndex(SrcCtx, Cardinal(i));
+      if (S <> nil) and (S.codecpar <> nil) and
+         (S.codecpar.codec_type = AVMEDIA_TYPE_VIDEO) then
+      begin
+        VideoIdx := i;
+        Break;
+      end;
+    end;
+
+    // Tempo do corte (keyframe). Sem video (audio-only): tempo bruto pedido.
+    if VideoIdx >= 0 then
+      CutSec := FindCutKeyframeSec(SrcCtx, VideoIdx, APosSec)
+    else
+      CutSec := APosSec;
+    // CutSec <= 0 = unico keyframe e no inicio (ou nao ha keyframe interno):
+    // o pedaco nao tem onde ser cortado por stream copy. Caso "nada pra
+    // cortar" — reportado distinto do erro pra a UI dar dica util.
+    if CutSec <= 0 then
+    begin
+      Log('Split: sem ponto de corte (CutSec=%.3f pos=%.3f) — keyframes ' +
+        'espacados demais pra cortar aqui.', [CutSec, APosSec]);
+      Exit(soNoCutPoint);
+    end;
+
+    // Volta o cursor pro inicio pra a passada de copia.
+    av_seek_frame(SrcCtx, -1, 0, AVSEEK_FLAG_BACKWARD);
+
+    // Dois outputs, todos os streams (copia).
+    SetLength(AllIdx, NbStreams);
+    for i := 0 to Integer(NbStreams) - 1 do AllIdx[i] := Cardinal(i);
+    if not OpenOutputForStreams(SrcCtx, ADstA, AllIdx, OutA) then Exit;
+    if not OpenOutputForStreams(SrcCtx, ADstB, AllIdx, OutB) then Exit;
+
+    // Offset de rebase por stream (= CutSec no time_base de cada um). Subtrair
+    // o mesmo offset temporal de todos preserva o sync A/V na 2a parte.
+    TbUs.num := 1;
+    TbUs.den := AV_TIME_BASE;
+    RefUs := Round(CutSec * AV_TIME_BASE);
+    SetLength(CutInTb, NbStreams);
+    for i := 0 to Integer(NbStreams) - 1 do
+    begin
+      S := GetStreamByIndex(SrcCtx, Cardinal(i));
+      if (S <> nil) and (S.time_base.den > 0) then
+        CutInTb[i] := av_rescale_q(RefUs, TbUs, S.time_base)
+      else
+        CutInTb[i] := 0;
+    end;
+
+    Pkt := av_packet_alloc;
+    if Pkt = nil then Exit;
+    WriteFailed := False;
+    while (not WriteFailed) and (av_read_frame(SrcCtx, Pkt) = 0) do
+    begin
+      try
+        Sidx := Pkt.stream_index;
+        if (Sidx < 0) or (Cardinal(Sidx) >= NbStreams) then Continue;
+        SrcStream := GetStreamByIndex(SrcCtx, Cardinal(Sidx));
+        if SrcStream = nil then Continue;
+        DstIdx := OutA.StreamMap[Sidx];   // mesmo mapa em A e B
+        if DstIdx < 0 then Continue;
+        TbS := SrcStream.time_base;
+
+        // Tempo por DTS (ordem de decodificacao): o keyframe tem dts==pts,
+        // entao dts>=CutSec poe o keyframe e tudo depois na 2a parte; o GOP
+        // anterior (dts<CutSec) fica na 1a. Corte limpo no I-frame.
+        if (Pkt.dts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+          PktSec := Pkt.dts * (TbS.num / TbS.den)
+        else if (Pkt.pts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+          PktSec := Pkt.pts * (TbS.num / TbS.den)
+        else
+          PktSec := 0;
+
+        ToB := PktSec >= CutSec;
+        if ToB then
+        begin
+          DstStream := GetStreamByIndex(OutB.Ctx, Cardinal(DstIdx));
+          if DstStream = nil then Continue;
+          if Pkt.pts <> AV_NOPTS_VALUE then Pkt.pts := Pkt.pts - CutInTb[Sidx];
+          if Pkt.dts <> AV_NOPTS_VALUE then Pkt.dts := Pkt.dts - CutInTb[Sidx];
+          Pkt.stream_index := DstIdx;
+          av_packet_rescale_ts(Pkt, TbS, DstStream.time_base);
+          Pkt.pos := -1;
+          try WrRc := av_interleaved_write_frame(OutB.Ctx, Pkt); except WrRc := -1; end;
+          if WrRc < 0 then WriteFailed := True;
+        end
+        else
+        begin
+          DstStream := GetStreamByIndex(OutA.Ctx, Cardinal(DstIdx));
+          if DstStream = nil then Continue;
+          Pkt.stream_index := DstIdx;
+          av_packet_rescale_ts(Pkt, TbS, DstStream.time_base);
+          Pkt.pos := -1;
+          try WrRc := av_interleaved_write_frame(OutA.Ctx, Pkt); except WrRc := -1; end;
+          if WrRc < 0 then WriteFailed := True;
+        end;
+      finally
+        av_packet_unref(Pkt);
+      end;
+    end;
+    if not WriteFailed then Result := soOk;
+    Log('Split: cut=%.3fs result=%s', [CutSec,
+      BoolToStr(Result = soOk, True)]);
+  finally
+    if Pkt <> nil then av_packet_free(@Pkt);
+    CloseOutput(OutA);
+    CloseOutput(OutB);
+    avformat_close_input(@SrcCtx);
+  end;
 end;
 
 function ExtractAudioTracks(const ASrc: string;

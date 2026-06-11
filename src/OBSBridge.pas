@@ -3219,6 +3219,10 @@ begin
   // limite superior do slider de fps. Chamada rapida (Win32 apenas).
   Obj.AddPair('recordingFps',
     TJSONNumber.Create(GetConfigInt('recordingFps', 30)));
+  // recordingKeyframeSec: intervalo de keyframe (1..10s, default 2). Afeta a
+  // precisao da divisao de video no player (stream copy so corta em I-frame).
+  Obj.AddPair('recordingKeyframeSec',
+    TJSONNumber.Create(GetConfigInt('recordingKeyframeSec', 2)));
   Obj.AddPair('maxMonitorHz',
     TJSONNumber.Create(WinPreview.GetMaxMonitorRefreshRate));
   // Idioma atual ativo (codigo resolvido — 'pt-BR', 'en', etc.).
@@ -3290,6 +3294,16 @@ begin
   if AFps < 10 then AFps := 10;
   SetConfigInt('recordingFps', AFps);
   Log('RecordingFps: %d fps', [AFps]);
+end;
+
+procedure HandleSetRecordingKeyframe(ASec: Integer);
+begin
+  // Clampa 1..10s — UI manda nesse range, defensivo contra config.json
+  // editado a mao. Aplicado na criacao do encoder (OBSEncoder.keyint_sec).
+  if ASec < 1  then ASec := 1;
+  if ASec > 10 then ASec := 10;
+  SetConfigInt('recordingKeyframeSec', ASec);
+  Log('RecordingKeyframe: %ds', [ASec]);
 end;
 
 procedure HandleSetLanguage(const ACode: string);
@@ -3598,6 +3612,186 @@ begin
     end).Start;
 end;
 
+function MakeSplitPath(const AOrig: string; APart: Integer): string;
+// <dir>\<base> - <part>.<ext>, com sufixo " (N)" se ja existir.
+var
+  Dir, Base, Ext, Cand: string;
+  N: Integer;
+begin
+  Dir := ExtractFilePath(AOrig);
+  Base := ChangeFileExt(ExtractFileName(AOrig), '');
+  Ext := ExtractFileExt(AOrig);
+  Cand := Dir + Format('%s - %d%s', [Base, APart, Ext]);
+  N := 2;
+  while TFile.Exists(Cand) do
+  begin
+    Cand := Dir + Format('%s - %d (%d)%s', [Base, APart, N, Ext]);
+    Inc(N);
+  end;
+  Result := Cand;
+end;
+
+procedure PushSplitPending;
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'split_pending');
+  PostOwned(Obj);
+end;
+
+procedure PushSplitDone(AOk: Boolean);
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'split_done');
+  Obj.AddPair('ok', TJSONBool.Create(AOk));
+  PostOwned(Obj);
+end;
+
+procedure HandleSplitRecording(const APath: string; APosSec: Double);
+// Divide a gravacao em DUAS partes no keyframe mais proximo de APosSec
+// (stream copy via FFmpegOps, sem reencode). O original vai pra lixeira
+// (recuperavel). Roda em worker — split de arquivo grande leva segundos.
+var
+  PathCopy: string;
+  PosCopy: Double;
+begin
+  if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then
+  begin
+    Log('HandleSplitRecording: path fora da pasta, ignorado: %s', [APath]);
+    Exit;
+  end;
+  if not TFile.Exists(APath) then
+  begin
+    PostError(OBSLang.T('error.fileNotFound'));
+    Exit;
+  end;
+  if not FFmpegLibAvailable then
+  begin
+    PostError(OBSLang.T('error.mediaLibUnavailable'));
+    Exit;
+  end;
+  if APosSec <= 0 then Exit;  // inicio do video: nada a dividir
+
+  // Espaco em disco: as duas partes somam ~o tamanho do original (stream
+  // copy). Como o original so vai pra lixeira DEPOIS (continua ocupando ate
+  // esvaziar), o pico exige ~o tamanho do original livre. Checa ANTES de
+  // tentar — senao o corte falharia no meio com o disco cheio, gerando
+  // arquivos parciais. Folga: +5% +16MB (headers/cues das 2 partes + respiro).
+  var OrigSize: Int64 := 0;
+  try OrigSize := TFile.GetSize(APath); except end;
+  var FreeBytes: Int64 := GetRecordDirFreeBytes;
+  var Needed: Int64 := OrigSize + (OrigSize div 20) + 16 * 1024 * 1024;
+  if (OrigSize > 0) and (FreeBytes >= 0) and (FreeBytes < Needed) then
+  begin
+    Log('HandleSplitRecording: espaco insuficiente — precisa ~%d, livre %d.',
+      [Needed, FreeBytes]);
+    PostError(OBSLang.T('error.splitNoSpace',
+      ['needed', FormatBytesShort(Needed), 'free', FormatBytesShort(FreeBytes)]));
+    Exit;
+  end;
+
+  PathCopy := APath;
+  PosCopy := APosSec;
+  PushSplitPending;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      PathA, PathB: string;
+      Outcome: TSplitOutcome;
+      NoCutPoint: Boolean;
+      SizeA, SizeB: Int64;
+    begin
+      if IsShuttingDown then Exit;
+      PathA := MakeSplitPath(PathCopy, 1);
+      PathB := MakeSplitPath(PathCopy, 2);
+
+      Outcome := soError;
+      try
+        Outcome := SplitFileAtKeyframe(PathCopy, PathA, PathB, PosCopy);
+      except
+        on E: Exception do
+          Log('HandleSplitRecording: excecao: %s', [E.Message]);
+      end;
+
+      // Mesmo com soOk, confirma que as duas partes sairam com bytes.
+      if Outcome = soOk then
+      begin
+        SizeA := 0; SizeB := 0;
+        try
+          SizeA := TFile.GetSize(PathA);
+          SizeB := TFile.GetSize(PathB);
+        except end;
+        if (SizeA <= 0) or (SizeB <= 0) then Outcome := soError;
+      end;
+
+      if Outcome <> soOk then
+      begin
+        // Limpa qualquer parte parcial que tenha sobrado.
+        try if TFile.Exists(PathA) then TFile.Delete(PathA); except end;
+        try if TFile.Exists(PathB) then TFile.Delete(PathB); except end;
+        NoCutPoint := (Outcome = soNoCutPoint);
+        TThread.Queue(nil,
+          procedure
+          begin
+            if IsShuttingDown then Exit;
+            PushSplitDone(False);
+            // "Sem ponto de corte" (keyframe) ganha dica especifica em vez
+            // da falha generica.
+            if NoCutPoint then
+              PostError(OBSLang.T('error.splitNoCutPoint'))
+            else
+              PostError(OBSLang.T('error.splitFailed'));
+          end);
+        Exit;
+      end;
+
+      // Preserva o layout de monitores/webcams (canvas + regioes) do original
+      // nas duas partes. A divisao e stream copy, entao a disposicao no canvas
+      // e IDENTICA — so o tempo muda; o seletor de monitor do player precisa
+      // disso. Le ANTES de mover o original pra lixeira / rodar o GC (que apaga
+      // o <hash>.json dele). DurationSec fica 0 e o ScanSingleRecordingMeta
+      // (via PushRecordingAdded) calcula a duracao real de cada parte
+      // PRESERVANDO este layout (EnsureRecordingMeta so sobrescreve a duracao).
+      var OrigMeta: TRecordingMeta;
+      if OBSPlayer.LoadRecordingMeta(PathCopy, OrigMeta) and
+         (Length(OrigMeta.Layout.Regions) > 0) then
+      begin
+        var PartMeta: TRecordingMeta := Default(TRecordingMeta);
+        PartMeta.Layout := OrigMeta.Layout;
+        try OBSPlayer.SaveRecordingMeta(PathA, PartMeta); except end;
+        try OBSPlayer.SaveRecordingMeta(PathB, PartMeta); except end;
+      end;
+
+      // Sucesso: original pra lixeira (recuperavel).
+      DeleteToRecycleBin(PathCopy);
+
+      TThread.Queue(nil,
+        procedure
+        var
+          Obj: TJSONObject;
+        begin
+          if IsShuttingDown then Exit;
+          // Remove o card do original.
+          Obj := TJSONObject.Create;
+          Obj.AddPair('type', 'recording_removed');
+          Obj.AddPair('id', PathCopy);
+          PostOwned(Obj);
+          // Cache orfao do original removido aqui (GC pegaria no proximo
+          // start de qualquer forma).
+          try GarbageCollectCache(ListRecordings(RecordDir)); except end;
+          // Adiciona as duas partes (duracao=0 → ScanSingleRecordingMeta
+          // preenche thumb + duracao em background).
+          PushRecordingAdded(PathA, 0);
+          PushRecordingAdded(PathB, 0);
+          // Fecha o player (o original nao existe mais) + toast de sucesso.
+          PushSplitDone(True);
+        end);
+    end).Start;
+end;
+
 // =====================================================================
 // Dispatch publico
 // =====================================================================
@@ -3651,6 +3845,8 @@ begin
       HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'split_recording' then
+      HandleSplitRecording(GetStrField(Obj, 'id'), GetIntField(Obj, 'posMs') / 1000)
     else if MsgType = 'pick_record_dir' then
       HandlePickRecordDir
     else if MsgType = 'set_record_dir' then
@@ -3681,6 +3877,8 @@ begin
       HandleSetRecordingQuality(GetIntField(Obj, 'level'))
     else if MsgType = 'set_recording_fps' then
       HandleSetRecordingFps(GetIntField(Obj, 'fps'))
+    else if MsgType = 'set_recording_keyframe' then
+      HandleSetRecordingKeyframe(GetIntField(Obj, 'sec'))
     else if MsgType = 'set_language' then
       HandleSetLanguage(GetStrField(Obj, 'language'))
     else if MsgType = 'get_settings' then

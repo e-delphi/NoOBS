@@ -466,6 +466,7 @@ const Player = {
     // >= 0 ativa o campo de horario; < 0 (desconhecido) mantem oculto.
     this.startClockSec =
       (typeof startClockSec === 'number' && startClockSec >= 0) ? startClockSec : -1;
+    this._splitting = false;
     this.pendingId = null;
     // Se o painel de info ja esta aberto e o video mudou, recarrega.
     if (changed &&
@@ -1058,6 +1059,64 @@ const Player = {
       } else {
         clk.hidden = true;
       }
+    }
+    this.updateSplitEnabled();
+  },
+
+  _splitting: false,
+
+  // Habilita o botao de dividir sempre que houver conteudo dos DOIS lados do
+  // corte — posicao estritamente entre o inicio e o fim. So bloqueia o caso
+  // "nada pra cortar": posicao 0 deixaria a 1a parte vazia, e posicao no fim
+  // (cur == dur, ex.: video pausado no final) deixaria a 2a vazia. O backend
+  // faz snap pro keyframe e ainda valida que as duas partes sairam com bytes.
+  updateSplitEnabled() {
+    const btn = document.getElementById('playerSplit');
+    if (!btn) return;
+    const v = document.getElementById('playerVideo');
+    const cur = v ? (v.currentTime || 0) : 0;
+    const dur = (v && isFinite(v.duration)) ? v.duration : 0;
+    const ok = !this._splitting && dur > 0 && cur > 0 && cur < dur;
+    btn.disabled = !ok;
+  },
+
+  // Dispara a divisao da gravacao atual na posicao do player.
+  split() {
+    const v = document.getElementById('playerVideo');
+    if (!v || !this.currentId || this._splitting) return;
+    const cur = v.currentTime || 0;
+    const dur = isFinite(v.duration) ? v.duration : 0;
+    if (dur <= 0 || cur <= 0 || cur >= dur) return;  // nada pra cortar de um lado
+    this._splitting = true;
+    this.updateSplitEnabled();
+    this._showSplitting(true);
+    Bridge.send('split_recording',
+      { id: this.currentId, posMs: Math.round(cur * 1000) });
+  },
+
+  _showSplitting(on) {
+    const ld = document.getElementById('playerLoading');
+    const ldt = document.getElementById('playerLoadingText');
+    if (!ld) return;
+    if (on) {
+      if (ldt) ldt.textContent = T('player.splitting');
+      ld.classList.add('visible');
+    } else {
+      ld.classList.remove('visible');
+    }
+  },
+
+  // Backend terminou (split_done). Sucesso: fecha o player (o original foi
+  // pra lixeira) e avisa. Falha: o handler 'error' ja mostrou o toast; so
+  // tira o loading e mantem o player aberto pra nova tentativa.
+  onSplitDone(ok) {
+    this._splitting = false;
+    this._showSplitting(false);
+    if (ok) {
+      this.close();
+      Toast.show(T('toast.splitDone'), T('toast.splitDoneMsg'), { ttl: 5000 });
+    } else {
+      this.updateSplitEnabled();
     }
   },
 

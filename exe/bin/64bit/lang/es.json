@@ -195,6 +195,17 @@
         "veryHigh": "{{fps}} fps — fluidez muy alta. Archivo más grande."
       }
     },
+    "keyframe": {
+      "label": "Intervalo de keyframe",
+      "precise": "Cortes exactos",
+      "compact": "Archivo menor",
+      "hint": {
+        "precise": "Cada {{sec}} segundo — cortes muy precisos al dividir en el reproductor. Archivo un poco mayor.",
+        "balanced": "Cada {{sec}} segundos — buen equilibrio entre puntos de corte y tamaño. (Recomendado)",
+        "medium": "Cada {{sec}} segundos — archivo un poco menor; cortes menos precisos.",
+        "spaced": "Cada {{sec}} segundos — archivo menor; la división puede desviarse bastante del punto elegido."
+      }
+    },
     "autostart": {
       "label": "Iniciar con Windows",
       "hint": "NoOBS se abre automáticamente cuando inicias sesión en Windows."
@@ -275,6 +286,8 @@
     "close": "Cerrar",
     "playPause": "Play/Pause (Espacio)",
     "clockTitle": "Hora de grabación en esta posición",
+    "split": "Dividir aquí",
+    "splitting": "Dividiendo video...",
     "mute": "Silenciar (M)",
     "unmute": "Reactivar audio",
     "muteShort": "Silenciar",
@@ -324,7 +337,10 @@
     "startingRecord": "Iniciando grabación",
     "updating": "Actualizando",
     "errorTitle": "Error",
+    "clickToClose": "Clic para cerrar",
     "unknownError": "Error desconocido",
+    "splitDone": "Video dividido",
+    "splitDoneMsg": "Dividido en 2 partes. El original se movió a la papelera.",
     "languageChanged": "Idioma cambiado",
     "andMore": "…y {{count}} más"
   },
@@ -336,6 +352,9 @@
     "folderNotFound": "Carpeta de grabaciones no encontrada",
     "deleteFailed": "Error al eliminar el archivo: {{file}}",
     "renameFailed": "Error al renombrar el archivo.",
+    "splitFailed": "Error al dividir el video.",
+    "splitNoCutPoint": "No se pudo dividir aquí — este clip no tiene un punto de corte en esta posición. Prueba otro punto.",
+    "splitNoSpace": "Espacio en disco insuficiente para dividir. Las dos partes necesitan ~{{needed}} libres, pero solo hay {{free}}. Libera espacio e inténtalo de nuevo.",
     "cantChangeSourcesWhileRecording": "No se pueden cambiar las fuentes de video durante la grabación.",
     "prepareUrlFailed": "Error al preparar la URL del video.",
     "mediaLibUnavailable": "Biblioteca de medios (libavformat) no disponible.",

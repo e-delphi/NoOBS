@@ -195,6 +195,17 @@
         "veryHigh": "{{fps}} fps — very high fluidity. Larger files."
       }
     },
+    "keyframe": {
+      "label": "Keyframe interval",
+      "precise": "Exact cuts",
+      "compact": "Smaller file",
+      "hint": {
+        "precise": "Every {{sec}} second — very precise cuts when splitting in the player. Slightly larger file.",
+        "balanced": "Every {{sec}} seconds — good balance between cut points and size. (Recommended)",
+        "medium": "Every {{sec}} seconds — slightly smaller file; less precise cuts.",
+        "spaced": "Every {{sec}} seconds — smaller file; splitting may drift well off the chosen point."
+      }
+    },
     "autostart": {
       "label": "Start with Windows",
       "hint": "NoOBS launches automatically when you log into Windows."
@@ -275,6 +286,8 @@
     "close": "Close",
     "playPause": "Play/Pause (Space)",
     "clockTitle": "Recording clock time at this position",
+    "split": "Split here",
+    "splitting": "Splitting video...",
     "mute": "Mute (M)",
     "unmute": "Unmute",
     "muteShort": "Mute",
@@ -324,7 +337,10 @@
     "startingRecord": "Starting recording",
     "updating": "Updating",
     "errorTitle": "Error",
+    "clickToClose": "Click to dismiss",
     "unknownError": "Unknown error",
+    "splitDone": "Video split",
+    "splitDoneMsg": "Split into 2 parts. The original was moved to the Recycle Bin.",
     "languageChanged": "Language changed",
     "andMore": "…and {{count}} more"
   },
@@ -336,6 +352,9 @@
     "folderNotFound": "Recordings folder not found",
     "deleteFailed": "Failed to delete file: {{file}}",
     "renameFailed": "Failed to rename file.",
+    "splitFailed": "Failed to split the video.",
+    "splitNoCutPoint": "Couldn't split here — this clip has no cut point at this position. Try another point.",
+    "splitNoSpace": "Not enough disk space to split. The two parts need ~{{needed}} free, but only {{free}} is available. Free up space and try again.",
     "cantChangeSourcesWhileRecording": "Can't change video sources while recording.",
     "prepareUrlFailed": "Failed to prepare video URL.",
     "mediaLibUnavailable": "Media library (libavformat) unavailable.",

@@ -41,7 +41,11 @@
     position: fixed;
     top: 16px;
     right: 16px;
-    z-index: 8800;
+    /* Acima de TUDO: player overlay (9000), tooltip de volume do player
+       (10000) e o loading da gravacao (9999). Toast e notificacao global —
+       erros (ex.: falha ao dividir com o player aberto) tem que aparecer
+       por cima, senao ficam escondidos atras do player. */
+    z-index: 11000;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -50,6 +54,9 @@
   }
   .toast {
     pointer-events: auto;
+    /* Clicavel pra fechar na hora — o toast cai no mesmo canto do botao
+       de fechar do player, entao precisa sair do caminho a um clique. */
+    cursor: pointer;
     /* Sem min-width fixo: toast se ajusta ao conteudo. Toasts curtos
        (ex: "Dispositivos atualizados") ficam compactos, e longos
        crescem ate max-width. */
@@ -66,6 +73,8 @@
     transition: opacity 200ms ease, transform 200ms ease;
   }
   .toast.show { opacity: 1; transform: translateY(0); }
+  /* Feedback de hover — reforca que da pra clicar pra dispensar. */
+  .toast.show:hover { opacity: 0.92; }
   .toast.warn {
     background: #facc15;
     border-color: #ca8a04;

@@ -80,6 +80,23 @@ const RecSelection = {
     if (!card) return;
     if (this.ids.has(id)) card.dataset.selected = 'true';
     else delete card.dataset.selected;
+    this._syncOrderBadges();
+  },
+  _syncOrderBadges() {
+    document.querySelectorAll('#recGrid .rec-card .rec-order-badge')
+      .forEach(b => b.remove());
+    Array.from(this.ids).forEach((id, idx) => {
+      const card = document.querySelector(
+        `#recGrid .rec-card[data-id="${cssEscape(id)}"]`);
+      if (!card) return;
+      const thumb = card.querySelector('.thumb');
+      if (!thumb) return;
+      const badge = document.createElement('span');
+      badge.className = 'rec-order-badge';
+      badge.textContent = String(idx + 1);
+      badge.title = T('recordings.selectionOrder', { order: idx + 1 });
+      thumb.appendChild(badge);
+    });
   },
   _syncGroups() {
     document.querySelectorAll('#recGrid .rec-group').forEach(g => {
@@ -106,6 +123,15 @@ const RecSelection = {
         : (n === 1 ? T('recordings.deleteOne')
                    : T('recordings.deleteN', { count: n }));
     }
+    const mergeBtn = document.getElementById('mergeSelectedBtn');
+    if (mergeBtn) {
+      const n = this.ids.size;
+      mergeBtn.disabled = (n < 2) || mergeBtn.dataset.busy === 'true';
+      mergeBtn.title = n < 2
+        ? T('recordings.selectToMerge')
+        : T('recordings.mergeN', { count: n });
+    }
+    this._syncOrderBadges();
   }
 };
 
@@ -123,6 +149,8 @@ function bulkDeleteSelected() {
       ? T('recordings.confirmDeleteOne')
       : T('recordings.confirmDeleteN', { count: ids.length }),
     okLabel: T('common.delete'),
+    icon: 'delete',
+    danger: true,
     onOk: () => {
       ids.forEach(rid => {
         const card = document.querySelector(
@@ -137,6 +165,37 @@ function bulkDeleteSelected() {
       ids.forEach(rid => Bridge.send('delete_recording', { id: rid }));
     }
   });
+}
+
+// Merge com ícone de merge
+function mergeSelectedRecordings() {
+  const ids = RecSelection.all();
+  if (ids.length < 2) return;
+  Confirm.open({
+    title: T('recordings.confirmMergeTitle'),
+    message: T('recordings.confirmMergeN', { count: ids.length }),
+    okLabel: T('recordings.mergeAction'),
+    icon: 'merge',
+    danger: false,
+    onOk: () => {
+      const btn = document.getElementById('mergeSelectedBtn');
+      if (btn) {
+        btn.dataset.busy = 'true';
+        btn.disabled = true;
+        btn.title = T('recordings.merging');
+      }
+      Bridge.send('merge_recordings', { ids });
+    }
+  });
+}
+
+function setMergeBusy(busy) {
+  const btn = document.getElementById('mergeSelectedBtn');
+  if (btn) {
+    if (busy) btn.dataset.busy = 'true';
+    else delete btn.dataset.busy;
+  }
+  RecSelection._syncMode();
 }
 
 function buildRecCard(item) {

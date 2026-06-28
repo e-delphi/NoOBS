@@ -258,6 +258,17 @@ const Bridge = {
     play_url(data) { Player.play(data.url, data.name, data.mode, data.id, data.startClockSec); },
     split_pending() { Player._splitting = true; Player._showSplitting(true); },
     split_done(data) { Player.onSplitDone(!!(data && data.ok)); },
+    merge_pending() {
+      setMergeBusy(true);
+      Toast.show(T('toast.mergeStarted'), T('toast.mergeStartedMsg'), { ttl: 3000 });
+    },
+    merge_done(data) {
+      setMergeBusy(false);
+      if (data && data.ok) {
+        RecSelection.clear();
+        Toast.show(T('toast.mergeDone'), T('toast.mergeDoneMsg'), { ttl: 5000 });
+      }
+    },
     video_info(data) { Player.renderInfo(data); },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     waveform_ready(data) { Waveform.onReady(data); },

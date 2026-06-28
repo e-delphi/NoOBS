@@ -234,6 +234,24 @@
   .rec-card[data-selected="true"] {
     box-shadow: 0 0 0 2px var(--success);
   }
+  .rec-order-badge {
+    position: absolute;
+    top: 5px;
+    right: 28px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--success);
+    color: white;
+    font-size: 10px;
+    line-height: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    z-index: 2;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+  }
   .rec-card .thumb-img {
     position: absolute;
     inset: 0;

@@ -3648,6 +3648,194 @@ begin
   PostOwned(Obj);
 end;
 
+function MakeMergePath: string;
+// NoOBS_Unido_yyyy-mm-dd_hh-nn-ss.mkv, com sufixo se ja existir.
+var
+  Dir, Base, Cand: string;
+  N: Integer;
+begin
+  Dir := IncludeTrailingPathDelimiter(RecordDir);
+  Base := 'NoOBS_Unido_' + FormatDateTime('yyyy-mm-dd_hh-nn-ss', Now);
+  Cand := Dir + Base + '.mkv';
+  N := 2;
+  while TFile.Exists(Cand) do
+  begin
+    Cand := Dir + Format('%s (%d).mkv', [Base, N]);
+    Inc(N);
+  end;
+  Result := Cand;
+end;
+
+procedure PushMergePending;
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'merge_pending');
+  PostOwned(Obj);
+end;
+
+procedure PushMergeDone(AOk: Boolean);
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'merge_done');
+  Obj.AddPair('ok', TJSONBool.Create(AOk));
+  PostOwned(Obj);
+end;
+
+function SameRecordingLayout(const A, B: TRecordingLayout): Boolean;
+var
+  i: Integer;
+begin
+  Result := False;
+  if (A.CanvasW <> B.CanvasW) or (A.CanvasH <> B.CanvasH) then Exit;
+  if Length(A.Regions) <> Length(B.Regions) then Exit;
+  for i := 0 to High(A.Regions) do
+  begin
+    if (A.Regions[i].Name <> B.Regions[i].Name) or
+       (A.Regions[i].Kind <> B.Regions[i].Kind) or
+       (A.Regions[i].X <> B.Regions[i].X) or
+       (A.Regions[i].Y <> B.Regions[i].Y) or
+       (A.Regions[i].W <> B.Regions[i].W) or
+       (A.Regions[i].H <> B.Regions[i].H) then
+      Exit;
+  end;
+  Result := True;
+end;
+
+function LoadCommonMergeLayout(const APaths: TArray<string>;
+  out AMeta: TRecordingMeta): Boolean;
+var
+  i: Integer;
+  M: TRecordingMeta;
+begin
+  Result := False;
+  AMeta := Default(TRecordingMeta);
+  if Length(APaths) = 0 then Exit;
+  if not OBSPlayer.LoadRecordingMeta(APaths[0], AMeta) then Exit;
+  if (AMeta.Layout.CanvasW <= 0) or (AMeta.Layout.CanvasH <= 0) or
+     (Length(AMeta.Layout.Regions) = 0) then Exit;
+
+  for i := 1 to High(APaths) do
+  begin
+    M := Default(TRecordingMeta);
+    if not OBSPlayer.LoadRecordingMeta(APaths[i], M) then Exit;
+    if not SameRecordingLayout(AMeta.Layout, M.Layout) then Exit;
+  end;
+  Result := True;
+end;
+
+procedure HandleMergeRecordings(AIds: TJSONArray);
+// Une N gravacoes em um novo MKV, mantendo os originais intactos. Roda em
+// worker thread porque stream copy de arquivos grandes ainda pode levar
+// varios segundos. A ordem do array vem do Set de selecao da UI.
+var
+  Paths: TArray<string>;
+  i: Integer;
+  V: TJSONValue;
+  Path, OutPath: string;
+  TotalSize, FreeBytes, Needed: Int64;
+begin
+  if (AIds = nil) or (AIds.Count < 2) then Exit;
+  if not FFmpegLibAvailable then
+  begin
+    PushMergeDone(False);
+    PostError(OBSLang.T('error.mediaLibUnavailable'));
+    Exit;
+  end;
+
+  SetLength(Paths, AIds.Count);
+  TotalSize := 0;
+  for i := 0 to AIds.Count - 1 do
+  begin
+    V := AIds.Items[i];
+    Path := '';
+    if V <> nil then Path := V.Value;
+    if (Path = '') or (not IsPathInRecordDir(Path)) or
+       (not IsRecordingExt(Path)) or (not TFile.Exists(Path)) then
+    begin
+      PushMergeDone(False);
+      PostError(OBSLang.T('error.fileNotFound'));
+      Exit;
+    end;
+    Paths[i] := Path;
+    try Inc(TotalSize, TFile.GetSize(Path)); except end;
+  end;
+
+  // O arquivo unido fica aproximadamente do tamanho da soma dos inputs.
+  // Como os originais permanecem intactos, precisamos desse espaco livre
+  // extra agora. Folga: +5% +16MB para headers/cues e variacoes do muxer.
+  FreeBytes := GetRecordDirFreeBytes;
+  Needed := TotalSize + (TotalSize div 20) + 16 * 1024 * 1024;
+  if (TotalSize > 0) and (FreeBytes >= 0) and (FreeBytes < Needed) then
+  begin
+    Log('HandleMergeRecordings: espaco insuficiente — precisa ~%d, livre %d.',
+      [Needed, FreeBytes]);
+    PushMergeDone(False);
+    PostError(OBSLang.T('error.mergeNoSpace',
+      ['needed', FormatBytesShort(Needed), 'free', FormatBytesShort(FreeBytes)]));
+    Exit;
+  end;
+
+  OutPath := MakeMergePath;
+  PushMergePending;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Ok, Incompatible: Boolean;
+      Meta: TRecordingMeta;
+      SizeOut: Int64;
+    begin
+      if IsShuttingDown then Exit;
+      Ok := False;
+      Incompatible := False;
+      try
+        Ok := MergeFiles(Paths, OutPath, Incompatible);
+      except
+        on E: Exception do
+          Log('HandleMergeRecordings: excecao: %s', [E.Message]);
+      end;
+
+      if Ok then
+      begin
+        SizeOut := 0;
+        try SizeOut := TFile.GetSize(OutPath); except end;
+        if SizeOut <= 0 then Ok := False;
+      end;
+
+      if not Ok then
+      begin
+        try if TFile.Exists(OutPath) then TFile.Delete(OutPath); except end;
+        TThread.Queue(nil,
+          procedure
+          begin
+            if IsShuttingDown then Exit;
+            PushMergeDone(False);
+            if Incompatible then
+              PostError(OBSLang.T('error.mergeIncompatible'))
+            else
+              PostError(OBSLang.T('error.mergeFailed'));
+          end);
+        Exit;
+      end;
+
+      if LoadCommonMergeLayout(Paths, Meta) then
+      begin
+        Meta.DurationSec := 0;
+        try OBSPlayer.SaveRecordingMeta(OutPath, Meta); except end;
+      end;
+
+      TThread.Queue(nil,
+        procedure
+        begin
+          if IsShuttingDown then Exit;
+          PushRecordingAdded(OutPath, 0);
+          PushMergeDone(True);
+        end);
+    end).Start;
+end;
+
 procedure HandleSplitRecording(const APath: string; APosSec: Double);
 // Divide a gravacao em DUAS partes no keyframe mais proximo de APosSec
 // (stream copy via FFmpegOps, sem reencode). O original vai pra lixeira
@@ -3800,6 +3988,7 @@ procedure Dispatch(const AJsonMsg: string);
 var
   Root: TJSONValue;
   Obj: TJSONObject;
+  Arr: TJSONValue;
   MsgType: string;
 begin
   Root := TJSONObject.ParseJSONValue(AJsonMsg);
@@ -3845,6 +4034,12 @@ begin
       HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'merge_recordings' then
+    begin
+      Arr := Obj.GetValue('ids');
+      if Arr is TJSONArray then
+        HandleMergeRecordings(TJSONArray(Arr));
+    end
     else if MsgType = 'split_recording' then
       HandleSplitRecording(GetStrField(Obj, 'id'), GetIntField(Obj, 'posMs') / 1000)
     else if MsgType = 'pick_record_dir' then

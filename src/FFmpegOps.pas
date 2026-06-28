@@ -41,6 +41,12 @@ type
 function SplitFileAtKeyframe(const ASrc, ADstA, ADstB: string;
   APosSec: Double): TSplitOutcome;
 
+// Une N arquivos em um novo output (stream copy, sem reencode), na ordem
+// recebida. Os inputs precisam ter a mesma estrutura de streams/codec; quando
+// isso nao for verdade, retorna False com AIncompatible=True.
+function MergeFiles(const AInputs: TArray<string>; const ADst: string;
+  out AIncompatible: Boolean): Boolean;
+
 // Extrai faixas de audio do source pra arquivos separados (M4A, AAC stream
 // copy). AOutputs[j] recebe o (j+AAudioStartIndex)-esimo audio stream — use
 // AAudioStartIndex=1 pra pular o mix (track 1) e extrair so as isoladas.
@@ -540,6 +546,224 @@ begin
     CloseOutput(OutA);
     CloseOutput(OutB);
     avformat_close_input(@SrcCtx);
+  end;
+end;
+
+function StreamParamsCompatible(ARef, ASrc: PAVStream): Boolean;
+var
+  R, S: PAVCodecParameters;
+begin
+  Result := False;
+  if (ARef = nil) or (ASrc = nil) or
+     (ARef.codecpar = nil) or (ASrc.codecpar = nil) then Exit;
+  R := ARef.codecpar;
+  S := ASrc.codecpar;
+  if R.codec_type <> S.codec_type then Exit;
+  if R.codec_id <> S.codec_id then Exit;
+
+  case R.codec_type of
+    AVMEDIA_TYPE_VIDEO:
+      begin
+        if R.width <> S.width then Exit;
+        if R.height <> S.height then Exit;
+      end;
+    AVMEDIA_TYPE_AUDIO:
+      begin
+        if R.sample_rate <> S.sample_rate then Exit;
+        if R.ch_layout.nb_channels <> S.ch_layout.nb_channels then Exit;
+      end;
+  end;
+
+  Result := True;
+end;
+
+function InputsCompatible(ARefCtx, ASrcCtx: AVFormatContext): Boolean;
+var
+  N, M, i: Cardinal;
+begin
+  Result := False;
+  if (ARefCtx = nil) or (ASrcCtx = nil) then Exit;
+  N := av_format_context_nb_streams(ARefCtx);
+  M := av_format_context_nb_streams(ASrcCtx);
+  if (N = 0) or (N <> M) then Exit;
+
+  for i := 0 to N - 1 do
+    if not StreamParamsCompatible(GetStreamByIndex(ARefCtx, i),
+                                  GetStreamByIndex(ASrcCtx, i)) then
+      Exit;
+
+  Result := True;
+end;
+
+function TimestampToUs(ATs: Int64; ATb: AVRational): Int64;
+var
+  TbUs: AVRational;
+begin
+  if (ATs = AV_NOPTS_VALUE) or (ATb.den <= 0) then
+    Exit(AV_NOPTS_VALUE);
+  TbUs.num := 1;
+  TbUs.den := AV_TIME_BASE;
+  Result := av_rescale_q(ATs, ATb, TbUs);
+end;
+
+function UsToTimestamp(AUs: Int64; ATb: AVRational): Int64;
+var
+  TbUs: AVRational;
+begin
+  if ATb.den <= 0 then Exit(AV_NOPTS_VALUE);
+  TbUs.num := 1;
+  TbUs.den := AV_TIME_BASE;
+  Result := av_rescale_q(AUs, TbUs, ATb);
+end;
+
+function MergeFiles(const AInputs: TArray<string>; const ADst: string;
+  out AIncompatible: Boolean): Boolean;
+var
+  RefCtx, SrcCtx: AVFormatContext;
+  OutFile: TOutputStream;
+  Pkt: PAVPacket;
+  AllIdx: TArray<Cardinal>;
+  BaseUs: TArray<Int64>;
+  N, i: Cardinal;
+  InputIdx: Integer;
+  Sidx, DstIdx: Integer;
+  SrcStream, DstStream: PAVStream;
+  SrcTb, DstTb: AVRational;
+  GlobalOffsetUs, LocalBestUs, DeclaredDurUs: Int64;
+  PktBaseUs, PtsUs, DtsUs, EndUs, DurUs: Int64;
+  WriteFailed: Boolean;
+  WrRc: Integer;
+begin
+  Result := False;
+  AIncompatible := False;
+  if not FFmpegLibAvailable then Exit;
+  if (Length(AInputs) < 2) or (ADst = '') then Exit;
+
+  RefCtx := nil;
+  SrcCtx := nil;
+  Pkt := nil;
+  FillChar(OutFile, SizeOf(OutFile), 0);
+  try
+    if avformat_open_input(@RefCtx, PAnsiChar(ToUtf8(AInputs[0])), nil, nil) < 0 then Exit;
+    if avformat_find_stream_info(RefCtx, nil) < 0 then Exit;
+    N := av_format_context_nb_streams(RefCtx);
+    if N = 0 then Exit;
+
+    SetLength(AllIdx, N);
+    for i := 0 to N - 1 do AllIdx[i] := i;
+    if not OpenOutputForStreams(RefCtx, ADst, AllIdx, OutFile) then Exit;
+
+    Pkt := av_packet_alloc;
+    if Pkt = nil then Exit;
+
+    GlobalOffsetUs := 0;
+    WriteFailed := False;
+    for InputIdx := 0 to High(AInputs) do
+    begin
+      if WriteFailed then Break;
+      if SrcCtx <> nil then avformat_close_input(@SrcCtx);
+      SrcCtx := nil;
+      if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(AInputs[InputIdx])), nil, nil) < 0 then Exit;
+      if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
+      if not InputsCompatible(RefCtx, SrcCtx) then
+      begin
+        AIncompatible := True;
+        Exit;
+      end;
+
+      DeclaredDurUs := av_format_context_duration(SrcCtx);
+      if DeclaredDurUs < 0 then DeclaredDurUs := 0;
+      LocalBestUs := 0;
+      SetLength(BaseUs, N);
+      for i := 0 to N - 1 do BaseUs[i] := AV_NOPTS_VALUE;
+
+      while (not WriteFailed) and (av_read_frame(SrcCtx, Pkt) = 0) do
+      begin
+        try
+          Sidx := Pkt.stream_index;
+          if (Sidx < 0) or (Cardinal(Sidx) >= N) then Continue;
+          SrcStream := GetStreamByIndex(SrcCtx, Cardinal(Sidx));
+          if SrcStream = nil then Continue;
+          DstIdx := OutFile.StreamMap[Sidx];
+          if DstIdx < 0 then Continue;
+          DstStream := GetStreamByIndex(OutFile.Ctx, Cardinal(DstIdx));
+          if DstStream = nil then Continue;
+
+          SrcTb := SrcStream.time_base;
+          DstTb := DstStream.time_base;
+          PktBaseUs := TimestampToUs(Pkt.dts, SrcTb);
+          if PktBaseUs = AV_NOPTS_VALUE then
+            PktBaseUs := TimestampToUs(Pkt.pts, SrcTb);
+          if PktBaseUs = AV_NOPTS_VALUE then PktBaseUs := 0;
+          if BaseUs[Sidx] = AV_NOPTS_VALUE then BaseUs[Sidx] := PktBaseUs;
+
+          if Pkt.pts <> AV_NOPTS_VALUE then
+          begin
+            PtsUs := TimestampToUs(Pkt.pts, SrcTb);
+            if PtsUs <> AV_NOPTS_VALUE then
+            begin
+              Dec(PtsUs, BaseUs[Sidx]);
+              if PtsUs < 0 then PtsUs := 0;
+              Pkt.pts := UsToTimestamp(PtsUs + GlobalOffsetUs, DstTb);
+            end
+            else
+              Pkt.pts := AV_NOPTS_VALUE;
+          end;
+          if Pkt.dts <> AV_NOPTS_VALUE then
+          begin
+            DtsUs := TimestampToUs(Pkt.dts, SrcTb);
+            if DtsUs <> AV_NOPTS_VALUE then
+            begin
+              Dec(DtsUs, BaseUs[Sidx]);
+              if DtsUs < 0 then DtsUs := 0;
+              Pkt.dts := UsToTimestamp(DtsUs + GlobalOffsetUs, DstTb);
+            end
+            else
+              Pkt.dts := AV_NOPTS_VALUE;
+          end;
+          if Pkt.duration > 0 then
+          begin
+            DurUs := TimestampToUs(Pkt.duration, SrcTb);
+            if DurUs > 0 then
+              Pkt.duration := UsToTimestamp(DurUs, DstTb)
+            else
+              Pkt.duration := 0;
+          end;
+          Pkt.stream_index := DstIdx;
+          Pkt.pos := -1;
+
+          EndUs := PktBaseUs - BaseUs[Sidx];
+          DurUs := TimestampToUs(Pkt.duration, DstTb);
+          if DurUs > 0 then Inc(EndUs, DurUs);
+          if EndUs > LocalBestUs then LocalBestUs := EndUs;
+
+          try
+            WrRc := av_interleaved_write_frame(OutFile.Ctx, Pkt);
+          except
+            WrRc := -1;
+          end;
+          if WrRc < 0 then
+          begin
+            Log('Merge: av_interleaved_write_frame falhou (rc=%d).', [WrRc]);
+            WriteFailed := True;
+          end;
+        finally
+          av_packet_unref(Pkt);
+        end;
+      end;
+
+      if DeclaredDurUs > LocalBestUs then LocalBestUs := DeclaredDurUs;
+      if LocalBestUs > 0 then Inc(GlobalOffsetUs, LocalBestUs);
+    end;
+
+    Result := not WriteFailed;
+    Log('Merge: inputs=%d durationUs=%d result=%s',
+      [Length(AInputs), GlobalOffsetUs, BoolToStr(Result, True)]);
+  finally
+    if Pkt <> nil then av_packet_free(@Pkt);
+    if SrcCtx <> nil then avformat_close_input(@SrcCtx);
+    if RefCtx <> nil then avformat_close_input(@RefCtx);
+    CloseOutput(OutFile);
   end;
 end;
 

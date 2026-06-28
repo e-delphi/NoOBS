@@ -472,13 +472,13 @@ const Settings = {
     hint.textContent = T('settings.keyframe.hint.' + bucket, { sec: v });
     this._syncSliderFill(el);
   },
-  // Ticks de referencia (1, 2, 5, 10s) posicionados pelo VALOR real no range
+  // Ticks de referencia (1..10s) posicionados pelo VALOR real no range
   // 1..10 — mesma matematica de alinhamento ao thumb dos outros sliders
   // (left = 7px + ratio*(100% - 14px)).
   _populateKeyframeTicks() {
     const el = document.getElementById('keyframeTicks');
     if (!el) return;
-    const ticks = [1, 2, 5, 10];
+    const ticks = Array.from({ length: 10 }, (_, i) => i + 1);
     const min = 1, max = 10;
     el.innerHTML = ticks.map(v => {
       const ratio = (v - min) / (max - min);

@@ -131,6 +131,35 @@ begin
     av_dict_set(@ADst.metadata, AKey, Entry.value, 0);
 end;
 
+function OpenInputWithRetry(var ACtx: AVFormatContext; const APath: string): Boolean;
+// avformat_open_input com retry curto. Cobre o arquivo estar MOMENTANEAMENTE
+// aberto/travado por outra thread — em especial a geracao de previa/duracao
+// da biblioteca (Probe + thumbnail), que abre o video por ~200-500ms. Sem
+// isto, unir/dividir logo apos adicionar videos falhava com "arquivo em uso".
+// So chamado de worker thread (merge/split), entao o Sleep e aceitavel.
+const
+  MAX_RETRIES = 10;
+  RETRY_MS = 200;
+var
+  Attempt, Rc: Integer;
+begin
+  Result := False;
+  for Attempt := 0 to MAX_RETRIES - 1 do
+  begin
+    ACtx := nil;
+    Rc := avformat_open_input(@ACtx, PAnsiChar(ToUtf8(APath)), nil, nil);
+    if Rc >= 0 then Exit(True);
+    if ACtx <> nil then avformat_close_input(@ACtx);
+    ACtx := nil;
+    if Attempt = 0 then
+      Log('OpenInput: "%s" ocupado (rc=%d) — tentando de novo.',
+        [System.SysUtils.ExtractFileName(APath), Rc]);
+    Sleep(RETRY_MS);
+  end;
+  Log('OpenInput: desistiu de "%s" apos %d tentativas.',
+    [System.SysUtils.ExtractFileName(APath), MAX_RETRIES]);
+end;
+
 function OpenOutputForStreams(const ASrcCtx: AVFormatContext;
   const ADstFilename: string;
   const AKeepStreamIdx: TArray<Cardinal>;
@@ -429,7 +458,7 @@ begin
   SrcCtx := nil;
   Pkt := nil;
 
-  if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(ASrc)), nil, nil) < 0 then Exit;
+  if not OpenInputWithRetry(SrcCtx, ASrc) then Exit;
   try
     if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
     NbStreams := av_format_context_nb_streams(SrcCtx);
@@ -644,7 +673,7 @@ begin
   Pkt := nil;
   FillChar(OutFile, SizeOf(OutFile), 0);
   try
-    if avformat_open_input(@RefCtx, PAnsiChar(ToUtf8(AInputs[0])), nil, nil) < 0 then Exit;
+    if not OpenInputWithRetry(RefCtx, AInputs[0]) then Exit;
     if avformat_find_stream_info(RefCtx, nil) < 0 then Exit;
     N := av_format_context_nb_streams(RefCtx);
     if N = 0 then Exit;
@@ -663,7 +692,7 @@ begin
       if WriteFailed then Break;
       if SrcCtx <> nil then avformat_close_input(@SrcCtx);
       SrcCtx := nil;
-      if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(AInputs[InputIdx])), nil, nil) < 0 then Exit;
+      if not OpenInputWithRetry(SrcCtx, AInputs[InputIdx]) then Exit;
       if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
       if not InputsCompatible(RefCtx, SrcCtx) then
       begin

@@ -1,7 +1,10 @@
 ﻿{
   OBSLog — log centralizado em arquivo (UTF-8) ao inves de stdout.
 
-  Caminho: %LOCALAPPDATA%\NoOBS\NoOBS.log (append entre sessoes).
+  Caminho: %LOCALAPPDATA%\NoOBS\logs\NoOBS_yyyy-mm-dd.log — um arquivo por
+  dia. Reaberturas no mesmo dia appendam no mesmo arquivo (cada sessao
+  delimitada pelo cabecalho SESSION START); retencao dos 3 dias mais recentes
+  (PruneOldDailyLogs apaga o excedente no startup).
 
   Cada linha: HH:MM:SS.zzz<2 espacos>texto.
   Cabecalho de sessao no startup, footer no finalization.
@@ -98,6 +101,54 @@ begin
   Result := LogPath;
 end;
 
+// Mantem apenas os KEEP_DAYS arquivos de log mais recentes (um por dia,
+// NoOBS_yyyy-mm-dd.log). O nome com data zero-padded ordena
+// cronologicamente por string, entao basta ordenar e apagar o excedente
+// do inicio da lista. Tambem remove o log legado NoOBS.log da versao
+// anterior (um nivel acima, na raiz de NoOBS\), que nao segue o padrao novo.
+procedure PruneOldDailyLogs(const ADir: string);
+const
+  KEEP_DAYS = 3;
+var
+  Files: TStringList;
+  SR: TSearchRec;
+  i: Integer;
+  LegacyPath: string;
+begin
+  // Log unico da versao antiga (%LOCALAPPDATA%\NoOBS\NoOBS.log) — ADir e
+  // ...\NoOBS\logs, entao subimos um nivel pra achar o arquivo legado.
+  LegacyPath := IncludeTrailingPathDelimiter(
+    ExtractFileDir(ExcludeTrailingPathDelimiter(ADir))) + 'NoOBS.log';
+  if FileExists(LegacyPath) then
+    try DeleteFile(LegacyPath); except end;
+
+  Files := TStringList.Create;
+  try
+    if FindFirst(IncludeTrailingPathDelimiter(ADir) + 'NoOBS_*.log',
+      faAnyFile, SR) = 0 then
+    try
+      repeat
+        if (SR.Attr and faDirectory) = 0 then
+          Files.Add(SR.Name);
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
+
+    // Ordena por nome (= por data, gracas ao yyyy-mm-dd zero-padded) e apaga
+    // tudo exceto os KEEP_DAYS mais recentes (que ficam no fim da lista).
+    // Se Count <= KEEP_DAYS o limite superior fica negativo e o loop nao roda.
+    Files.Sort;
+    for i := 0 to Files.Count - 1 - KEEP_DAYS do
+      try
+        DeleteFile(IncludeTrailingPathDelimiter(ADir) + Files[i]);
+      except
+      end;
+  finally
+    Files.Free;
+  end;
+end;
+
 procedure InitLog;
 var
   AppData, Dir: string;
@@ -106,24 +157,30 @@ begin
   if AppData = '' then AppData := GetEnvironmentVariable('APPDATA');
   if AppData = '' then Exit;
 
-  Dir := IncludeTrailingPathDelimiter(AppData) + 'NoOBS';
+  // Logs em %LOCALAPPDATA%\NoOBS\logs\ — um arquivo por dia
+  // (NoOBS_yyyy-mm-dd.log). Subpasta propria facilita o glob da retencao.
+  Dir := IncludeTrailingPathDelimiter(AppData) + 'NoOBS' + PathDelim + 'logs';
   try
     ForceDirectories(Dir);
   except
     Exit;
   end;
-  LogPath := IncludeTrailingPathDelimiter(Dir) + 'NoOBS.log';
+  LogPath := IncludeTrailingPathDelimiter(Dir) +
+    'NoOBS_' + FormatDateTime('yyyy-mm-dd', Now) + '.log';
 
   LogLock := TCriticalSection.Create;
 
-  // Apaga log da sessao anterior — comeca limpo em todo startup.
-  // Caso contrario o arquivo cresce indefinidamente entre execucoes.
-  if FileExists(LogPath) then
-    try DeleteFile(LogPath); except end;
-
+  // Abre em APPEND: se o arquivo do dia ja existe (reabertura no mesmo dia),
+  // continua no fim; senao cria. Assim varias sessoes do mesmo dia convivem
+  // no mesmo arquivo em vez de sobrescrever.
   try
-    LogStream := TFileStream.Create(LogPath,
-      fmCreate or fmShareDenyWrite);
+    if FileExists(LogPath) then
+    begin
+      LogStream := TFileStream.Create(LogPath, fmOpenReadWrite or fmShareDenyWrite);
+      LogStream.Seek(Int64(0), soEnd);
+    end
+    else
+      LogStream := TFileStream.Create(LogPath, fmCreate or fmShareDenyWrite);
   except
     FreeAndNil(LogStream);
   end;
@@ -136,6 +193,12 @@ begin
       '  SESSION START ===');
     WriteLineRaw('=========================================================');
   end;
+
+  // Retencao DEPOIS de criar/abrir o arquivo de hoje — assim o dia de hoje
+  // conta e ficam no total 3 dias (hoje + 2 anteriores). O arquivo de hoje e o
+  // nome lexicograficamente maior, entao nunca entra na lista de exclusao (sem
+  // risco de apagar o log aberto). Tambem remove o log legado NoOBS.log.
+  try PruneOldDailyLogs(Dir); except end;
 end;
 
 procedure DoneLog;

@@ -147,6 +147,8 @@ function QualityLevelToBitrate(ALevel: Integer): Integer;
 // Niveis estendem ate +/-2 — 5 pontos no slider total.
 //
 // Valores escolhidos pra 1080p H.264:
+//   -4: 800 kbps   (compressao maxima, arquivo minusculo, qualidade baixa)
+//   -3: 1500 kbps
 //   -2: 2500 kbps  (compressao agressiva, arquivo bem pequeno)
 //   -1: 4000 kbps
 //    0: 0 (= sem override, usa default do encoder)
@@ -157,6 +159,8 @@ function QualityLevelToBitrate(ALevel: Integer): Integer;
 // a escala relativa (mais baixo = pior, mais alto = melhor) se preserva.
 begin
   case ALevel of
+    -4: Result := 800;
+    -3: Result := 1500;
     -2: Result := 2500;
     -1: Result := 4000;
     +1: Result := 10000;

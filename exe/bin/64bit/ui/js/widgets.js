@@ -392,8 +392,15 @@ const Confirm = {
       this.close();
       if (cb) cb();
     };
-    document.getElementById('confirmOverlay').addEventListener('click', (e) => {
-      if (e.target.id === 'confirmOverlay') this.close();
+    // So fecha quando o gesto INTEIRO (mousedown E mouseup) cai na overlay —
+    // senao arrastar uma selecao de texto pra fora fecharia o dialogo sem querer
+    // (o 'click' teria a overlay como alvo, ancestral comum).
+    const cov = document.getElementById('confirmOverlay');
+    let confirmDownOnOverlay = false;
+    cov.addEventListener('mousedown', (e) => { confirmDownOnOverlay = (e.target === cov); });
+    cov.addEventListener('mouseup', (e) => {
+      if (confirmDownOnOverlay && e.target === cov) this.close();
+      confirmDownOnOverlay = false;
     });
     document.addEventListener('keydown', (e) => {
       const ov = document.getElementById('confirmOverlay');
@@ -428,47 +435,12 @@ const Confirm = {
     const iconContainer = document.getElementById('confirmIcon');
     iconContainer.innerHTML = this._icons[icon] || this._icons.delete;
     
-    // Aplicar estilo ao container e ao SVG
-    if (icon === 'merge') {
-      // Container com fundo azul claro
-      iconContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background-color: #eff6ff;
-        flex-shrink: 0;
-      `;
-      
-      // SVG com cor azul
-      const svg = iconContainer.querySelector('svg');
-      if (svg) {
-        svg.style.color = '#3b82f6';
-        svg.style.width = '24px';
-        svg.style.height = '24px';
-      }
-    } else {
-      // Delete mantém o estilo original (fundo vermelho claro)
-      iconContainer.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 48px;
-        height: 48px;
-        border-radius: 50%;
-        background-color: #fef2f2;
-        flex-shrink: 0;
-      `;
-      
-      const svg = iconContainer.querySelector('svg');
-      if (svg) {
-        svg.style.width = '24px';
-        svg.style.height = '24px';
-        svg.style.fill = '#ef4444';
-      }
-    }
+    // Variante de cor via CLASSE (tema-aware no CSS) em vez de estilo inline.
+    // Antes fixava cores de tema claro (#fef2f2 / #eff6ff) direto no elemento,
+    // o que aparecia como circulo claro no tema escuro. Tamanho e fill do SVG
+    // ficam no CSS (.confirm-icon / .confirm-icon svg). 'merge' = azul (accent),
+    // default = vermelho (danger).
+    iconContainer.className = 'confirm-icon' + (icon === 'merge' ? ' merge' : '');
     
     const ok = document.getElementById('confirmOk');
     ok.classList.toggle('danger', danger !== false);

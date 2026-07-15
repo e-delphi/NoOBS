@@ -99,11 +99,38 @@
       </div>
       <hr class="settings-divider">
       <div class="settings-field">
+        <label data-i18n="settings.windowTitle.label">Título da janela</label>
+        <div class="settings-input-row">
+          <input type="text" class="settings-input" id="settingsWindowTitle"
+                 maxlength="120" placeholder="NoOBS"
+                 oninput="Settings.onWindowTitleChange()">
+        </div>
+        <div class="settings-hint" data-i18n="settings.windowTitle.hint">
+          Nome exibido na barra de título, no botão da barra de tarefas e no
+          ícone da bandeja. Deixe em branco para usar "NoOBS".
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
         <label data-i18n="settings.recordDir.label">Pasta de saída das gravações</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsRecDir" placeholder="C:\Users\...\Videos">
           <button class="settings-btn" onclick="Settings.pickFolder()" data-i18n="settings.recordDir.browse">Procurar...</button>
         </div>
+      </div>
+      <div class="settings-field">
+        <label data-i18n="settings.filename.label">Nome do arquivo de saída</label>
+        <div class="settings-input-row">
+          <input type="text" class="settings-input" id="settingsFilenamePattern"
+                 maxlength="200" placeholder="{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"
+                 oninput="Settings.onFilenamePatternChange()">
+        </div>
+        <div class="settings-hint" data-i18n-html="settings.filename.hint">
+          Use códigos entre chaves: <code>{AAAA}</code> ano, <code>{MM}</code> mês,
+          <code>{DD}</code> dia, <code>{HH}</code> hora, <code>{NN}</code> minuto,
+          <code>{SS}</code> segundo, <code>{ZZZ}</code> milésimo. O restante é texto fixo.
+        </div>
+        <div class="settings-hint" id="settingsFilenamePreview"></div>
       </div>
       <div class="settings-field">
         <label data-i18n="settings.codec.label">Codec de vídeo</label>
@@ -156,10 +183,10 @@
                o thumb compensando so o raio (7px). -->
           <div class="slider-with-ticks">
             <input type="range" id="settingsRecordingQuality"
-                   min="-2" max="2" step="1" value="0"
+                   min="-4" max="2" step="1" value="0"
                    oninput="Settings.onQualityChange()">
             <div class="quality-ticks">
-              <span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
+              <span>-4</span><span>-3</span><span>-2</span><span>-1</span><span>0</span><span>+1</span><span>+2</span>
             </div>
           </div>
           <span class="quality-end-label" data-i18n="settings.quality.higher">Maior</span>
@@ -210,6 +237,22 @@
         </div>
         <div class="settings-hint" id="settingsKeyframeHint">
           A cada 2 segundos — bom equilíbrio entre pontos de corte e tamanho.
+        </div>
+      </div>
+      <hr class="settings-divider">
+      <div class="settings-field">
+        <label data-i18n="settings.library.label">Prévias e duração da biblioteca</label>
+        <div class="settings-input-row">
+          <select class="settings-input" id="settingsLibraryThumbs"
+                  onchange="Settings.onLibraryThumbsChange()">
+            <option value="auto"   data-i18n="settings.library.auto">Automático (recomendado)</option>
+            <option value="always" data-i18n="settings.library.always">Sempre gerar</option>
+            <option value="off"    data-i18n="settings.library.off">Só das gravações novas</option>
+          </select>
+        </div>
+        <div class="settings-hint" id="settingsLibraryHint">
+          Gera prévia e duração só dos vídeos disponíveis no computador; pula
+          os que estão só na nuvem (OneDrive), para não baixá-los.
         </div>
       </div>
       <hr class="settings-divider">

@@ -14,6 +14,8 @@
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
     set_recording_fps    : fps (Integer, >= 10)
+    set_window_title     : title (string; vazio = 'NoOBS')
+    set_filename_pattern : pattern (string com codigos {AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ})
     set_language         : language ('', 'auto', 'pt-BR', 'en', ...)
 
   Mensagens Delphi -> JS (campo "type"):
@@ -1042,6 +1044,46 @@ begin
   end;
 end;
 
+function IsFileCloudOnly(const APath: string): Boolean;
+// True se o arquivo e um placeholder "online-only" (OneDrive Files
+// On-Demand e afins): os dados NAO estao no disco e abrir o arquivo
+// (Probe/thumb) forcaria download da nuvem. GetFileAttributes le so os
+// metadados (sempre locais) — NAO dispara o recall/download.
+const
+  FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = $00400000;
+var
+  Attrs: DWORD;
+begin
+  Result := False;
+  if APath = '' then Exit;
+  Attrs := GetFileAttributesW(PWideChar(APath));
+  if Attrs = INVALID_FILE_ATTRIBUTES then Exit;
+  Result := (Attrs and FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS) <> 0;
+end;
+
+function IsPathUnderOneDrive(const APath: string): Boolean;
+// Heuristica: True se APath esta sob alguma pasta OneDrive do usuario
+// (vars de ambiente OneDrive*). Apenas INFORMATIVO pra UI — a decisao real
+// de pular a previa e por-arquivo via IsFileCloudOnly.
+const
+  OD_VARS: array[0..2] of string =
+    ('OneDrive', 'OneDriveConsumer', 'OneDriveCommercial');
+var
+  i: Integer;
+  OD: string;
+begin
+  Result := False;
+  if APath = '' then Exit;
+  for i := 0 to High(OD_VARS) do
+  begin
+    OD := GetEnvironmentVariable(OD_VARS[i]);
+    if (OD <> '') and
+       StartsText(IncludeTrailingPathDelimiter(OD),
+                  IncludeTrailingPathDelimiter(APath)) then
+      Exit(True);
+  end;
+end;
+
 procedure ScanRecordingsMeta;
 // Em worker thread: pra cada gravacao, garante duracao + thumb
 // (libavformat, cacheado) e empurra `recording_meta` por arquivo.
@@ -1088,6 +1130,16 @@ begin
           else                 Result :=  0;
         end));
 
+      // Modo de geracao de previa/duracao da biblioteca (config
+      // 'libraryThumbs', default 'auto'):
+      //   'always' — gera pra todos os videos.
+      //   'off'    — nao gera pros videos ja existentes; so as gravacoes
+      //              feitas no NoOBS (via ScanSingleRecordingMeta) geram.
+      //   'auto'   — gera so pros videos disponiveis LOCALMENTE; pula os que
+      //              estao so na nuvem (OneDrive online-only) pra nao baixar
+      //              a biblioteca inteira so pra fazer thumb/duracao.
+      var Mode: string := LowerCase(GetConfigStr('libraryThumbs', 'auto'));
+
       for j := 0 to High(Files) do
       begin
         if IsShuttingDown then Exit;
@@ -1096,6 +1148,15 @@ begin
         // PushRecordingAdded gera a thumb assim que ela terminar.
         if RecordingActive and (LastRecordingPath <> '') and
            SameText(Files[j], LastRecordingPath) then Continue;
+        // Gate por config: nao gera previa se desligado, ou se o arquivo
+        // esta so na nuvem no modo auto (nao baixa da nuvem).
+        if Mode = 'off' then Continue;
+        if (Mode <> 'always') and IsFileCloudOnly(Files[j]) then
+        begin
+          Log('ScanMeta: pulando previa (so na nuvem): %s',
+            [ExtractFileName(Files[j])]);
+          Continue;
+        end;
         ProcessSingleMetaSync(Files[j]);
       end;
     end).Start;
@@ -2252,7 +2313,7 @@ begin
   // Se "Minimizar pra bandeja ao fechar" esta ativo, garante o icone
   // na bandeja mesmo com a janela aberta (sinaliza que [X] vai pra
   // bandeja). Em modo /tray o icone ja foi instalado em OBSUI.Run.
-  if GetConfigBool('closeToTray', False) then
+  if GetConfigBool('closeToTray', True) then
     OBSUI.EnsureTrayIcon;
 
   // 1a execucao apos instalacao: abre o modal de Configuracoes pra
@@ -2345,6 +2406,66 @@ begin
   PushRecordingAdded(AOutputPath, LastRecordingDuration);
 end;
 
+const
+  // Modelo padrao do nome do arquivo de saida. Codigos entre chaves sao
+  // substituidos por data/hora; o resto e texto literal. Ver ApplyFilenamePattern.
+  DEFAULT_FILENAME_PATTERN = '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';
+
+// Aplica o modelo de nome (config 'filenamePattern') a um instante AWhen,
+// devolvendo o nome-base (SEM pasta nem extensao). Codigos (case-insensitive,
+// entre chaves pra nao colidir com texto literal):
+//   {AAAA}=ano(4) {MM}=mes {DD}=dia {HH}=hora(24h) {NN}=minuto {SS}=segundo
+//   {ZZZ}=milesimo(3)
+// Chaves sobrando (codigo desconhecido/typo) sao removidas; caracteres
+// invalidos de nome de arquivo viram '_'. Se sobrar vazio, usa um fallback
+// datado garantido nao-vazio.
+function ApplyFilenamePattern(const APattern: string; AWhen: TDateTime): string;
+const
+  ILLEGAL: array[0..8] of Char = ('\', '/', ':', '*', '?', '"', '<', '>', '|');
+var
+  S: string;
+  i: Integer;
+begin
+  S := APattern;
+  S := StringReplace(S, '{AAAA}', FormatDateTime('yyyy', AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{MM}',   FormatDateTime('mm',   AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{DD}',   FormatDateTime('dd',   AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{HH}',   FormatDateTime('hh',   AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{NN}',   FormatDateTime('nn',   AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{SS}',   FormatDateTime('ss',   AWhen), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{ZZZ}',  FormatDateTime('zzz',  AWhen), [rfReplaceAll, rfIgnoreCase]);
+  // Remove chaves remanescentes (codigo invalido) deixando o texto interno.
+  S := StringReplace(S, '{', '', [rfReplaceAll]);
+  S := StringReplace(S, '}', '', [rfReplaceAll]);
+  for i := 0 to High(ILLEGAL) do
+    S := StringReplace(S, ILLEGAL[i], '_', [rfReplaceAll]);
+  S := Trim(S);
+  if S = '' then
+    S := 'NoOBS_' + FormatDateTime('yyyy-mm-dd_hh-nn-ss', AWhen);
+  Result := S;
+end;
+
+// Caminho completo do arquivo de saida: pasta + nome do modelo + '.mkv',
+// com sufixo ' (N)' se ja existir (essencial pra modelos so-texto sem
+// codigos de hora, que colidiriam a cada gravacao). Espelha MakeMergePath.
+function BuildRecordingPath(AWhen: TDateTime): string;
+var
+  Dir, Base, Cand: string;
+  N: Integer;
+begin
+  Dir := IncludeTrailingPathDelimiter(RecordDir);
+  Base := ApplyFilenamePattern(
+    GetConfigStr('filenamePattern', DEFAULT_FILENAME_PATTERN), AWhen);
+  Cand := Dir + Base + '.mkv';
+  N := 2;
+  while TFile.Exists(Cand) do
+  begin
+    Cand := Dir + Format('%s (%d).mkv', [Base, N]);
+    Inc(N);
+  end;
+  Result := Cand;
+end;
+
 procedure HandleRecordStart;
 var
   OutputPath: string;
@@ -2381,8 +2502,9 @@ begin
     Log('HandleRecordStart: EnsureInitialized em %dms.',
       [GetTickCount64 - TStep]);
 
-    OutputPath := IncludeTrailingPathDelimiter(RecordDir)
-      + 'NoOBS_' + FormatDateTime('yyyy-mm-dd_hh-nn-ss', Now) + '.mkv';
+    // Nome do arquivo pelo modelo configuravel (config 'filenamePattern'),
+    // com sufixo ' (N)' se colidir. Ver ApplyFilenamePattern/BuildRecordingPath.
+    OutputPath := BuildRecordingPath(Now);
 
     TStep := GetTickCount64;
     Engine.BuildAndStartRecording(OutputPath);
@@ -2411,13 +2533,13 @@ begin
     // Lembra se a janela estava visivel pra restaurar no stop (se o
     // user ja tinha minimizado manualmente, nao queremos forcar abrir).
     WindowWasVisibleBeforeRecord := False;
-    if GetConfigBool('minimizeOnRecord', False) then
+    if GetConfigBool('minimizeOnRecord', True) then
     begin
       WindowWasVisibleBeforeRecord :=
         (MainWindowHandle <> 0) and IsWindowVisible(MainWindowHandle);
       if WindowWasVisibleBeforeRecord then
       begin
-        if GetConfigBool('closeToTray', False) then
+        if GetConfigBool('closeToTray', True) then
           OBSUI.HideToTray
         else
           OBSUI.MinimizeToTaskbar;
@@ -2486,7 +2608,7 @@ begin
   // some pra bandeja). Sem isso, fechar a janela ja encerra o app e
   // nao tem cenario pra hibernar. UI gateia o toggle (so habilita com
   // closeToTray ON), mas defensivo aqui tambem.
-  if not GetConfigBool('hibernate', False) then
+  if not GetConfigBool('hibernate', True) then
   begin
     Log('OnWindowHidden: hibernate desativada no config — skip.');
     Exit;
@@ -2537,7 +2659,7 @@ begin
   // quer ouvir o "ding" so depois disso (parece travado). UI debouncea
   // pra nao tocar duas vezes se o stop veio do click no botao (que ja
   // toca preemptivamente).
-  if GetConfigBool('playSoundOnRecord', False) then
+  if GetConfigBool('playSoundOnRecord', True) then
   begin
     var SndObj := TJSONObject.Create;
     SndObj.AddPair('type', 'recording_stopping');
@@ -3194,23 +3316,27 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'settings');
   Obj.AddPair('recordDir', RecordDir);
+  // Titulo da janela (default 'NoOBS') e modelo do nome do arquivo de saida.
+  Obj.AddPair('windowTitle', GetConfigStr('windowTitle', 'NoOBS'));
+  Obj.AddPair('filenamePattern',
+    GetConfigStr('filenamePattern', DEFAULT_FILENAME_PATTERN));
   Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
   Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause/Break'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
   Obj.AddPair('closeToTray',
-    TJSONBool.Create(GetConfigBool('closeToTray', False)));
+    TJSONBool.Create(GetConfigBool('closeToTray', True)));
   Obj.AddPair('minimizeOnRecord',
-    TJSONBool.Create(GetConfigBool('minimizeOnRecord', False)));
+    TJSONBool.Create(GetConfigBool('minimizeOnRecord', True)));
   Obj.AddPair('notifyOnRecord',
     TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
   Obj.AddPair('scrollLockIndicator',
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
   Obj.AddPair('playSoundOnRecord',
-    TJSONBool.Create(GetConfigBool('playSoundOnRecord', False)));
+    TJSONBool.Create(GetConfigBool('playSoundOnRecord', True)));
   Obj.AddPair('stopOnLock',
-    TJSONBool.Create(GetConfigBool('stopOnLock', False)));
+    TJSONBool.Create(GetConfigBool('stopOnLock', True)));
   Obj.AddPair('hibernate',
-    TJSONBool.Create(GetConfigBool('hibernate', False)));
+    TJSONBool.Create(GetConfigBool('hibernate', True)));
   Obj.AddPair('recordingQuality',
     TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
   // recordingFps: 0 = nao configurado → UI interpreta como 30 (default
@@ -3223,6 +3349,11 @@ begin
   // precisao da divisao de video no player (stream copy so corta em I-frame).
   Obj.AddPair('recordingKeyframeSec',
     TJSONNumber.Create(GetConfigInt('recordingKeyframeSec', 2)));
+  // Geracao de previa/duracao da biblioteca: 'auto'|'always'|'off'.
+  Obj.AddPair('libraryThumbs', GetConfigStr('libraryThumbs', 'auto'));
+  // Informa a UI se a pasta de gravacao esta no OneDrive (hint no modo
+  // 'auto') — heuristica por variavel de ambiente.
+  Obj.AddPair('recordDirCloud', TJSONBool.Create(IsPathUnderOneDrive(RecordDir)));
   Obj.AddPair('maxMonitorHz',
     TJSONNumber.Create(WinPreview.GetMaxMonitorRefreshRate));
   // Idioma atual ativo (codigo resolvido — 'pt-BR', 'en', etc.).
@@ -3280,12 +3411,38 @@ end;
 
 procedure HandleSetRecordingQuality(ALevel: Integer);
 begin
-  // Clampa pra range valido — UI envia -2..+2 mas defensivo contra
+  // Clampa pra range valido — UI envia -4..+2 mas defensivo contra
   // edicao manual de config.json ou mensagem malformada.
-  if ALevel < -2 then ALevel := -2;
+  if ALevel < -4 then ALevel := -4;
   if ALevel >  2 then ALevel :=  2;
   SetConfigInt('recordingQuality', ALevel);
   Log('RecordingQuality: %d', [ALevel]);
+end;
+
+procedure HandleSetWindowTitle(const ATitle: string);
+var
+  T: string;
+begin
+  // Vazio/so-espacos volta pro default 'NoOBS'. Aplica ao vivo (barra de
+  // titulo + tooltip da bandeja) via OBSUI.ApplyWindowTitle.
+  T := Trim(ATitle);
+  if T = '' then T := 'NoOBS';
+  SetConfigStr('windowTitle', T);
+  Log('WindowTitle: "%s"', [T]);
+  OBSUI.ApplyWindowTitle;
+end;
+
+procedure HandleSetFilenamePattern(const APattern: string);
+var
+  P: string;
+begin
+  // Guarda o modelo cru (com os codigos {AAAA} etc.). Trim; vazio volta pro
+  // default. A substituicao/sanitizacao dos codigos acontece so na hora de
+  // gravar, em ApplyFilenamePattern.
+  P := Trim(APattern);
+  if P = '' then P := DEFAULT_FILENAME_PATTERN;
+  SetConfigStr('filenamePattern', P);
+  Log('FilenamePattern: "%s"', [P]);
 end;
 
 procedure HandleSetRecordingFps(AFps: Integer);
@@ -3304,6 +3461,20 @@ begin
   if ASec > 10 then ASec := 10;
   SetConfigInt('recordingKeyframeSec', ASec);
   Log('RecordingKeyframe: %ds', [ASec]);
+end;
+
+procedure HandleSetLibraryThumbs(const AMode: string);
+var
+  M: string;
+begin
+  // Valida: 'auto' | 'always' | 'off'. Fallback 'auto'.
+  M := LowerCase(Trim(AMode));
+  if (M <> 'always') and (M <> 'off') then M := 'auto';
+  SetConfigStr('libraryThumbs', M);
+  Log('LibraryThumbs: %s', [M]);
+  // Re-scan pra aplicar na hora: ligar 'auto'/'always' gera as previas que
+  // faltam agora; 'off' nao desfaz caches existentes, so para de gerar novos.
+  ScanRecordingsMeta;
 end;
 
 procedure HandleSetLanguage(const ACode: string);
@@ -3402,7 +3573,7 @@ begin
   // So agimos no LOCK. Unlock e informativo (no log).
   if not ALocked then Exit;
   // Config gate — feature e opt-in, mesmo com detector rodando.
-  if not GetConfigBool('stopOnLock', False) then Exit;
+  if not GetConfigBool('stopOnLock', True) then Exit;
 
   TThread.Queue(nil,
     procedure
@@ -3649,13 +3820,14 @@ begin
 end;
 
 function MakeMergePath: string;
-// NoOBS_Unido_yyyy-mm-dd_hh-nn-ss.mkv, com sufixo se ja existir.
+// "<yyyy-mm-dd_hh-nn-ss> - U.mkv" — sem prefixo; o " - U" (de "Unido") espelha
+// o " - 1"/" - 2" do split. Sufixo " (N)" se ja existir.
 var
   Dir, Base, Cand: string;
   N: Integer;
 begin
   Dir := IncludeTrailingPathDelimiter(RecordDir);
-  Base := 'NoOBS_Unido_' + FormatDateTime('yyyy-mm-dd_hh-nn-ss', Now);
+  Base := FormatDateTime('yyyy-mm-dd_hh-nn-ss', Now) + ' - U';
   Cand := Dir + Base + '.mkv';
   N := 2;
   while TFile.Exists(Cand) do
@@ -3726,9 +3898,10 @@ begin
 end;
 
 procedure HandleMergeRecordings(AIds: TJSONArray);
-// Une N gravacoes em um novo MKV, mantendo os originais intactos. Roda em
-// worker thread porque stream copy de arquivos grandes ainda pode levar
-// varios segundos. A ordem do array vem do Set de selecao da UI.
+// Une N gravacoes em um novo MKV; os originais vao pra lixeira (recuperaveis)
+// apos o merge dar certo. Roda em worker thread porque stream copy de arquivos
+// grandes ainda pode levar varios segundos. A ordem do array vem do Set de
+// selecao da UI.
 var
   Paths: TArray<string>;
   i: Integer;
@@ -3763,8 +3936,9 @@ begin
   end;
 
   // O arquivo unido fica aproximadamente do tamanho da soma dos inputs.
-  // Como os originais permanecem intactos, precisamos desse espaco livre
-  // extra agora. Folga: +5% +16MB para headers/cues e variacoes do muxer.
+  // Durante o merge os originais ainda estao em disco (so vao pra lixeira no
+  // fim), entao precisamos desse espaco livre extra agora. Folga: +5% +16MB
+  // para headers/cues e variacoes do muxer.
   FreeBytes := GetRecordDirFreeBytes;
   Needed := TotalSize + (TotalSize div 20) + 16 * 1024 * 1024;
   if (TotalSize > 0) and (FreeBytes >= 0) and (FreeBytes < Needed) then
@@ -3786,6 +3960,8 @@ begin
       Ok, Incompatible: Boolean;
       Meta: TRecordingMeta;
       SizeOut: Int64;
+      RecycledPaths: TArray<string>;
+      j: Integer;
     begin
       if IsShuttingDown then Exit;
       Ok := False;
@@ -3826,10 +4002,37 @@ begin
         try OBSPlayer.SaveRecordingMeta(OutPath, Meta); except end;
       end;
 
+      // Originais pra lixeira (recuperaveis) apos o merge dar certo. O
+      // MergeFiles ja fechou os handles do libav, entao o recycle passa.
+      // Guarda quais sairam de fato — um que esteja em uso (raro: aberto no
+      // player) permanece, e so removemos o card dos reciclados.
+      RecycledPaths := nil;
+      for j := 0 to High(Paths) do
+        if DeleteToRecycleBin(Paths[j]) then
+        begin
+          SetLength(RecycledPaths, Length(RecycledPaths) + 1);
+          RecycledPaths[High(RecycledPaths)] := Paths[j];
+        end
+        else
+          Log('HandleMergeRecordings: "%s" nao foi pra lixeira (em uso?).',
+            [ExtractFileName(Paths[j])]);
+
       TThread.Queue(nil,
         procedure
+        var
+          Obj: TJSONObject;
+          k: Integer;
         begin
           if IsShuttingDown then Exit;
+          // Remove os cards dos originais que foram reciclados.
+          for k := 0 to High(RecycledPaths) do
+          begin
+            Obj := TJSONObject.Create;
+            Obj.AddPair('type', 'recording_removed');
+            Obj.AddPair('id', RecycledPaths[k]);
+            PostOwned(Obj);
+          end;
+          try GarbageCollectCache(ListRecordings(RecordDir)); except end;
           PushRecordingAdded(OutPath, 0);
           PushMergeDone(True);
         end);
@@ -3953,8 +4156,34 @@ begin
         try OBSPlayer.SaveRecordingMeta(PathB, PartMeta); except end;
       end;
 
-      // Sucesso: original pra lixeira (recuperavel).
-      DeleteToRecycleBin(PathCopy);
+      // Carimba nas duas partes a data do ORIGINAL (LastWrite + Creation). A
+      // lista ordena/agrupa por LastWriteTime; sem isso as partes ficam com a
+      // hora do corte e aparecem como "mais recentes" em vez de na data em que
+      // a gravacao foi feita. Le ANTES de reciclar (o original ainda existe) e
+      // carimba ANTES de montar os cards (PushRecordingAdded le GetLastWriteTime).
+      // As gravacoes de meta (.json) e thumbs sao arquivos separados — nao
+      // tocam o mtime do .mkv, entao o carimbo persiste.
+      try
+        var OrigWrite: TDateTime := TFile.GetLastWriteTime(PathCopy);
+        var OrigCreate: TDateTime := TFile.GetCreationTime(PathCopy);
+        try
+          TFile.SetCreationTime(PathA, OrigCreate);
+          TFile.SetLastWriteTime(PathA, OrigWrite);
+        except end;
+        try
+          TFile.SetCreationTime(PathB, OrigCreate);
+          TFile.SetLastWriteTime(PathB, OrigWrite);
+        except end;
+      except end;
+
+      // Sucesso: original pra lixeira (recuperavel). Guarda o resultado — se
+      // o arquivo estiver em uso e NAO for reciclado, nao removemos o card
+      // (senao ele "some" mas reaparece no proximo scan, confundindo). A UI
+      // solta o <video> antes de dividir (player.split), liberando o handle do
+      // servidor HTTP, entao o recycle passa no caso normal.
+      var Recycled: Boolean := DeleteToRecycleBin(PathCopy);
+      if not Recycled then
+        Log('HandleSplitRecording: original nao foi pra lixeira (em uso?) — card mantido.');
 
       TThread.Queue(nil,
         procedure
@@ -3962,11 +4191,14 @@ begin
           Obj: TJSONObject;
         begin
           if IsShuttingDown then Exit;
-          // Remove o card do original.
-          Obj := TJSONObject.Create;
-          Obj.AddPair('type', 'recording_removed');
-          Obj.AddPair('id', PathCopy);
-          PostOwned(Obj);
+          // Remove o card do original SO se ele realmente foi pra lixeira.
+          if Recycled then
+          begin
+            Obj := TJSONObject.Create;
+            Obj.AddPair('type', 'recording_removed');
+            Obj.AddPair('id', PathCopy);
+            PostOwned(Obj);
+          end;
           // Cache orfao do original removido aqui (GC pegaria no proximo
           // start de qualquer forma).
           try GarbageCollectCache(ListRecordings(RecordDir)); except end;
@@ -3974,7 +4206,7 @@ begin
           // preenche thumb + duracao em background).
           PushRecordingAdded(PathA, 0);
           PushRecordingAdded(PathB, 0);
-          // Fecha o player (o original nao existe mais) + toast de sucesso.
+          // Fecha o player + toast de sucesso.
           PushSplitDone(True);
         end);
     end).Start;
@@ -4048,6 +4280,10 @@ begin
       HandleSetRecordDir(GetStrField(Obj, 'path'))
     else if MsgType = 'set_codec' then
       HandleSetCodec(GetStrField(Obj, 'codec'))
+    else if MsgType = 'set_window_title' then
+      HandleSetWindowTitle(GetStrField(Obj, 'title'))
+    else if MsgType = 'set_filename_pattern' then
+      HandleSetFilenamePattern(GetStrField(Obj, 'pattern'))
     else if MsgType = 'set_hotkey' then
       HandleSetHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'validate_hotkey' then
@@ -4074,6 +4310,8 @@ begin
       HandleSetRecordingFps(GetIntField(Obj, 'fps'))
     else if MsgType = 'set_recording_keyframe' then
       HandleSetRecordingKeyframe(GetIntField(Obj, 'sec'))
+    else if MsgType = 'set_library_thumbs' then
+      HandleSetLibraryThumbs(GetStrField(Obj, 'mode'))
     else if MsgType = 'set_language' then
       HandleSetLanguage(GetStrField(Obj, 'language'))
     else if MsgType = 'get_settings' then
@@ -4494,7 +4732,7 @@ function ShouldHideOnClose: Boolean;
 //   - Gravando: nunca interromper a gravacao por engano
 //   - Caso contrario: fecha normal
 begin
-  Result := GetConfigBool('closeToTray', False) or RecordingActive;
+  Result := GetConfigBool('closeToTray', True) or RecordingActive;
 end;
 
 // Toggle de gravacao usado pelo menu do tray (item "Iniciar/Parar

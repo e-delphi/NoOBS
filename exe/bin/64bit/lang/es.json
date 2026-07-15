@@ -68,7 +68,7 @@
     "confirmDeleteOne": "¿Mover esta grabación a la Papelera de Windows?",
     "confirmDeleteN": "¿Mover {{count}} grabaciones a la Papelera de Windows?",
     "confirmMergeTitle": "Unir grabaciones",
-    "confirmMergeN": "¿Crear un nuevo video uniendo {{count}} grabaciones en el orden seleccionado? Los originales se conservarán.",
+    "confirmMergeN": "¿Crear un nuevo video uniendo {{count}} grabaciones en el orden seleccionado? Los originales irán a la papelera (recuperables).",
     "confirmDeleteSingleTitle": "Eliminar grabación",
     "confirmDeleteNamed": "¿Mover \"{{name}}\" a la Papelera de Windows?",
     "deleteNShort": "Eliminar {{count}} seleccionadas"
@@ -91,6 +91,15 @@
       "label": "Carpeta de salida de las grabaciones",
       "browse": "Explorar...",
       "reset": "Restaurar predeterminado"
+    },
+    "windowTitle": {
+      "label": "Título de la ventana",
+      "hint": "Nombre que se muestra en la barra de título, en el botón de la barra de tareas y en el icono de la bandeja. Déjalo en blanco para usar \"NoOBS\"."
+    },
+    "filename": {
+      "label": "Nombre del archivo de salida",
+      "hint": "Usa códigos entre llaves: <code>{AAAA}</code> año, <code>{MM}</code> mes, <code>{DD}</code> día, <code>{HH}</code> hora, <code>{NN}</code> minuto, <code>{SS}</code> segundo, <code>{ZZZ}</code> milisegundo. El resto es texto fijo.",
+      "previewLabel": "Ejemplo: {{name}}"
     },
     "codec": {
       "label": "Códec de video",
@@ -183,6 +192,8 @@
       "lower": "Menor",
       "higher": "Mayor",
       "hint": {
+        "-4": "Compresión máxima — archivos diminutos, calidad muy por debajo de lo normal.",
+        "-3": "Compresión muy alta — archivos muy pequeños, calidad notablemente reducida.",
         "-2": "Compresión agresiva — archivos mucho más pequeños, calidad visiblemente inferior.",
         "-1": "Compresión moderada — archivos más pequeños, calidad ligeramente inferior.",
         "0": "Predeterminado — misma calidad del codificador, equilibrado entre tamaño y calidad visual.",
@@ -213,6 +224,18 @@
         "medium": "Cada {{sec}} segundos — archivo un poco menor; cortes menos precisos.",
         "spaced": "Cada {{sec}} segundos — archivo menor; la división puede desviarse bastante del punto elegido."
       }
+    },
+    "library": {
+      "label": "Vistas previas y duración de la biblioteca",
+      "auto": "Automático (recomendado)",
+      "always": "Generar siempre",
+      "off": "Solo grabaciones nuevas",
+      "hint": {
+        "auto": "Genera vista previa y duración solo de los videos disponibles en el equipo; omite los que están solo en la nube (OneDrive) para no descargarlos.",
+        "always": "Genera vista previa y duración de todos los videos, descargando de la nube si es necesario.",
+        "off": "No genera vista previa ni duración de los videos existentes — solo de las grabaciones nuevas hechas en NoOBS."
+      },
+      "cloudNote": "Tu carpeta de grabaciones parece estar en OneDrive."
     },
     "autostart": {
       "label": "Iniciar con Windows",
@@ -352,7 +375,7 @@
     "mergeStarted": "Uniendo videos",
     "mergeStartedMsg": "Creando un nuevo archivo con los videos seleccionados.",
     "mergeDone": "Videos unidos",
-    "mergeDoneMsg": "Nuevo video creado. Los originales se conservaron.",
+    "mergeDoneMsg": "Nuevo video creado. Los originales fueron a la papelera.",
     "languageChanged": "Idioma cambiado",
     "andMore": "…y {{count}} más"
   },

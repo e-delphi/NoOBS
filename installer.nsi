@@ -172,11 +172,13 @@ Section "NoOBS" SecMain
 SectionEnd
 
 ;--------------------------------
-; Componentes opcionais (vem DESMARCADOS por padrao — /o)
-;   - Iniciar com Windows: registra entrada no Run do HKCU (sem /tray
-;     no install — o flag e adicionado depois pelo app se o user
-;     ligar "Minimizar para bandeja" nas configuracoes).
-;   - Atalho na area de trabalho
+; Componentes opcionais.
+;   - Iniciar com Windows: base /o, mas PreCheckAutostart PRE-MARCA numa
+;     instalacao nova (default "ligado" — vide requisito de vir ativado) e
+;     preserva a escolha anterior num reinstall. Registra entrada no Run do
+;     HKCU (sem /tray no install — o flag e adicionado depois pelo app se o
+;     user ligar "Minimizar para bandeja" nas configuracoes).
+;   - Atalho na area de trabalho: /o (desmarcado).
 ;--------------------------------
 Section /o "Iniciar com o Windows" SecAutostart
     ; Flag /autostart e MARCADOR de origem (= "fui lancado pelo logon").
@@ -234,13 +236,33 @@ LangString DESC_SecDesktopShortcut  ${LANG_PORTUGUESEBR} "Cria um atalho do NoOB
 ; tenha sido resolvido. Chamada via Call a partir de .onInit (NSIS
 ; aceita forward-reference de funcoes via Call).
 ;
-; Logica: se a entrada de Run ja existe (de uma instalacao anterior
-; OU do toggle do app via Settings), pre-marca o checkbox. User
-; precisa DESMARCAR explicitamente pra remover — sem isso, o checkbox
-; vinha desmarcado no default /o e a etapa AutostartSync removia
-; silenciosamente uma config que o user nao quis tocar.
+; Logica (dois casos, cada um so MARCA — nunca desmarca):
+;   1. Instalacao NOVA (sem Software\NoOBS\InstallDir): pre-marca — o app
+;      "ja vem com autostart ligado" por padrao. E o lugar certo pra isso
+;      (nao em runtime), pra nao sobrescrever quem desmarcar aqui.
+;   2. Reinstalacao com autostart ja ativo (entrada de Run existe, de um
+;      install anterior OU do toggle do app via Settings): pre-marca pra
+;      respeitar a escolha; user precisa DESMARCAR explicitamente pra remover.
+; Quem ja instalou e tinha DESATIVADO cai em nenhum dos casos e fica
+; desmarcado (default /o) — a etapa AutostartSync entao mantem removido.
 ;--------------------------------
 Function PreCheckAutostart
+    ; Instalacao NOVA (nunca instalado): "Iniciar com o Windows" vem MARCADO
+    ; por padrao — e assim que o app "ja vem com autostart ligado", sem forcar
+    ; nada em runtime (o que sobrescreveria a escolha do user aqui). Detecta
+    ; "novo" pela ausencia de Software\NoOBS\InstallDir, gravada pelo installer
+    ; em SecMain e removida pelo desinstalador.
+    ReadRegStr $2 HKCU "Software\NoOBS" "InstallDir"
+    ${If} $2 == ""
+        SectionGetFlags ${SecAutostart} $1
+        IntOp $1 $1 | ${SF_SELECTED}
+        SectionSetFlags ${SecAutostart} $1
+    ${EndIf}
+
+    ; Reinstalacao: se ja existe entrada de Run (install anterior OU toggle
+    ; do app via Settings), pre-marca. User precisa DESMARCAR explicitamente
+    ; pra remover. Quem tinha DESATIVADO (ja instalado + Run ausente) cai em
+    ; nenhum dos dois ramos e fica desmarcado (default /o) — respeita a escolha.
     ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS"
     ${If} $0 != ""
         SectionGetFlags ${SecAutostart} $1

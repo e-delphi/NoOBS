@@ -201,7 +201,7 @@ begin
   MsgText := MsgText + sLineBreak +
     'Confirme que o app foi extraido completo (incluindo as pastas ' +
     'obs-plugins\ e data\). Detalhes em ' +
-    '%LOCALAPPDATA%\NoOBS\NoOBS.log.';
+    '%LOCALAPPDATA%\NoOBS\logs\.';
 
   Box := MB_OK or MB_ICONERROR or MB_TOPMOST;
   MessageBox(0, PChar(MsgText), 'NoOBS - Arquivos ausentes', Box);

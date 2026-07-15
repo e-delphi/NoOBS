@@ -95,7 +95,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
-| `OBSLog`            | Log centralizado em `%LOCALAPPDATA%\NoOBS\NoOBS.log`, append, thread-safe          |
+| `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
 | `WinPreview`        | **Win32**: `EnumDisplayMonitors` + `BitBlt` pra capturar thumb de cada monitor     |
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
@@ -896,6 +896,26 @@ precise (ex.: `CurrentDetectorInstance := Self`) já está setado — sem race
 e sem evento perdido. (Alternativa equivalente: manter `Create(True)` e
 chamar `Start` **fora** do construtor, no chamador.)
 
+### 46. **Autostart é do INSTALADOR (NSIS), não do app — não force em runtime**
+
+"Iniciar com o Windows" mora em `installer.nsi`, não no app. A entrada
+`HKCU\...\Run\NoOBS` = `"...\NoOBS.exe" /autostart` é escrita pela
+`Section SecAutostart`, o default de vir marcado é decidido por
+`PreCheckAutostart` (pré-marca em instalação nova — sem `Software\NoOBS\InstallDir`
+— e preserva a escolha anterior num reinstall lendo a entrada de Run), e a
+`Section "-AutostartSync"` **remove** a entrada se o checkbox ficou desmarcado
+(installer autoritativo). O uninstaller limpa `Run` + `StartupApproved`.
+
+O app só **lê** (`OBSAutostart.IsAutoStartEnabled`, pro toggle da UI) e escreve
+quando o **usuário** troca em Configurações (`HandleSetAutostart`). **Nunca**
+force `SetAutoStart(True)` no boot/primeira execução: se o user desmarcou
+"Iniciar com o Windows" no instalador, o `-AutostartSync` remove a entrada e o
+forcing no app a **re-adiciona**, revertendo a escolha dele. Já aconteceu:
+tentativa de "autostart default ON" via flag de config.json (`ConfigWasCreatedFresh`)
+no `DoInit` — revertido; o default-ON correto é o `/o` + pré-check no `.nsi`.
+(Os outros defaults — bandeja, minimizar ao gravar, som, parar ao bloquear,
+hibernar — esses SIM são do app, via default `True` no `GetConfigBool`.)
+
 ---
 
 ## Caches
@@ -903,7 +923,7 @@ chamar `Start` **fora** do construtor, no chamador.)
 | Cache                                   | Conteúdo                                  |
 |-----------------------------------------|-------------------------------------------|
 | `%LOCALAPPDATA%\NoOBS\config.json`      | Preferências (versionado, theme, recordDir, enabled, codec) |
-| `%LOCALAPPDATA%\NoOBS\NoOBS.log`        | Log único, append                         |
+| `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` | Log diário, append; retém os 3 dias mais recentes |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.dur` | Duração da gravação (texto, segundos)     |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.jpg` | Thumbnail (gerado via libav decode+sws+mjpeg) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.mp4` | MP4 remuxado (libavformat `-c copy` equivalente) |
@@ -936,13 +956,15 @@ recuperáveis manualmente).
 | `version`                        | `1` (discriminator)                                |
 | `theme`                          | `"dark"` ou `"light"`                              |
 | `recordDir`                      | path absoluto                                      |
+| `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |
+| `filenamePattern`                | modelo do nome do arquivo; códigos `{AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}` (default `"{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"`) |
 | `codec`                          | `"auto"`, `"av1-hw"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"` |
 | `sources.monitors[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |
 | `sources.speakers[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.webcams[name]`          | `true` / `false` (default: `false`)                |
 | `language`                       | `""` (auto, segue Windows), `"pt-BR"`, `"en"`, `"es"`, ... |
-| `recordingQuality`               | `-2..+2` (default `0`)                             |
+| `recordingQuality`               | `-4..+2` (default `0`; `-4`/`-3` são os níveis extras de mais compressão) |
 | `recordingFps`                   | `10..maxMonitorHz` (default `30` — padrão do NoOBS, mais compacto que o 60fps do OBS Studio) |
 
 ---
@@ -1051,10 +1073,12 @@ msbuild NoOBS.dproj /t:Build /p:config=Release /p:platform=Win64
 
 Saída: `exe\bin\64bit\NoOBS.exe`.
 
-Logs em `%LOCALAPPDATA%\NoOBS\NoOBS.log`. Tail em PowerShell:
+Logs em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (um por dia, mantém 3
+dias). Tail do mais recente em PowerShell:
 
 ```ps
-Get-Content $env:LOCALAPPDATA\NoOBS\NoOBS.log -Wait -Tail 50
+Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
+  Sort-Object Name | Select-Object -Last 1).FullName -Wait -Tail 50
 ```
 
 ---

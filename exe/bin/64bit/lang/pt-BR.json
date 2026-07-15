@@ -68,7 +68,7 @@
     "confirmDeleteOne": "Mover esta gravação para a Lixeira do Windows?",
     "confirmDeleteN": "Mover {{count}} gravações para a Lixeira do Windows?",
     "confirmMergeTitle": "Unir gravações",
-    "confirmMergeN": "Criar um novo vídeo unindo {{count}} gravações na ordem selecionada? Os originais serão mantidos.",
+    "confirmMergeN": "Criar um novo vídeo unindo {{count}} gravações na ordem selecionada? Os originais irão para a lixeira (recuperáveis).",
     "confirmDeleteSingleTitle": "Excluir gravação",
     "confirmDeleteNamed": "Mover \"{{name}}\" para a Lixeira do Windows?",
     "deleteNShort": "Excluir {{count}} selecionadas"
@@ -91,6 +91,15 @@
       "label": "Pasta de saída das gravações",
       "browse": "Procurar...",
       "reset": "Restaurar padrão"
+    },
+    "windowTitle": {
+      "label": "Título da janela",
+      "hint": "Nome exibido na barra de título, no botão da barra de tarefas e no ícone da bandeja. Deixe em branco para usar \"NoOBS\"."
+    },
+    "filename": {
+      "label": "Nome do arquivo de saída",
+      "hint": "Use códigos entre chaves: <code>{AAAA}</code> ano, <code>{MM}</code> mês, <code>{DD}</code> dia, <code>{HH}</code> hora, <code>{NN}</code> minuto, <code>{SS}</code> segundo, <code>{ZZZ}</code> milésimo. O restante é texto fixo.",
+      "previewLabel": "Exemplo: {{name}}"
     },
     "codec": {
       "label": "Codec de vídeo",
@@ -183,6 +192,8 @@
       "lower": "Menor",
       "higher": "Maior",
       "hint": {
+        "-4": "Compactação máxima — arquivos minúsculos, qualidade bem abaixo do normal.",
+        "-3": "Compactação muito alta — arquivos bem pequenos, qualidade nitidamente reduzida.",
         "-2": "Compactação agressiva — arquivos bem menores, qualidade visível abaixo do normal.",
         "-1": "Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal.",
         "0": "Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.",
@@ -213,6 +224,18 @@
         "medium": "A cada {{sec}} segundos — arquivo um pouco menor; cortes menos precisos.",
         "spaced": "A cada {{sec}} segundos — arquivo menor; a divisão pode desviar bastante do ponto escolhido."
       }
+    },
+    "library": {
+      "label": "Prévias e duração da biblioteca",
+      "auto": "Automático (recomendado)",
+      "always": "Sempre gerar",
+      "off": "Só das gravações novas",
+      "hint": {
+        "auto": "Gera prévia e duração só dos vídeos disponíveis no computador; pula os que estão só na nuvem (OneDrive) para não baixá-los.",
+        "always": "Gera prévia e duração de todos os vídeos, baixando da nuvem se necessário.",
+        "off": "Não gera prévia nem duração dos vídeos já existentes — só das novas gravações feitas no NoOBS."
+      },
+      "cloudNote": "Sua pasta de gravação parece estar no OneDrive."
     },
     "autostart": {
       "label": "Iniciar com o Windows",
@@ -352,7 +375,7 @@
     "mergeStarted": "Unindo vídeos",
     "mergeStartedMsg": "Criando um novo arquivo com os vídeos selecionados.",
     "mergeDone": "Vídeos unidos",
-    "mergeDoneMsg": "Novo vídeo criado. Os originais foram mantidos.",
+    "mergeDoneMsg": "Novo vídeo criado. Os originais foram para a lixeira.",
     "languageChanged": "Idioma alterado",
     "andMore": "…e mais {{count}}"
   },

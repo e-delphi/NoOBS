@@ -40,6 +40,11 @@ procedure InstallTrayIcon(AWnd: HWND; const ATooltip: string);
 procedure RemoveTrayIcon;
 function IsTrayInstalled: Boolean;
 
+// Atualiza SO o tooltip do icone da bandeja (NIM_MODIFY). No-op se o icone
+// nao esta instalado — nunca faz NIM_ADD (evitaria icone duplicado). Usado
+// quando o usuario muda o titulo da janela nas Configuracoes.
+procedure UpdateTooltip(const ATooltip: string);
+
 // Mostra um balloon tip (NIF_INFO) no icone da bandeja. Fallback pra
 // notificacao do Windows quando a UI HTML nao esta pronta (caso
 // classico: /start-record vindo da hibernacao — gravacao comeca antes
@@ -106,6 +111,29 @@ begin
   if not TrayAdded then Exit;
   Shell_NotifyIconW(NIM_DELETE, @TrayIcon);
   TrayAdded := False;
+end;
+
+procedure UpdateTooltip(const ATooltip: string);
+var
+  Data: TNotifyIconData;
+  TipBytes: Integer;
+begin
+  // So atualiza se o icone ja esta instalado — NIM_MODIFY, nunca NIM_ADD
+  // (evita duplicar). Se nao ha icone, o proximo InstallTrayIcon ja pega o
+  // titulo corrente. Usa struct local (igual ShowBalloon/SetTrayRecording),
+  // sem mexer no TrayIcon global.
+  if not TrayAdded then Exit;
+  ZeroMemory(@Data, SizeOf(Data));
+  Data.cbSize := SizeOf(Data);
+  Data.Wnd    := TrayIcon.Wnd;
+  Data.uID    := TrayIcon.uID;
+  Data.uFlags := NIF_TIP;
+  TipBytes := Length(ATooltip);
+  if TipBytes > 127 then TipBytes := 127;
+  if TipBytes > 0 then
+    Move(PWideChar(ATooltip)^, Data.szTip[0], TipBytes * SizeOf(WideChar));
+  Data.szTip[TipBytes] := #0;
+  Shell_NotifyIconW(NIM_MODIFY, @Data);
 end;
 
 procedure ShowBalloon(const ATitle, AMessage: string);

@@ -42,6 +42,11 @@ procedure ToggleFullscreen;
 // SetTimer/KillTimer ancorados nela.
 function MainWindowHandle: HWND;
 
+// Aplica o titulo da janela (config 'windowTitle', default 'NoOBS') na barra
+// de titulo + tooltip da bandeja, ao vivo. Chamado pelo OBSBridge quando o
+// usuario muda o titulo nas Configuracoes.
+procedure ApplyWindowTitle;
+
 type
   TUIMessageProc = procedure(const AMsg: string);
   TUITimerProc   = procedure(ATimerId: UINT_PTR);
@@ -665,6 +670,27 @@ begin
   Result := MainWindow;
 end;
 
+// Titulo da janela configuravel (config 'windowTitle'). Vazio/so-espacos
+// cai no fallback literal WINDOW_TITLE ('NoOBS'). Usado na criacao da janela,
+// no splash e no tooltip da bandeja.
+function CurrentWindowTitle: string;
+begin
+  Result := Trim(GetConfigStr('windowTitle', WINDOW_TITLE));
+  if Result = '' then Result := WINDOW_TITLE;
+end;
+
+procedure ApplyWindowTitle;
+var
+  Title: string;
+begin
+  Title := CurrentWindowTitle;
+  if MainWindow <> 0 then
+    SetWindowText(MainWindow, PChar(Title));
+  // Atualiza o tooltip da bandeja se o icone estiver instalado (NIM_MODIFY —
+  // no-op se nao houver icone; nao adiciona um novo).
+  OBSTray.UpdateTooltip(Title);
+end;
+
 function StartRecordRequested: Boolean;
 begin
   Result := FStartRecordRequested;
@@ -898,7 +924,7 @@ begin
     OldFont := SelectObject(DC, Font);
     SetBkMode(DC, TRANSPARENT);
     SetTextColor(DC, SplashTextColor);
-    Txt := 'NoOBS';
+    Txt := CurrentWindowTitle;
     TxtRect := R;
     DrawText(DC, PChar(Txt), Length(Txt), TxtRect,
       DT_CENTER or DT_VCENTER or DT_SINGLELINE);
@@ -1072,7 +1098,7 @@ begin
   // PostJSON e idempotente — se a UI nao tem handler, e no-op.
   PostJSON('{"type":"window_hidden"}');
   ShowWindow(MainWindow, SW_HIDE);
-  OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+  OBSTray.InstallTrayIcon(MainWindow, CurrentWindowTitle);
   if Assigned(OnUIWindowHidden) then OnUIWindowHidden;
 end;
 
@@ -1091,7 +1117,7 @@ end;
 procedure EnsureTrayIcon;
 begin
   if MainWindow = 0 then Exit;
-  OBSTray.InstallTrayIcon(MainWindow, WINDOW_TITLE);
+  OBSTray.InstallTrayIcon(MainWindow, CurrentWindowTitle);
 end;
 
 procedure RemoveTrayIcon;
@@ -1267,7 +1293,7 @@ begin
   // Mantem o icone na bandeja quando 'closeToTray' esta ativo —
   // o user vai voltar pra bandeja via [X], entao deixa o icone
   // visivel pra facilitar a alternancia.
-  if not GetConfigBool('closeToTray', False) then
+  if not GetConfigBool('closeToTray', True) then
     OBSTray.RemoveTrayIcon;
 
   // Se gravando enquanto a janela estava escondida na bandeja, o botao da
@@ -1319,7 +1345,7 @@ begin
                        (Pos('/tray',      CmdLine) > 0);
   Log('OBSUI.Run: IsAutostartLaunch=%s, closeToTray=%s',
     [BoolToStr(IsAutostartLaunch, True),
-     BoolToStr(GetConfigBool('closeToTray', False), True)]);
+     BoolToStr(GetConfigBool('closeToTray', True), True)]);
 
   // /autostart + closeToTray + hibernate=ON: respawna em modo hibernate.
   // Mais leve que carregar tudo aqui e esconder na bandeja — libobs,
@@ -1327,8 +1353,8 @@ begin
   // nao interagir. Se 'hibernate' esta OFF no config, cai no caso
   // abaixo: inicia full mas com janela escondida na bandeja.
   if IsAutostartLaunch and
-     GetConfigBool('closeToTray', False) and
-     GetConfigBool('hibernate', False) then
+     GetConfigBool('closeToTray', True) and
+     GetConfigBool('hibernate', True) then
   begin
     Log('OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra OBSHibernate.Run.');
     OBSHibernate.Run;
@@ -1346,9 +1372,9 @@ begin
   //
   // Nenhum caso de autostart deve fazer a janela "pular" no logon.
   StartInTray    := IsAutostartLaunch and
-                    GetConfigBool('closeToTray', False);
+                    GetConfigBool('closeToTray', True);
   StartMinimized := IsAutostartLaunch and
-                    not GetConfigBool('closeToTray', False);
+                    not GetConfigBool('closeToTray', True);
   if StartInTray then
     Log('OBSUI.Run: /autostart + closeToTray=ON — iniciando em modo bandeja.')
   else if StartMinimized then
@@ -1426,7 +1452,7 @@ begin
     WinH := (WorkArea.Bottom - WorkArea.Top) * 9 div 10;
   WinX := WorkArea.Left + ((WorkArea.Right  - WorkArea.Left) - WinW) div 2;
   WinY := WorkArea.Top  + ((WorkArea.Bottom - WorkArea.Top)  - WinH) div 2;
-  Wnd := CreateWindowEx(0, CLASS_NAME, WINDOW_TITLE, WS_OVERLAPPEDWINDOW,
+  Wnd := CreateWindowEx(0, CLASS_NAME, PChar(CurrentWindowTitle), WS_OVERLAPPEDWINDOW,
     WinX, WinY, WinW, WinH,
     0, 0, HInstance, nil);
 
@@ -1479,7 +1505,7 @@ begin
     // StartMinimized (closeToTray=OFF) o app fica acessivel via taskbar
     // sem precisar do icone de bandeja.
     if StartInTray or FStartRecordRequested then
-      OBSTray.InstallTrayIcon(Wnd, WINDOW_TITLE);
+      OBSTray.InstallTrayIcon(Wnd, CurrentWindowTitle);
   end
   else
   begin

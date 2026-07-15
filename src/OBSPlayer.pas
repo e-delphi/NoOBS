@@ -778,7 +778,8 @@ type
   // independente do tamanho do video.
   TRangeFileStream = class(TStream)
   private
-    FFile: TFileStream;
+    FHandle: THandle;    // handle cru (aberto com FILE_SHARE_DELETE)
+    FFile: THandleStream;
     FStart: Int64;  // offset no arquivo onde a janela comeca
     FLen: Int64;    // tamanho da janela (bytes servidos)
     FPos: Int64;    // posicao logica dentro da janela [0..FLen]
@@ -793,7 +794,21 @@ type
 constructor TRangeFileStream.Create(const APath: string; AStart, ALen: Int64);
 begin
   inherited Create;
-  FFile := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
+  // FILE_SHARE_DELETE (junto de READ) permite mover/renomear o arquivo
+  // enquanto o player o serve. Sem isso o .mkv fica travado e "dividir video"
+  // ou "excluir enquanto toca" falham com sharing violation ao mandar pra
+  // lixeira (o TFileStream padrao abre so com FILE_SHARE_READ). O handle aberto
+  // continua lendo do arquivo mesmo depois de ele ir pra lixeira — o player
+  // fecha logo em seguida, entao e inofensivo.
+  FHandle := CreateFileW(PWideChar(APath), GENERIC_READ,
+    FILE_SHARE_READ or FILE_SHARE_DELETE, nil, OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL, 0);
+  if FHandle <> INVALID_HANDLE_VALUE then
+    FFile := THandleStream.Create(FHandle)
+  else
+    // Fallback raro: deixa o TFileStream padrao abrir (e lancar o erro habitual
+    // se realmente nao der). Sem FILE_SHARE_DELETE, mas cobre so esse caso.
+    FFile := TFileStream.Create(APath, fmOpenRead or fmShareDenyWrite);
   FStart := AStart;
   FLen := ALen;
   FPos := 0;
@@ -803,6 +818,8 @@ end;
 destructor TRangeFileStream.Destroy;
 begin
   FFile.Free;
+  // THandleStream nao e dono do handle — fechamos manualmente.
+  if FHandle <> INVALID_HANDLE_VALUE then CloseHandle(FHandle);
   inherited;
 end;
 

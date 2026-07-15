@@ -68,7 +68,7 @@
     "confirmDeleteOne": "Move this recording to the Windows Recycle Bin?",
     "confirmDeleteN": "Move {{count}} recordings to the Windows Recycle Bin?",
     "confirmMergeTitle": "Merge recordings",
-    "confirmMergeN": "Create a new video by merging {{count}} recordings in the selected order? Originals will be kept.",
+    "confirmMergeN": "Create a new video by merging {{count}} recordings in the selected order? Originals will be moved to the Recycle Bin (recoverable).",
     "confirmDeleteSingleTitle": "Delete recording",
     "confirmDeleteNamed": "Move \"{{name}}\" to the Windows Recycle Bin?",
     "deleteNShort": "Delete {{count}} selected"
@@ -91,6 +91,15 @@
       "label": "Recordings output folder",
       "browse": "Browse...",
       "reset": "Restore default"
+    },
+    "windowTitle": {
+      "label": "Window title",
+      "hint": "Name shown in the title bar, the taskbar button and the tray icon. Leave blank to use \"NoOBS\"."
+    },
+    "filename": {
+      "label": "Output file name",
+      "hint": "Use codes in braces: <code>{AAAA}</code> year, <code>{MM}</code> month, <code>{DD}</code> day, <code>{HH}</code> hour, <code>{NN}</code> minute, <code>{SS}</code> second, <code>{ZZZ}</code> millisecond. Everything else is literal text.",
+      "previewLabel": "Example: {{name}}"
     },
     "codec": {
       "label": "Video codec",
@@ -183,6 +192,8 @@
       "lower": "Lower",
       "higher": "Higher",
       "hint": {
+        "-4": "Maximum compression — tiny files, quality well below normal.",
+        "-3": "Very high compression — very small files, noticeably reduced quality.",
         "-2": "Aggressive compression — much smaller files, visibly lower quality.",
         "-1": "Moderate compression — smaller files, slightly lower quality.",
         "0": "Default — same as encoder defaults, balanced between file size and visual quality.",
@@ -213,6 +224,18 @@
         "medium": "Every {{sec}} seconds — slightly smaller file; less precise cuts.",
         "spaced": "Every {{sec}} seconds — smaller file; splitting may drift well off the chosen point."
       }
+    },
+    "library": {
+      "label": "Library previews and duration",
+      "auto": "Automatic (recommended)",
+      "always": "Always generate",
+      "off": "New recordings only",
+      "hint": {
+        "auto": "Generates preview and duration only for videos available on this PC; skips cloud-only files (OneDrive) so they aren't downloaded.",
+        "always": "Generates preview and duration for every video, downloading from the cloud if needed.",
+        "off": "Doesn't generate preview or duration for existing videos — only for new recordings made in NoOBS."
+      },
+      "cloudNote": "Your recordings folder appears to be on OneDrive."
     },
     "autostart": {
       "label": "Start with Windows",
@@ -352,7 +375,7 @@
     "mergeStarted": "Merging videos",
     "mergeStartedMsg": "Creating a new file from the selected videos.",
     "mergeDone": "Videos merged",
-    "mergeDoneMsg": "New video created. Originals were kept.",
+    "mergeDoneMsg": "New video created. Originals moved to the Recycle Bin.",
     "languageChanged": "Language changed",
     "andMore": "…and {{count}} more"
   },

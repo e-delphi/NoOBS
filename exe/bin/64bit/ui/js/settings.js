@@ -6,10 +6,19 @@ const About = {
   close() { document.getElementById('aboutOverlay').classList.remove('visible'); },
   openUrl(url) { Bridge.send('open_url', { url }); },
 };
-// Fecha o About clicando fora do modal ou com Esc.
-document.getElementById('aboutOverlay').addEventListener('click', (e) => {
-  if (e.target.id === 'aboutOverlay') About.close();
-});
+// Fecha o About clicando fora do modal ou com Esc. So fecha quando o gesto
+// INTEIRO (mousedown E mouseup) cai na overlay — senao selecionar texto e
+// arrastar pra fora dispararia um 'click' com a overlay como alvo (ancestral
+// comum do mousedown de dentro com o mouseup de fora) e fecharia sem querer.
+(() => {
+  const aov = document.getElementById('aboutOverlay');
+  let downOnOverlay = false;
+  aov.addEventListener('mousedown', (e) => { downOnOverlay = (e.target === aov); });
+  aov.addEventListener('mouseup', (e) => {
+    if (downOnOverlay && e.target === aov) About.close();
+    downOnOverlay = false;
+  });
+})();
 document.addEventListener('keydown', (e) => {
   const ov = document.getElementById('aboutOverlay');
   if (ov.classList.contains('visible') && e.key === 'Escape') {
@@ -35,9 +44,18 @@ document.addEventListener('keydown', (e) => {
 // Fecha as Configuracoes clicando no overlay (fora do modal) ou com Esc.
 // Match com o About (mesma UX). Guard contra Confirm/About em cima —
 // se algum modal "filho" esta aberto, ESC dele tem prioridade.
-document.getElementById('settingsOverlay').addEventListener('click', (e) => {
-  if (e.target.id === 'settingsOverlay') Settings.close();
-});
+// So fecha quando o gesto INTEIRO (mousedown E mouseup) cai na overlay — senao
+// selecionar texto num input e arrastar o mouse pra fora do formulario fecharia
+// o modal (o 'click' resultante tem a overlay como alvo).
+(() => {
+  const sov = document.getElementById('settingsOverlay');
+  let downOnOverlay = false;
+  sov.addEventListener('mousedown', (e) => { downOnOverlay = (e.target === sov); });
+  sov.addEventListener('mouseup', (e) => {
+    if (downOnOverlay && e.target === sov) Settings.close();
+    downOnOverlay = false;
+  });
+})();
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const sov = document.getElementById('settingsOverlay');
@@ -55,6 +73,8 @@ document.addEventListener('keydown', (e) => {
 const Settings = {
   currentRecDir: '',
   currentCodec: 'auto',
+  currentWindowTitle: 'NoOBS',
+  currentFilenamePattern: '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}',
   currentHotkey: '',
   currentAutostart: false,
   currentCloseToTray: false,
@@ -66,6 +86,8 @@ const Settings = {
   currentHibernate: false,
   currentRecordingQuality: 0,
   currentRecordingKeyframe: 2,
+  currentLibraryThumbs: 'auto',   // 'auto' | 'always' | 'off'
+  recordDirCloud: false,          // pasta de gravacao parece estar no OneDrive
   currentRecordingFps: 30,
   maxMonitorHz: 60,
   // Predefinicoes do slider de fps — computadas a partir de maxMonitorHz.
@@ -87,6 +109,9 @@ const Settings = {
       this.currentLanguagePref || '';
     document.getElementById('settingsRecDir').value = this.currentRecDir || '';
     document.getElementById('settingsCodec').value = this.currentCodec || 'auto';
+    document.getElementById('settingsWindowTitle').value = this.currentWindowTitle || '';
+    document.getElementById('settingsFilenamePattern').value = this.currentFilenamePattern || '';
+    this._renderFilenamePreview();
     this._loadHotkeyIntoUi(this.currentHotkey || '');
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
@@ -108,6 +133,8 @@ const Settings = {
       String(this.currentRecordingKeyframe | 0);
     this._populateKeyframeTicks();
     this._syncKeyframeHint();
+    document.getElementById('settingsLibraryThumbs').value = this.currentLibraryThumbs;
+    this._syncLibraryHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -148,6 +175,8 @@ const Settings = {
       const language = document.getElementById('settingsLanguage').value || '';
       const path = document.getElementById('settingsRecDir').value.trim();
       const codec = document.getElementById('settingsCodec').value;
+      const windowTitle = document.getElementById('settingsWindowTitle').value.trim();
+      const filenamePattern = document.getElementById('settingsFilenamePattern').value.trim();
       const hotkey = this._readHotkeyFromUi();
       const autostart = document.getElementById('settingsAutostart').checked;
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
@@ -162,6 +191,7 @@ const Settings = {
       // indice -> fps direto da lista, garantindo valor valido [20..max].
       const recordingFps = this._currentFpsFromSlider();
       const recordingKeyframe = parseInt(document.getElementById('settingsRecordingKeyframe').value, 10) | 0;
+      const libraryThumbs = document.getElementById('settingsLibraryThumbs').value;
       console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
         minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
         recordingQuality, recordingFps,
@@ -192,6 +222,12 @@ const Settings = {
       if (path !== this.currentRecDir)
         Bridge.send('set_record_dir', { path });
       if (codec) Bridge.send('set_codec', { codec });
+      // Titulo da janela: vazio = backend usa 'NoOBS'. Nome do arquivo: vazio =
+      // backend usa o modelo padrao.
+      if (windowTitle !== this.currentWindowTitle)
+        Bridge.send('set_window_title', { title: windowTitle });
+      if (filenamePattern !== this.currentFilenamePattern)
+        Bridge.send('set_filename_pattern', { pattern: filenamePattern });
       // Hotkey: salva sempre (string vazia = desativa atalho).
       if (hotkey !== this.currentHotkey)
         Bridge.send('set_hotkey', { hotkey });
@@ -217,6 +253,8 @@ const Settings = {
         Bridge.send('set_recording_fps', { fps: recordingFps });
       if (recordingKeyframe !== this.currentRecordingKeyframe)
         Bridge.send('set_recording_keyframe', { sec: recordingKeyframe });
+      if (libraryThumbs !== this.currentLibraryThumbs)
+        Bridge.send('set_library_thumbs', { mode: libraryThumbs });
       if (language !== this.currentLanguagePref)
         Bridge.send('set_language', { language });
       // Atualiza cache local imediato pra evitar reenvio de uma mesma
@@ -224,6 +262,8 @@ const Settings = {
       // re-open antes da resposta do get_settings).
       this.currentRecDir = path || this.currentRecDir;
       if (codec) this.currentCodec = codec;
+      this.currentWindowTitle = windowTitle || 'NoOBS';
+      this.currentFilenamePattern = filenamePattern || this.currentFilenamePattern;
       this.currentHotkey = hotkey;
       this.currentAutostart = autostart;
       this.currentCloseToTray = closeToTray;
@@ -236,6 +276,7 @@ const Settings = {
       this.currentRecordingQuality = recordingQuality;
       this.currentRecordingFps = recordingFps;
       this.currentRecordingKeyframe = recordingKeyframe;
+      this.currentLibraryThumbs = libraryThumbs;
       this.currentLanguagePref = language;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
       // tenha um limite diferente do anterior (ex.: h264-hw → av1-hw
@@ -254,6 +295,9 @@ const Settings = {
     this.currentRecDir = data.recordDir || '';
     const prevCodec = this.currentCodec;
     this.currentCodec = data.codec || 'auto';
+    this.currentWindowTitle = data.windowTitle || 'NoOBS';
+    this.currentFilenamePattern =
+      data.filenamePattern || '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';
     // Sincroniza o icone de aviso se o codec efetivo mudou no boot
     // ou apos um get_settings com config diferente.
     if (prevCodec !== this.currentCodec &&
@@ -265,20 +309,19 @@ const Settings = {
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
     this.currentScrollLockIndicator = !!data.scrollLockIndicator;
-    // playSoundOnRecord: default false — feature opt-in. !!data.* cobre
-    // tanto o caso "undefined" (configa nova/limpa) quanto false explicito.
+    // playSoundOnRecord: default true (backend GetConfigBool). O backend sempre
+    // envia o valor real; !!data.* so protege contra ausencia acidental.
     this.currentPlaySoundOnRecord = !!data.playSoundOnRecord;
-    // stopOnLock: default false — opt-in. Quando ON, Windows lock event
-    // (Win+L etc.) chama HandleRecordStop no backend.
+    // stopOnLock: default true. Quando ON, Windows lock event (Win+L etc.)
+    // chama HandleRecordStop no backend.
     this.currentStopOnLock = !!data.stopOnLock;
-    // hibernate: default false — so faz sentido com closeToTray ON, e
-    // gateamos a UI pra forcar isso. !!data.hibernate cobre o caso
-    // undefined naturalmente (resulta em false).
+    // hibernate: default true — so faz sentido com closeToTray ON, e gateamos
+    // a UI pra forcar isso (ambos vem ON por padrao, entao consistente).
     this.currentHibernate = !!data.hibernate;
-    // recordingQuality: -2..+2, default 0
+    // recordingQuality: -4..+2, default 0
     let rq = parseInt(data.recordingQuality, 10);
     if (!Number.isFinite(rq)) rq = 0;
-    if (rq < -2) rq = -2;
+    if (rq < -4) rq = -4;
     if (rq > 2)  rq = 2;
     this.currentRecordingQuality = rq;
     // recordingFps: >= 10, default 30 (padrao do NoOBS).
@@ -291,6 +334,10 @@ const Settings = {
     if (kf < 1)  kf = 1;
     if (kf > 10) kf = 10;
     this.currentRecordingKeyframe = kf;
+    // libraryThumbs: 'auto' | 'always' | 'off', default 'auto'.
+    this.currentLibraryThumbs =
+      ['auto', 'always', 'off'].includes(data.libraryThumbs) ? data.libraryThumbs : 'auto';
+    this.recordDirCloud = !!data.recordDirCloud;
     // maxMonitorHz: taxa maxima detectada no backend (Win32 EnumDisplaySettings).
     let maxHz = parseInt(data.maxMonitorHz, 10);
     if (!Number.isFinite(maxHz) || maxHz < 10) maxHz = 60;
@@ -309,6 +356,11 @@ const Settings = {
     if (inp) inp.value = this.currentRecDir;
     const sel = document.getElementById('settingsCodec');
     if (sel) sel.value = this.currentCodec;
+    const wt = document.getElementById('settingsWindowTitle');
+    if (wt) wt.value = this.currentWindowTitle;
+    const fp = document.getElementById('settingsFilenamePattern');
+    if (fp) fp.value = this.currentFilenamePattern;
+    this._renderFilenamePreview();
     this._loadHotkeyIntoUi(this.currentHotkey);
     const as = document.getElementById('settingsAutostart');
     if (as) as.checked = this.currentAutostart;
@@ -338,6 +390,9 @@ const Settings = {
     if (kfEl) kfEl.value = String(this.currentRecordingKeyframe);
     this._populateKeyframeTicks();
     this._syncKeyframeHint();
+    const ltEl = document.getElementById('settingsLibraryThumbs');
+    if (ltEl) ltEl.value = this.currentLibraryThumbs;
+    this._syncLibraryHint();
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
@@ -369,6 +424,22 @@ const Settings = {
   onKeyframeChange() {
     this._syncKeyframeHint();
   },
+  onLibraryThumbsChange() {
+    this._syncLibraryHint();
+  },
+  _syncLibraryHint() {
+    const el = document.getElementById('settingsLibraryThumbs');
+    const hint = document.getElementById('settingsLibraryHint');
+    if (!el || !hint) return;
+    const v = el.value;
+    const key = (v === 'always') ? 'always' : (v === 'off') ? 'off' : 'auto';
+    let txt = T('settings.library.hint.' + key);
+    // Reforca o aviso de nuvem quando a pasta de gravacao esta no OneDrive
+    // (so faz diferenca pros modos que geram: auto/always).
+    if (this.recordDirCloud && v !== 'off')
+      txt += ' ' + T('settings.library.cloudNote');
+    hint.textContent = txt;
+  },
   onLanguageChange() {
     // Mudanca local — so commita no backend quando o user clica Salvar.
     // Aqui apenas guardamos a selecao pra que outros _sync* reflitam.
@@ -399,6 +470,41 @@ const Settings = {
   onCodecChange() {
     this._syncCodecMaxRes();
   },
+  // Titulo da janela: sem preview/commit ao vivo — o valor e lido no save().
+  // Handler existe so pra o oninput do input nao referenciar algo indefinido.
+  onWindowTitleChange() {},
+  onFilenamePatternChange() {
+    this._renderFilenamePreview();
+  },
+  // Prévia ao vivo do nome do arquivo — espelha ApplyFilenamePattern (Delphi):
+  // substitui os codigos {AAAA}{MM}{DD}{HH}{NN}{SS} (case-insensitive) pela
+  // data/hora ATUAL, remove chaves sobrando, sanitiza caracteres invalidos.
+  _buildFilenameFromPattern(pattern, d) {
+    const p2 = n => String(n).padStart(2, '0');
+    const p3 = n => String(n).padStart(3, '0');
+    let s = String(pattern || '');
+    s = s.replace(/\{AAAA\}/gi, String(d.getFullYear()))
+         .replace(/\{MM\}/gi,   p2(d.getMonth() + 1))
+         .replace(/\{DD\}/gi,   p2(d.getDate()))
+         .replace(/\{HH\}/gi,   p2(d.getHours()))
+         .replace(/\{NN\}/gi,   p2(d.getMinutes()))
+         .replace(/\{SS\}/gi,   p2(d.getSeconds()))
+         .replace(/\{ZZZ\}/gi,  p3(d.getMilliseconds()));
+    s = s.replace(/[{}]/g, '');            // chaves remanescentes (codigo invalido)
+    s = s.replace(/[\\/:*?"<>|]/g, '_').trim();
+    if (!s)
+      s = 'NoOBS_' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' +
+          p2(d.getDate()) + '_' + p2(d.getHours()) + '-' + p2(d.getMinutes()) +
+          '-' + p2(d.getSeconds());
+    return s + '.mkv';
+  },
+  _renderFilenamePreview() {
+    const inp = document.getElementById('settingsFilenamePattern');
+    const out = document.getElementById('settingsFilenamePreview');
+    if (!inp || !out) return;
+    const name = this._buildFilenameFromPattern(inp.value, new Date());
+    out.textContent = T('settings.filename.previewLabel', { name });
+  },
   // Espelha OBSEncoder.GetEncoderMaxDimension (Delphi) — qualquer
   // mudanca de logica de limite tem que ser refletida aqui pra UI
   // mostrar a mesma coisa que o backend vai aplicar.
@@ -425,8 +531,8 @@ const Settings = {
     const hint = document.getElementById('settingsQualityHint');
     if (!el || !hint) return;
     const v = parseInt(el.value, 10) | 0;
-    // Chave estilo 'settings.quality.hint.-2' .. '.2' — match com o JSON.
-    if (v >= -2 && v <= 2) hint.textContent = T('settings.quality.hint.' + v);
+    // Chave estilo 'settings.quality.hint.-4' .. '.2' — match com o JSON.
+    if (v >= -4 && v <= 2) hint.textContent = T('settings.quality.hint.' + v);
     else hint.textContent = '';
     this._syncSliderFill(el);
   },
@@ -620,15 +726,21 @@ const Settings = {
         document.getElementById('settingsLanguage').value = '';
         document.getElementById('settingsRecDir').value = '';
         document.getElementById('settingsCodec').value = 'auto';
+        document.getElementById('settingsWindowTitle').value = 'NoOBS';
+        document.getElementById('settingsFilenamePattern').value =
+          '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';
         this._loadHotkeyIntoUi('Pause/Break');
-        document.getElementById('settingsAutostart').checked = false;
-        document.getElementById('settingsCloseToTray').checked = false;
-        document.getElementById('settingsMinimizeOnRecord').checked = false;
+        // Defaults novos: iniciar com Windows, minimizar p/ bandeja, minimizar
+        // ao gravar, som de inicio/fim, parar ao bloquear e hibernar vem LIGADOS.
+        // notifyOnRecord e scrollLockIndicator seguem desligados (opt-in).
+        document.getElementById('settingsAutostart').checked = true;
+        document.getElementById('settingsCloseToTray').checked = true;
+        document.getElementById('settingsMinimizeOnRecord').checked = true;
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
-        document.getElementById('settingsPlaySoundOnRecord').checked = false;
-        document.getElementById('settingsStopOnLock').checked = false;
-        document.getElementById('settingsHibernate').checked = false;
+        document.getElementById('settingsPlaySoundOnRecord').checked = true;
+        document.getElementById('settingsStopOnLock').checked = true;
+        document.getElementById('settingsHibernate').checked = true;
         document.getElementById('settingsRecordingQuality').value = '0';
         // FPS: snap pra 30 (preset garantido a existir se max >= 30).
         // Atualiza currentRecordingFps ANTES de _applyFpsPresetsToSlider
@@ -640,6 +752,9 @@ const Settings = {
         // Keyframe: default 2s.
         document.getElementById('settingsRecordingKeyframe').value = '2';
         this._populateKeyframeTicks();
+        // Previas da biblioteca: default 'auto'.
+        document.getElementById('settingsLibraryThumbs').value = 'auto';
+        this._syncLibraryHint();
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
@@ -647,6 +762,7 @@ const Settings = {
         this._syncFpsHint();
         this._syncKeyframeHint();
         this._syncCodecMaxRes();
+        this._renderFilenamePreview();
         Toast.show(T('toast.fieldsReset'),
           T('toast.fieldsResetBody'), { ttl: 4000 });
       },

@@ -21,8 +21,14 @@
     --thumb-bg:  linear-gradient(135deg, #1f1f23 0%, #0f0f12 100%);
     --thumb-fg:  rgba(255, 255, 255, 0.3);
   }
-  /* === Tema light === */
-  [data-theme="light"] {
+  /* === Tema light ===
+     :root (nao so [data-theme]) de proposito: os botoes do seletor de tema
+     carregam data-theme="light"/"dark"/"system" pra o JS saber qual e qual.
+     Um seletor solto [data-theme="light"] casaria TAMBEM o botao "Claro" e
+     redefiniria --text-2/--text dentro dele (valores do tema claro) mesmo com
+     o app no escuro — o texto "Claro" saia mais escuro que os outros botoes.
+     :root ancora a troca de variaveis so no <html>, nunca nos botoes. */
+  :root[data-theme="light"] {
     --bg:        #f4f4f5;
     --panel:     #ffffff;
     --panel-2:   #fafafa;

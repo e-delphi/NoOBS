@@ -42,7 +42,7 @@ implementation
 uses
   Winapi.Windows, Winapi.ShellAPI, Winapi.Messages,
   System.SysUtils, System.Classes,
-  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang;
+  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang, WinMicWatch;
 
 const
   // MUTEX_NAME e SHOW_MSG_NAME vem de OBSSingleInstance — compartilhados
@@ -54,6 +54,9 @@ const
   TOOLTIP_TXT   = 'NoOBS (hibernando)';
 
   WM_TRAYICON           = WM_USER + 100;
+  // Postada pela thread do WinMicWatch quando o microfone entra em uso —
+  // promove a hibernacao pra full pra gravar a chamada.
+  WM_MIC_TRIGGER        = WM_USER + 101;
   ID_TRAY_RECORD        = 9001;
   ID_TRAY_OPEN          = 9002;
   ID_TRAY_QUIT          = 9003;
@@ -259,6 +262,7 @@ begin
   ExePath := GetExePath;
   Log('Hibernate: spawn full "%s" args="%s"', [ExePath, AArgs]);
 
+  try WinMicWatch.Stop; except end;
   UnregisterRecordHotkey;
   RemoveTrayIcon;
   if SingleInstanceMutex <> 0 then
@@ -311,6 +315,13 @@ begin
   end;
 
   case Msg of
+    WM_MIC_TRIGGER:
+      begin
+        Log('Hibernate: mic em uso — promovendo a full pra gravar (/start-record-mic).');
+        SpawnFullAndExit('/start-record-mic');
+        Exit(0);
+      end;
+
     WM_HOTKEY:
       begin
         Log('Hibernate: WM_HOTKEY id=%d', [Integer(WParam)]);
@@ -346,6 +357,7 @@ begin
     WM_DESTROY:
       begin
         Log('Hibernate: WM_DESTROY.');
+        try WinMicWatch.Stop; except end;
         UnregisterRecordHotkey;
         RemoveTrayIcon;
         PostQuitMessage(0);
@@ -354,6 +366,15 @@ begin
   end;
 
   Result := DefWindowProc(Hwnd, Msg, WParam, LParam);
+end;
+
+procedure HibMicCallback(AInUse: Boolean);
+// Callback do WinMicWatch — roda na THREAD do watcher. So a borda "entrou em
+// uso" interessa: a hibernacao nao grava, ela promove pra full com
+// /start-record-mic (que grava e auto-para la). PostMessage e thread-safe.
+begin
+  if AInUse and (MainWindow <> 0) then
+    PostMessage(MainWindow, WM_MIC_TRIGGER, 0, 0);
 end;
 
 procedure Run;
@@ -420,6 +441,15 @@ begin
 
   InstallTrayIcon;
   RegisterRecordHotkey;
+
+  // Auto-gravacao em chamadas: se ligado, vigia o microfone mesmo hibernando.
+  // Ao detectar uso por um app monitorado, promove pra full com
+  // /start-record-mic. Custo minimo — uma thread em poll de 1s.
+  if GetConfigBool('autoRecordOnMic', False) then
+    try WinMicWatch.Start(GetConfigStr('autoRecordMicApps', ''),
+      GetConfigStr('autoRecordMicExcept', ''), HibMicCallback);
+    except on E: Exception do
+      Log('Hibernate: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
 
   Log('Hibernate: entrando no GetMessage loop.');
   while GetMessage(Msg, 0, 0, 0) do

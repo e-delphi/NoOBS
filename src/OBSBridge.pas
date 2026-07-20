@@ -9,6 +9,7 @@
   Mensagens JS -> Delphi (campo "type"):
     ready                : pagina carregou; envia init de volta
     toggle_source        : kind=monitor|mic|speaker, id, enabled
+    set_source_hidden    : id, hidden (oculta da lista + tira da gravacao)
     record_start         : —
     record_stop          : —
     rename_recording     : id (filepath), newName
@@ -16,6 +17,9 @@
     set_recording_fps    : fps (Integer, >= 10)
     set_window_title     : title (string; vazio = 'NoOBS')
     set_filename_pattern : pattern (string com codigos {AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ})
+    set_auto_record_on_mic  : enabled (Boolean) — grava ao detectar mic em uso
+    set_auto_record_mic_apps: apps (string; nomes de processo, vazio=qualquer)
+    set_auto_record_mic_except: apps (string; excecoes ignoradas mesmo usando o mic)
     set_language         : language ('', 'auto', 'pt-BR', 'en', ...)
 
   Mensagens Delphi -> JS (campo "type"):
@@ -62,6 +66,7 @@ uses
   OBSProbe,
   OBSRecordWatch,
   NoOBSLockDetector,
+  WinMicWatch,
   System.SyncObjs,
   FFmpegLib,
   FFmpegOps,
@@ -180,6 +185,10 @@ var
   GShuttingDownFlag: Integer = 0;
 
   RecordingActive: Boolean = False;
+  // True quando a gravacao atual foi iniciada pelo monitor de microfone
+  // (auto-gravacao em chamadas). So essas sao auto-paradas quando o mic e
+  // liberado — nunca mata uma gravacao manual.
+  RecordingStartedByMicWatch: Boolean = False;
   RecordingStartTickMs: Cardinal = 0;
   // True a partir do momento que o JS sobe e manda 'ready'. Antes
   // disso o `show_notification` pra UI nao funciona — usa fallback
@@ -351,6 +360,36 @@ begin
   OBSConfig.SetSourceBool(Cat, Raw, AEnabled);
 end;
 
+// "Oculto" = some da lista da tela inicial e nao entra na gravacao. Guardado
+// separado do enabled (ver OBSConfig): desocultar devolve o device com a
+// mesma preferencia de gravacao de antes.
+function GetSourceHiddenById(const AId: string): Boolean;
+var
+  Cat, Raw: string;
+begin
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit(False);
+  Result := OBSConfig.GetSourceHidden(Cat, Raw);
+end;
+
+procedure SetSourceHiddenById(const AId: string; AHidden: Boolean);
+var
+  Cat, Raw: string;
+begin
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit;
+  OBSConfig.SetSourceHidden(Cat, Raw, AHidden);
+end;
+
+// Politica do medidor de nivel: so segura o microfone se ele estiver
+// marcado E visivel. Sem isso o NoOBS mantinha uma sessao WASAPI de captura
+// aberta em TODO mic do sistema (pegadinha #12) — inclusive o embutido na
+// webcam — e o Windows mostrava o dispositivo "em uso" mesmo desmarcado.
+function MicMeterOpenPolicy(const AName: string): Boolean;
+begin
+  Result := OBSConfig.GetSourceActive('mics', AName, True);
+end;
+
 function MonitorIdFromIndex(AIndex: Integer): string;
 begin
   Result := PFX_MONITOR + IntToStr(AIndex);
@@ -385,6 +424,7 @@ begin
     Item.AddPair('info', Format('%dx%d @ %d,%d',
       [Mons[i].Width, Mons[i].Height, Mons[i].X, Mons[i].Y]));
     Item.AddPair('enabled', TJSONBool.Create(GetSourceEnabled(Id, True)));
+    Item.AddPair('hidden',  TJSONBool.Create(GetSourceHiddenById(Id)));
     // x/y/width/height numericos pro layout visual proporcional na UI.
     Item.AddPair('x',      TJSONNumber.Create(Mons[i].X));
     Item.AddPair('y',      TJSONNumber.Create(Mons[i].Y));
@@ -419,6 +459,7 @@ begin
     Item.AddPair('info', Format('%dx%d', [Cams[i].Width, Cams[i].Height]));
     // Default DESMARCADO pra webcams (gravacao normalmente nao precisa).
     Item.AddPair('enabled', TJSONBool.Create(GetSourceEnabled(Id, False)));
+    Item.AddPair('hidden',  TJSONBool.Create(GetSourceHiddenById(Id)));
     Item.AddPair('width',  TJSONNumber.Create(Cams[i].Width));
     Item.AddPair('height', TJSONNumber.Create(Cams[i].Height));
     Result.AddElement(Item);
@@ -521,13 +562,16 @@ begin
   for k := 0 to High(MicIdxs) do
   begin
     Id := MicIdFromName(Devs[MicIdxs[k]].Name);
-    MicEnabled[k] := GetSourceEnabled(Id, True);
+    // "and not hidden": o engine grava via GetSourceActive, entao o calculo
+    // de tracks aqui tem que enxergar o mesmo — senao a legenda daria faixa
+    // pra um device oculto que nao vai ser gravado.
+    MicEnabled[k] := GetSourceEnabled(Id, True) and not GetSourceHiddenById(Id);
     MicDefault[k] := Devs[MicIdxs[k]].IsDefault;
   end;
   for k := 0 to High(SpkIdxs) do
   begin
     Id := OutIdFromName(Devs[SpkIdxs[k]].Name);
-    SpkEnabled[k] := GetSourceEnabled(Id, True);
+    SpkEnabled[k] := GetSourceEnabled(Id, True) and not GetSourceHiddenById(Id);
     SpkDefault[k] := Devs[SpkIdxs[k]].IsDefault;
   end;
 
@@ -557,6 +601,7 @@ begin
     Item.AddPair('name', Devs[i].Name);
     Item.AddPair('info', '');
     Item.AddPair('enabled',     TJSONBool.Create(MicEnabled[k]));
+    Item.AddPair('hidden',      TJSONBool.Create(GetSourceHiddenById(Id)));
     Item.AddPair('isDefault',   TJSONBool.Create(MicDefault[k]));
     Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
     Item.AddPair('track',       TJSONNumber.Create(MicTracks[k]));
@@ -571,6 +616,7 @@ begin
     Item.AddPair('name', Devs[i].Name);
     Item.AddPair('info', '');
     Item.AddPair('enabled',     TJSONBool.Create(SpkEnabled[k]));
+    Item.AddPair('hidden',      TJSONBool.Create(GetSourceHiddenById(Id)));
     Item.AddPair('isDefault',   TJSONBool.Create(SpkDefault[k]));
     Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
     Item.AddPair('track',       TJSONNumber.Create(SpkTracks[k]));
@@ -893,15 +939,21 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'theme');
   Obj.AddPair('theme', Resolved);
+  // pref = o MODO configurado ('system'/'dark'/'light'). A UI usa pra destacar
+  // o botao certo — o 'theme' resolvido (dark/light) nao distingue "sigo o
+  // sistema" de uma escolha fixa.
+  Obj.AddPair('pref', ThemeCfg);
   PostOwned(Obj);
 end;
 
 procedure HandleSetTheme(const ATheme: string);
 begin
-  if (ATheme <> 'dark') and (ATheme <> 'light') then Exit;
+  // Aceita 'system' (segue o SO), 'dark' e 'light'. Grava o MODO e re-empurra
+  // via PushTheme, que resolve o 'system' pela registry, atualiza o menu da
+  // bandeja e manda pra UI o tema resolvido + o pref.
+  if (ATheme <> 'dark') and (ATheme <> 'light') and (ATheme <> 'system') then Exit;
   SetConfigStr('theme', ATheme);
-  // Atualiza o tema do menu de bandeja na hora (sem esperar restart).
-  try OBSUI.ApplyTrayMenuTheme(SameText(ATheme, 'dark')); except end;
+  PushTheme;
 end;
 
 function ConsumeFirstRunFlag: Boolean;
@@ -2145,6 +2197,10 @@ begin
   ApplyHotkeyFromConfig;
 end;
 
+// Callback do monitor de microfone (WinMicWatch) — definido depois de
+// HandleRecordStart/Stop; forward pra DoInit poder passar a referencia.
+procedure OnMicUseChangedThread(AInUse: Boolean); forward;
+
 procedure DoInit;
 // OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
 // monitores via Win32 e audio via WASAPI — UI funciona toda via APIs
@@ -2152,6 +2208,9 @@ procedure DoInit;
 // sem mic / com audio driver mal podem fazer COM calls levarem 30s+.
 begin
   Log('DoInit: chamado (Initialized=%s)', [BoolToStr(Initialized, True)]);
+  // ANTES de qualquer enumeracao WASAPI: senao o primeiro RebuildCache ja
+  // abriria sessao de captura em todo mic, inclusive nos desmarcados.
+  WinAudioMeter.SetMicOpenPolicy(MicMeterOpenPolicy);
   if Initialized then
   begin
     PushInit;
@@ -2298,6 +2357,15 @@ begin
   // adiciona/exclui arquivo via Explorer ou outro app.
   try OBSRecordWatch.Start(RecordDir, OnRecordDirChanged); except end;
 
+  // Auto-gravacao ao detectar uso do microfone por outro app (chamadas de
+  // Teams/WhatsApp/etc.). Monitor WASAPI em thread propria; o callback
+  // marshalla pra main. So sobe se ligado no config.
+  if GetConfigBool('autoRecordOnMic', False) then
+    try WinMicWatch.Start(GetConfigStr('autoRecordMicApps', ''),
+      GetConfigStr('autoRecordMicExcept', ''), OnMicUseChangedThread);
+    except on E: Exception do
+      Log('AutoRecord: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
+
   // Warmup do libobs: agenda init com delay pra que a UI renderize
   // primeiro. Sem isso, a 1a gravacao espera ~300ms enquanto obs.dll
   // carrega + plugins + D3D11 device. Com warmup, ela e instantanea.
@@ -2346,6 +2414,11 @@ begin
 
   SetSourceEnabled(AId, AEnabled);
 
+  // Mic desmarcado nao deve continuar segurado pelo medidor de nivel —
+  // senao o Windows segue mostrando o dispositivo "em uso".
+  if StartsText(PFX_MIC, AId) then
+    try WinAudioMeter.ApplyMicOpenPolicy; except end;
+
   if RecordingActive and IsAudio and (Engine <> nil) then
     try Engine.SetSourceMuted(AId, not AEnabled); except end;
 
@@ -2365,6 +2438,56 @@ begin
     except
       on E: Exception do
         Log('HandleToggleSource: refresh falhou: %s', [E.Message]);
+    end;
+  end;
+end;
+
+// Oculta/mostra um dispositivo (modal "Dispositivos" das Configuracoes).
+// Oculto some da lista da tela inicial E nao entra na gravacao (o engine le
+// via GetSourceActive). NAO mexe no 'enabled': desocultar devolve o device
+// com a mesma preferencia de gravacao que ele tinha.
+procedure HandleSetSourceHidden(const AId: string; AHidden: Boolean);
+var
+  IsMonitor, IsAudio: Boolean;
+  Init: TJSONObject;
+  MicsJ, SpksJ: TJSONArray;
+begin
+  IsMonitor := StartsText(PFX_MONITOR, AId) or StartsText(PFX_WEBCAM, AId);
+  IsAudio   := StartsText(PFX_MIC, AId) or StartsText(PFX_OUT, AId);
+
+  // Mesma trava do toggle: mexer em monitor/webcam gravando mudaria o canvas.
+  if RecordingActive and IsMonitor then
+  begin
+    PostError(OBSLang.T('error.cantChangeSourcesWhileRecording'));
+    Exit;
+  end;
+
+  SetSourceHiddenById(AId, AHidden);
+  Log('SetSourceHidden: "%s" -> %s', [AId, BoolToStr(AHidden, True)]);
+
+  // Mesma regra do toggle: mic oculto nao fica segurado pelo medidor.
+  if StartsText(PFX_MIC, AId) then
+    try WinAudioMeter.ApplyMicOpenPolicy; except end;
+
+  // Gravando + audio: ocultar equivale a desativar, entao muta na hora.
+  if RecordingActive and IsAudio and (Engine <> nil) then
+    try Engine.SetSourceMuted(AId, AHidden); except end;
+
+  // Audio: ocultar muda o agrupamento de tracks (o calculo ja considera
+  // hidden), entao re-empurra pra UI recalcular cores/legenda.
+  if IsAudio then
+  begin
+    try
+      Init := TJSONObject.Create;
+      Init.AddPair('type', 'audio_sources_refreshed');
+      Init.AddPair('silent', TJSONBool.Create(True));
+      BuildAudioJsonWithTracks(MicsJ, SpksJ);
+      Init.AddPair('mics',     MicsJ);
+      Init.AddPair('speakers', SpksJ);
+      PostOwned(Init);
+    except
+      on E: Exception do
+        Log('HandleSetSourceHidden: refresh falhou: %s', [E.Message]);
     end;
   end;
 end;
@@ -2653,6 +2776,9 @@ begin
     Exit;
   end;
   Log('HandleRecordStop: inicio.');
+  // Qualquer parada (manual, hotkey ou auto) encerra o vinculo com o monitor
+  // de mic — a proxima gravacao so sera "auto" se o watcher a iniciar.
+  RecordingStartedByMicWatch := False;
 
   // Sinaliza pra UI tocar o som de parada AGORA — Engine.StopRecording
   // pode demorar centenas de ms flushing buffers do MKV, e o user nao
@@ -2744,6 +2870,85 @@ begin
     DoRefreshWebcams;
   end;
   Log('HandleRecordStop: fim (retornando ao message loop).');
+end;
+
+// ---------------------------------------------------------------------
+// Auto-gravacao ao detectar uso do microfone (WinMicWatch)
+// ---------------------------------------------------------------------
+
+procedure OnMicUseChangedThread(AInUse: Boolean);
+// Callback do WinMicWatch — roda NA THREAD do watcher. Marshalla pra main
+// (libobs/UI so na main) e aplica a regra: um unico toggle (autoRecordOnMic)
+// cobre iniciar E parar.
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if IsShuttingDown then Exit;
+      // Re-checa o config — pode ter sido desligado entre o poll e o Queue.
+      if not GetConfigBool('autoRecordOnMic', False) then Exit;
+      if AInUse then
+      begin
+        if not RecordingActive then
+        begin
+          Log('AutoRecord: microfone em uso — iniciando gravacao.');
+          RecordingStartedByMicWatch := True;
+          HandleRecordStart;
+        end;
+      end
+      else
+      begin
+        // Mic liberado: para SO se fomos nos que iniciamos (nao mata uma
+        // gravacao manual em andamento).
+        if RecordingActive and RecordingStartedByMicWatch then
+        begin
+          Log('AutoRecord: microfone liberado — parando gravacao.');
+          HandleRecordStop;
+        end;
+        RecordingStartedByMicWatch := False;
+      end;
+    end);
+end;
+
+procedure HandleSetAutoRecordOnMic(AEnable: Boolean);
+begin
+  SetConfigBool('autoRecordOnMic', AEnable);
+  Log('AutoRecordOnMic: %s', [BoolToStr(AEnable, True)]);
+  // Aplica na hora: liga/desliga o monitor.
+  if AEnable then
+  begin
+    if not WinMicWatch.IsRunning then
+      try WinMicWatch.Start(GetConfigStr('autoRecordMicApps', ''),
+        GetConfigStr('autoRecordMicExcept', ''), OnMicUseChangedThread);
+      except on E: Exception do Log('AutoRecord: falha ao iniciar: %s', [E.Message]); end;
+  end
+  else
+    try WinMicWatch.Stop; except end;
+end;
+
+// Reinicia o monitor pra aplicar os filtros novos (se estiver rodando). O
+// watcher le monitorados + excecoes do config na hora do Start, entao basta
+// Stop+Start; usado por ambos os setters (apps e excecoes).
+procedure RestartMicWatchIfRunning;
+begin
+  if not WinMicWatch.IsRunning then Exit;
+  try WinMicWatch.Stop; except end;
+  try WinMicWatch.Start(GetConfigStr('autoRecordMicApps', ''),
+    GetConfigStr('autoRecordMicExcept', ''), OnMicUseChangedThread); except end;
+end;
+
+procedure HandleSetAutoRecordMicApps(const AApps: string);
+begin
+  SetConfigStr('autoRecordMicApps', Trim(AApps));
+  Log('AutoRecordMicApps: "%s"', [Trim(AApps)]);
+  RestartMicWatchIfRunning;
+end;
+
+procedure HandleSetAutoRecordMicExcept(const AApps: string);
+begin
+  SetConfigStr('autoRecordMicExcept', Trim(AApps));
+  Log('AutoRecordMicExcept: "%s"', [Trim(AApps)]);
+  RestartMicWatchIfRunning;
 end;
 
 procedure HandleRenameRecording(const AOldPath, ANewName: string);
@@ -3337,6 +3542,11 @@ begin
     TJSONBool.Create(GetConfigBool('stopOnLock', True)));
   Obj.AddPair('hibernate',
     TJSONBool.Create(GetConfigBool('hibernate', True)));
+  // Auto-gravacao ao detectar uso do microfone por outro app (chamadas).
+  Obj.AddPair('autoRecordOnMic',
+    TJSONBool.Create(GetConfigBool('autoRecordOnMic', False)));
+  Obj.AddPair('autoRecordMicApps', GetConfigStr('autoRecordMicApps', ''));
+  Obj.AddPair('autoRecordMicExcept', GetConfigStr('autoRecordMicExcept', ''));
   Obj.AddPair('recordingQuality',
     TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
   // recordingFps: 0 = nao configurado → UI interpreta como 30 (default
@@ -4242,6 +4452,8 @@ begin
       DoInit
     else if MsgType = 'toggle_source' then
       HandleToggleSource(GetStrField(Obj, 'id'), GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_source_hidden' then
+      HandleSetSourceHidden(GetStrField(Obj, 'id'), GetBoolField(Obj, 'hidden'))
     else if MsgType = 'record_start' then
       HandleRecordStart
     else if MsgType = 'record_stop' then
@@ -4304,6 +4516,12 @@ begin
       HandleSetStopOnLock(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_hibernate' then
       HandleSetHibernate(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_auto_record_on_mic' then
+      HandleSetAutoRecordOnMic(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_auto_record_mic_apps' then
+      HandleSetAutoRecordMicApps(GetStrField(Obj, 'apps'))
+    else if MsgType = 'set_auto_record_mic_except' then
+      HandleSetAutoRecordMicExcept(GetStrField(Obj, 'apps'))
     else if MsgType = 'set_recording_quality' then
       HandleSetRecordingQuality(GetIntField(Obj, 'level'))
     else if MsgType = 'set_recording_fps' then
@@ -4593,6 +4811,10 @@ begin
     if OBSUI.StartRecordRequested and (not RecordingActive) then
     begin
       Log('TIMER_OBS_WARMUP: /start-record — disparando gravacao.');
+      // Veio do monitor de mic (hibernacao detectou chamada)? Marca como auto
+      // pra ser auto-parada quando o mic for liberado.
+      if OBSUI.StartRecordRequestedByMic then
+        RecordingStartedByMicWatch := True;
       HandleRecordStart;
     end;
   end
@@ -4696,6 +4918,9 @@ begin
 
   try OBSRecordWatch.Stop; except end;
   Log('Shutdown: RecordWatch ok');
+
+  try WinMicWatch.Stop; except end;
+  Log('Shutdown: MicWatch ok');
 
   try OBSAudioWatch.Stop; except end;
   Log('Shutdown: AudioWatch ok');

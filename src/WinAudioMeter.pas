@@ -35,6 +35,14 @@ type
   end;
   TAudioLevelArray = TArray<TAudioLevel>;
 
+  // Consultada antes de abrir a sessao de captura de um microfone.
+  // Contexto: pra o pico nao ficar sempre 0 num endpoint de captura, o
+  // medidor precisa manter uma IAudioClient viva (pegadinha #12) — mas
+  // isso deixa o dispositivo "em uso" no Windows (indicador de privacidade
+  // e LED da webcam). Retornar False = nao segura o mic (pico fica 0).
+  // Nao atribuida = abre todos (comportamento historico).
+  TMicOpenPolicy = function(const AName: string): Boolean;
+
 procedure InitAudio;
 procedure DoneAudio;
 function EnumerateAudioDevices: TAudioDeviceInfoArray;
@@ -43,6 +51,14 @@ function ReadPeakLevels: TAudioLevelArray;
 // disconnect) — `EnumerateAudioDevices` cacheia o resultado da
 // primeira chamada e nao detecta mudancas sozinho.
 procedure RefreshAudioDevices;
+// Define quais mics o medidor pode segurar. Chamar ANTES do primeiro
+// EnumerateAudioDevices pra que o cache ja nasca respeitando a politica.
+procedure SetMicOpenPolicy(APolicy: TMicOpenPolicy);
+// Reaplica a politica aos mics JA em cache: fecha a sessao dos que deixaram
+// de ser ativos e abre a dos que voltaram. Barato e sem piscar os medidores
+// — nao re-enumera devices (ao contrario de RefreshAudioDevices, que zera o
+// cache e deixa os medidores vazios ate a proxima enumeracao).
+procedure ApplyMicOpenPolicy;
 
 // Resolve um device id (vindo de IMMNotificationClient) pro nome amigavel.
 // Tenta o cache primeiro (rapido); se nao achar, consulta WASAPI direto
@@ -169,6 +185,9 @@ type
 
   TMeterEntry = record
     Info: TAudioDeviceInfo;
+    // Guardado pra o ApplyMicOpenPolicy conseguir REABRIR a sessao de um
+    // mic que voltou a ser ativo, sem re-enumerar tudo.
+    Dev: IMMDevice;
     Meter: IAudioMeterInformation;
     // Pra mics: precisamos manter uma IAudioClient ativa, senao
     // IAudioMeterInformation.GetPeakValue retorna 0 (nao ha sessao
@@ -297,6 +316,27 @@ begin
     try Enumerator := nil; except end;
   finally
     if CacheLock <> nil then CacheLock.Leave;
+  end;
+end;
+
+var
+  MicOpenPolicy: TMicOpenPolicy = nil;
+
+procedure SetMicOpenPolicy(APolicy: TMicOpenPolicy);
+begin
+  MicOpenPolicy := APolicy;
+end;
+
+// Sem politica = abre todos (comportamento historico). Falha na politica
+// tambem cai pro "abre": melhor um medidor funcionando do que um medidor
+// mudo por causa de um erro de leitura de config.
+function MicShouldOpen(const AName: string): Boolean;
+begin
+  if not Assigned(MicOpenPolicy) then Exit(True);
+  try
+    Result := MicOpenPolicy(AName);
+  except
+    Result := True;
   end;
 end;
 
@@ -449,17 +489,26 @@ begin
         Entry.Meter := nil;
         Log('WinAudioMeter: Activate(Meter) AV em "%s"', [Entry.Info.Name]);
       end;
+      Entry.Dev := Dev;
       Entry.Client := nil;
       // Pra inputs: ativa um IAudioClient em modo shared so pra manter
       // a sessao de captura viva. Sem isso o meter da 0 sempre.
       // try/except defensivo — device pode estar transicionando estado
       // (ex.: Bluetooth disconnecting) e WASAPI pode AV nativo.
+      // A politica (MicShouldOpen) evita segurar mic que o user desmarcou
+      // ou ocultou — senao o Windows mostra o device "em uso" a toa.
       if (Kinds[k] = adkInput) and (Entry.Meter <> nil) then
-        try StartCaptureForMeter(Dev, Entry.Client);
-        except
-          Entry.Client := nil;
-          Log('WinAudioMeter: StartCaptureForMeter AV em "%s"', [Entry.Info.Name]);
-        end;
+      begin
+        if MicShouldOpen(Entry.Info.Name) then
+          try StartCaptureForMeter(Dev, Entry.Client);
+          except
+            Entry.Client := nil;
+            Log('WinAudioMeter: StartCaptureForMeter AV em "%s"', [Entry.Info.Name]);
+          end
+        else
+          Log('WinAudioMeter: mic "%s" inativo — nao abre sessao de captura.',
+            [Entry.Info.Name]);
+      end;
       SetLength(Cache, Length(Cache) + 1);
       Cache[High(Cache)] := Entry;
     end;
@@ -539,6 +588,41 @@ begin
     // RebuildCache eh lazy via EnumerateAudioDevices — proxima chamada
     // re-enumera. Se quiser forcar agora: descomenta a linha abaixo.
     // RebuildCache;
+  finally
+    CacheLock.Leave;
+  end;
+end;
+
+procedure ApplyMicOpenPolicy;
+var
+  i: Integer;
+  Want: Boolean;
+begin
+  if CacheLock = nil then Exit;
+  CacheLock.Enter;
+  try
+    for i := 0 to High(Cache) do
+    begin
+      if Cache[i].Info.Kind <> adkInput then Continue;
+      Want := MicShouldOpen(Cache[i].Info.Name);
+      if Want and (Cache[i].Client = nil) and (Cache[i].Dev <> nil)
+         and (Cache[i].Meter <> nil) then
+      begin
+        // Voltou a ser ativo: reabre a sessao pro medidor sair do zero.
+        try StartCaptureForMeter(Cache[i].Dev, Cache[i].Client);
+        except
+          Cache[i].Client := nil;
+          Log('WinAudioMeter: reabrir "%s" falhou.', [Cache[i].Info.Name]);
+        end;
+      end
+      else if (not Want) and (Cache[i].Client <> nil) then
+      begin
+        // Deixou de ser ativo: SOLTA o microfone (some o "em uso" no Windows).
+        try Cache[i].Client.Stop; except end;
+        try Cache[i].Client := nil; except end;
+        Log('WinAudioMeter: mic "%s" liberado (inativo).', [Cache[i].Info.Name]);
+      end;
+    end;
   finally
     CacheLock.Leave;
   end;

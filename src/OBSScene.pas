@@ -44,7 +44,8 @@ begin
   SetLength(Result, 0);
   for i := 0 to High(AMons) do
   begin
-    if not GetSourceBool('monitors', IntToStr(AMons[i].Index), True) then
+    // GetSourceActive (nao GetSourceBool): monitor oculto nao entra no canvas.
+    if not GetSourceActive('monitors', IntToStr(AMons[i].Index), True) then
       Continue;
     SetLength(Result, Length(Result) + 1);
     Result[High(Result)] := AMons[i];

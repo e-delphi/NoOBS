@@ -98,6 +98,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
 | `WinPreview`        | **Win32**: `EnumDisplayMonitors` + `BitBlt` pra capturar thumb de cada monitor     |
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
+| `WinMicWatch`       | **WASAPI**: sessões de captura (`IAudioSessionManager2`) pra detectar mic em uso por outro app → auto-gravar em chamadas |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
@@ -916,6 +917,54 @@ no `DoInit` — revertido; o default-ON correto é o `/o` + pré-check no `.nsi`
 (Os outros defaults — bandeja, minimizar ao gravar, som, parar ao bloquear,
 hibernar — esses SIM são do app, via default `True` no `GetConfigBool`.)
 
+### 47. **Auto-gravar em chamadas: WASAPI sessions + excluir o próprio PID + hibernação**
+
+`WinMicWatch` detecta "microfone em uso por outro app" enumerando as SESSÕES
+de captura WASAPI (`IAudioSessionManager2` → `IAudioSessionEnumerator`, estado
+`Active` + `GetProcessId`) numa thread própria (COM MTA, poll 1s). Config:
+`autoRecordOnMic` (um único toggle = start **e** stop) + `autoRecordMicApps`
+(filtro "contém", vazio = qualquer app) + `autoRecordMicExcept` (exceções:
+apps ignorados mesmo usando o mic, **só quando `autoRecordMicApps` está vazio**
+— "monitora tudo, menos estes"; vazio = nada ignorado). No `PollMicInUse`, por
+sessão: pula o próprio PID/sons do sistema → **se `autoRecordMicApps` vazio**,
+casa exceções → pula, senão conta como "em uso"; **senão** (lista preenchida) as
+exceções não se aplicam, só conta se casa `autoRecordMicApps`. `AppInList`
+(substring, lista vazia = NÃO casa) é a base dos dois filtros — o "vazio =
+qualquer app" dos monitorados fica explícito no `PollMicInUse`, não no helper
+(pra que exceções vazias signifiquem "nada ignorado", não "tudo ignorado"). A
+UI (`_syncAutoRecordExceptVisibility`, listener de `input` pra reagir a cada
+tecla) **esconde** o campo de exceções quando há apps monitorados — sem "filtro
+ativo escondido", casando com o backend — mas **preserva** o valor digitado (o
+campo reaparece intacto se o user esvaziar os monitorados).
+
+Quatro pontos críticos:
+- **Excluir o próprio PID.** O NoOBS abre o mic pros medidores e pra gravar
+  (pegadinha #12), então sem `Pid <> GetCurrentProcessId` o mic pareceria
+  SEMPRE em uso → a auto-gravação nunca pararia.
+- **Excluir também pelo NOME do exe (não só PID).** `SpawnHibernateAndExit`
+  lança o processo `/hibernate` ANTES do `OBSBridge.Shutdown` do full (que só
+  para os medidores/libera o mic no passo de finalização, depois do
+  `DestroyWindow`). Então o processo de hibernação sobe e pola enquanto o full
+  **ainda segura o mic**; e mesmo após o full sair, a sessão WASAPI dele fica
+  `Active` por ~1-2s. Como a hibernação tem outro PID, a exclusão por PID não
+  pega o full — e ela dispararia `/start-record-mic` sozinha ao hibernar. Fix:
+  `PollMicInUse` também pula sessões cujo `PName = LowerCase(ExtractFileName(
+  ParamStr(0)))` (`noobs.exe`), cobrindo qualquer instância NoOBS. Apps reais
+  (Teams/WhatsApp) não são `noobs.exe`, então a detecção legítima não muda.
+- **Auto-stop só do que o watcher iniciou.** `RecordingStartedByMicWatch`
+  (OBSBridge) — `HandleRecordStop` limpa o flag; a borda "mic liberado" só
+  para se o flag está setado, pra nunca matar uma gravação manual.
+- **Hibernação.** O modo `/hibernate` (sem libobs) também roda o `WinMicWatch`;
+  o callback faz `PostMessage(WM_MIC_TRIGGER)` → `SpawnFullAndExit('/start-record-mic')`
+  (mesmo caminho da hotkey). O sufixo `-mic` (que CONTÉM `/start-record`, então
+  `FStartRecordRequested` já é True) diferencia a origem via
+  `OBSUI.StartRecordRequestedByMic` → o full marca `RecordingStartedByMicWatch`
+  no warmup pra auto-parar quando a chamada acabar. Ciclo: hiberna → detecta →
+  full+grava → chamada acaba → auto-para → ocioso → (1 min) volta a hibernar.
+
+O callback roda NA THREAD do watcher — no full marshalla via `TThread.Queue`
+(libobs/UI só na main); na hibernação usa `PostMessage` (thread-safe).
+
 ---
 
 ## Caches
@@ -954,7 +1003,7 @@ recuperáveis manualmente).
 | Chave                            | Valor                                              |
 |----------------------------------|----------------------------------------------------|
 | `version`                        | `1` (discriminator)                                |
-| `theme`                          | `"dark"` ou `"light"`                              |
+| `theme`                          | `"system"` (default — segue o SO via registry), `"dark"` ou `"light"` |
 | `recordDir`                      | path absoluto                                      |
 | `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |
 | `filenamePattern`                | modelo do nome do arquivo; códigos `{AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}` (default `"{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"`) |
@@ -963,9 +1012,13 @@ recuperáveis manualmente).
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |
 | `sources.speakers[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.webcams[name]`          | `true` / `false` (default: `false`)                |
+| `hidden_monitors[idx]`, `hidden_mics[name]`, `hidden_speakers[name]`, `hidden_webcams[name]` | `true` = dispositivo **oculto**: some da lista da tela inicial **e** não entra na gravação. Ausente/`false` = visível. Namespace separado do `sources.*` de propósito — ocultar não mexe no "enabled", então desocultar devolve o device com a mesma preferência de gravação de antes |
 | `language`                       | `""` (auto, segue Windows), `"pt-BR"`, `"en"`, `"es"`, ... |
 | `recordingQuality`               | `-4..+2` (default `0`; `-4`/`-3` são os níveis extras de mais compressão) |
 | `recordingFps`                   | `10..maxMonitorHz` (default `30` — padrão do NoOBS, mais compacto que o 60fps do OBS Studio) |
+| `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
+| `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
+| `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
 
 ---
 
@@ -1160,6 +1213,13 @@ Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
   pra que a UI renderize antes do init bloquear ~300ms.
 - **NÃO compute** canvas baseado em todos os monitores — só os
   enabled em config.json.
+- **NÃO leia** `GetSourceBool('mics'|'speakers'|'monitors'|'webcams', ...)`
+  direto num caminho de **gravação** — use `OBSConfig.GetSourceActive`
+  (= marcado **e** não oculto). Com `GetSourceBool` puro, um dispositivo
+  oculto no modal "Dispositivos" continuaria sendo gravado invisivelmente.
+  Já aplicado em `OBSEngine` (6 pontos) e `OBSScene.FilterEnabledMonitors`;
+  o cálculo de tracks em `OBSBridge.BuildAudioJsonWithTracks` também
+  desconta ocultos pra a legenda da UI casar com o que o engine grava.
 - **NÃO atribua** HBITMAP manual a `TBitmap.Handle` enquanto o bitmap
   está selecionado em DC — vaza GDI.
 - **NÃO esqueça** padding em structs C (`obs_video_info` tem `_pad0`

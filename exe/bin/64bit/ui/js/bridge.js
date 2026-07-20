@@ -32,11 +32,13 @@ const Bridge = {
       // bundle carregado. Sem bundle, T() retorna '[key]' e os textos
       // hardcoded no HTML servem de fallback ate o user trocar idioma.
       if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
-      Displays.monitors = data.monitors || [];
-      Displays.webcams  = data.webcams  || [];
+      // Devices.setAll guarda a lista completa (pro modal "Dispositivos") e
+      // devolve so os visiveis — os ocultos somem da tela inicial.
+      Displays.monitors = Devices.setAll('monitors', data.monitors);
+      Displays.webcams  = Devices.setAll('webcams',  data.webcams);
       Displays.render();
-      renderSources('mic', 'micList', 'micCount', data.mics);
-      renderSources('spk', 'spkList', 'spkCount', data.speakers);
+      renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
+      renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
       // freeBytes antes de renderRecordings — updateRecMeta usa.
       if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
       renderRecordings(data.recordings);
@@ -181,7 +183,14 @@ const Bridge = {
         cb({ ok: !!data.ok, reason: data.reason || '' });
       }
     },
-    theme(data) { applyTheme(data.theme); },
+    theme(data) {
+      applyTheme(data.theme);
+      // pref = o MODO ('system'/'dark'/'light'). Fallback pro tema resolvido
+      // se um backend antigo (sem a mudanca) nao mandar pref — evita destacar
+      // "sistema" por engano quando o modo real e fixo.
+      if (typeof Settings !== 'undefined' && Settings.applyThemePref)
+        Settings.applyThemePref(data.pref || data.theme);
+    },
     recordings_loaded(data) {
       // Espaco livre vem ANTES de renderRecordings pra que updateRecMeta
       // (chamada dentro do render) ja pegue o valor novo.
@@ -198,8 +207,9 @@ const Bridge = {
       if (banner) banner.classList.toggle('show', !!data.pending);
     },
     audio_sources_refreshed(data) {
-      renderSources('mic', 'micList', 'micCount', data.mics);
-      renderSources('spk', 'spkList', 'spkCount', data.speakers);
+      renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
+      renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
+      if (Devices.isOpen()) Devices.render();
       const banner = document.getElementById('audioRefreshBanner');
       if (banner) banner.classList.remove('show');
       // silent=true vem do load inicial do app; toast so faz sentido
@@ -226,8 +236,9 @@ const Bridge = {
       }
     },
     monitors_refreshed(data) {
-      Displays.monitors = data.monitors || [];
+      Displays.monitors = Devices.setAll('monitors', data.monitors);
       Displays.render();
+      if (Devices.isOpen()) Devices.render();
       const banner = document.getElementById('monitorRefreshBanner');
       if (banner) banner.classList.remove('show');
       // So mostra toast se houve mudanca real (lista de changes nao vazia)
@@ -241,8 +252,9 @@ const Bridge = {
       updateRecordButtonAvailability();
     },
     webcams_refreshed(data) {
-      Displays.webcams = data.webcams || [];
+      Displays.webcams = Devices.setAll('webcams', data.webcams);
       Displays.render();
+      if (Devices.isOpen()) Devices.render();
       // Mesmo titulo que audio_sources_refreshed pra que o dedup do
       // Toast.show coalesce as duas notificacoes quando hot-plug USB
       // dispara refresh de audio + webcam ao mesmo tempo.

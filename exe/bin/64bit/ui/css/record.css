@@ -93,7 +93,7 @@
     letter-spacing: -0.03em;
     line-height: 1;
     font-variant-numeric: tabular-nums;
-    color: var(--text-1);
+    color: var(--text);
     margin: 4px 0 14px;
   }
   .rec-timer-ms {
@@ -101,7 +101,7 @@
     color: var(--text-3);
     margin-left: 1px;
   }
-  .record-card.recording .rec-timer { color: var(--text-1); }
+  .record-card.recording .rec-timer { color: var(--text); }
 
   /* Botao circular grande. .recording troca cor + adiciona pulse no
      box-shadow + transforma o glyph em quadrado (stop). */
@@ -170,7 +170,7 @@
   /* Estado desabilitado (sem nenhuma source ativada). */
   .record-btn:disabled,
   .record-btn[disabled] {
-    background: var(--surface-2, #3a3a3a);
+    background: var(--border-2);
     box-shadow:
       0 0 0 2px var(--border),
       0 4px 10px rgba(0, 0, 0, 0.25);
@@ -178,7 +178,7 @@
     animation: none;
   }
   .record-btn:disabled:hover,
-  .record-btn[disabled]:hover { background: var(--surface-2, #3a3a3a); }
+  .record-btn[disabled]:hover { background: var(--border-2); }
   .record-btn:disabled:active,
   .record-btn[disabled]:active { transform: none; }
   .record-btn:disabled .icon,
@@ -195,7 +195,7 @@
     color: var(--text-2);
     font-weight: 500;
   }
-  .record-card.recording .record-label { color: var(--text-1); }
+  .record-card.recording .record-label { color: var(--text); }
 
   /* ===== Ripple ao iniciar gravacao =====
      Onda radial vermelha que comeca exatamente no centro do botao de

@@ -45,45 +45,87 @@
 
 <!-- ===== Settings modal ===== -->
 <div class="settings-overlay" id="settingsOverlay">
-  <div class="settings-modal">
+  <div class="settings-modal settings-tabbed">
     <div class="settings-header">
       <h3 data-i18n="settings.title">Configurações</h3>
-      <div class="theme-toggle" id="settingsTheme">
-        <button type="button" class="theme-toggle-btn" data-theme="light"
-                onclick="Settings.setTheme('light')"
-                data-i18n-title="settings.theme.toggleLight" title="Tema claro">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-          </svg>
-          <span data-i18n="settings.theme.light">Claro</span>
-        </button>
-        <button type="button" class="theme-toggle-btn" data-theme="dark"
-                onclick="Settings.setTheme('dark')"
-                data-i18n-title="settings.theme.toggleDark" title="Tema escuro">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-               stroke="currentColor" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-          <span data-i18n="settings.theme.dark">Escuro</span>
-        </button>
-      </div>
-      <button class="settings-help-btn" onclick="About.open()"
-              data-i18n-title="header.about" title="Sobre o NoOBS">
+      <button class="settings-close-btn" onclick="Settings.close()"
+              data-i18n-title="settings.buttons.close" title="Fechar">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
         </svg>
       </button>
     </div>
-    <div class="settings-body">
-      <div class="settings-field">
+    <!-- Menu lateral de abas. Irmao do .settings-body: o grid do
+         .settings-tabbed posiciona header/tabs/body/footer, entao nao ha
+         wrapper extra e os campos mantem a indentacao original. -->
+    <nav class="settings-tabs" id="settingsTabs">
+      <button type="button" class="settings-tab active" data-tab="general"
+              onclick="Settings.showTab('general')"
+              data-i18n="settings.tabs.general">Geral</button>
+      <button type="button" class="settings-tab" data-tab="recording"
+              onclick="Settings.showTab('recording')"
+              data-i18n="settings.tabs.recording">Gravação</button>
+      <button type="button" class="settings-tab" data-tab="files"
+              onclick="Settings.showTab('files')"
+              data-i18n="settings.tabs.files">Arquivos</button>
+      <button type="button" class="settings-tab" data-tab="devices"
+              onclick="Settings.showTab('devices')"
+              data-i18n="settings.tabs.devices">Dispositivos</button>
+      <button type="button" class="settings-tab" data-tab="window"
+              onclick="Settings.showTab('window')"
+              data-i18n="settings.tabs.window">Janela e bandeja</button>
+      <button type="button" class="settings-tab" data-tab="behavior"
+              onclick="Settings.showTab('behavior')"
+              data-i18n="settings.tabs.behavior">Comportamento</button>
+      <!-- Sem data-tab de proposito: nao e um painel, e uma ACAO que abre o
+           modal "Sobre" (que precisa continuar existindo — o F1 o abre de
+           fora das Configuracoes). Sem data-tab, o showTab nunca marca este
+           botao como ativo, que e o comportamento correto. -->
+      <button type="button" class="settings-tab" onclick="About.open()"
+              data-i18n="settings.tabs.about">Sobre</button>
+    </nav>
+    <div class="settings-body" id="settingsBody">
+      <div class="settings-field" data-panel="general">
+        <label data-i18n="settings.theme.label">Tema</label>
+        <div class="theme-toggle" id="settingsTheme">
+          <button type="button" class="theme-toggle-btn" data-theme="system"
+                  onclick="Settings.setTheme('system')"
+                  data-i18n-title="settings.theme.toggleSystem" title="Tema do sistema">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+            <span data-i18n="settings.theme.system">Sistema</span>
+          </button>
+          <button type="button" class="theme-toggle-btn" data-theme="light"
+                  onclick="Settings.setTheme('light')"
+                  data-i18n-title="settings.theme.toggleLight" title="Tema claro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4"/>
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+            <span data-i18n="settings.theme.light">Claro</span>
+          </button>
+          <button type="button" class="theme-toggle-btn" data-theme="dark"
+                  onclick="Settings.setTheme('dark')"
+                  data-i18n-title="settings.theme.toggleDark" title="Tema escuro">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            <span data-i18n="settings.theme.dark">Escuro</span>
+          </button>
+        </div>
+      </div>
+      <div class="settings-field" data-panel="general">
         <label data-i18n="settings.language.label">Idioma</label>
         <div class="settings-input-row">
           <select class="settings-input" id="settingsLanguage"
@@ -97,8 +139,7 @@
           Idioma da interface do NoOBS. "Automático" usa o idioma do Windows; outros valores forçam o idioma escolhido.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="general">
         <label data-i18n="settings.windowTitle.label">Título da janela</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsWindowTitle"
@@ -110,15 +151,14 @@
           ícone da bandeja. Deixe em branco para usar "NoOBS".
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="files">
         <label data-i18n="settings.recordDir.label">Pasta de saída das gravações</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsRecDir" placeholder="C:\Users\...\Videos">
           <button class="settings-btn" onclick="Settings.pickFolder()" data-i18n="settings.recordDir.browse">Procurar...</button>
         </div>
       </div>
-      <div class="settings-field">
+      <div class="settings-field" data-panel="files">
         <label data-i18n="settings.filename.label">Nome do arquivo de saída</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsFilenamePattern"
@@ -132,7 +172,7 @@
         </div>
         <div class="settings-hint" id="settingsFilenamePreview"></div>
       </div>
-      <div class="settings-field">
+      <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.codec.label">Codec de vídeo</label>
         <div class="settings-input-row">
           <select class="settings-input" id="settingsCodec"
@@ -155,7 +195,7 @@
           fazendo.
         </div>
       </div>
-      <div class="settings-field">
+      <div class="settings-field" data-panel="general">
         <label data-i18n="settings.hotkey.label">Atalho global para iniciar/parar gravação</label>
         <div class="hotkey-builder">
           <div class="hotkey-mods">
@@ -174,8 +214,7 @@
           <code>Ctrl+Shift+G</code>.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.quality.label">Qualidade da gravação</label>
         <div class="quality-slider-row">
           <span class="quality-end-label" data-i18n="settings.quality.lower">Menor</span>
@@ -196,8 +235,7 @@
           do arquivo e qualidade visual.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.fps.label">Taxa de quadros da gravação</label>
         <div class="quality-slider-row">
           <!-- Slider snap entre predefinicoes: o `value` E o INDICE da
@@ -219,8 +257,7 @@
           30 fps — suave, padrão de vídeo. Arquivo compacto.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.keyframe.label">Intervalo de keyframe</label>
         <div class="quality-slider-row">
           <span class="quality-end-label" data-i18n="settings.keyframe.precise">Corte exato</span>
@@ -239,8 +276,7 @@
           A cada 2 segundos — bom equilíbrio entre pontos de corte e tamanho.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="files">
         <label data-i18n="settings.library.label">Prévias e duração da biblioteca</label>
         <div class="settings-input-row">
           <select class="settings-input" id="settingsLibraryThumbs"
@@ -255,8 +291,7 @@
           os que estão só na nuvem (OneDrive), para não baixá-los.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="general">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutostart">
           <span data-i18n="settings.autostart.label">Iniciar com o Windows</span>
@@ -265,8 +300,23 @@
           O NoOBS sobe automaticamente quando você loga no Windows.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="general">
+        <label data-i18n="settings.reset.label">Restaurar padrões</label>
+        <div class="settings-hint" data-i18n="settings.reset.hint">
+          Volta TODAS as abas para os valores padrão de fábrica, não apenas
+          esta. Aplicado na hora.
+        </div>
+        <div class="settings-input-row">
+          <button class="settings-btn" onclick="Settings.restoreDefaults()"
+                  data-i18n="settings.buttons.reset"
+                  data-i18n-title="settings.buttons.resetTitle"
+                  data-i18n-hint="settings.buttons.resetTitle"
+                  data-hint="Restaurar todos os campos pros valores padrão (aplicado na hora)">
+            Restaurar padrão
+          </button>
+        </div>
+      </div>
+      <div class="settings-field" data-panel="window">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsCloseToTray"
                  onchange="Settings.onTrayChange()">
@@ -279,8 +329,7 @@
           o menu do ícone pra fechar de verdade.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="window">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsMinimizeOnRecord"
                  onchange="Settings.onMinimizeOnRecordChange()">
@@ -292,8 +341,7 @@
           no vídeo. O atalho global continua funcionando pra parar.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="window">
         <label class="settings-check-row" id="settingsNotifyOnRecordRow">
           <input type="checkbox" id="settingsNotifyOnRecord">
           <span data-i18n="settings.notifyOnRecord.label">Notificar no Windows ao iniciar/parar gravação</span>
@@ -305,8 +353,7 @@
           é visível na própria janela.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsScrollLockIndicator">
           <span data-i18n="settings.scrollLock.label">Piscar LED de Scroll Lock durante gravação</span>
@@ -318,8 +365,7 @@
           parar a gravação.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsPlaySoundOnRecord">
           <span data-i18n="settings.playSound.label">Tocar som de início e fim da gravação</span>
@@ -331,8 +377,7 @@
           confirmar que a ação foi recebida.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsStopOnLock">
           <span data-i18n="settings.stopOnLock.label">Parar a gravação ao bloquear o computador</span>
@@ -345,8 +390,7 @@
           parar antes de sair.
         </div>
       </div>
-      <hr class="settings-divider">
-      <div class="settings-field">
+      <div class="settings-field" data-panel="window">
         <label class="settings-check-row" id="settingsHibernateRow">
           <input type="checkbox" id="settingsHibernate">
           <span data-i18n="settings.hibernate.label">Hibernar quando inativo</span>
@@ -362,18 +406,48 @@
           hibernar.
         </div>
       </div>
-    </div>
-    <div class="settings-footer">
-      <button class="settings-btn" onclick="Settings.restoreDefaults()"
-              data-i18n="settings.buttons.reset"
-              data-i18n-title="settings.buttons.resetTitle"
-              data-i18n-hint="settings.buttons.resetTitle"
-              data-hint="Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)">
-        Restaurar padrão
-      </button>
-      <div class="settings-footer-right">
-        <button class="settings-btn" onclick="Settings.close()" data-i18n="settings.buttons.cancel">Cancelar</button>
-        <button class="settings-btn primary" onclick="Settings.save()" data-i18n="settings.buttons.save">Salvar</button>
+      <div class="settings-field" data-panel="devices">
+        <div class="settings-hint" data-i18n="devices.hint">
+          Desmarque para ocultar o dispositivo da tela inicial. Dispositivos
+          ocultos não aparecem na lista e não entram na gravação.
+        </div>
+        <!-- Preenchido por Devices.render() (js/displays.js), agrupado por
+             tipo: monitores, webcams, microfones, alto-falantes. -->
+        <div id="devicesList"></div>
+      </div>
+      <div class="settings-field" data-panel="behavior">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsAutoRecordOnMic">
+          <span data-i18n="settings.autoRecord.label">Gravar automaticamente durante chamadas</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.autoRecord.hint">
+          Inicia a gravação quando detecta o microfone sendo usado por outro app
+          (chamada de Teams, WhatsApp, etc.) e para quando ele é liberado.
+          Funciona até com a janela na bandeja ou o app hibernando.
+        </div>
+        <div class="settings-input-row">
+          <input type="text" class="settings-input" id="settingsAutoRecordMicApps"
+                 maxlength="300"
+                 data-i18n-placeholder="settings.autoRecord.appsPlaceholder"
+                 placeholder="teams, whatsapp, zoom">
+        </div>
+        <div class="settings-hint" data-i18n="settings.autoRecord.appsHint">
+          Apps a monitorar, separados por vírgula (parte do nome do processo).
+          Vazio = qualquer app que use o microfone. Chamadas no navegador
+          aparecem como chrome.exe / msedge.exe.
+        </div>
+        <div id="settingsAutoRecordExceptWrap">
+          <div class="settings-input-row">
+            <input type="text" class="settings-input" id="settingsAutoRecordMicExcept"
+                   maxlength="300"
+                   data-i18n-placeholder="settings.autoRecord.exceptPlaceholder"
+                   placeholder="steam, discord">
+          </div>
+          <div class="settings-hint" data-i18n="settings.autoRecord.exceptHint">
+            Exceções: apps a ignorar mesmo usando o microfone (separados por
+            vírgula). Como está monitorando todos, estes ficam de fora.
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -564,6 +638,7 @@
           <div class="player-speed-option" data-speed="1.5">1,5×</div>
           <div class="player-speed-option" data-speed="2">2×</div>
           <div class="player-speed-option" data-speed="3">3×</div>
+          <div class="player-speed-option" data-speed="8">8×</div>
         </div>
       </div>
       <button class="player-btn player-info-btn" id="playerInfo" data-i18n-title="player.videoInfo" title="Informações do vídeo">

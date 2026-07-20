@@ -460,6 +460,141 @@ function buildTrackLegend() {
   legend.hidden = false;
 }
 
+// =====================================================================
+// Devices — modal "Dispositivos" das Configuracoes.
+//
+// Guarda a lista COMPLETA de cada tipo (inclusive os ocultos) e entrega
+// pra tela inicial apenas os visiveis. Assim todo consumidor a jusante
+// (Displays.render, contadores do main.js) continua enxergando so o que
+// deve aparecer, sem precisar filtrar em cada ponto.
+//
+// Ocultar NAO mexe no 'enabled' (preferencia de gravacao): o backend
+// guarda num namespace separado (hidden_*), entao desocultar devolve o
+// dispositivo com a mesma marcacao que ele tinha antes.
+// =====================================================================
+const Devices = {
+  all: { monitors: [], webcams: [], mics: [], speakers: [] },
+  _kinds: ['monitors', 'webcams', 'mics', 'speakers'],
+
+  // Guarda a lista completa e devolve so os visiveis (pra tela inicial).
+  setAll(kind, list) {
+    this.all[kind] = Array.isArray(list) ? list : [];
+    return this.visible(kind);
+  },
+  visible(kind) {
+    return (this.all[kind] || []).filter(d => !d.hidden);
+  },
+
+  // A lista vive na aba "Dispositivos" das Configuracoes — nao e mais um
+  // modal proprio. isOpen = essa aba esta visivel; serve pra so re-renderizar
+  // em hot-plug quando o usuario esta de fato olhando pra lista.
+  isOpen() {
+    const ov = document.getElementById('settingsOverlay');
+    if (!ov || !ov.classList.contains('visible')) return false;
+    const tabs = document.getElementById('settingsTabs');
+    const active = tabs && tabs.querySelector('.settings-tab.active');
+    return !!active && active.dataset.tab === 'devices';
+  },
+
+  render() {
+    const box = document.getElementById('devicesList');
+    if (!box) return;
+    box.innerHTML = '';
+    let total = 0;
+    this._kinds.forEach(kind => {
+      const all = this.all[kind] || [];
+      if (all.length === 0) return;    // grupo sem dispositivo nao aparece
+      total += all.length;
+      // Ordem alfabetica FIXA, sobre uma COPIA (slice). Duas razoes:
+      //  - a lista do backend vem ordenada por TRACK, e ocultar um mic/
+      //    alto-falante zera a track dele -> o item pulava pro fim da lista
+      //    a cada clique;
+      //  - a copia e essencial: this.all[kind] tambem alimenta a tela
+      //    inicial, que DEVE manter a ordem por track pra casar com a
+      //    legenda de faixas. Ordenar in-place quebraria aquela ordem.
+      // numeric:true pra "Monitor 2" < "Monitor 10"; sensitivity:'base'
+      // pra ignorar caixa/acento.
+      const list = all.slice().sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined,
+          { numeric: true, sensitivity: 'base' }));
+      const group = document.createElement('div');
+      group.className = 'devices-group';
+      const title = document.createElement('div');
+      title.className = 'devices-group-title';
+      title.textContent = T('devices.groups.' + kind);
+      group.appendChild(title);
+      list.forEach(d => {
+        const row = document.createElement('label');
+        row.className = 'devices-row';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !d.hidden;
+        cb.onchange = () => Devices.toggle(kind, d.id, cb.checked);
+        const nm = document.createElement('span');
+        nm.className = 'devices-name';
+        nm.textContent = d.name || d.id;
+        row.appendChild(cb);
+        row.appendChild(nm);
+        if (d.info) {
+          const inf = document.createElement('span');
+          inf.className = 'devices-info';
+          inf.textContent = d.info;
+          row.appendChild(inf);
+        }
+        group.appendChild(row);
+      });
+      box.appendChild(group);
+    });
+    if (total === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-hint';
+      empty.textContent = T('devices.empty');
+      box.appendChild(empty);
+    }
+  },
+
+  // visible=false -> oculta. Atualiza o estado local e re-renderiza a tela
+  // inicial na hora (resposta imediata); pro audio o backend ainda manda um
+  // audio_sources_refreshed com as tracks recalculadas.
+  toggle(kind, id, visible) {
+    const d = (this.all[kind] || []).find(x => x.id === id);
+    if (d) d.hidden = !visible;
+    Bridge.send('set_source_hidden', { id: id, hidden: !visible });
+    this._refreshMain(kind);
+  },
+
+  // Volta TODOS os dispositivos a visiveis. Usado pelo "Restaurar padroes":
+  // ocultar nao tem campo no DOM (o estado vive aqui + no config hidden_*),
+  // entao o reset generico dos campos nao desfaz — precisa ser explicito.
+  showAll() {
+    this._kinds.forEach(kind => {
+      let mudou = false;
+      (this.all[kind] || []).forEach(d => {
+        if (!d.hidden) return;
+        d.hidden = false;
+        Bridge.send('set_source_hidden', { id: d.id, hidden: false });
+        mudou = true;
+      });
+      if (mudou) this._refreshMain(kind);
+    });
+    this.render();
+  },
+
+  _refreshMain(kind) {
+    if (kind === 'monitors' || kind === 'webcams') {
+      Displays.monitors = this.visible('monitors');
+      Displays.webcams  = this.visible('webcams');
+      Displays.render();
+    } else if (kind === 'mics') {
+      renderSources('mic', 'micList', 'micCount', this.visible('mics'));
+    } else if (kind === 'speakers') {
+      renderSources('spk', 'spkList', 'spkCount', this.visible('speakers'));
+    }
+    if (typeof updateRecordButtonAvailability === 'function')
+      updateRecordButtonAvailability();
+  }
+};
+
 function renderSources(kindShort, listId, countId, items) {
   const list = document.getElementById(listId);
   list.innerHTML = '';

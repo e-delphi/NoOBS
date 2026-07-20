@@ -75,12 +75,27 @@
   },
   "settings": {
     "title": "Settings",
+    "tabs": {
+      "general": "General",
+      "recording": "Recording",
+      "files": "Files",
+      "devices": "Devices",
+      "window": "Window & tray",
+      "behavior": "Behavior",
+      "about": "About"
+    },
+    "reset": {
+      "label": "Restore defaults",
+      "hint": "Resets ALL tabs to the factory defaults, not just this one. Applied immediately."
+    },
     "theme": {
       "label": "Theme",
       "light": "Light",
       "dark": "Dark",
       "toggleLight": "Light theme",
-      "toggleDark": "Dark theme"
+      "toggleDark": "Dark theme",
+      "system": "System",
+      "toggleSystem": "System theme"
     },
     "language": {
       "label": "Language",
@@ -191,6 +206,8 @@
       "label": "Recording quality",
       "lower": "Lower",
       "higher": "Higher",
+      "bitrate": "({{kbps}} kbps rate)",
+      "bitrateDefault": "(no fixed rate)",
       "hint": {
         "-4": "Maximum compression — tiny files, quality well below normal.",
         "-3": "Very high compression — very small files, noticeably reduced quality.",
@@ -271,11 +288,28 @@
       "label": "Free memory after 1 minute in tray",
       "hint": "When the app stays in the tray for over 1 minute without recording, releases all resources and stays at ~5 MB of RAM. Only available with 'Minimize to tray' enabled."
     },
+    "autoRecord": {
+      "label": "Automatically record during calls",
+      "hint": "Starts recording when it detects the microphone being used by another app (a Teams, WhatsApp, etc. call) and stops when it's released. Works even with the window in the tray or the app hibernating.",
+      "appsPlaceholder": "teams, whatsapp, zoom",
+      "appsHint": "Apps to watch, comma-separated (part of the process name). Empty = any app that uses the microphone. Browser calls show up as chrome.exe / msedge.exe.",
+      "exceptPlaceholder": "steam, discord",
+      "exceptHint": "Exceptions: apps to ignore even when they use the microphone (comma-separated). Since you're watching every app, these stay out."
+    },
     "buttons": {
       "reset": "Restore defaults",
-      "resetTitle": "Restore all fields to defaults (does not save — you still need to click Save)",
-      "cancel": "Cancel",
-      "save": "Save"
+      "resetTitle": "Restore all fields to their default values (applied instantly)",
+      "close": "Close"
+    }
+  },
+  "devices": {
+    "hint": "Uncheck to hide a device from the main screen. Hidden devices don't show in the list and aren't recorded.",
+    "empty": "No devices connected.",
+    "groups": {
+      "monitors": "Monitors",
+      "webcams": "Webcams",
+      "mics": "Microphones",
+      "speakers": "Speakers"
     }
   },
   "about": {
@@ -359,7 +393,7 @@
     "invalidHotkey": "Invalid hotkey",
     "fieldsReset": "Fields restored",
     "fieldsResetBody": "Click Save to apply the changes.",
-    "restoreConfirmMessage": "This will reset all fields to their default values. You still need to click Save to apply. Continue?",
+    "restoreConfirmMessage": "This will reset all fields to their default values and apply them immediately. Continue?",
     "restoreConfirmOk": "Restore",
     "devicesUpdated": "Devices updated",
     "monitorsUpdated": "Displays updated",

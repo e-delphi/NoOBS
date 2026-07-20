@@ -44,9 +44,10 @@
     flex: 1;
   }
   /* Theme toggle no header: espacamento extra antes dos botoes. */
-  .settings-header .theme-toggle { margin-right: 8px; }
   /* Botao "?" de ajuda/sobre no header das configuracoes. */
-  .settings-help-btn {
+  /* Botao de fechar do cabecalho. (O de "Sobre" saiu daqui e virou o ultimo
+     item do menu lateral.) */
+  .settings-close-btn {
     background: transparent;
     border: 0;
     color: var(--text-2);
@@ -60,9 +61,11 @@
     height: 28px;
     transition: background 120ms, color 120ms;
   }
-  .settings-help-btn:hover {
-    background: var(--surface-2);
-    color: var(--text-1);
+  /* --surface-2/--text-1 NAO existem no base.css: o hover era invalido e
+     nao pintava nada. Trocado pelas vars reais. */
+  .settings-close-btn:hover {
+    background: var(--panel-3);
+    color: var(--text);
   }
   /* About modal — variante mais estreita do settings modal.
      Layout column: header + logo/desc (fixos) + scroll area + footer
@@ -122,7 +125,7 @@
   .about-name {
     font-size: 20px;
     font-weight: 700;
-    color: var(--text-1);
+    color: var(--text);
   }
   .about-tagline {
     font-size: 12px;
@@ -149,7 +152,7 @@
     color: var(--text-3);
     font-size: 12px;
   }
-  .about-value { color: var(--text-1); }
+  .about-value { color: var(--text); }
   .about-link {
     color: var(--success);
     text-decoration: none;
@@ -205,7 +208,7 @@
     background: var(--success);
   }
   .about-list b {
-    color: var(--text-1);
+    color: var(--text);
     font-weight: 600;
   }
   /* Body rola quando os campos nao cabem na altura maxima do modal. */
@@ -228,14 +231,14 @@
   /* Divisor sutil entre campos de configuracao. */
   .settings-divider {
     border: 0;
-    border-top: 1px solid var(--border-1);
+    border-top: 1px solid var(--border);
     margin: 6px 0;
   }
   /* Toggle de tema: 2 botoes segmentados (Claro / Escuro). */
   .theme-toggle {
     display: inline-flex;
-    background: var(--surface-2);
-    border: 1px solid var(--border-1);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 3px;
     gap: 3px;
@@ -255,11 +258,20 @@
     font-weight: 500;
     transition: background 120ms, color 120ms;
   }
-  .theme-toggle-btn:hover { color: var(--text-1); }
+  /* Hover: so um leve fundo de feedback — NAO muda a cor do texto, senao um
+     botao inativo sob o mouse fica com cor diferente dos outros inativos
+     (parecia que "Claro" tinha cor diferente por so ele nao estar sob o cursor). */
+  .theme-toggle-btn:not(.active):hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  /* Ativo: pilha bem visivel (var --border-2 contrasta com o container em
+     ambos os temas) + texto claro. Antes usava var(--surface-1)/(--text-1),
+     que NAO existem no base.css → fundo transparente + cor herdada, deixando
+     o ativo quase igual aos inativos. */
   .theme-toggle-btn.active {
-    background: var(--surface-1);
-    color: var(--text-1);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    background: var(--border-2);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
   }
   .settings-field label {
     font-size: 12px;
@@ -277,7 +289,11 @@
     cursor: pointer;
     font-weight: 500;
   }
-  .settings-check-row input[type="checkbox"] {
+  /* Aparencia unica pros checkboxes do app (verde do tema, nao o azul
+     default do navegador). Ao criar uma lista nova de marcar/desmarcar,
+     acrescente o seletor AQUI em vez de duplicar a regra. */
+  .settings-check-row input[type="checkbox"],
+  .devices-row input[type="checkbox"] {
     width: 16px;
     height: 16px;
     accent-color: var(--success);
@@ -311,22 +327,22 @@
     align-items: center;
     gap: 5px;
     padding: 5px 10px;
-    background: var(--surface-2);
-    border: 1px solid var(--border-1);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
     border-radius: 6px;
     cursor: pointer;
     user-select: none;
     font-size: 13px;
     transition: background 120ms, border-color 120ms;
   }
-  .hotkey-mod:hover { background: var(--surface-3); }
+  .hotkey-mod:hover { background: var(--panel-3); }
   .hotkey-mod input[type="checkbox"] {
     margin: 0;
     accent-color: var(--success);
     cursor: pointer;
   }
   .hotkey-mod:has(input:checked) {
-    background: color-mix(in srgb, var(--success) 18%, var(--surface-2));
+    background: color-mix(in srgb, var(--success) 18%, var(--panel-2));
     border-color: var(--success);
   }
   .hotkey-key {
@@ -661,5 +677,140 @@
   .banner .banner-title {
     font-weight: 600;
     margin-bottom: 2px;
+  }
+
+  /* ===== Layout de abas (menu lateral) =====
+     Grid no proprio modal: o <nav> e IRMAO do .settings-body, entao nao ha
+     wrapper extra e os campos mantiveram a indentacao/estrutura original. */
+  /* Configuracoes ocupa a JANELA INTEIRA — e uma "tela" do app, nao um
+     dialogo. Sobrescreve o max-width/max-height de .settings-modal; About e
+     Confirm compartilham essa classe e seguem centralizados e pequenos. */
+  #settingsOverlay { padding: 0; }
+  .settings-tabbed {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "header header"
+      "tabs   body";
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .settings-tabbed > .settings-header { grid-area: header; }
+  .settings-tabbed > .settings-tabs   { grid-area: tabs; }
+  .settings-tabbed > .settings-body {
+    grid-area: body;
+    /* Sem min-height:0 o item da linha 1fr nao encolhe e o overflow-y:auto
+       do body nunca entra em acao — o modal e que estouraria. */
+    min-height: 0;
+  }
+  /* O modal ocupa a janela toda, mas o CONTEUDO nao acompanha: input de
+     1700px e linha de texto dessa largura sao ruins de ler. Limita a coluna
+     (encostada no menu) sem limitar o painel. */
+  .settings-tabbed > .settings-body > .settings-field {
+    max-width: 760px;
+  }
+
+  .settings-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 8px;
+    border-right: 1px solid var(--border);
+    background: var(--panel-2);
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .settings-tab {
+    text-align: left;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+  }
+  .settings-tab:not(.active):hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+  }
+  /* Aba ativa no verde do app (--success, o mesmo do botao de gravar e do
+     preenchimento dos sliders) — nao no azul de --accent. Nao existe uma
+     var de "fundo verde", entao deriva do proprio --success com color-mix,
+     assim funciona nos dois temas. */
+  .settings-tab.active {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+    font-weight: 600;
+  }
+
+  /* Janela estreita: o menu vira uma faixa horizontal rolavel no topo,
+     em vez de espremer a coluna de conteudo. */
+  @media (max-width: 640px) {
+    .settings-tabbed {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "header"
+        "tabs"
+        "body";
+      grid-template-rows: auto auto 1fr;
+    }
+    .settings-tabs {
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 8px;
+    }
+  }
+
+  /* ===== Lista de dispositivos (aba "Dispositivos") ===== */
+  .devices-group { margin-top: 14px; }
+  .devices-group:first-child { margin-top: 4px; }
+  .devices-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-3);
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .devices-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .devices-row:hover { background: var(--panel-2); }
+  .devices-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text);
+    /* Nome de device pode ser longo (ex.: "Microfone (Realtek(R) Audio)") —
+       corta em vez de esticar o modal. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .devices-info {
+    font-size: 11.5px;
+    color: var(--text-3);
+    flex-shrink: 0;
   }
 

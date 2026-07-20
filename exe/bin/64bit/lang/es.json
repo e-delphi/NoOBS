@@ -75,12 +75,27 @@
   },
   "settings": {
     "title": "Configuración",
+    "tabs": {
+      "general": "General",
+      "recording": "Grabación",
+      "files": "Archivos",
+      "devices": "Dispositivos",
+      "window": "Ventana y bandeja",
+      "behavior": "Comportamiento",
+      "about": "Acerca de"
+    },
+    "reset": {
+      "label": "Restaurar valores predeterminados",
+      "hint": "Restablece TODAS las pestañas a los valores de fábrica, no solo esta. Se aplica al instante."
+    },
     "theme": {
       "label": "Tema",
       "light": "Claro",
       "dark": "Oscuro",
       "toggleLight": "Tema claro",
-      "toggleDark": "Tema oscuro"
+      "toggleDark": "Tema oscuro",
+      "system": "Sistema",
+      "toggleSystem": "Tema del sistema"
     },
     "language": {
       "label": "Idioma",
@@ -191,6 +206,8 @@
       "label": "Calidad de la grabación",
       "lower": "Menor",
       "higher": "Mayor",
+      "bitrate": "(tasa de {{kbps}} kbps)",
+      "bitrateDefault": "(sin tasa fija)",
       "hint": {
         "-4": "Compresión máxima — archivos diminutos, calidad muy por debajo de lo normal.",
         "-3": "Compresión muy alta — archivos muy pequeños, calidad notablemente reducida.",
@@ -271,11 +288,28 @@
       "label": "Liberar memoria tras 1 minuto en la bandeja",
       "hint": "Cuando la app permanece en la bandeja por más de 1 minuto sin grabar, libera todos los recursos y se queda en ~5 MB de RAM. Solo disponible con 'Minimizar a la bandeja' activo."
     },
+    "autoRecord": {
+      "label": "Grabar automáticamente durante llamadas",
+      "hint": "Inicia la grabación cuando detecta el micrófono en uso por otra app (una llamada de Teams, WhatsApp, etc.) y para cuando se libera. Funciona incluso con la ventana en la bandeja o la app hibernando.",
+      "appsPlaceholder": "teams, whatsapp, zoom",
+      "appsHint": "Apps a vigilar, separadas por comas (parte del nombre del proceso). Vacío = cualquier app que use el micrófono. Las llamadas en el navegador aparecen como chrome.exe / msedge.exe.",
+      "exceptPlaceholder": "steam, discord",
+      "exceptHint": "Excepciones: apps a ignorar aunque usen el micrófono (separadas por comas). Como estás vigilando todas, estas quedan fuera."
+    },
     "buttons": {
       "reset": "Restaurar valores",
-      "resetTitle": "Restaurar todos los campos a sus valores predeterminados (no guarda — aún necesitas hacer clic en Guardar)",
-      "cancel": "Cancelar",
-      "save": "Guardar"
+      "resetTitle": "Restaurar todos los campos a sus valores predeterminados (se aplica al instante)",
+      "close": "Cerrar"
+    }
+  },
+  "devices": {
+    "hint": "Desmarca para ocultar el dispositivo de la pantalla principal. Los ocultos no aparecen en la lista ni se graban.",
+    "empty": "Ningún dispositivo conectado.",
+    "groups": {
+      "monitors": "Monitores",
+      "webcams": "Cámaras web",
+      "mics": "Micrófonos",
+      "speakers": "Altavoces"
     }
   },
   "about": {
@@ -359,7 +393,7 @@
     "invalidHotkey": "Atajo inválido",
     "fieldsReset": "Campos restaurados",
     "fieldsResetBody": "Haz clic en Guardar para aplicar los cambios.",
-    "restoreConfirmMessage": "Esto restablecerá todos los campos a sus valores predeterminados. Aún necesitas hacer clic en Guardar para aplicar. ¿Continuar?",
+    "restoreConfirmMessage": "Esto restablecerá todos los campos a sus valores predeterminados y se aplicará al instante. ¿Continuar?",
     "restoreConfirmOk": "Restaurar",
     "devicesUpdated": "Dispositivos actualizados",
     "monitorsUpdated": "Pantallas actualizadas",

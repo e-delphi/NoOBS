@@ -56,6 +56,21 @@ document.addEventListener('keydown', (e) => {
     downOnOverlay = false;
   });
 })();
+
+// Commit IMEDIATO: qualquer 'change' num input do modal aplica na hora (sem
+// botao Salvar). 'change' dispara no blur/Enter pra textos e no toggle pra
+// checkboxes/dropdowns/sliders — nao a cada tecla. A hotkey tem handler proprio
+// (onHotkeyChange -> _commitHotkey); aqui o commit() so ignora ela.
+document.getElementById('settingsOverlay').addEventListener('change', () => {
+  if (typeof Settings !== 'undefined' && Settings.commit) Settings.commit();
+});
+// Show/hide do campo de excecoes ao vivo enquanto digita os apps monitorados
+// ('change' so dispara no blur; aqui queremos resposta imediata a cada tecla).
+document.getElementById('settingsOverlay').addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'settingsAutoRecordMicApps' &&
+      typeof Settings !== 'undefined' && Settings._syncAutoRecordExceptVisibility)
+    Settings._syncAutoRecordExceptVisibility();
+});
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const sov = document.getElementById('settingsOverlay');
@@ -71,7 +86,11 @@ document.addEventListener('keydown', (e) => {
 });
 
 const Settings = {
+  // Aba ativa do menu lateral. Lembrada entre aberturas do modal (so na
+  // sessao, nao vai pro config) — reabrir cai na aba onde o user parou.
+  currentTab: 'general',
   currentRecDir: '',
+  currentThemePref: 'system',   // 'system' | 'dark' | 'light' (modo do tema)
   currentCodec: 'auto',
   currentWindowTitle: 'NoOBS',
   currentFilenamePattern: '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}',
@@ -84,6 +103,9 @@ const Settings = {
   currentPlaySoundOnRecord: false,
   currentStopOnLock: false,
   currentHibernate: false,
+  currentAutoRecordOnMic: false,
+  currentAutoRecordMicApps: '',
+  currentAutoRecordMicExcept: '',
   currentRecordingQuality: 0,
   currentRecordingKeyframe: 2,
   currentLibraryThumbs: 'auto',   // 'auto' | 'always' | 'off'
@@ -121,6 +143,9 @@ const Settings = {
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
+    document.getElementById('settingsAutoRecordOnMic').checked = !!this.currentAutoRecordOnMic;
+    document.getElementById('settingsAutoRecordMicApps').value = this.currentAutoRecordMicApps || '';
+    document.getElementById('settingsAutoRecordMicExcept').value = this.currentAutoRecordMicExcept || '';
     document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
     this._syncQualityHint();
     // Computa presets baseados no maxMonitorHz atual + aplica no slider
@@ -138,8 +163,10 @@ const Settings = {
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
+    this._syncAutoRecordExceptVisibility();
     this._syncCodecMaxRes();
     this._updateThemeButtons();
+    this.showTab(this.currentTab);
     document.getElementById('settingsOverlay').classList.add('visible');
     // Reseta o scroll pro topo a cada abertura — senao reabrir mantem a
     // posicao da sessao anterior (ficava no fim se o user havia rolado ate
@@ -157,27 +184,54 @@ const Settings = {
   },
   // Aplica o tema imediato (preview) e persiste no backend. Sem botao
   // Salvar — tema sempre commita na hora pra dar feedback instantaneo.
-  setTheme(theme) {
-    if (theme !== 'dark' && theme !== 'light') return;
-    document.documentElement.setAttribute('data-theme', theme);
-    notifyTitlebarTheme(theme);
-    Bridge.send('set_theme', { theme });
+  setTheme(mode) {
+    if (mode !== 'dark' && mode !== 'light' && mode !== 'system') return;
+    this.currentThemePref = mode;
+    // data-theme e sempre 'dark'/'light' (resolvido). Pro 'system', resolve
+    // pelo tema do SO (WebView reporta via prefers-color-scheme); o backend
+    // confirma pela registry no push seguinte.
+    const resolved = (mode === 'system') ? this._osTheme() : mode;
+    document.documentElement.setAttribute('data-theme', resolved);
+    notifyTitlebarTheme(resolved);
+    Bridge.send('set_theme', { theme: mode });
+    this._updateThemeButtons();
+  },
+  // Tema do SO via WebView (prefers-color-scheme). Fallback 'dark'.
+  _osTheme() {
+    try {
+      return (window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    } catch (e) { return 'dark'; }
+  },
+  // Chamado pelo handler de 'theme' do backend: guarda o MODO ('system'/
+  // 'dark'/'light') e destaca o botao certo.
+  applyThemePref(pref) {
+    this.currentThemePref =
+      (pref === 'dark' || pref === 'light' || pref === 'system') ? pref : 'system';
     this._updateThemeButtons();
   },
   _updateThemeButtons() {
-    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const pref = this.currentThemePref || 'system';
+    // Um unico ativo: limpa TODOS e marca so o botao do modo atual. Assim
+    // "sistema" nunca fica aceso junto com "escuro"/"claro", e qualquer estado
+    // sujo (ex.: highlight antigo por tema resolvido) se auto-corrige.
     document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.theme === current);
+      btn.classList.remove('active');
     });
+    const active = document.querySelector('.theme-toggle-btn[data-theme="' + pref + '"]');
+    if (active) active.classList.add('active');
   },
-  async save() {
+  // Aplica as configuracoes IMEDIATAMENTE (sem botao Salvar). O listener de
+  // 'change' do modal chama isto a cada alteracao — le todos os campos e envia
+  // so os que mudaram (diff contra current*). A hotkey e tratada a parte
+  // (onHotkeyChange -> _commitHotkey), pois exige validacao async no backend.
+  commit() {
     try {
       const language = document.getElementById('settingsLanguage').value || '';
       const path = document.getElementById('settingsRecDir').value.trim();
       const codec = document.getElementById('settingsCodec').value;
       const windowTitle = document.getElementById('settingsWindowTitle').value.trim();
       const filenamePattern = document.getElementById('settingsFilenamePattern').value.trim();
-      const hotkey = this._readHotkeyFromUi();
       const autostart = document.getElementById('settingsAutostart').checked;
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
@@ -186,36 +240,15 @@ const Settings = {
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
+      const autoRecordOnMic = document.getElementById('settingsAutoRecordOnMic').checked;
+      const autoRecordMicApps = document.getElementById('settingsAutoRecordMicApps').value.trim();
+      const autoRecordMicExcept = document.getElementById('settingsAutoRecordMicExcept').value.trim();
       const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
       // Slider snap nas predefinicoes — _currentFpsFromSlider mapeia
       // indice -> fps direto da lista, garantindo valor valido [20..max].
       const recordingFps = this._currentFpsFromSlider();
       const recordingKeyframe = parseInt(document.getElementById('settingsRecordingKeyframe').value, 10) | 0;
       const libraryThumbs = document.getElementById('settingsLibraryThumbs').value;
-      console.log('[Settings.save]', { path, codec, hotkey, autostart, closeToTray,
-        minimizeOnRecord, notifyOnRecord, scrollLockIndicator, hibernate,
-        recordingQuality, recordingFps,
-        prev: { recDir: this.currentRecDir, codec: this.currentCodec, hotkey: this.currentHotkey,
-                autostart: this.currentAutostart, closeToTray: this.currentCloseToTray,
-                minimizeOnRecord: this.currentMinimizeOnRecord,
-                notifyOnRecord: this.currentNotifyOnRecord,
-                scrollLockIndicator: this.currentScrollLockIndicator,
-                hibernate: this.currentHibernate,
-                recordingQuality: this.currentRecordingQuality,
-                recordingFps: this.currentRecordingFps } });
-
-      // Valida hotkey via backend (regra centralizada em OBSHotkey/OBSBridge).
-      // Cobre tanto spec invalido (so modificadores) quanto combinacoes
-      // reservadas pelo Windows. Se rejeitado, mostra Toast e mantem o
-      // modal aberto pro user corrigir.
-      if (hotkey !== '') {
-        const validation = await validateHotkeyWithBackend(hotkey);
-        if (!validation.ok) {
-          Toast.show(T('toast.invalidHotkey'), validation.reason +
-            ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
-          return;
-        }
-      }
 
       // path vazio = restaurar pro default (USERPROFILE\Videos). So
       // envia se mudou — evita rebuild desnecessario da lista de gravacoes.
@@ -228,9 +261,6 @@ const Settings = {
         Bridge.send('set_window_title', { title: windowTitle });
       if (filenamePattern !== this.currentFilenamePattern)
         Bridge.send('set_filename_pattern', { pattern: filenamePattern });
-      // Hotkey: salva sempre (string vazia = desativa atalho).
-      if (hotkey !== this.currentHotkey)
-        Bridge.send('set_hotkey', { hotkey });
       if (autostart !== this.currentAutostart)
         Bridge.send('set_autostart', { enabled: autostart });
       if (closeToTray !== this.currentCloseToTray)
@@ -247,6 +277,12 @@ const Settings = {
         Bridge.send('set_stop_on_lock', { enabled: stopOnLock });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
+      if (autoRecordOnMic !== this.currentAutoRecordOnMic)
+        Bridge.send('set_auto_record_on_mic', { enabled: autoRecordOnMic });
+      if (autoRecordMicApps !== this.currentAutoRecordMicApps)
+        Bridge.send('set_auto_record_mic_apps', { apps: autoRecordMicApps });
+      if (autoRecordMicExcept !== this.currentAutoRecordMicExcept)
+        Bridge.send('set_auto_record_mic_except', { apps: autoRecordMicExcept });
       if (recordingQuality !== this.currentRecordingQuality)
         Bridge.send('set_recording_quality', { level: recordingQuality });
       if (recordingFps !== this.currentRecordingFps)
@@ -264,7 +300,6 @@ const Settings = {
       if (codec) this.currentCodec = codec;
       this.currentWindowTitle = windowTitle || 'NoOBS';
       this.currentFilenamePattern = filenamePattern || this.currentFilenamePattern;
-      this.currentHotkey = hotkey;
       this.currentAutostart = autostart;
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
@@ -273,6 +308,9 @@ const Settings = {
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
       this.currentHibernate = hibernate;
+      this.currentAutoRecordOnMic = autoRecordOnMic;
+      this.currentAutoRecordMicApps = autoRecordMicApps;
+      this.currentAutoRecordMicExcept = autoRecordMicExcept;
       this.currentRecordingQuality = recordingQuality;
       this.currentRecordingFps = recordingFps;
       this.currentRecordingKeyframe = recordingKeyframe;
@@ -283,15 +321,29 @@ const Settings = {
       // remove o warning de canvas grande).
       if (typeof Displays !== 'undefined' && Displays._updateCount)
         Displays._updateCount();
-      this.close();
-      Toast.show(T('toast.saved'), '', { ttl: 2000 });
     } catch (err) {
-      console.error('[Settings.save] erro:', err);
+      console.error('[Settings.commit] erro:', err);
       Toast.show(T('toast.errorSaving'), String(err && err.message || err),
         { warn: true, ttl: 6000 });
     }
   },
   applySettings(data) {
+    // Com o modal ABERTO, a UI e a fonte da verdade dos campos. O backend
+    // pode ecoar um snapshot no MEIO de um lote de alteracoes: o
+    // HandleSetRecordDir chama PushSettings assim que grava a pasta, e o
+    // commit() envia set_record_dir ANTES de set_codec/set_recording_quality
+    // — entao esse snapshot ainda traz codec/qualidade velhos. Reaplicar
+    // isso jogava valores antigos por cima do que o usuario tinha acabado
+    // de definir (sintoma: "Restaurar padroes" so aparecia depois de fechar
+    // e reabrir a tela). Aqui so absorvemos o recordDir, que e o unico campo
+    // que o backend RESOLVE sozinho (vazio -> USERPROFILE\Videos).
+    const overlay = document.getElementById('settingsOverlay');
+    if (overlay && overlay.classList.contains('visible')) {
+      this.currentRecDir = data.recordDir || '';
+      const rd = document.getElementById('settingsRecDir');
+      if (rd) rd.value = this.currentRecDir;
+      return;
+    }
     this.currentRecDir = data.recordDir || '';
     const prevCodec = this.currentCodec;
     this.currentCodec = data.codec || 'auto';
@@ -318,6 +370,9 @@ const Settings = {
     // hibernate: default true — so faz sentido com closeToTray ON, e gateamos
     // a UI pra forcar isso (ambos vem ON por padrao, entao consistente).
     this.currentHibernate = !!data.hibernate;
+    this.currentAutoRecordOnMic = !!data.autoRecordOnMic;
+    this.currentAutoRecordMicApps = data.autoRecordMicApps || '';
+    this.currentAutoRecordMicExcept = data.autoRecordMicExcept || '';
     // recordingQuality: -4..+2, default 0
     let rq = parseInt(data.recordingQuality, 10);
     if (!Number.isFinite(rq)) rq = 0;
@@ -378,6 +433,12 @@ const Settings = {
     if (sol) sol.checked = this.currentStopOnLock;
     const hb = document.getElementById('settingsHibernate');
     if (hb) hb.checked = this.currentHibernate;
+    const arm = document.getElementById('settingsAutoRecordOnMic');
+    if (arm) arm.checked = this.currentAutoRecordOnMic;
+    const arma = document.getElementById('settingsAutoRecordMicApps');
+    if (arma) arma.value = this.currentAutoRecordMicApps;
+    const arme = document.getElementById('settingsAutoRecordMicExcept');
+    if (arme) arme.value = this.currentAutoRecordMicExcept;
     const rqEl = document.getElementById('settingsRecordingQuality');
     if (rqEl) rqEl.value = String(this.currentRecordingQuality);
     this._syncQualityHint();
@@ -396,10 +457,13 @@ const Settings = {
     this._syncMinimizeOnRecordLabel();
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
+    this._syncAutoRecordExceptVisibility();
     this._syncCodecMaxRes();
   },
   setPickedPath(path) {
     document.getElementById('settingsRecDir').value = path;
+    // Set programatico nao dispara 'change' — aplica na hora manualmente.
+    this.commit();
   },
   // Cascata de dependencias:
   //   closeToTray (master tray) → muda label do minimizeOnRecord
@@ -532,9 +596,30 @@ const Settings = {
     if (!el || !hint) return;
     const v = parseInt(el.value, 10) | 0;
     // Chave estilo 'settings.quality.hint.-4' .. '.2' — match com o JSON.
-    if (v >= -4 && v <= 2) hint.textContent = T('settings.quality.hint.' + v);
-    else hint.textContent = '';
+    let txt = (v >= -4 && v <= 2) ? T('settings.quality.hint.' + v) : '';
+    // Anexa a taxa de bits real que sera aplicada no encoder pra esse nivel
+    // (espelha OBSEncoder.QualityLevelToBitrate). Nivel 0 = sem override =
+    // o proprio encoder decide a taxa (sem numero fixo).
+    if (txt) {
+      const kbps = this._qualityBitrate(v);
+      txt += ' ' + (kbps > 0 ? T('settings.quality.bitrate', { kbps })
+                             : T('settings.quality.bitrateDefault'));
+    }
+    hint.textContent = txt;
     this._syncSliderFill(el);
+  },
+  // Espelha OBSEncoder.QualityLevelToBitrate (kbps). 0 = sem override (o
+  // encoder usa a taxa dele). Manter em sincronia com o Delphi.
+  _qualityBitrate(level) {
+    switch (level) {
+      case -4: return 800;
+      case -3: return 1500;
+      case -2: return 2500;
+      case -1: return 4000;
+      case 1:  return 10000;
+      case 2:  return 20000;
+      default: return 0;
+    }
   },
   // Atualiza a CSS var --val (0..1) usada pelo linear-gradient da track
   // pra colorir a parte preenchida em verde. Chamado pelos _sync*Hint
@@ -704,6 +789,35 @@ const Settings = {
     row.classList.toggle('disabled', !tray);
     if (!tray) hib.checked = false;
   },
+  // O campo de excecoes so faz sentido quando NAO ha lista de monitorados
+  // (monitora tudo, menos as excecoes). Com apps monitorados especificos, a
+  // propria lista ja e o filtro e as excecoes nao se aplicam (o backend
+  // tambem as ignora nesse caso), entao esconde pra nao confundir. NAO limpa
+  // o valor — se o user esvaziar os monitorados de novo, as excecoes voltam.
+  // Troca a aba visivel do menu lateral. Os campos das outras abas continuam
+  // NO DOM (so com display:none) — e por isso que os getElementById, o
+  // listener delegado de 'change' (commit imediato) e os _sync* de
+  // dependencia seguem funcionando sem nenhuma alteracao de logica.
+  showTab(name) {
+    this.currentTab = name;
+    document.querySelectorAll('.settings-field[data-panel]').forEach(f => {
+      f.style.display = (f.dataset.panel === name) ? '' : 'none';
+    });
+    document.querySelectorAll('.settings-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    // Cada aba comeca do topo — senao herda o scroll da aba anterior.
+    const body = document.getElementById('settingsBody');
+    if (body) body.scrollTop = 0;
+    // Lista de dispositivos montada sob demanda.
+    if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
+  },
+  _syncAutoRecordExceptVisibility() {
+    const apps = document.getElementById('settingsAutoRecordMicApps');
+    const wrap = document.getElementById('settingsAutoRecordExceptWrap');
+    if (!apps || !wrap) return;
+    wrap.style.display = (apps.value.trim() === '') ? '' : 'none';
+  },
   restoreDefaults() {
     // Reseta APENAS os campos do modal (UI) — nao salva nada. User
     // revisa e clica Salvar pra confirmar, ou Cancelar pra descartar.
@@ -741,6 +855,9 @@ const Settings = {
         document.getElementById('settingsPlaySoundOnRecord').checked = true;
         document.getElementById('settingsStopOnLock').checked = true;
         document.getElementById('settingsHibernate').checked = true;
+        document.getElementById('settingsAutoRecordOnMic').checked = false;
+        document.getElementById('settingsAutoRecordMicApps').value = '';
+        document.getElementById('settingsAutoRecordMicExcept').value = '';
         document.getElementById('settingsRecordingQuality').value = '0';
         // FPS: snap pra 30 (preset garantido a existir se max >= 30).
         // Atualiza currentRecordingFps ANTES de _applyFpsPresetsToSlider
@@ -758,11 +875,22 @@ const Settings = {
         this._syncMinimizeOnRecordLabel();
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
+        this._syncAutoRecordExceptVisibility();
         this._syncQualityHint();
         this._syncFpsHint();
         this._syncKeyframeHint();
         this._syncCodecMaxRes();
         this._renderFilenamePreview();
+        // Dispositivos ocultos nao tem campo no DOM — o reset generico acima
+        // nao os alcanca. Desfaz explicitamente (volta todos a visiveis).
+        if (typeof Devices !== 'undefined') Devices.showAll();
+        // Aplica os defaults IMEDIATAMENTE (nao ha botao Salvar).
+        this.commit();
+        this._commitHotkey();
+        // Re-sincroniza a aba visivel: os campos de outras abas estao com
+        // display:none na hora do reset, e alguns controles (fill dos
+        // sliders, hints) so recalculam direito quando visiveis.
+        this.showTab(this.currentTab);
         Toast.show(T('toast.fieldsReset'),
           T('toast.fieldsResetBody'), { ttl: 4000 });
       },
@@ -776,6 +904,23 @@ const Settings = {
 
   onHotkeyChange() {
     this._updateHotkeyPreview();
+    this._commitHotkey();
+  },
+  // Aplica a hotkey imediatamente (async: valida no backend). Separada do
+  // commit() geral. Se invalida, avisa e NAO aplica (currentHotkey fica).
+  async _commitHotkey() {
+    const hotkey = this._readHotkeyFromUi();
+    if (hotkey === this.currentHotkey) return;
+    if (hotkey !== '') {
+      const validation = await validateHotkeyWithBackend(hotkey);
+      if (!validation.ok) {
+        Toast.show(T('toast.invalidHotkey'), validation.reason +
+          ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
+        return;
+      }
+    }
+    Bridge.send('set_hotkey', { hotkey });
+    this.currentHotkey = hotkey;
   },
 
   _makeOpt(val, label) {

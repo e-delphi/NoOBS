@@ -553,7 +553,7 @@ begin
   end;
   Cams := EnumerateWebcams;
   for i := 0 to High(Cams) do
-    if GetSourceBool('webcams', Cams[i].Name, False) then
+    if GetSourceActive('webcams', Cams[i].Name, False) then
     begin
       BoundingW := BoundingW + Cams[i].Width;
       if Cams[i].Height > BoundingH then BoundingH := Cams[i].Height;
@@ -696,7 +696,7 @@ begin
   Log('-- Webcams --');
   for i := 0 to High(Cams) do
   begin
-    if not GetSourceBool('webcams', Cams[i].Name, False) then Continue;
+    if not GetSourceActive('webcams', Cams[i].Name, False) then Continue;
 
     SourceName := ToAnsi('NoOBS Webcam - ' + Cams[i].Name);
     Settings := MakeSettings;
@@ -814,13 +814,13 @@ begin
 
   for j := 0 to High(Mics) do
   begin
-    MicEnabledArr[j] := GetSourceBool('mics', Mics[j].Name, True);
+    MicEnabledArr[j] := GetSourceActive('mics', Mics[j].Name, True);
     MicDefaultArr[j] := (DefaultMicId <> '') and
       SameText(FromAnsi(PAnsiChar(Mics[j].DeviceId)), DefaultMicId);
   end;
   for j := 0 to High(Outputs) do
   begin
-    OutEnabledArr[j] := GetSourceBool('speakers', Outputs[j].Name, True);
+    OutEnabledArr[j] := GetSourceActive('speakers', Outputs[j].Name, True);
     OutDefaultArr[j] := (DefaultSpkId <> '') and
       SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId);
   end;
@@ -854,7 +854,7 @@ begin
       TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := GetSourceBool('mics', Mics[j].Name, True);
+    Enabled := GetSourceActive('mics', Mics[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);
@@ -879,7 +879,7 @@ begin
       TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := GetSourceBool('speakers', Outputs[j].Name, True);
+    Enabled := GetSourceActive('speakers', Outputs[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);

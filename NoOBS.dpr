@@ -49,6 +49,7 @@ uses
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',
+  WinMicWatch in 'src\WinMicWatch.pas',
   WinPreview in 'src\WinPreview.pas',
   WinWebcam in 'src\WinWebcam.pas',
   NoOBSLockDetector in 'src\NoOBSLockDetector.pas',

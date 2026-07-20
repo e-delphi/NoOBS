@@ -56,6 +56,18 @@
     min-height: 0;
   }
 
+  /* Janela estreita: o sidebar direito (Telas + Gravações) fica espremido no
+     1fr e quebra (meta "N arquivos | ... | ... livres" empilha, cards somem).
+     Abaixo do breakpoint, colapsa pra coluna unica — so a .sources (cartao de
+     gravacao + audio, o nucleo do app) — e oculta o .recordings. Alargar a
+     janela traz as gravacoes/telas de volta. Media query e em CSS px, entao ja
+     considera o scaling do Windows (ex.: 674px CSS numa tela 842px @ 125%). */
+  @media (max-width: 760px) {
+    .main { grid-template-columns: 1fr; }
+    .sources { border-right: none; }
+    .recordings { display: none; }
+  }
+
   /* === Sources === */
   .sources {
     position: relative;

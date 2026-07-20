@@ -157,6 +157,9 @@ function QualityLevelToBitrate(ALevel: Integer): Integer;
 //
 // Em resolucoes/codecs diferentes a percepcao de qualidade muda mas
 // a escala relativa (mais baixo = pior, mais alto = melhor) se preserva.
+//
+// ESPELHADO em Settings._qualityBitrate (ui/js/settings.js), que mostra esse
+// valor na legenda da tela de Configuracoes. Mudou aqui? Mude la tambem.
 begin
   case ALevel of
     -4: Result := 800;

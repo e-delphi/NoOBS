@@ -45,6 +45,18 @@ function GetSourceBool(const ACategory, AId: string;
   ADefault: Boolean): Boolean;
 procedure SetSourceBool(const ACategory, AId: string; AValue: Boolean);
 
+// "Oculto": o dispositivo some da lista da tela inicial E nao entra na
+// gravacao. Namespace paralelo ('hidden_mics' etc.) de proposito — ocultar
+// NAO mexe no enabled, entao desocultar devolve o device com a mesma
+// preferencia de gravacao que ele tinha antes.
+function GetSourceHidden(const ACategory, AId: string): Boolean;
+procedure SetSourceHidden(const ACategory, AId: string; AValue: Boolean);
+// "Ativo pra gravacao" = marcado E nao oculto. Os caminhos de gravacao
+// (OBSEngine/OBSScene) devem usar ESTA funcao, nunca GetSourceBool direto:
+// senao um device oculto continuaria sendo gravado invisivelmente.
+function GetSourceActive(const ACategory, AId: string;
+  ADefault: Boolean): Boolean;
+
 function ConfigFilePath: string;
 
 // Limpa cache em memoria — proxima leitura recarrega do disco.
@@ -361,6 +373,30 @@ begin
   finally
     ConfigLock.Leave;
   end;
+end;
+
+// Prefixo da categoria paralela de ocultos: 'mics' -> 'hidden_mics'.
+function HiddenCategory(const ACategory: string): string;
+begin
+  Result := 'hidden_' + ACategory;
+end;
+
+function GetSourceHidden(const ACategory, AId: string): Boolean;
+begin
+  Result := GetSourceBool(HiddenCategory(ACategory), AId, False);
+end;
+
+procedure SetSourceHidden(const ACategory, AId: string; AValue: Boolean);
+begin
+  SetSourceBool(HiddenCategory(ACategory), AId, AValue);
+end;
+
+function GetSourceActive(const ACategory, AId: string;
+  ADefault: Boolean): Boolean;
+begin
+  // Chamadas sequenciais (nao aninhadas) — cada uma pega/solta o ConfigLock.
+  Result := GetSourceBool(ACategory, AId, ADefault) and
+            not GetSourceHidden(ACategory, AId);
 end;
 
 procedure ResetConfigCache;

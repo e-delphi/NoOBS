@@ -120,6 +120,20 @@ function applyTheme(theme) {
   notifyTitlebarTheme(theme);
 }
 
+// Modo "Sistema": segue mudancas de tema do SO ao vivo. O WebView dispara
+// 'change' no prefers-color-scheme quando o Windows troca claro<->escuro.
+// So reage se o usuario esta em 'system'; reenvia set_theme('system') pro
+// backend re-resolver pela registry + atualizar o menu da bandeja.
+try {
+  const _mq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+  if (_mq && _mq.addEventListener) {
+    _mq.addEventListener('change', () => {
+      if (typeof Settings !== 'undefined' && Settings.currentThemePref === 'system')
+        Settings.setTheme('system');
+    });
+  }
+} catch (e) {}
+
 // =====================================================================
 // Context menu (right-click em rec-card)
 // =====================================================================

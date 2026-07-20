@@ -616,7 +616,7 @@
   .player-view-label {
     flex: 1;
     font-size: 12px;
-    color: var(--text-1);
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -915,16 +915,24 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    /* O menu abre pra CIMA e cresce com o numero de opcoes: num player
+       pequeno (ou janela baixa) estouraria pra fora do topo. Limita a
+       altura e deixa rolar. */
+    max-height: min(320px, 50vh);
+    overflow-y: auto;
   }
   .player-speed-menu[hidden] { display: none; }
   .player-speed-option {
     padding: 6px 12px;
     border-radius: 5px;
     font-size: 12.5px;
-    color: var(--text-1);
+    color: var(--text);
     text-align: center;
     cursor: pointer;
     transition: background 0.12s, color 0.12s;
+    /* Com o menu em scroll (max-height), sem isso o flex column espremeria
+       as opcoes em vez de rolar. */
+    flex-shrink: 0;
   }
   .player-speed-option:hover { background: rgba(255,255,255,0.08); }
   .player-speed-option.selected {
@@ -948,5 +956,29 @@
   [data-theme="light"] .player-speed-option.selected {
     background: rgba(16, 185, 129, 0.14);
     color: #047857;
+  }
+
+  /* ===== Controles responsivos (janela estreita / modo compacto) ===== */
+  /* O player e sempre full-viewport (.player-overlay position:fixed inset:0),
+     entao media query por largura da janela == largura do player. Em vez de
+     espremer a barra de progresso ate ficar inutilizavel, ela quebra pra uma
+     linha propria (largura total) e os botoes ficam na linha de cima. */
+  @media (max-width: 640px) {
+    .player-controls {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+    /* order:1 manda o seek pro fim -> linha propria ABAIXO dos botoes. Como a
+       waveform e posicionada em top:100% do wrap, ela continua logo abaixo do
+       seek (dentro do padding), sem sobrepor os botoes. */
+    .player-seek-wrap {
+      order: 1;
+      flex-basis: 100%;
+    }
+  }
+  /* Muito estreito: esconde o slider de volume (mantem o botao de mudo) pros
+     botoes caberem numa linha so. */
+  @media (max-width: 460px) {
+    .player-volume { display: none; }
   }
 

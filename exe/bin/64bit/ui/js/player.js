@@ -358,7 +358,7 @@ const Player = {
     if (!isFinite(rate) || rate <= 0) return;
     this.playbackSpeed = rate;
     const v = document.getElementById('playerVideo');
-    if (v) v.playbackRate = rate;
+    if (v) { try { v.playbackRate = rate; } catch (e) {} }
     // Label: 1× / 0,5× / 1,5× — virgula como separador decimal (pt-BR).
     const lbl = document.getElementById('playerSpeedLabel');
     if (lbl) {
@@ -1232,7 +1232,10 @@ const Player = {
     this.audioEls.forEach((a, i) => {
       if (forceSeek || Math.abs(a.currentTime - v.currentTime) > 0.05)
         a.currentTime = v.currentTime;
-      a.playbackRate = v.playbackRate;
+      // Em taxas altas o elemento pode rejeitar a rate com NotSupportedError.
+      // Sem o try, o throw aborta o forEach e derruba a sincronia das faixas
+      // seguintes — engole e segue (o video manda).
+      try { a.playbackRate = v.playbackRate; } catch (e) {}
       if (!v.paused && a.paused) {
         a.play().then(
           () => log('track ' + (i+1) + ' play OK vol=' + a.volume),
@@ -1247,7 +1250,9 @@ const Player = {
   applyRateAudios() {
     const v = document.getElementById('playerVideo');
     if (!v) return;
-    this.audioEls.forEach(a => { a.playbackRate = v.playbackRate; });
+    this.audioEls.forEach(a => {
+      try { a.playbackRate = v.playbackRate; } catch (e) {}
+    });
   },
   startDriftCheck() {
     if (this.driftRaf) return;

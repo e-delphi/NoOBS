@@ -118,6 +118,11 @@ procedure UnregisterGlobalHotkey(AId: Integer);
 // no fim do warmup do libobs pra iniciar gravacao automaticamente.
 function StartRecordRequested: Boolean;
 
+// True se o flag foi /start-record-mic — a hibernacao detectou uso do
+// microfone (WinMicWatch) e spawnou pra gravar. Marca a gravacao como "auto"
+// pra ser auto-parada quando o mic for liberado.
+function StartRecordRequestedByMic: Boolean;
+
 // Sai do modo full e re-spawna o exe em /hibernate. Chamado pelo
 // OBSBridge quando o idle timer (1min sem janela visivel) dispara.
 // Fluxo: spawna NoOBS.exe /hibernate + DestroyWindow (-> WM_DESTROY ->
@@ -240,6 +245,9 @@ var
   // modo hibernate). OBSBridge consulta em TIMER_OBS_WARMUP pra iniciar
   // gravacao automaticamente assim que libobs esta pronto.
   FStartRecordRequested: Boolean = False;
+  // Subcaso: o /start-record veio do monitor de microfone (WinMicWatch na
+  // hibernacao), nao da hotkey. Marca a gravacao como auto (auto-para).
+  FStartRecordMic: Boolean = False;
 
   SetPreferredAppMode:    TSetPreferredAppMode    = nil;
   AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
@@ -694,6 +702,11 @@ end;
 function StartRecordRequested: Boolean;
 begin
   Result := FStartRecordRequested;
+end;
+
+function StartRecordRequestedByMic: Boolean;
+begin
+  Result := FStartRecordMic;
 end;
 
 procedure SpawnHibernateAndExit;
@@ -1384,8 +1397,12 @@ begin
   // apertou a hotkey de gravacao. Marca pra OBSBridge consultar em
   // TIMER_OBS_WARMUP e iniciar gravacao apos libobs estar pronto.
   FStartRecordRequested := Pos('/start-record', CmdLine) > 0;
+  // /start-record-mic CONTEM /start-record (entao FStartRecordRequested ja e
+  // True); o sufixo -mic so diferencia a origem: monitor de mic, nao hotkey.
+  FStartRecordMic := Pos('/start-record-mic', CmdLine) > 0;
   if FStartRecordRequested then
-    Log('OBSUI.Run: /start-record detectado — gravacao iniciara apos warmup.');
+    Log('OBSUI.Run: /start-record detectado (mic=%s) — gravacao iniciara apos warmup.',
+      [BoolToStr(FStartRecordMic, True)]);
 
   WM_SHOW_INSTANCE := RegisterWindowMessage(SHOW_MSG_NAME);
   SingleInstanceMutex := CreateMutex(nil, False, MUTEX_NAME);

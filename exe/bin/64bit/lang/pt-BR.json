@@ -75,12 +75,27 @@
   },
   "settings": {
     "title": "Configurações",
+    "tabs": {
+      "general": "Geral",
+      "recording": "Gravação",
+      "files": "Arquivos",
+      "devices": "Dispositivos",
+      "window": "Janela e bandeja",
+      "behavior": "Comportamento",
+      "about": "Sobre"
+    },
+    "reset": {
+      "label": "Restaurar padrões",
+      "hint": "Volta TODAS as abas para os valores padrão de fábrica, não apenas esta. Aplicado na hora."
+    },
     "theme": {
       "label": "Tema",
       "light": "Claro",
       "dark": "Escuro",
       "toggleLight": "Tema claro",
-      "toggleDark": "Tema escuro"
+      "toggleDark": "Tema escuro",
+      "system": "Sistema",
+      "toggleSystem": "Tema do sistema"
     },
     "language": {
       "label": "Idioma",
@@ -191,6 +206,8 @@
       "label": "Qualidade da gravação",
       "lower": "Menor",
       "higher": "Maior",
+      "bitrate": "(taxa de {{kbps}} kbps)",
+      "bitrateDefault": "(sem taxa fixa)",
       "hint": {
         "-4": "Compactação máxima — arquivos minúsculos, qualidade bem abaixo do normal.",
         "-3": "Compactação muito alta — arquivos bem pequenos, qualidade nitidamente reduzida.",
@@ -271,11 +288,28 @@
       "label": "Liberar memória após 1 minuto na bandeja",
       "hint": "Quando o app fica na bandeja por mais de 1 minuto sem gravar, libera todos os recursos e fica em ~5 MB de RAM. Disponível apenas com 'Minimizar para bandeja' ativo."
     },
+    "autoRecord": {
+      "label": "Gravar automaticamente durante chamadas",
+      "hint": "Inicia a gravação quando detecta o microfone sendo usado por outro app (chamada de Teams, WhatsApp, etc.) e para quando ele é liberado. Funciona até com a janela na bandeja ou o app hibernando.",
+      "appsPlaceholder": "teams, whatsapp, zoom",
+      "appsHint": "Apps a monitorar, separados por vírgula (parte do nome do processo). Vazio = qualquer app que use o microfone. Chamadas no navegador aparecem como chrome.exe / msedge.exe.",
+      "exceptPlaceholder": "steam, discord",
+      "exceptHint": "Exceções: apps a ignorar mesmo usando o microfone (separados por vírgula). Como está monitorando todos, estes ficam de fora."
+    },
     "buttons": {
       "reset": "Restaurar padrão",
-      "resetTitle": "Restaurar todos os campos pros valores padrão (não salva — você ainda precisa clicar Salvar)",
-      "cancel": "Cancelar",
-      "save": "Salvar"
+      "resetTitle": "Restaurar todos os campos pros valores padrão (aplicado na hora)",
+      "close": "Fechar"
+    }
+  },
+  "devices": {
+    "hint": "Desmarque para ocultar o dispositivo da tela inicial. Dispositivos ocultos não aparecem na lista e não entram na gravação.",
+    "empty": "Nenhum dispositivo conectado.",
+    "groups": {
+      "monitors": "Monitores",
+      "webcams": "Webcams",
+      "mics": "Microfones",
+      "speakers": "Alto-falantes"
     }
   },
   "about": {
@@ -359,7 +393,7 @@
     "invalidHotkey": "Atalho inválido",
     "fieldsReset": "Campos restaurados",
     "fieldsResetBody": "Clique Salvar pra aplicar as mudanças.",
-    "restoreConfirmMessage": "Isso vai redefinir todos os campos pros valores padrão. Você ainda precisa clicar em Salvar pra aplicar. Continuar?",
+    "restoreConfirmMessage": "Isso vai redefinir todos os campos pros valores padrão e aplicar na hora. Continuar?",
     "restoreConfirmOk": "Restaurar",
     "devicesUpdated": "Dispositivos atualizados",
     "monitorsUpdated": "Monitores atualizados",

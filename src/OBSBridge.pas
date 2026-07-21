@@ -100,7 +100,11 @@ const
   TIMER_AUDIO_METER    = 7005;
   // Tick de 1 min so pra ver se ja passaram 24h da ultima checagem de
   // versao. Nao e a frequencia da checagem — e a granularidade dela.
-  TIMER_UPDATE_CHECK   = 7006;
+  // 7011 e nao 7006: o 7006 JA era do TIMER_OBS_WARMUP (declarado mais
+  // abaixo). Dois SetTimer com o mesmo id na mesma janela nao coexistem —
+  // o segundo substitui o primeiro. Resultado: o warmup nunca disparava e
+  // o /start-record vindo da hibernacao era detectado mas nunca executado.
+  TIMER_UPDATE_CHECK   = 7011;
   UPDATE_CHECK_TICK_MS = 60000;
   AUDIO_METER_MS       = 100;
 
@@ -2627,6 +2631,7 @@ procedure HandleRecordStart;
 var
   OutputPath: string;
   T0, TStep: UInt64;
+  ColdStart: Boolean;
 begin
   if RecordingActive then Exit;
 
@@ -2660,9 +2665,24 @@ begin
       Engine := TOBSEngine.Create;
       Engine.OnStopped := OnEngineRecordingStopped;
     end;
+    ColdStart := (Engine = nil) or (not Engine.IsInitialized);
     Engine.EnsureInitialized;
     Log('HandleRecordStart: EnsureInitialized em %dms.',
       [GetTickCount64 - TStep]);
+
+    // NAO adianta esperar aqui. Ja tentamos um Sleep de 500ms neste ponto
+    // achando que a RTWQ do Windows "ainda nao estava pronta" — o log
+    // provou o contrario: a espera correu inteira e o
+    // RtwqLockSharedWorkQueue falhou 533ms DEPOIS dela. A RTWQ e montada
+    // pelo win-wasapi na criacao da fonte, nao no obs_startup, entao
+    // atrasar a montagem nao muda nada. ColdStart segue registrado so pra
+    // correlacionar no log: a falha so aparece em processo novo que sobe
+    // rapido (~350ms), nunca no caminho warm.
+    if ColdStart then
+      Log('HandleRecordStart: cold start (libobs subiu agora).');
+
+    // Zera antes de montar: o ObsLogHandler marca se a captura falhar.
+    OBSEngine.ResetAudioCaptureFault;
 
     // Nome do arquivo pelo modelo configuravel (config 'filenamePattern'),
     // com sufixo ' (N)' se colidir. Ver ApplyFilenamePattern/BuildRecordingPath.
@@ -2670,6 +2690,23 @@ begin
 
     TStep := GetTickCount64;
     Engine.BuildAndStartRecording(OutputPath);
+    // Captura de audio falhou em agendar? As fontes existem e nao estao
+    // mutadas, mas nao recebem amostra nenhuma — a gravacao sairia muda e
+    // o usuario so descobriria assistindo depois. Avisa AGORA, enquanto da
+    // tempo de parar e regravar.
+    if OBSEngine.HadAudioCaptureFault then
+    begin
+      // SO log — NAO avisa o usuario. Motivo: estes erros do win-wasapi sao
+      // emitidos POR FONTE e a mensagem do libobs nao diz qual. Endpoints
+      // virtuais (Steam Streaming, Saida Digital) falham sozinhos sem
+      // afetar os dispositivos reais, entao o aviso disparava em gravacao
+      // perfeitamente boa. Alarme falso e pior que alarme nenhum: ensina o
+      // usuario a ignorar, e ai o caso real passa batido.
+      // Pra voltar a avisar e preciso primeiro atribuir o erro a um device
+      // especifico — hoje nao da.
+      Log('HandleRecordStart: win-wasapi reportou falha de agendamento (RTWQ). ' +
+        'Pode ser so endpoint virtual — nao necessariamente gravacao muda.');
+    end;
     Log('HandleRecordStart: BuildAndStartRecording em %dms.',
       [GetTickCount64 - TStep]);
 

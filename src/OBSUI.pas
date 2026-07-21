@@ -743,6 +743,21 @@ begin
     Log('SpawnHibernate: mutex liberado.');
   end;
 
+  // Libera a hotkey ANTES do spawn, pelo mesmo motivo do mutex acima.
+  // O processo /hibernate chama RegisterHotKey logo no arranque; se este
+  // processo ainda a tiver registrada, o Windows RECUSA e a hibernacao
+  // sobe SEM atalho — silenciosamente (pegadinha #33: falhar em registrar
+  // nao e fatal). Resultado: apertar a tecla nao fazia nada.
+  // Antes isso so acontecia no Shutdown, DEPOIS do DestroyWindow — ou seja,
+  // depois do spawn. Era uma corrida: as vezes o full saia a tempo, as
+  // vezes nao.
+  // Mesmos ids do OBSBridge/OBSHibernate (HK_RECORD_TOGGLE = 100 e o ALT
+  // = 101, usado no caso Ctrl+Pause -> VK_CANCEL). Desregistrar id nao
+  // registrado e inofensivo.
+  UnregisterGlobalHotkey(100);
+  UnregisterGlobalHotkey(101);
+  Log('SpawnHibernate: hotkey liberada (antes do spawn).');
+
   HInst := ShellExecuteW(0, nil, PWideChar(@ExePath[0]),
     '/hibernate', nil, SW_SHOWNORMAL);
   if NativeUInt(HInst) <= 32 then

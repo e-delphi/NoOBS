@@ -6,6 +6,12 @@
   delimitada pelo cabecalho SESSION START); retencao dos 3 dias mais recentes
   (PruneOldDailyLogs apaga o excedente no startup).
 
+  O modo /hibernate usa arquivo SEPARADO: NoOBS_yyyy-mm-dd_hib.log. Os dois
+  processos coexistem por alguns instantes (o full lanca a hibernacao antes
+  de encerrar) e o log e aberto com fmShareDenyWrite — compartilhando o
+  mesmo arquivo, a hibernacao nao conseguia abrir e rodava sem log nenhum.
+  A retencao trata cada familia por si (3 dias de cada).
+
   Cada linha: HH:MM:SS.zzz<2 espacos>texto.
   Cabecalho de sessao no startup, footer no finalization.
 
@@ -32,6 +38,7 @@ implementation
 uses
   Winapi.Windows,
   System.SysUtils,
+  System.StrUtils,   // EndsText — separa log do full x hibernacao na retencao
   System.IOUtils,
   System.Classes,
   System.SyncObjs;
@@ -106,7 +113,7 @@ end;
 // cronologicamente por string, entao basta ordenar e apagar o excedente
 // do inicio da lista. Tambem remove o log legado NoOBS.log da versao
 // anterior (um nivel acima, na raiz de NoOBS\), que nao segue o padrao novo.
-procedure PruneOldDailyLogs(const ADir: string);
+procedure PruneOldDailyLogs(const ADir: string; AIsHibernate: Boolean);
 const
   KEEP_DAYS = 3;
 var
@@ -128,7 +135,12 @@ begin
       faAnyFile, SR) = 0 then
     try
       repeat
-        if (SR.Attr and faDirectory) = 0 then
+        // Full e hibernacao tem arquivos separados (NoOBS_<data>.log e
+        // NoOBS_<data>_hib.log). A retencao conta cada familia por si:
+        // sem isso, "3 mais recentes" misturaria os dois e guardaria so
+        // 1,5 dia de cada.
+        if ((SR.Attr and faDirectory) = 0) and
+           (EndsText('_hib.log', SR.Name) = AIsHibernate) then
           Files.Add(SR.Name);
       until FindNext(SR) <> 0;
     finally
@@ -151,7 +163,8 @@ end;
 
 procedure InitLog;
 var
-  AppData, Dir: string;
+  AppData, Dir, Suffix: string;
+  i: Integer;
 begin
   AppData := GetEnvironmentVariable('LOCALAPPDATA');
   if AppData = '' then AppData := GetEnvironmentVariable('APPDATA');
@@ -165,8 +178,25 @@ begin
   except
     Exit;
   end;
+  // Modo /hibernate escreve em arquivo PROPRIO (NoOBS_<data>_hib.log).
+  //
+  // Por que: o SpawnHibernateAndExit lanca o processo /hibernate ANTES de
+  // o app full liberar o arquivo, e o log e aberto com fmShareDenyWrite.
+  // A hibernacao falhava em abrir, LogStream ficava nil e ela rodava
+  // MUDA — nenhuma linha, nunca. Isso tornou o modo indiagnosticavel.
+  //
+  // A deteccao e aqui dentro (e nao via setter) porque InitLog roda na
+  // initialization desta unit, antes de qualquer outra poder configurar.
+  Suffix := '';
+  for i := 1 to ParamCount do
+    if SameText(Trim(ParamStr(i)), '/hibernate') then
+    begin
+      Suffix := '_hib';
+      Break;
+    end;
+
   LogPath := IncludeTrailingPathDelimiter(Dir) +
-    'NoOBS_' + FormatDateTime('yyyy-mm-dd', Now) + '.log';
+    'NoOBS_' + FormatDateTime('yyyy-mm-dd', Now) + Suffix + '.log';
 
   LogLock := TCriticalSection.Create;
 
@@ -198,7 +228,7 @@ begin
   // conta e ficam no total 3 dias (hoje + 2 anteriores). O arquivo de hoje e o
   // nome lexicograficamente maior, entao nunca entra na lista de exclusao (sem
   // risco de apagar o log aberto). Tambem remove o log legado NoOBS.log.
-  try PruneOldDailyLogs(Dir); except end;
+  try PruneOldDailyLogs(Dir, Suffix <> ''); except end;
 end;
 
 procedure DoneLog;

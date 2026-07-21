@@ -106,8 +106,12 @@ function applyFinalizingState(active) {
   if (!btn) return;
   btn.classList.toggle('finalizing', active);
   btn.disabled = !!active;
+  // Repoe o texto ao SAIR do estado. Antes eu contava com um
+  // applyRecordingState posterior pra fazer isso — suposicao errada: o
+  // backend manda recording_state ANTES de parar, e depois do sinal "stop"
+  // so vem recording_finalizing(false) + o card. Ninguem repunha, e o
+  // "Finalizando gravacao..." ficava preso na tela pra sempre.
   const st = document.getElementById('recStatusText');
-  if (st && active) st.textContent = T('record.finalizing');
-  // Ao sair do estado, quem repoe o texto e o applyRecordingState seguinte
-  // (o backend manda recording_state logo apos adicionar o card).
+  if (st)
+    st.textContent = active ? T('record.finalizing') : T('record.statusReady');
 }

@@ -70,6 +70,9 @@ type
     function  StopRecording: string;   // sincrono — usado so no shutdown
     function  IsRecording: Boolean;
     function  IsStopping: Boolean;
+    // False = libobs ainda nao subiu. Usado pra detectar cold start (ver
+    // COLD_START_AUDIO_SETTLE_MS em OBSBridge).
+    function  IsInitialized: Boolean;
     procedure SetSourceMuted(const ASourceName: string; AMuted: Boolean);
     procedure Teardown;
     property Initialized: Boolean read FInitialized;
@@ -77,6 +80,13 @@ type
     property CurrentLayout: TRecordingLayout read FCurrentLayout;
     property OnStopped: TOBSStoppedProc read FOnStopped write FOnStopped;
   end;
+
+// Sinaliza que o win-wasapi falhou em agendar a captura de audio (RTWQ) na
+// ULTIMA montagem de gravacao — as fontes existem mas entregam silencio.
+// Detectado no ObsLogHandler, unico lugar onde o libobs reporta isso.
+// Chamar ResetAudioCaptureFault ANTES de montar; consultar DEPOIS.
+function HadAudioCaptureFault: Boolean;
+procedure ResetAudioCaptureFault;
 
 // Tipos publicos (TGpuVendor, TEncoderCaps, TObsAudioDev) ficam em
 // NoOBSTypes. Selecao de encoder foi pra OBSEncoder. Atribuicao de
@@ -122,6 +132,9 @@ type
   end;
 
 var
+  // Escrito pelo ObsLogHandler (thread do libobs), lido pela main apos a
+  // montagem. Boolean de uma via — nao precisa de lock.
+  AudioCaptureFault: Boolean = False;
   GScene: obs_scene_t;
   GOutput: obs_output_t;
   GVideoEncoder: obs_encoder_t;
@@ -161,6 +174,16 @@ begin
   else Result := UTF8ToString(P);
 end;
 
+function HadAudioCaptureFault: Boolean;
+begin
+  Result := AudioCaptureFault;
+end;
+
+procedure ResetAudioCaptureFault;
+begin
+  AudioCaptureFault := False;
+end;
+
 procedure ObsLogHandler(log_level: Integer; msg: PAnsiChar;
   args: Pointer; p: Pointer); cdecl;
 var
@@ -171,6 +194,18 @@ begin
   if log_level > LOG_WARNING then Exit;
 
   Raw := string(AnsiString(msg));
+
+  // Falha de captura de audio do win-wasapi. A RTWQ (Real-Time Work Queue
+  // do Windows) agenda a entrega dos buffers; se o lock da fila
+  // compartilhada falha, o callback NUNCA e agendado e a fonte entrega
+  // SILENCIO — sem erro, sem retorno, sem nada. A gravacao sai muda e o
+  // usuario so descobre depois, assistindo.
+  // Como o libobs nao expoe isso em nenhum valor de retorno, o log e o
+  // unico lugar onde a falha aparece. Marcamos aqui pra o Bridge avisar.
+  // Roda em thread do libobs — Boolean simples, sem lock (escrita unica).
+  if (Pos('RTWQ setup failed', Raw) > 0) or
+     (Pos('Could not requeue sample receive work', Raw) > 0) then
+    AudioCaptureFault := True;
 
   // Filtra warnings benignos do libobs que nao indicam bug no nosso codigo:
   // - "Double destroy": cleanup interno de plugins durante shutdown.
@@ -1071,6 +1106,11 @@ begin
   Result := FRecording;
 end;
 
+function TOBSEngine.IsInitialized: Boolean;
+begin
+  Result := FInitialized;
+end;
+
 function TOBSEngine.IsStopping: Boolean;
 begin
   Result := FStopping;
@@ -1087,24 +1127,56 @@ begin
 end;
 
 procedure TOBSEngine.Teardown;
+const
+  // 15s e nao 5s: a finalizacao de um canvas grande sozinha ja passou de
+  // 5,3s medidos. O valor antigo abandonava um shutdown que teria
+  // concluido. So e atingido se algo travar de verdade.
+  SHUTDOWN_TIMEOUT_MS = 15000;
 var
   ShutdownThread: TThread;
   Wait: DWORD;
+  T0: UInt64;
 begin
   // Marca shutdown: qualquer OnStopSignal enfileirado que ainda venha a
   // rodar (improvavel — o message loop ja saiu) vira no-op, evitando
   // mexer em objetos meio-liberados pelo obs_shutdown.
   FShuttingDown := True;
   DisconnectStopSignal;
-  // Para output ativo, mas NAO chama ReleaseRecordingObjects.
-  // obs_shutdown libera tudo internamente (sources, encoders, output).
-  // Liberar manualmente antes causa "Double destroy" porque obs_shutdown
-  // tenta liberar sources que ja foram destruidos.
+  // Pede o stop do output. A liberacao dos objetos vem logo abaixo, ANTES
+  // do obs_shutdown (ver bloco seguinte).
   if FRecording or FStopping then
   begin
     try obs_output_stop(GOutput); except end;
+    // obs_output_stop e ASSINCRONO (pegadinha #41): retorna na hora e o
+    // output continua drenando encoder + muxer. Chamar obs_shutdown logo
+    // em seguida ATROPELA essa finalizacao — e ela custa SEGUNDOS (medimos
+    // 5,3s num canvas 2x4K + webcam), mais do que o timeout do shutdown.
+    // Resultado: fechar o app gravando abandonava a finalizacao e podia
+    // truncar o arquivo, justamente o que o MKV deveria evitar.
     FRecording := False;
     FStopping := False;
+  end;
+
+  // LIBERA OS OBJETOS ANTES DO obs_shutdown — ordem do proprio OBS Studio,
+  // cujo frontend e explicito: "any obs data must be released before
+  // calling obs_shutdown" (OBSBasic.cpp), e faz outputHandler.reset()
+  // antes de chamar obs_shutdown() no OBSApp.
+  //
+  // Antes faziamos o CONTRARIO (deixar o obs_shutdown liberar tudo),
+  // achando que liberar antes causaria "Double destroy". O efeito era o
+  // obs_shutdown ter que desmontar objetos vivos nas threads internas
+  // dele — e estourar o timeout de 5s, sendo abandonado.
+  //
+  // De quebra isso resolve a espera do output sem poll: o
+  // obs_output_release se AUTO-SINCRONIZA (os_event_wait no stopping_event
+  // + pthread_join na thread de captura, pegadinha #41), entao ele so
+  // retorna quando a finalizacao terminou de verdade.
+  if FInitialized then
+  begin
+    T0 := GetTickCount64;
+    try ReleaseRecordingObjects; except end;
+    Log('libobs: objetos liberados em %dms (antes do shutdown).',
+      [GetTickCount64 - T0]);
   end;
   if FInitialized then
   begin
@@ -1123,13 +1195,19 @@ begin
     );
     ShutdownThread.FreeOnTerminate := False;
     ShutdownThread.Start;
-    Wait := WaitForSingleObject(ShutdownThread.Handle, 5000);
+    // Cronometra SEMPRE. Sem isso nao da pra saber se um shutdown que
+    // estourou o prazo levaria 6s ou 60s — ou seja, se o timeout esta
+    // curto demais ou se ha travamento de verdade. Era exatamente essa
+    // duvida que impedia o diagnostico.
+    T0 := GetTickCount64;
+    Wait := WaitForSingleObject(ShutdownThread.Handle, SHUTDOWN_TIMEOUT_MS);
     if Wait = WAIT_TIMEOUT then
-      Log('libobs: obs_shutdown nao retornou em 5s — abandonando.')
+      Log('libobs: obs_shutdown NAO retornou em %dms — abandonando ' +
+        '(processo esta saindo, o OS limpa o resto).', [SHUTDOWN_TIMEOUT_MS])
     else
     begin
       ShutdownThread.Free;
-      Log('libobs: shutdown ok.');
+      Log('libobs: shutdown ok em %dms.', [GetTickCount64 - T0]);
     end;
     GOutput := nil;
     GVideoEncoder := nil;

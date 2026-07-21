@@ -803,6 +803,20 @@ begin
   PostOwned(Init);
 end;
 
+// Avisa a UI que a gravacao anterior ainda esta sendo finalizada pelo libobs
+// (drenando a fila do encoder / fechando o muxer). A UI desabilita o botao de
+// gravar enquanto isso. Em canvas grande (2x4K + webcam) essa etapa passa de
+// 5s — sem aviso, a janela parecia travada.
+procedure PushFinalizing(AActive: Boolean);
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'recording_finalizing');
+  Obj.AddPair('active', TJSONBool.Create(AActive));
+  PostOwned(Obj);
+end;
+
 procedure PushRecordingState;
 var
   Obj: TJSONObject;
@@ -2525,6 +2539,8 @@ var
 begin
   KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
   Log('OnEngineRecordingStopped: path="%s"', [AOutputPath]);
+  // Arquivo integro: libera o botao de gravar.
+  PushFinalizing(False);
   if AOutputPath = '' then Exit;
 
   // Persiste layout (canvas + monitores/webcams) + duracao em <hash>.json
@@ -2622,11 +2638,16 @@ begin
   // — libera os objetos e adiciona o card da gravacao anterior — antes de
   // montar a nova. Evita o "Ja esta gravando" se o user clicar start logo
   // apos parar.
+  // Finalizacao anterior em curso: RECUSA o start. Antes chamava
+  // ForceCompleteStop, que concluia na hora — mas obs_output_release se
+  // auto-sincroniza e travava a MAIN THREAD por segundos, congelando a janela
+  // sem explicacao. Agora a UI desabilita o botao, e este guard cobre os
+  // outros caminhos de entrada: atalho global e auto-gravacao por microfone.
+  // O TIMER_STOP_TIMEOUT (10s) garante que isso nunca fica preso pra sempre.
   if (Engine <> nil) and Engine.IsStopping then
   begin
-    if MainWindowHandle <> 0 then
-      KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
-    try Engine.ForceCompleteStop; except end;
+    Log('HandleRecordStart: ignorado — finalizando a gravacao anterior.');
+    Exit;
   end;
 
   T0 := GetTickCount64;
@@ -2887,6 +2908,9 @@ begin
     PendingWebcamRefresh := False;
     DoRefreshWebcams;
   end;
+  // A partir daqui o libobs ainda esta fechando o arquivo. Trava o botao
+  // ate o sinal "stop" chegar (OnEngineRecordingStopped) ou o timeout.
+  PushFinalizing(True);
   Log('HandleRecordStop: fim (retornando ao message loop).');
 end;
 

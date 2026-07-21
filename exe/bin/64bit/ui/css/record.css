@@ -283,3 +283,26 @@
     }
   }
 
+
+/* Estado "finalizando": o libobs ainda esta fechando o arquivo. O botao
+   fica bloqueado (iniciar agora travaria a main thread no release do
+   output) com um anel girando em volta pra deixar claro que ha trabalho
+   em curso — antes a janela so ficava parada, sem explicacao. */
+.record-btn.finalizing {
+  cursor: progress;
+  opacity: 0.75;
+  pointer-events: none;
+}
+.record-btn.finalizing::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: var(--success);
+  border-right-color: var(--success);
+  animation: record-finalizing-spin 0.9s linear infinite;
+}
+@keyframes record-finalizing-spin {
+  to { transform: rotate(360deg); }
+}

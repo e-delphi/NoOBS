@@ -39,7 +39,8 @@
     "recordingFor": "Gravando há {{time}}",
     "started": "Gravação iniciada.",
     "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
-    "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação."
+    "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.",
+    "finalizing": "Finalizando gravação..."
   },
   "recordings": {
     "title": "Gravações",

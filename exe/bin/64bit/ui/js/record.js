@@ -89,3 +89,25 @@ function hideLoading() {
   if (ov) ov.classList.add('hidden');
 }
 
+
+// =====================================================================
+// Estado "finalizando": entre parar a gravacao e o arquivo ficar integro,
+// o libobs ainda drena a fila do encoder e fecha o muxer. Em canvas grande
+// (2x4K + webcam) isso passa de 5 segundos.
+//
+// Iniciar outra gravacao nesse meio-tempo trava a MAIN THREAD (o
+// obs_output_release se auto-sincroniza), entao o botao fica desabilitado
+// com um anel girando em volta. O backend tambem recusa o start — este
+// bloqueio visual cobre o clique, e o guard do Delphi cobre o atalho global
+// e a auto-gravacao por microfone.
+// =====================================================================
+function applyFinalizingState(active) {
+  const btn = document.getElementById('recordBtn');
+  if (!btn) return;
+  btn.classList.toggle('finalizing', active);
+  btn.disabled = !!active;
+  const st = document.getElementById('recStatusText');
+  if (st && active) st.textContent = T('record.finalizing');
+  // Ao sair do estado, quem repoe o texto e o applyRecordingState seguinte
+  // (o backend manda recording_state logo apos adicionar o card).
+}

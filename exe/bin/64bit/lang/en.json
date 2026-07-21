@@ -39,7 +39,8 @@
     "recordingFor": "Recording for {{time}}",
     "started": "Recording started.",
     "finished": "Recording finished ({{min}}m {{sec}}s).",
-    "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording."
+    "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording.",
+    "finalizing": "Finishing recording..."
   },
   "recordings": {
     "title": "Recordings",

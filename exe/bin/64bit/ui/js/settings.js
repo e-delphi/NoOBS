@@ -926,6 +926,14 @@ const Settings = {
         // Dispositivos ocultos nao tem campo no DOM — o reset generico acima
         // nao os alcanca. Desfaz explicitamente (volta todos a visiveis).
         if (typeof Devices !== 'undefined') Devices.showAll();
+        // FPS é o único campo em que o reset precisa escrever currentX ANTES
+        // (o slider guarda um ÍNDICE de preset, então _applyFpsPresetsToSlider
+        // depende de currentRecordingFps pra saber onde sentar). Só que isso
+        // derrota o guard do commit: ele compara slider (30) com currentX (30),
+        // conclui "não mudou" e nunca envia set_recording_fps — o backend ficava
+        // com o valor antigo e reabrir o app o trazia de volta.
+        // Zerar aqui, DEPOIS de todos os _sync*, força o commit a enviar.
+        this.currentRecordingFps = -1;
         // Aplica os defaults IMEDIATAMENTE (nao ha botao Salvar).
         this.commit();
         this._commitHotkey();

@@ -287,6 +287,9 @@ const Bridge = {
     waveform_ready(data) { Waveform.onReady(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
+    // O libobs ainda esta fechando o arquivo da gravacao anterior. Desabilita
+    // o botao: iniciar agora travaria a main thread no release do output.
+    recording_finalizing(data) { applyFinalizingState(!!data.active); },
     // Sinal cedo do backend ao comecar HandleRecordStop — tocamos o som
     // de parada AGORA em vez de esperar o flush dos buffers do MKV.
     // Cobre o caso da hotkey/tray, onde o UI nao passa pelo toggleRecord.

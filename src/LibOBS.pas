@@ -150,11 +150,21 @@ type
   log_handler_t = procedure(log_level: Integer; msg: PAnsiChar;
     args: Pointer; p: Pointer); cdecl;
 
+  // Tarefa agendada numa das threads internas do libobs (obs.h:923).
+  obs_task_t = procedure(param: Pointer); cdecl;
+
 const
   LOG_ERROR   = 100;
   LOG_WARNING = 200;
   LOG_INFO    = 300;
   LOG_DEBUG   = 400;
+
+  // enum obs_task_type (obs.h:925). A ordem e o valor importam — sao
+  // indices do enum C.
+  OBS_TASK_UI       = 0;
+  OBS_TASK_GRAPHICS = 1;
+  OBS_TASK_AUDIO    = 2;
+  OBS_TASK_DESTROY  = 3;
 
 // -----------------------------------------------------------------------
 // Logging (do util/base.h, exportado pela libobs)
@@ -173,6 +183,23 @@ function obs_startup(locale: PAnsiChar; module_config_path: PAnsiChar;
 procedure obs_shutdown; cdecl; external 'obs.dll' delayed;
 
 function obs_initialized: ByteBool; cdecl; external 'obs.dll' delayed;
+
+// Enfileira uma tarefa numa thread interna do libobs. Com wait=False
+// retorna na hora (so empilha na deque da thread alvo).
+//
+// Usamos isto pra SONDAR se a thread de graficos/audio ainda esta viva
+// antes de chamar obs_shutdown — ver pegadinha #31. A 1a instrucao do
+// obs_shutdown e obs_wait_for_destroy_queue, que enfileira exatamente
+// uma tarefa dessas e espera SEM TIMEOUT; se a thread nao responde, o
+// shutdown trava pra sempre sem emitir um unico log.
+procedure obs_queue_task(task_type: Integer; task: obs_task_t;
+  param: Pointer; wait: ByteBool); cdecl; external 'obs.dll' delayed;
+
+// True se a thread ATUAL e a thread do tipo pedido. O obs_queue_task
+// executa a tarefa direto (sem enfileirar) quando isto e verdade —
+// por isso a sondagem so vale a partir da main thread.
+function obs_in_task_thread(task_type: Integer): ByteBool;
+  cdecl; external 'obs.dll' delayed;
 
 function obs_reset_video(ovi: Pobs_video_info): Integer;
   cdecl; external 'obs.dll' delayed;
@@ -264,6 +291,19 @@ procedure obs_source_set_audio_mixers(source: obs_source_t;
 
 procedure obs_enum_sources(enum_proc: obs_enum_sources_proc;
   param: Pointer); cdecl; external 'obs.dll' delayed;
+
+// Cenas sao enumeradas separadamente das sources (obs_enum_sources nao
+// as inclui). Mesmo tipo de callback.
+procedure obs_enum_scenes(enum_proc: obs_enum_sources_proc;
+  param: Pointer); cdecl; external 'obs.dll' delayed;
+
+// Remove a source do core (sinaliza "removed" e tira das listas internas).
+// Diferente de obs_source_release, que so solta UMA referencia nossa: se o
+// core ainda tem a source registrada, quem tem que desmonta-la e o
+// obs_shutdown — e e ai que ele trava. O frontend do OBS chama isto em
+// TODA source antes de encerrar (ClearSceneData em OBSBasic_SceneCollections).
+procedure obs_source_remove(source: obs_source_t); cdecl;
+  external 'obs.dll' delayed;
 
 function obs_source_get_name(source: obs_source_t): PAnsiChar;
   cdecl; external 'obs.dll' delayed;

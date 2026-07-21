@@ -41,6 +41,7 @@ uses
   OBSPlayer in 'src\OBSPlayer.pas',
   OBSProbe in 'src\OBSProbe.pas',
   OBSRecordWatch in 'src\OBSRecordWatch.pas',
+  OBSRtwq in 'src\OBSRtwq.pas',
   OBSScene in 'src\OBSScene.pas',
   OBSRecordIcon in 'src\OBSRecordIcon.pas',
   OBSScrollLock in 'src\OBSScrollLock.pas',

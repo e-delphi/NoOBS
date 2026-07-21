@@ -197,6 +197,11 @@ var
   // Acesso via IsShuttingDown / SignalShutdown abaixo.
   GShuttingDownFlag: Integer = 0;
 
+  // Guarda de idempotencia do Shutdown: ele e chamado pelo Run() (antes
+  // do CoUninitialize, caminho normal) E pela finalization da unit (rede
+  // de seguranca). So o primeiro age.
+  ShutdownDone: Boolean = False;
+
   RecordingActive: Boolean = False;
   // True quando a gravacao atual foi iniciada pelo monitor de microfone
   // (auto-gravacao em chamadas). So essas sao auto-paradas quando o mic e
@@ -2651,8 +2656,26 @@ begin
   // O TIMER_STOP_TIMEOUT (10s) garante que isso nunca fica preso pra sempre.
   if (Engine <> nil) and Engine.IsStopping then
   begin
-    Log('HandleRecordStart: ignorado — finalizando a gravacao anterior.');
-    Exit;
+    if Engine.StoppingElapsedMs < STOP_TIMEOUT_MS then
+    begin
+      // Espera legitima: o libobs ainda esta drenando encoder/muxer. A UI
+      // ja mostra o anel de "finalizando" e o botao desabilitado.
+      Log('HandleRecordStart: ignorado — finalizando ha %dms.',
+        [Engine.StoppingElapsedMs]);
+      Exit;
+    end;
+    // Passou do prazo do TIMER_STOP_TIMEOUT: algo travou (sinal "stop" que
+    // nunca chegou E o timer que nao disparou). Recusar aqui deixaria o app
+    // SEM CONSEGUIR GRAVAR ate ser reiniciado — foi o beco sem saida que eu
+    // introduzi ao trocar o ForceCompleteStop por um Exit puro.
+    // Conclui a passos largos e segue: bloquear a main thread por instantes
+    // e muito melhor do que o botao de gravar morrer em definitivo.
+    Log('HandleRecordStart: finalizacao presa ha %dms (limite %dms) — ' +
+      'forcando conclusao pra nao travar a gravacao.',
+      [Engine.StoppingElapsedMs, STOP_TIMEOUT_MS]);
+    if MainWindowHandle <> 0 then
+      KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
+    try Engine.ForceCompleteStop; except end;
   end;
 
   T0 := GetTickCount64;
@@ -5034,6 +5057,12 @@ procedure Shutdown;
 var
   Wait: DWORD;
 begin
+  // Chamado de DOIS lugares: do Run() (caminho normal, antes do
+  // CoUninitialize) e da finalization da unit (rede de seguranca). O
+  // segundo tem que virar no-op — repetir o teardown do libobs com tudo
+  // ja liberado seria AV.
+  if ShutdownDone then Exit;
+  ShutdownDone := True;
   Log('Shutdown: inicio');
   // Sinaliza pra todos os workers (capture, ffprobe, transcode...)
   // abortarem cedo. Atomico + memory barrier via TInterlocked — todos
@@ -5143,6 +5172,12 @@ initialization
   // Tray menu — item "Iniciar/Parar gravacao" usa esses callbacks.
   OBSTray.OnToggleRecord      := ToggleRecordFromTray;
   OBSTray.OnIsRecording       := IsRecording;
+  // Roda o cleanup de dentro do Run(), ANTES do CoUninitialize — sem
+  // isso o obs_shutdown trava marshalando releases COM pra um STA ja
+  // destruido (pegadinha #31). A finalization abaixo vira rede de
+  // seguranca pros caminhos que nao passam pelo Run (ex.: falha antes da
+  // janela subir); Shutdown e idempotente.
+  OBSUI.OnUIShutdown          := Shutdown;
 
 finalization
   Shutdown;

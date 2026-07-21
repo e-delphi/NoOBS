@@ -57,6 +57,7 @@ type
   // de verdade. OBSBridge implementa: True se autostart OU gravando.
   TUIShouldHideOnCloseFunc = function: Boolean;
   TUIVisibilityProc = procedure;
+  TUIShutdownProc = procedure;
 
 // Callbacks que o OBSBridge registra na sua initialization.
 // Mantem OBSUI sem dependencia direta de OBSBridge, evitando ciclos.
@@ -72,6 +73,14 @@ var
   // hibernate. Ambos sao opcionais (nil-safe).
   OnUIWindowHidden:      TUIVisibilityProc        = nil;
   OnUIWindowRestored:    TUIVisibilityProc        = nil;
+  // Cleanup do app, chamado por Run() DEPOIS do message loop sair e
+  // ANTES do CoUninitialize. Esse ponto e obrigatorio, nao estetico:
+  // o obs_shutdown precisa marshalar releases de objetos COM criados
+  // neste STA, e um apartment ja desinicializado nunca atende a chamada
+  // (pegadinha #31). OBSBridge registra o seu Shutdown aqui; a
+  // finalization da unit continua chamando como rede de seguranca, e o
+  // Shutdown e idempotente.
+  OnUIShutdown:          TUIShutdownProc          = nil;
 
 // Esconde a janela principal pra bandeja (instala icone se ainda nao
 // estiver). Chamado por OBSBridge quando "minimizar ao gravar" esta
@@ -146,6 +155,7 @@ uses
   OBSLog,
   OBSPlayer,
   OBSRecordIcon,
+  OBSRtwq,
   OBSSingleInstance,
   OBSStartupCheck,
   OBSTray,
@@ -1453,6 +1463,12 @@ begin
     Exit;
   end;
 
+  // Inicializa a plataforma RTWQ ANTES de qualquer coisa de audio — o
+  // win-wasapi depende dela pra capturar (e o frontend do OBS a inicia
+  // aqui, no topo do main). Sem isso, a 1a gravacao sai muda e o shutdown
+  // trava. Ver OBSRtwq e pegadinha #47. Antes do CoInitialize, como o OBS.
+  StartRtwq;
+
   CoInitialize(nil);
 
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -1567,7 +1583,29 @@ begin
     WakeMainThread := nil;
     Wakeup.Free;
   end;
+
+  // Cleanup AQUI, com o STA desta thread ainda vivo — ver comentario de
+  // OnUIShutdown. Antes isto rodava so na finalization da unit, ou seja
+  // DEPOIS do CoUninitialize abaixo: o obs_shutdown tentava marshalar
+  // releases COM pra um apartment ja destruido e travava pra sempre.
+  if Assigned(OnUIShutdown) then
+  begin
+    try
+      OnUIShutdown;
+    except
+      // Cleanup nao pode impedir o processo de sair.
+      on E: Exception do
+        Log('Run: OnUIShutdown falhou: %s', [E.Message]);
+    end;
+  end;
+
   CoUninitialize;
+
+  // Finaliza a RTWQ por ultimo — depois do obs_shutdown (feito no
+  // OnUIShutdown acima), que e quem destroi as fontes WASAPI que ainda
+  // usam a fila. Ordem espelha o frontend do OBS (RtwqShutdown apos o
+  // obs_shutdown).
+  StopRtwq;
 end;
 
 end.

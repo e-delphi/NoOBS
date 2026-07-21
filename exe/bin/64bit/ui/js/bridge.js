@@ -199,6 +199,7 @@ const Bridge = {
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
     },
     settings(data) { Settings.applySettings(data); },
+    update_result(data) { Updates.applyResult(data); },
     record_dir_picked(data) { Settings.setPickedPath(data.path); },
     monitor_thumbs(data) { updateMonitorThumbs(data.items); },
     audio_meters(data) { updateAudioMeters(data.items); },

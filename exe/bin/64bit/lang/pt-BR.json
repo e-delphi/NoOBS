@@ -82,7 +82,8 @@
       "devices": "Dispositivos",
       "window": "Janela e bandeja",
       "behavior": "Comportamento",
-      "about": "Sobre"
+      "about": "Sobre",
+      "updates": "Atualizações"
     },
     "reset": {
       "label": "Restaurar padrões",
@@ -209,13 +210,13 @@
       "bitrate": "(taxa de {{kbps}} kbps)",
       "bitrateDefault": "(sem taxa fixa)",
       "hint": {
+        "0": "Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.",
+        "1": "Qualidade alta — arquivos maiores, vídeo mais nítido.",
+        "2": "Qualidade máxima — arquivos grandes, próximo de lossless visual.",
         "-4": "Compactação máxima — arquivos minúsculos, qualidade bem abaixo do normal.",
         "-3": "Compactação muito alta — arquivos bem pequenos, qualidade nitidamente reduzida.",
         "-2": "Compactação agressiva — arquivos bem menores, qualidade visível abaixo do normal.",
-        "-1": "Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal.",
-        "0": "Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.",
-        "1": "Qualidade alta — arquivos maiores, vídeo mais nítido.",
-        "2": "Qualidade máxima — arquivos grandes, próximo de lossless visual."
+        "-1": "Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal."
       }
     },
     "fps": {
@@ -299,7 +300,19 @@
     "buttons": {
       "reset": "Restaurar padrão",
       "resetTitle": "Restaurar todos os campos pros valores padrão (aplicado na hora)",
-      "close": "Fechar"
+      "close": "Fechar",
+      "back": "Voltar"
+    },
+    "updates": {
+      "versionLabel": "Versão instalada",
+      "autoLabel": "Verificar atualizações automaticamente",
+      "autoHint": "Consulta a página de releases do GitHub no máximo uma vez por dia, em segundo plano. Nada é baixado nem instalado — apenas um aviso quando houver versão nova.",
+      "checkNow": "Verificar agora",
+      "checking": "Verificando...",
+      "upToDate": "Você está na versão mais recente.",
+      "available": "Nova versão disponível: {{version}}.",
+      "openPage": "Abrir página do release",
+      "failed": "Não foi possível verificar agora. Confira sua conexão e tente novamente."
     }
   },
   "devices": {
@@ -326,13 +339,14 @@
       "builtWith": "Construído com"
     },
     "features": [
+      "<b>Pronto em um clique</b> — telas, webcam, microfones e áudio do sistema detectados automaticamente, sem cenas nem fontes pra configurar",
       "<b>Multi-monitor</b> e <b>webcam</b> gravados simultaneamente",
-      "<b>Faixas de áudio separadas</b> — mic e cada saída como track própria no MKV",
+      "<b>Faixas de áudio separadas</b> — o mic e cada saída viram uma track própria no MKV",
       "<b>Aceleração de GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) com fallback CPU x264",
-      "<b>Atalho global</b> configurável pra iniciar/parar de qualquer lugar",
-      "<b>Modo hibernação</b>: ~5 MB de RAM quando inativo na bandeja",
-      "<b>Container MKV</b> — gravação recuperável mesmo após queda de energia",
-      "<b>Player embutido</b> com thumbnails, busca e exclusão direto na UI"
+      "<b>Edição rápida no player</b> — dividir, unir, waveform e volume por faixa de áudio",
+      "<b>Gravação automática em chamadas</b> — detecta o microfone em uso por Teams, WhatsApp e afins, e para sozinho ao fim",
+      "<b>Atalho global</b> e <b>modo hibernação</b> (~5 MB de RAM quando ocioso na bandeja)",
+      "<b>Container MKV</b> — a gravação sobrevive a queda de energia"
     ],
     "builtWith": [
       "Delphi 12 (RAD Studio) — target Win64 nativo",
@@ -392,7 +406,7 @@
     "errorSaving": "Erro ao salvar",
     "invalidHotkey": "Atalho inválido",
     "fieldsReset": "Campos restaurados",
-    "fieldsResetBody": "Clique Salvar pra aplicar as mudanças.",
+    "fieldsResetBody": "As alterações já foram aplicadas.",
     "restoreConfirmMessage": "Isso vai redefinir todos os campos pros valores padrão e aplicar na hora. Continuar?",
     "restoreConfirmOk": "Restaurar",
     "devicesUpdated": "Dispositivos atualizados",
@@ -463,9 +477,18 @@
     "devicesDisabled_other": "{{count}} dispositivos desabilitados"
   },
   "months": [
-    "Janeiro", "Fevereiro", "Março", "Abril",
-    "Maio", "Junho", "Julho", "Agosto",
-    "Setembro", "Outubro", "Novembro", "Dezembro"
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro"
   ],
   "common": {
     "cancel": "Cancelar",

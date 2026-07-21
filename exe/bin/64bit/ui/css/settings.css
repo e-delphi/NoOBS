@@ -43,11 +43,10 @@
     color: var(--text);
     flex: 1;
   }
-  /* Theme toggle no header: espacamento extra antes dos botoes. */
-  /* Botao "?" de ajuda/sobre no header das configuracoes. */
-  /* Botao de fechar do cabecalho. (O de "Sobre" saiu daqui e virou o ultimo
-     item do menu lateral.) */
-  .settings-close-btn {
+  /* Botao de voltar — unico botao do cabecalho, a ESQUERDA do titulo.
+     (O "?" de Sobre virou item do menu lateral; o "X" de fechar saiu, o
+     voltar cumpre esse papel.) */
+  .settings-back-btn {
     background: transparent;
     border: 0;
     color: var(--text-2);
@@ -63,53 +62,14 @@
   }
   /* --surface-2/--text-1 NAO existem no base.css: o hover era invalido e
      nao pintava nada. Trocado pelas vars reais. */
-  .settings-close-btn:hover {
+  .settings-back-btn:hover {
     background: var(--panel-3);
     color: var(--text);
   }
-  /* About modal — variante mais estreita do settings modal.
-     Layout column: header + logo/desc (fixos) + scroll area + footer
-     fixo. Sobrescreve o overflow-y:auto herdado de .settings-body —
-     o scroll vive so na .about-scroll, footer fica sempre visivel. */
-  .about-modal {
-    max-width: 460px;
-    /* Sobrescreve o `max-height: 660px` do .settings-modal — o About
-       precisa de mais altura pra caber Logo + descricao + info +
-       Recursos (7) + Construido com (4) + licenca sem scrollar.
-       Em telas pequenas (<92vh < 800) o min(92vh, 800) ainda cai pro
-       92vh, evitando que o modal extrapole o viewport. */
-    max-height: min(92vh, 800px);
-  }
-  .about-body {
-    padding: 18px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;          /* anula o auto do .settings-body */
-  }
-  /* Especificidade dupla (.settings-body.about-body) pra ganhar da
-     regra `.settings-body { flex: 1 1 auto }` que vem depois no CSS
-     e dominaria com mesma specificity. Sem isso o body estica ate o
-     max-height do modal e sobra espaco vazio entre as listas e o
-     footer de licenca. flex:0 1 auto = tamanho do conteudo (modal
-     acompanha). */
-  .settings-body.about-body {
-    flex: 0 1 auto;
-  }
-  .about-scroll {
-    overflow-y: auto;
-    /* flex:0 1 auto — nao crescer alem do conteudo (o footer fica
-       colado embaixo). So encolhe (+ scroll aparece) se o conteudo
-       passar do espaco disponivel no modal. Antes era flex:1 1 auto,
-       que fazia o area de scroll esticar e deixar um gap vazio
-       grande entre os recursos e o footer de licenca. */
-    flex: 0 1 auto;
-    min-height: 0;
-    margin: 0 -6px 0 0;        /* compensa visual da scrollbar */
-    padding-right: 6px;
-  }
-  .about-fixed-footer {
-    flex-shrink: 0;
-  }
+  /* O "Sobre" virou uma ABA das Configuracoes (nao e mais modal proprio):
+     o scroll e a altura passaram a ser do .settings-body, entao as regras
+     de layout do modal antigo (.about-modal/.about-body/.about-scroll/
+     .about-fixed-footer) sairam junto com o markup delas. */
   .about-logo {
     text-align: center;
     padding-bottom: 8px;
@@ -814,3 +774,9 @@
     flex-shrink: 0;
   }
 
+
+  /* Destaque quando ha versao nova — verde do app, mesmo do restante. */
+  .settings-hint.update-available {
+    color: var(--success);
+    font-weight: 600;
+  }

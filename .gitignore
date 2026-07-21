@@ -27,3 +27,7 @@ exe/bin/64bit/*
 !exe/bin/64bit/ui/
 !exe/bin/64bit/ui/*
 obs-studio-master/
+
+# Gerado pelo gen-version.bat (pre-build) a partir da tag do git.
+# Nao versionado: em build de dev o valor muda a cada commit.
+src/Version.inc

@@ -47,16 +47,16 @@
 <div class="settings-overlay" id="settingsOverlay">
   <div class="settings-modal settings-tabbed">
     <div class="settings-header">
-      <h3 data-i18n="settings.title">Configurações</h3>
-      <button class="settings-close-btn" onclick="Settings.close()"
-              data-i18n-title="settings.buttons.close" title="Fechar">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+      <button class="settings-back-btn" onclick="Settings.close()"
+              data-i18n-hint="settings.buttons.back" data-hint="Voltar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"/>
-          <line x1="6" y1="6" x2="18" y2="18"/>
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
         </svg>
       </button>
+      <h3 data-i18n="settings.title">Configurações</h3>
     </div>
     <!-- Menu lateral de abas. Irmao do .settings-body: o grid do
          .settings-tabbed posiciona header/tabs/body/footer, entao nao ha
@@ -80,11 +80,11 @@
       <button type="button" class="settings-tab" data-tab="behavior"
               onclick="Settings.showTab('behavior')"
               data-i18n="settings.tabs.behavior">Comportamento</button>
-      <!-- Sem data-tab de proposito: nao e um painel, e uma ACAO que abre o
-           modal "Sobre" (que precisa continuar existindo — o F1 o abre de
-           fora das Configuracoes). Sem data-tab, o showTab nunca marca este
-           botao como ativo, que e o comportamento correto. -->
-      <button type="button" class="settings-tab" onclick="About.open()"
+      <button type="button" class="settings-tab" data-tab="updates"
+              onclick="Settings.showTab('updates')"
+              data-i18n="settings.tabs.updates">Atualizações</button>
+      <button type="button" class="settings-tab" data-tab="about"
+              onclick="Settings.showTab('about')"
               data-i18n="settings.tabs.about">Sobre</button>
     </nav>
     <div class="settings-body" id="settingsBody">
@@ -93,7 +93,7 @@
         <div class="theme-toggle" id="settingsTheme">
           <button type="button" class="theme-toggle-btn" data-theme="system"
                   onclick="Settings.setTheme('system')"
-                  data-i18n-title="settings.theme.toggleSystem" title="Tema do sistema">
+                  data-i18n-hint="settings.theme.toggleSystem" data-hint="Tema do sistema">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2"
                  stroke-linecap="round" stroke-linejoin="round">
@@ -104,7 +104,7 @@
           </button>
           <button type="button" class="theme-toggle-btn" data-theme="light"
                   onclick="Settings.setTheme('light')"
-                  data-i18n-title="settings.theme.toggleLight" title="Tema claro">
+                  data-i18n-hint="settings.theme.toggleLight" data-hint="Tema claro">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2"
                  stroke-linecap="round" stroke-linejoin="round">
@@ -115,7 +115,7 @@
           </button>
           <button type="button" class="theme-toggle-btn" data-theme="dark"
                   onclick="Settings.setTheme('dark')"
-                  data-i18n-title="settings.theme.toggleDark" title="Tema escuro">
+                  data-i18n-hint="settings.theme.toggleDark" data-hint="Tema escuro">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2"
                  stroke-linecap="round" stroke-linejoin="round">
@@ -307,9 +307,11 @@
           esta. Aplicado na hora.
         </div>
         <div class="settings-input-row">
-          <button class="settings-btn" onclick="Settings.restoreDefaults()"
+          <!-- So data-hint (tooltip do app). Sem data-i18n-title: ele viraria
+               o atributo `title` e o Windows desenharia o tooltip NATIVO por
+               cima do nosso — os dois apareciam juntos. -->
+          <button class="settings-btn hint-cursor" onclick="Settings.restoreDefaults()"
                   data-i18n="settings.buttons.reset"
-                  data-i18n-title="settings.buttons.resetTitle"
                   data-i18n-hint="settings.buttons.resetTitle"
                   data-hint="Restaurar todos os campos pros valores padrão (aplicado na hora)">
             Restaurar padrão
@@ -449,70 +451,83 @@
           </div>
         </div>
       </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== About modal ===== -->
-<div class="settings-overlay" id="aboutOverlay">
-  <div class="settings-modal about-modal">
-    <div class="settings-header">
-      <h3 data-i18n="about.title">Sobre o NoOBS</h3>
-      <button class="player-close" onclick="About.close()" data-i18n-title="about.close" title="Fechar">×</button>
-    </div>
-    <div class="settings-body about-body">
-      <div class="about-logo">
-        <img id="aboutAppIcon" class="about-icon" alt="NoOBS"
-             style="display:none">
-        <svg id="aboutAppIconFallback" class="about-icon"
-             viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="1.8"
-             stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="9"/>
-          <circle cx="12" cy="12" r="4" fill="currentColor"/>
-        </svg>
-        <div class="about-name">NoOBS</div>
-        <div class="about-tagline" data-i18n="about.tagline">Gravador de tela leve com OBS Studio embarcado</div>
+      <div class="settings-field" data-panel="updates">
+        <label data-i18n="settings.updates.versionLabel">Versão instalada</label>
+        <div class="settings-hint" id="settingsAppVersion">—</div>
       </div>
-
-      <div class="about-desc">
-        <p data-i18n="about.intro1">O NoOBS nasceu da frustração com a complexidade do OBS Studio
-        — configurar cenas, fontes e dispositivos a cada gravação.</p>
-        <p data-i18n-html="about.intro2">A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar,
-        está gravando. Telas, webcam, microfones e áudio do sistema são
-        detectados e ficam prontos automaticamente.</p>
-        <p data-i18n-html="about.intro3"><b>Leve, rápido, intuitivo</b> — um produto premium pensado
-        pra que sua gravação sempre funcione.</p>
-      </div>
-
-      <div class="about-info">
-        <div class="about-row">
-          <span class="about-label" data-i18n="about.labels.author">Autor</span>
-          <span class="about-value">Eduardo Rodrigues</span>
-        </div>
-        <div class="about-row">
-          <span class="about-label" data-i18n="about.labels.coAuthor">Co-autoria</span>
-          <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.8 <span style="color: var(--text-3)">1M</span></span>
-        </div>
-        <div class="about-row">
-          <span class="about-label" data-i18n="about.labels.repository">Repositório</span>
-          <span class="about-link" role="link" tabindex="0"
-                onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
-            github.com/e-delphi/NoOBS
-          </span>
+      <div class="settings-field" data-panel="updates">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsCheckUpdates">
+          <span data-i18n="settings.updates.autoLabel">Verificar atualizações automaticamente</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.updates.autoHint">
+          Consulta a página de releases do GitHub no máximo uma vez por dia,
+          em segundo plano. Nada é baixado nem instalado — apenas um aviso
+          quando houver versão nova.
         </div>
       </div>
+      <div class="settings-field" data-panel="updates">
+        <div class="settings-input-row">
+          <button class="settings-btn" id="settingsCheckNowBtn"
+                  onclick="Updates.checkNow()"
+                  data-i18n="settings.updates.checkNow">Verificar agora</button>
+        </div>
+        <!-- Preenchido por Updates.applyResult() (js/settings.js). -->
+        <div class="settings-hint" id="settingsUpdateStatus"></div>
+      </div>
+      <div class="settings-field" data-panel="about">
+        <div class="about-logo">
+          <img id="aboutAppIcon" class="about-icon" alt="NoOBS"
+               style="display:none">
+          <svg id="aboutAppIconFallback" class="about-icon"
+               viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <circle cx="12" cy="12" r="4" fill="currentColor"/>
+          </svg>
+          <div class="about-name">NoOBS</div>
+          <div class="about-tagline" data-i18n="about.tagline">Gravador de tela leve com OBS Studio embarcado</div>
+        </div>
 
-      <div class="about-scroll">
+        <div class="about-desc">
+          <p data-i18n="about.intro1">O NoOBS nasceu da frustração com a complexidade do OBS Studio
+          — configurar cenas, fontes e dispositivos a cada gravação.</p>
+          <p data-i18n-html="about.intro2">A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar,
+          está gravando. Telas, webcam, microfones e áudio do sistema são
+          detectados e ficam prontos automaticamente.</p>
+          <p data-i18n-html="about.intro3"><b>Leve, rápido, intuitivo</b> — um produto premium pensado
+          pra que sua gravação sempre funcione.</p>
+        </div>
+
+        <div class="about-info">
+          <div class="about-row">
+            <span class="about-label" data-i18n="about.labels.author">Autor</span>
+            <span class="about-value">Eduardo Rodrigues</span>
+          </div>
+          <div class="about-row">
+            <span class="about-label" data-i18n="about.labels.coAuthor">Co-autoria</span>
+            <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.8 <span style="color: var(--text-3)">1M</span></span>
+          </div>
+          <div class="about-row">
+            <span class="about-label" data-i18n="about.labels.repository">Repositório</span>
+            <span class="about-link" role="link" tabindex="0"
+                  onclick="About.openUrl('https://github.com/e-delphi/NoOBS');">
+              github.com/e-delphi/NoOBS
+            </span>
+          </div>
+        </div>
+
         <div class="about-section-title" data-i18n="about.labels.features">Principais recursos</div>
         <ul class="about-list" data-i18n-list="about.features">
+          <li><b>Pronto em um clique</b> — telas, webcam, microfones e áudio do sistema detectados automaticamente, sem cenas nem fontes pra configurar</li>
           <li><b>Multi-monitor</b> e <b>webcam</b> gravados simultaneamente</li>
-          <li><b>Faixas de áudio separadas</b> — mic e cada saída como track própria no MKV</li>
+          <li><b>Faixas de áudio separadas</b> — o mic e cada saída viram uma track própria no MKV</li>
           <li><b>Aceleração de GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) com fallback CPU x264</li>
-          <li><b>Atalho global</b> configurável pra iniciar/parar de qualquer lugar</li>
-          <li><b>Modo hibernação</b>: ~5 MB de RAM quando inativo na bandeja</li>
-          <li><b>Container MKV</b> — gravação recuperável mesmo após queda de energia</li>
-          <li><b>Player embutido</b> com thumbnails, busca e exclusão direto na UI</li>
+          <li><b>Edição rápida no player</b> — dividir, unir, waveform e volume por faixa de áudio</li>
+          <li><b>Gravação automática em chamadas</b> — detecta o microfone em uso por Teams, WhatsApp e afins, e para sozinho ao fim</li>
+          <li><b>Atalho global</b> e <b>modo hibernação</b> (~5 MB de RAM quando ocioso na bandeja)</li>
+          <li><b>Container MKV</b> — a gravação sobrevive a queda de energia</li>
         </ul>
 
         <div class="about-section-title" data-i18n="about.labels.builtWith">Construído com</div>
@@ -522,9 +537,7 @@
           <li>FFmpeg — remux, extração de faixas e thumbnails</li>
           <li>WebView2 (Chromium) — interface HTML/CSS/JS</li>
         </ul>
-      </div>
 
-      <div class="about-fixed-footer">
         <div class="about-footer-note" data-i18n="about.footer">
           Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL)
           e WebView2 da Microsoft.
@@ -549,7 +562,7 @@
         </svg>
         <span data-i18n="player.paused">PAUSADO</span>
       </div>
-      <button class="player-close" id="playerClose" data-i18n-title="player.close" title="Fechar (Esc)">×</button>
+      <button class="player-close" id="playerClose" data-i18n-hint="player.close" data-hint="Fechar (Esc)">×</button>
     </div>
     <div class="player-body">
       <div class="player-stage" id="playerStage">
@@ -584,7 +597,7 @@
       <aside class="player-info-panel" id="playerInfoPanel" aria-hidden="true">
         <div class="player-info-header">
           <span data-i18n="player.videoInfo">Informações do vídeo</span>
-          <button class="player-info-close" id="playerInfoClose" data-i18n-title="player.close" title="Fechar">×</button>
+          <button class="player-info-close" id="playerInfoClose" data-i18n-hint="player.close" data-hint="Fechar">×</button>
         </div>
         <div class="player-info-body" id="playerInfoBody">
           <div class="player-info-loading">
@@ -595,13 +608,13 @@
       </aside>
     </div>
     <div class="player-controls">
-      <button class="player-btn" id="playerPlay" data-i18n-title="player.playPause" title="Play/Pause (Espaço)">
+      <button class="player-btn" id="playerPlay" data-i18n-hint="player.playPause" data-hint="Play/Pause (Espaço)">
         <svg viewBox="0 0 24 24" id="playerPlayIcon"><path d="M8 5v14l11-7z"/></svg>
       </button>
       <span class="player-time" id="playerTime">00:00 / 00:00</span>
       <!-- Hora-do-relogio correspondente a posicao atual (inicio da
            gravacao + offset). Oculto quando o backend nao sabe a hora. -->
-      <span class="player-clock" id="playerClock" data-i18n-title="player.clockTitle" title="Hora da gravação nesta posição" hidden>
+      <span class="player-clock" id="playerClock" data-i18n-hint="player.clockTitle" data-hint="Hora da gravação nesta posição" hidden>
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.6z"/></svg>
         <span id="playerClockText"></span>
       </span>
@@ -614,21 +627,21 @@
       <!-- Dividir o video na posicao atual (stream copy, snap no keyframe).
            Desabilitado no inicio/fim do video. -->
       <button class="player-btn" id="playerSplit" onclick="Player.split()"
-              data-i18n-title="player.split" title="Dividir aqui" disabled>
+              data-i18n-hint="player.split" data-hint="Dividir aqui" disabled>
         <svg viewBox="0 0 24 24"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5z"/></svg>
       </button>
       <div class="player-volume-wrap">
-        <button class="player-btn" id="playerMute" data-i18n-title="player.mute" title="Mudo (M)">
+        <button class="player-btn" id="playerMute" data-i18n-hint="player.mute" data-hint="Mudo (M)">
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
         </button>
         <!-- Range 0..200: 0..100 = atenuacao normal (HTMLMediaElement.volume),
              100..200 = boost via Web Audio GainNode. Bar fica vermelha
              alem dos 100% pra avisar que esta amplificando (pode distorcer
              dependendo do material). -->
-        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" data-i18n-title="player.volume" title="Volume (0–200%)">
+        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" data-i18n-hint="player.volume" data-hint="Volume (0–200%)">
       </div>
       <div class="player-speed-wrap">
-        <button class="player-btn player-speed-btn" id="playerSpeedBtn" data-i18n-title="player.speed" title="Velocidade de execução">
+        <button class="player-btn player-speed-btn" id="playerSpeedBtn" data-i18n-hint="player.speed" data-hint="Velocidade de execução">
           <span id="playerSpeedLabel">1×</span>
         </button>
         <div class="player-speed-menu" id="playerSpeedMenu" hidden>
@@ -641,10 +654,10 @@
           <div class="player-speed-option" data-speed="8">8×</div>
         </div>
       </div>
-      <button class="player-btn player-info-btn" id="playerInfo" data-i18n-title="player.videoInfo" title="Informações do vídeo">
+      <button class="player-btn player-info-btn" id="playerInfo" data-i18n-hint="player.videoInfo" data-hint="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
       </button>
-      <button class="player-btn" id="playerFs" data-i18n-title="player.fullscreen" title="Tela cheia (F / duplo clique)">
+      <button class="player-btn" id="playerFs" data-i18n-hint="player.fullscreen" data-hint="Tela cheia (F / duplo clique)">
         <svg viewBox="0 0 24 24" id="playerFsIcon">
           <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
         </svg>
@@ -690,7 +703,7 @@
               <span id="recStatusText" data-i18n="record.statusReady">Pronto para gravar</span>
             </div>
             <button class="icon-btn record-settings-btn" id="settingsBtn"
-                    onclick="Settings.open()" data-i18n-title="header.settings" title="Configurações">
+                    onclick="Settings.open()" data-i18n-hint="header.settings" data-hint="Configurações">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round">
@@ -761,7 +774,7 @@
         <input type="text" class="search" id="searchInput"
                data-i18n-placeholder="recordings.search" placeholder="Buscar...">
         <button class="icon-btn" id="openDirBtn" onclick="Bridge.send('open_record_dir')"
-                data-i18n-title="recordings.openFolder" title="Abrir pasta de gravações">
+                data-i18n-hint="recordings.openFolder" data-hint="Abrir pasta de gravações">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
@@ -770,7 +783,7 @@
         </button>
         <button class="icon-btn merge-selected-btn" id="mergeSelectedBtn"
                 onclick="mergeSelectedRecordings()" disabled
-                data-i18n-title="recordings.mergeSelected" title="Unir gravações selecionadas">
+                data-i18n-hint="recordings.mergeSelected" data-hint="Unir gravações selecionadas">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
             <path fill="currentColor" d="M7.586 8.00366L4 8.00366C3.44772 8.00366 3 7.55595 3 7.00366C3 6.45138 3.44772 6.00366 4 6.00366L8 6.00366C8.26509 6.00366 8.51933 6.10892 8.70685 6.2963L13.414 11H18.5845L15.2931 7.71103C14.9025 7.32065 14.9023 6.68748 15.2926 6.29681C15.683 5.90615 16.3162 5.90592 16.7068 6.2963L21.7068 11.2926C21.8945 11.4802 22 11.7346 22 11.9998C22 12.2651 21.8947 12.5195 21.7071 12.7071L16.7071 17.7071C16.3166 18.0976 15.6834 18.0976 15.2929 17.7071C14.9024 17.3166 14.9024 16.6834 15.2929 16.2929L18.5858 13H13.4142L8.70711 17.7071C8.51957 17.8947 8.26522 18 8 18H4C3.44772 18 3 17.5523 3 17C3 16.4477 3.44772 16 4 16H7.58579L11.5855 12.0003L7.586 8.00366Z">
             </path> 
@@ -778,7 +791,7 @@
         </button>
         <button class="icon-btn delete-selected-btn" id="deleteSelectedBtn"
                 onclick="bulkDeleteSelected()" disabled
-                data-i18n-title="recordings.deleteSelected" title="Excluir gravações selecionadas">
+                data-i18n-hint="recordings.deleteSelected" data-hint="Excluir gravações selecionadas">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">

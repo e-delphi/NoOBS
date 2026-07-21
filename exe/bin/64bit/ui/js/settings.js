@@ -1,44 +1,78 @@
 // =====================================================================
-// About modal
+// About — deixou de ser modal proprio: virou a aba "Sobre" das
+// Configuracoes. `open()` sobrou como ponto de entrada unico (F1 e
+// qualquer chamada externa) pra abrir as Configuracoes ja nessa aba.
 // =====================================================================
 const About = {
-  open()  { document.getElementById('aboutOverlay').classList.add('visible'); },
-  close() { document.getElementById('aboutOverlay').classList.remove('visible'); },
+  open() {
+    Settings.open();
+    Settings.showTab('about');
+  },
   openUrl(url) { Bridge.send('open_url', { url }); },
 };
-// Fecha o About clicando fora do modal ou com Esc. So fecha quando o gesto
-// INTEIRO (mousedown E mouseup) cai na overlay — senao selecionar texto e
-// arrastar pra fora dispararia um 'click' com a overlay como alvo (ancestral
-// comum do mousedown de dentro com o mouseup de fora) e fecharia sem querer.
-(() => {
-  const aov = document.getElementById('aboutOverlay');
-  let downOnOverlay = false;
-  aov.addEventListener('mousedown', (e) => { downOnOverlay = (e.target === aov); });
-  aov.addEventListener('mouseup', (e) => {
-    if (downOnOverlay && e.target === aov) About.close();
-    downOnOverlay = false;
-  });
-})();
+
+// =====================================================================
+// Updates — aba "Atualizações". A checagem em si e o Delphi que faz
+// (OBSUpdate, worker thread); aqui so disparamos e exibimos o resultado.
+// =====================================================================
+const Updates = {
+  _lastUrl: '',
+
+  checkNow() {
+    const st = document.getElementById('settingsUpdateStatus');
+    const bt = document.getElementById('settingsCheckNowBtn');
+    if (st) { st.textContent = T('settings.updates.checking'); st.className = 'settings-hint'; }
+    // Desabilita ate a resposta: a checagem e assincrona e cliques
+    // repetidos so enfileirariam requisicoes (o backend ja ignora
+    // concorrentes, mas o feedback tem que ser visivel).
+    if (bt) bt.disabled = true;
+    Bridge.send('check_updates', {});
+  },
+
+  applyResult(data) {
+    const st = document.getElementById('settingsUpdateStatus');
+    const bt = document.getElementById('settingsCheckNowBtn');
+    if (bt) bt.disabled = false;
+    if (!st) return;
+    this._lastUrl = data.url || '';
+
+    if (!data.ok) {
+      // Falha e silenciosa por design — so informa quem pediu explicitamente.
+      st.className = 'settings-hint';
+      st.textContent = T('settings.updates.failed');
+      return;
+    }
+    if (data.hasUpdate) {
+      st.className = 'settings-hint update-available';
+      st.textContent = T('settings.updates.available', { version: data.latest });
+      if (this._lastUrl) {
+        st.appendChild(document.createTextNode(' '));
+        const a = document.createElement('span');
+        a.className = 'about-link';
+        a.setAttribute('role', 'link');
+        a.tabIndex = 0;
+        a.textContent = T('settings.updates.openPage');
+        a.onclick = () => About.openUrl(Updates._lastUrl);
+        st.appendChild(a);
+      }
+    } else {
+      st.className = 'settings-hint';
+      st.textContent = T('settings.updates.upToDate');
+    }
+  },
+};
 document.addEventListener('keydown', (e) => {
-  const ov = document.getElementById('aboutOverlay');
-  if (ov.classList.contains('visible') && e.key === 'Escape') {
-    e.preventDefault();
-    About.close();
-    return;
-  }
   // F1 abre a tela "Sobre". Ignora se o foco esta num input editavel
   // (ex.: caixa de busca, campo de pasta) pra nao roubar o atalho do
   // navegador embutido (que normalmente nao faz nada aqui de qualquer
   // jeito, mas e' a higiene certa).
-  if (e.key === 'F1' && !ov.classList.contains('visible')) {
-    const tag = (document.activeElement && document.activeElement.tagName) || '';
-    const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' ||
-      (document.activeElement && document.activeElement.isContentEditable);
-    if (!isEditable) {
-      e.preventDefault();
-      About.open();
-    }
-  }
+  if (e.key !== 'F1') return;
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' ||
+    (document.activeElement && document.activeElement.isContentEditable);
+  if (isEditable) return;
+  e.preventDefault();
+  About.open();
 });
 
 // Fecha as Configuracoes clicando no overlay (fora do modal) ou com Esc.
@@ -75,12 +109,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const sov = document.getElementById('settingsOverlay');
   if (!sov.classList.contains('visible')) return;
-  // Se um modal sobreposto (Confirm ou About) esta aberto, deixa ele
-  // tratar o ESC — os handlers desses ja fecham primeiro.
+  // Se o Confirm esta sobreposto, deixa ele tratar o ESC — o handler dele
+  // fecha primeiro. (O About nao entra mais aqui: virou uma aba, nao um
+  // modal por cima.)
   const cov = document.getElementById('confirmOverlay');
-  const aov = document.getElementById('aboutOverlay');
-  if ((cov && cov.classList.contains('visible')) ||
-      (aov && aov.classList.contains('visible'))) return;
+  if (cov && cov.classList.contains('visible')) return;
   e.preventDefault();
   Settings.close();
 });
@@ -106,6 +139,7 @@ const Settings = {
   currentAutoRecordOnMic: false,
   currentAutoRecordMicApps: '',
   currentAutoRecordMicExcept: '',
+  currentCheckUpdates: true,
   currentRecordingQuality: 0,
   currentRecordingKeyframe: 2,
   currentLibraryThumbs: 'auto',   // 'auto' | 'always' | 'off'
@@ -146,6 +180,7 @@ const Settings = {
     document.getElementById('settingsAutoRecordOnMic').checked = !!this.currentAutoRecordOnMic;
     document.getElementById('settingsAutoRecordMicApps').value = this.currentAutoRecordMicApps || '';
     document.getElementById('settingsAutoRecordMicExcept').value = this.currentAutoRecordMicExcept || '';
+    document.getElementById('settingsCheckUpdates').checked = !!this.currentCheckUpdates;
     document.getElementById('settingsRecordingQuality').value = String(this.currentRecordingQuality | 0);
     this._syncQualityHint();
     // Computa presets baseados no maxMonitorHz atual + aplica no slider
@@ -243,6 +278,7 @@ const Settings = {
       const autoRecordOnMic = document.getElementById('settingsAutoRecordOnMic').checked;
       const autoRecordMicApps = document.getElementById('settingsAutoRecordMicApps').value.trim();
       const autoRecordMicExcept = document.getElementById('settingsAutoRecordMicExcept').value.trim();
+      const checkUpdates = document.getElementById('settingsCheckUpdates').checked;
       const recordingQuality = parseInt(document.getElementById('settingsRecordingQuality').value, 10) | 0;
       // Slider snap nas predefinicoes — _currentFpsFromSlider mapeia
       // indice -> fps direto da lista, garantindo valor valido [20..max].
@@ -311,6 +347,7 @@ const Settings = {
       this.currentAutoRecordOnMic = autoRecordOnMic;
       this.currentAutoRecordMicApps = autoRecordMicApps;
       this.currentAutoRecordMicExcept = autoRecordMicExcept;
+      this.currentCheckUpdates = checkUpdates;
       this.currentRecordingQuality = recordingQuality;
       this.currentRecordingFps = recordingFps;
       this.currentRecordingKeyframe = recordingKeyframe;
@@ -373,6 +410,10 @@ const Settings = {
     this.currentAutoRecordOnMic = !!data.autoRecordOnMic;
     this.currentAutoRecordMicApps = data.autoRecordMicApps || '';
     this.currentAutoRecordMicExcept = data.autoRecordMicExcept || '';
+    // checkUpdates: default TRUE (chave ausente = ligado)
+    this.currentCheckUpdates = (data.checkUpdates !== false);
+    const av = document.getElementById('settingsAppVersion');
+    if (av && data.appVersion) av.textContent = data.appVersion;
     // recordingQuality: -4..+2, default 0
     let rq = parseInt(data.recordingQuality, 10);
     if (!Number.isFinite(rq)) rq = 0;
@@ -819,11 +860,11 @@ const Settings = {
     wrap.style.display = (apps.value.trim() === '') ? '' : 'none';
   },
   restoreDefaults() {
-    // Reseta APENAS os campos do modal (UI) — nao salva nada. User
-    // revisa e clica Salvar pra confirmar, ou Cancelar pra descartar.
-    // Pede confirmacao antes pra evitar reset acidental.
-    // Tema fica de fora — ja eh aplicado/salvo instantaneo via os
-    // botoes de toggle no header, nao faz parte do fluxo de Salvar.
+    // Reseta os campos e APLICA na hora (commit no fim) — nao ha botao
+    // Salvar. Por isso pede confirmacao antes: sem etapa de revisao, o
+    // clique e irreversivel.
+    // Tema fica de fora: e aplicado/salvo instantaneo pelos botoes de
+    // toggle da aba Geral, fora deste fluxo.
     Confirm.open({
       title: T('settings.buttons.reset'),
       message: T('toast.restoreConfirmMessage'),
@@ -858,6 +899,7 @@ const Settings = {
         document.getElementById('settingsAutoRecordOnMic').checked = false;
         document.getElementById('settingsAutoRecordMicApps').value = '';
         document.getElementById('settingsAutoRecordMicExcept').value = '';
+        document.getElementById('settingsCheckUpdates').checked = true;
         document.getElementById('settingsRecordingQuality').value = '0';
         // FPS: snap pra 30 (preset garantido a existir se max >= 30).
         // Atualiza currentRecordingFps ANTES de _applyFpsPresetsToSlider

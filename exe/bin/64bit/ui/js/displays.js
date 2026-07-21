@@ -634,7 +634,7 @@ function renderSources(kindShort, listId, countId, items) {
     if (item.isDefault) {
       const dot = document.createElement('span');
       dot.className = 'source-default-dot';
-      dot.title = T('sources.defaultDevice');
+      dot.dataset.hint = T('sources.defaultDevice');
       name.appendChild(dot);
     }
     // Dispositivos Bluetooth ganham dois icones:

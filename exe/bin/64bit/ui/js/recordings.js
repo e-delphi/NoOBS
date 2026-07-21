@@ -94,7 +94,7 @@ const RecSelection = {
       const badge = document.createElement('span');
       badge.className = 'rec-order-badge';
       badge.textContent = String(idx + 1);
-      badge.title = T('recordings.selectionOrder', { order: idx + 1 });
+      badge.dataset.hint = T('recordings.selectionOrder', { order: idx + 1 });
       thumb.appendChild(badge);
     });
   },
@@ -118,7 +118,7 @@ const RecSelection = {
     if (delBtn) {
       const n = this.ids.size;
       delBtn.disabled = (n === 0);
-      delBtn.title = n === 0
+      delBtn.dataset.hint = n === 0
         ? T('recordings.selectToDelete')
         : (n === 1 ? T('recordings.deleteOne')
                    : T('recordings.deleteN', { count: n }));
@@ -127,7 +127,7 @@ const RecSelection = {
     if (mergeBtn) {
       const n = this.ids.size;
       mergeBtn.disabled = (n < 2) || mergeBtn.dataset.busy === 'true';
-      mergeBtn.title = n < 2
+      mergeBtn.dataset.hint = n < 2
         ? T('recordings.selectToMerge')
         : T('recordings.mergeN', { count: n });
     }
@@ -182,7 +182,7 @@ function mergeSelectedRecordings() {
       if (btn) {
         btn.dataset.busy = 'true';
         btn.disabled = true;
-        btn.title = T('recordings.merging');
+        btn.dataset.hint = T('recordings.merging');
       }
       Bridge.send('merge_recordings', { ids });
     }
@@ -208,7 +208,7 @@ function buildRecCard(item) {
   if (RecSelection.has(item.id)) card.dataset.selected = 'true';
   if (item.size) card.dataset.size = item.size;
   const fullDate = formatFullDate(item.date);
-  if (fullDate) card.title = fullDate;
+  if (fullDate) card.dataset.hint = fullDate;
   card.onclick = (e) => {
     // Click no checkbox: toggle de selecao, nao abre o video.
     if (e.target.closest('.rec-check')) {
@@ -238,7 +238,7 @@ function buildRecCard(item) {
   // Checkbox de selecao no canto superior direito.
   const check = document.createElement('div');
   check.className = 'rec-check';
-  check.title = T('recordings.select');
+  check.dataset.hint = T('recordings.select');
   check.innerHTML = CHECK_SVG;
   thumb.appendChild(check);
   if (item.thumb) {
@@ -385,7 +385,7 @@ function buildGroupTitle(label) {
   span.textContent = label;
   const check = document.createElement('div');
   check.className = 'rec-group-check';
-  check.title = T('recordings.selectAllInGroup');
+  check.dataset.hint = T('recordings.selectAllInGroup');
   check.dataset.state = 'none';
   check.innerHTML = CHECK_SVG;
   check.onclick = (e) => {

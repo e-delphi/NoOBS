@@ -345,7 +345,7 @@ const Toast = {
     el.dataset.title = title || '';
     // Clicar fecha o toast na hora — libera o que estiver embaixo dele
     // (ex.: o botão de fechar do player, que fica no mesmo canto).
-    el.title = T('toast.clickToClose');
+    el.dataset.hint = T('toast.clickToClose');
     el.addEventListener('click', () => this._dismiss(el));
     if (title) {
       const t = document.createElement('div');

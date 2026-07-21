@@ -10,6 +10,8 @@
     ready                : pagina carregou; envia init de volta
     toggle_source        : kind=monitor|mic|speaker, id, enabled
     set_source_hidden    : id, hidden (oculta da lista + tira da gravacao)
+    check_updates        : (sem campos) consulta o GitHub Releases
+    set_check_updates    : enabled (Boolean) — checagem automatica no startup
     record_start         : —
     record_stop          : —
     rename_recording     : id (filepath), newName
@@ -46,6 +48,7 @@ uses
   Winapi.ShlObj,
   Winapi.ActiveX,
   System.SysUtils,
+  System.DateUtils,   // DateTimeToUnix — intervalo de 24h da checagem de versao
   System.StrUtils,
   System.Types,
   System.JSON,
@@ -67,6 +70,8 @@ uses
   OBSRecordWatch,
   NoOBSLockDetector,
   WinMicWatch,
+  OBSVersion,
+  OBSUpdate,
   System.SyncObjs,
   FFmpegLib,
   FFmpegOps,
@@ -93,6 +98,10 @@ const
   AUDIO_REFRESH_DEBOUNCE_MS = 800;
 
   TIMER_AUDIO_METER    = 7005;
+  // Tick de 1 min so pra ver se ja passaram 24h da ultima checagem de
+  // versao. Nao e a frequencia da checagem — e a granularidade dela.
+  TIMER_UPDATE_CHECK   = 7006;
+  UPDATE_CHECK_TICK_MS = 60000;
   AUDIO_METER_MS       = 100;
 
   TIMER_MONITOR_REFRESH = 7004;
@@ -2200,6 +2209,9 @@ end;
 // Callback do monitor de microfone (WinMicWatch) — definido depois de
 // HandleRecordStart/Stop; forward pra DoInit poder passar a referencia.
 procedure OnMicUseChangedThread(AInUse: Boolean); forward;
+// Definida bem depois (junto do resto da checagem de versao), mas o DoInit
+// e o tick do TIMER_UPDATE_CHECK ja a chamam aqui em cima.
+procedure MaybeAutoCheckUpdates; forward;
 
 procedure DoInit;
 // OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
@@ -2328,6 +2340,7 @@ begin
   // Audio meters continuam via WM_TIMER (ok pausar durante drag — UI
   // de meters nao e foco enquanto o user move a janela).
   SetTimer(MainWindowHandle, TIMER_AUDIO_METER, AUDIO_METER_MS, nil);
+  SetTimer(MainWindowHandle, TIMER_UPDATE_CHECK, UPDATE_CHECK_TICK_MS, nil);
 
   // Hot-plug de audio (continua funcionando sem OBS).
   try OBSAudioWatch.Start(OnDeviceChange); except end;
@@ -2365,6 +2378,11 @@ begin
       GetConfigStr('autoRecordMicExcept', ''), OnMicUseChangedThread);
     except on E: Exception do
       Log('AutoRecord: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
+
+  // Checagem de atualizacao: worker thread propria, falha silenciosa, no
+  // maximo 1x por dia. Nao atrasa o startup.
+  try MaybeAutoCheckUpdates; except on E: Exception do
+    Log('Update: falha ao agendar checagem: %s', [E.Message]); end;
 
   // Warmup do libobs: agenda init com delay pra que a UI renderize
   // primeiro. Sem isso, a 1a gravacao espera ~300ms enquanto obs.dll
@@ -2942,6 +2960,72 @@ begin
   SetConfigStr('autoRecordMicApps', Trim(AApps));
   Log('AutoRecordMicApps: "%s"', [Trim(AApps)]);
   RestartMicWatchIfRunning;
+end;
+
+// Resultado da checagem de atualizacao -> UI. Roda na MAIN (o OBSUpdate
+// marshalla via TThread.Queue antes de chamar).
+procedure OnUpdateChecked(const AResult: TUpdateResult);
+var
+  Obj: TJSONObject;
+begin
+  // So marca a checagem como REALIZADA se o GitHub respondeu alguma coisa
+  // (qualquer status: 200, 403 de rate limit, 404, 500...). Falha de rede
+  // (StatusCode = 0: offline, DNS, timeout) NAO grava — senao abrir o app
+  // sem internet queimaria as proximas 24h sem ter checado nada.
+  if AResult.StatusCode <> 0 then
+    SetConfigInt('lastUpdateCheck', DateTimeToUnix(Now, False))
+  else
+    Log('Update: sem resposta do servidor — lastUpdateCheck preservado.');
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'update_result');
+  Obj.AddPair('ok', TJSONBool.Create(AResult.Ok));
+  Obj.AddPair('hasUpdate', TJSONBool.Create(AResult.HasUpdate));
+  Obj.AddPair('latest', AResult.LatestTag);
+  Obj.AddPair('url', AResult.ReleaseUrl);
+  Obj.AddPair('error', AResult.Error);
+  PostOwned(Obj);
+end;
+
+procedure HandleCheckUpdates;
+begin
+  OBSUpdate.CheckForUpdates(OnUpdateChecked);
+end;
+
+procedure HandleSetCheckUpdates(AEnable: Boolean);
+begin
+  SetConfigBool('checkUpdates', AEnable);
+  Log('CheckUpdates: %s', [BoolToStr(AEnable, True)]);
+end;
+
+// Chamada no startup E a cada tick do TIMER_UPDATE_CHECK (1 min). Dispara
+// a checagem quando passaram 24h da ultima que REALMENTE ocorreu.
+//
+// Por que polling de 1 min em vez de so no startup: o app fica dias aberto
+// (bandeja + hibernacao). Checando so no arranque, quem nunca fecha nunca
+// mais checaria. O tick e barato — compara dois inteiros e sai.
+//
+// Nunca checa em build de desenvolvimento (OBSVersion.IsDevBuild): esse
+// build esta a frente da tag por definicao, avisar seria falso positivo.
+procedure MaybeAutoCheckUpdates;
+const
+  DAY_SECONDS = 24 * 60 * 60;
+var
+  Last, Agora: Int64;
+begin
+  if not GetConfigBool('checkUpdates', True) then Exit;
+  if OBSUpdate.IsChecking then Exit;
+  if OBSVersion.IsDevBuild then Exit;
+
+  Last := GetConfigInt('lastUpdateCheck', 0);
+  Agora := DateTimeToUnix(Now, False);
+  // Last > Agora: relogio do sistema andou pra tras (fuso, acerto de hora).
+  // Trata como "nunca checou" pra nao travar a checagem ate a data alcancar.
+  if (Last > 0) and (Last <= Agora) and ((Agora - Last) < DAY_SECONDS) then Exit;
+
+  Log('Update: iniciando checagem automatica (ultima ha %ds).',
+    [Agora - Last]);
+  OBSUpdate.CheckForUpdates(OnUpdateChecked);
 end;
 
 procedure HandleSetAutoRecordMicExcept(const AApps: string);
@@ -3547,6 +3631,9 @@ begin
     TJSONBool.Create(GetConfigBool('autoRecordOnMic', False)));
   Obj.AddPair('autoRecordMicApps', GetConfigStr('autoRecordMicApps', ''));
   Obj.AddPair('autoRecordMicExcept', GetConfigStr('autoRecordMicExcept', ''));
+  Obj.AddPair('checkUpdates', TJSONBool.Create(GetConfigBool('checkUpdates', True)));
+  Obj.AddPair('appVersion', OBSVersion.DisplayVersion);
+  Obj.AddPair('isDevBuild', TJSONBool.Create(OBSVersion.IsDevBuild));
   Obj.AddPair('recordingQuality',
     TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
   // recordingFps: 0 = nao configurado → UI interpreta como 30 (default
@@ -4454,6 +4541,10 @@ begin
       HandleToggleSource(GetStrField(Obj, 'id'), GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_source_hidden' then
       HandleSetSourceHidden(GetStrField(Obj, 'id'), GetBoolField(Obj, 'hidden'))
+    else if MsgType = 'check_updates' then
+      HandleCheckUpdates
+    else if MsgType = 'set_check_updates' then
+      HandleSetCheckUpdates(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'record_start' then
       HandleRecordStart
     else if MsgType = 'record_stop' then
@@ -4770,6 +4861,10 @@ begin
     if not RecordingActive then
       DoRefreshWebcams;
   end
+  else if ATimerId = TIMER_UPDATE_CHECK then
+  begin
+    try MaybeAutoCheckUpdates; except end;
+  end
   else if ATimerId = TIMER_AUDIO_METER then
   begin
     // Suspende meters quando o player de video esta aberto — a sidebar
@@ -4892,6 +4987,7 @@ begin
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
     KillTimer(MainWindowHandle, TIMER_AUDIO_METER);
+    KillTimer(MainWindowHandle, TIMER_UPDATE_CHECK);
     KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
     KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
     KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);

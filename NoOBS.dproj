@@ -86,7 +86,7 @@
         <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>
-        <PreBuildEvent><![CDATA[TASKKILL /F /IM $(OUTPUTFILENAME) /T
+        <PreBuildEvent><![CDATA[call "$(PROJECTDIR)\gen-version.bat" "$(OUTPUTFILENAME)"
 $(PreBuildEvent)]]></PreBuildEvent>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Base_Android)'!=''">
@@ -144,8 +144,8 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.462;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Build>462</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.473;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Build>473</VerInfo_Build>
         <Icon_MainIcon>icon.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
@@ -1145,7 +1145,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
     <Import Project="$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj" Condition="Exists('$(APPDATA)\Embarcadero\$(BDSAPPDATABASEDIR)\$(PRODUCTVERSION)\UserTools.proj')"/>
     <Import Project="$(MSBuildProjectName).deployproj" Condition="Exists('$(MSBuildProjectName).deployproj')"/>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Android'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1153,7 +1153,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Android64'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1161,7 +1161,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win32'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1169,7 +1169,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1177,7 +1177,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Android'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1185,7 +1185,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Android64'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1193,7 +1193,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win32'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>
@@ -1201,7 +1201,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <PostBuildEventIgnoreExitCode>False</PostBuildEventIgnoreExitCode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Debug' And '$(Platform)'=='Win64'">
-        <PreBuildEvent>TASKKILL /F /IM $(OUTPUTFILENAME) /T</PreBuildEvent>
+        <PreBuildEvent>call &quot;$(PROJECTDIR)\gen-version.bat&quot; &quot;$(OUTPUTFILENAME)&quot;</PreBuildEvent>
         <PreBuildEventIgnoreExitCode>True</PreBuildEventIgnoreExitCode>
         <PreLinkEvent/>
         <PreLinkEventIgnoreExitCode>False</PreLinkEventIgnoreExitCode>

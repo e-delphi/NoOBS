@@ -82,7 +82,8 @@
       "devices": "Dispositivos",
       "window": "Ventana y bandeja",
       "behavior": "Comportamiento",
-      "about": "Acerca de"
+      "about": "Acerca de",
+      "updates": "Actualizaciones"
     },
     "reset": {
       "label": "Restaurar valores predeterminados",
@@ -209,13 +210,13 @@
       "bitrate": "(tasa de {{kbps}} kbps)",
       "bitrateDefault": "(sin tasa fija)",
       "hint": {
+        "0": "Predeterminado — misma calidad del codificador, equilibrado entre tamaño y calidad visual.",
+        "1": "Calidad alta — archivos más grandes, video más nítido.",
+        "2": "Calidad máxima — archivos grandes, casi sin pérdida visual.",
         "-4": "Compresión máxima — archivos diminutos, calidad muy por debajo de lo normal.",
         "-3": "Compresión muy alta — archivos muy pequeños, calidad notablemente reducida.",
         "-2": "Compresión agresiva — archivos mucho más pequeños, calidad visiblemente inferior.",
-        "-1": "Compresión moderada — archivos más pequeños, calidad ligeramente inferior.",
-        "0": "Predeterminado — misma calidad del codificador, equilibrado entre tamaño y calidad visual.",
-        "1": "Calidad alta — archivos más grandes, video más nítido.",
-        "2": "Calidad máxima — archivos grandes, casi sin pérdida visual."
+        "-1": "Compresión moderada — archivos más pequeños, calidad ligeramente inferior."
       }
     },
     "fps": {
@@ -299,7 +300,19 @@
     "buttons": {
       "reset": "Restaurar valores",
       "resetTitle": "Restaurar todos los campos a sus valores predeterminados (se aplica al instante)",
-      "close": "Cerrar"
+      "close": "Cerrar",
+      "back": "Volver"
+    },
+    "updates": {
+      "versionLabel": "Versión instalada",
+      "autoLabel": "Buscar actualizaciones automáticamente",
+      "autoHint": "Consulta la página de releases de GitHub como máximo una vez al día, en segundo plano. No se descarga ni instala nada — solo un aviso cuando haya una versión nueva.",
+      "checkNow": "Buscar ahora",
+      "checking": "Buscando...",
+      "upToDate": "Estás en la versión más reciente.",
+      "available": "Nueva versión disponible: {{version}}.",
+      "openPage": "Abrir página del release",
+      "failed": "No se pudo verificar ahora. Revisa tu conexión e inténtalo de nuevo."
     }
   },
   "devices": {
@@ -326,13 +339,14 @@
       "builtWith": "Construido con"
     },
     "features": [
-      "<b>Multi-monitor</b> y <b>cámara web</b> grabados simultáneamente",
-      "<b>Pistas de audio separadas</b> — micrófono y cada salida como pista propia en el MKV",
-      "<b>Aceleración por GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) con fallback CPU x264",
-      "<b>Atajo global</b> configurable para iniciar/detener desde cualquier lugar",
-      "<b>Modo hibernación</b>: ~5 MB de RAM cuando está inactivo en la bandeja",
-      "<b>Contenedor MKV</b> — grabación recuperable incluso tras una caída de energía",
-      "<b>Reproductor integrado</b> con miniaturas, búsqueda y eliminación directo en la UI"
+      "<b>Listo en un clic</b> — pantallas, cámara web, micrófonos y audio del sistema detectados automáticamente, sin escenas ni fuentes que configurar",
+      "<b>Multimonitor</b> y <b>cámara web</b> grabados simultáneamente",
+      "<b>Pistas de audio separadas</b> — el micrófono y cada salida se vuelven una pista propia en el MKV",
+      "<b>Aceleración por GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) con respaldo CPU x264",
+      "<b>Edición rápida en el reproductor</b> — dividir, unir, forma de onda y volumen por pista",
+      "<b>Grabación automática en llamadas</b> — detecta el micrófono en uso por Teams, WhatsApp y similares, y se detiene solo",
+      "<b>Atajo global</b> y <b>modo hibernación</b> (~5 MB de RAM cuando está inactivo en la bandeja)",
+      "<b>Contenedor MKV</b> — la grabación sobrevive a un corte de energía"
     ],
     "builtWith": [
       "Delphi 12 (RAD Studio) — target Win64 nativo",
@@ -392,7 +406,7 @@
     "errorSaving": "Error al guardar",
     "invalidHotkey": "Atajo inválido",
     "fieldsReset": "Campos restaurados",
-    "fieldsResetBody": "Haz clic en Guardar para aplicar los cambios.",
+    "fieldsResetBody": "Los cambios ya se aplicaron.",
     "restoreConfirmMessage": "Esto restablecerá todos los campos a sus valores predeterminados y se aplicará al instante. ¿Continuar?",
     "restoreConfirmOk": "Restaurar",
     "devicesUpdated": "Dispositivos actualizados",
@@ -463,9 +477,18 @@
     "devicesDisabled_other": "{{count}} dispositivos deshabilitados"
   },
   "months": [
-    "Enero", "Febrero", "Marzo", "Abril",
-    "Mayo", "Junio", "Julio", "Agosto",
-    "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre"
   ],
   "common": {
     "cancel": "Cancelar",

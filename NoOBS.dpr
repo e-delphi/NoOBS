@@ -50,6 +50,8 @@ uses
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',
   WinMicWatch in 'src\WinMicWatch.pas',
+  OBSVersion in 'src\OBSVersion.pas',
+  OBSUpdate in 'src\OBSUpdate.pas',
   WinPreview in 'src\WinPreview.pas',
   WinWebcam in 'src\WinWebcam.pas',
   NoOBSLockDetector in 'src\NoOBSLockDetector.pas',

@@ -82,7 +82,8 @@
       "devices": "Devices",
       "window": "Window & tray",
       "behavior": "Behavior",
-      "about": "About"
+      "about": "About",
+      "updates": "Updates"
     },
     "reset": {
       "label": "Restore defaults",
@@ -209,13 +210,13 @@
       "bitrate": "({{kbps}} kbps rate)",
       "bitrateDefault": "(no fixed rate)",
       "hint": {
+        "0": "Default — same as encoder defaults, balanced between file size and visual quality.",
+        "1": "High quality — larger files, sharper video.",
+        "2": "Maximum quality — large files, close to visually lossless.",
         "-4": "Maximum compression — tiny files, quality well below normal.",
         "-3": "Very high compression — very small files, noticeably reduced quality.",
         "-2": "Aggressive compression — much smaller files, visibly lower quality.",
-        "-1": "Moderate compression — smaller files, slightly lower quality.",
-        "0": "Default — same as encoder defaults, balanced between file size and visual quality.",
-        "1": "High quality — larger files, sharper video.",
-        "2": "Maximum quality — large files, close to visually lossless."
+        "-1": "Moderate compression — smaller files, slightly lower quality."
       }
     },
     "fps": {
@@ -299,7 +300,19 @@
     "buttons": {
       "reset": "Restore defaults",
       "resetTitle": "Restore all fields to their default values (applied instantly)",
-      "close": "Close"
+      "close": "Close",
+      "back": "Back"
+    },
+    "updates": {
+      "versionLabel": "Installed version",
+      "autoLabel": "Check for updates automatically",
+      "autoHint": "Checks the GitHub releases page at most once a day, in the background. Nothing is downloaded or installed — just a notice when a new version exists.",
+      "checkNow": "Check now",
+      "checking": "Checking...",
+      "upToDate": "You are on the latest version.",
+      "available": "New version available: {{version}}.",
+      "openPage": "Open release page",
+      "failed": "Could not check right now. Check your connection and try again."
     }
   },
   "devices": {
@@ -326,13 +339,14 @@
       "builtWith": "Built with"
     },
     "features": [
+      "<b>Ready in one click</b> — screens, webcam, microphones and system audio detected automatically, with no scenes or sources to set up",
       "<b>Multi-monitor</b> and <b>webcam</b> recorded simultaneously",
-      "<b>Separate audio tracks</b> — mic and each output as its own track in the MKV",
+      "<b>Separate audio tracks</b> — the mic and each output become their own track in the MKV",
       "<b>GPU acceleration</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) with CPU x264 fallback",
-      "Configurable <b>global hotkey</b> to start/stop from anywhere",
-      "<b>Hibernate mode</b>: ~5 MB of RAM when idle in the tray",
-      "<b>MKV container</b> — recording recoverable even after power loss",
-      "<b>Built-in player</b> with thumbnails, search and delete right in the UI"
+      "<b>Quick editing in the player</b> — split, merge, waveform and per-track volume",
+      "<b>Automatic recording during calls</b> — detects the microphone in use by Teams, WhatsApp and the like, and stops on its own",
+      "<b>Global shortcut</b> and <b>hibernation mode</b> (~5 MB of RAM when idle in the tray)",
+      "<b>MKV container</b> — the recording survives a power loss"
     ],
     "builtWith": [
       "Delphi 12 (RAD Studio) — native Win64 target",
@@ -392,7 +406,7 @@
     "errorSaving": "Error saving",
     "invalidHotkey": "Invalid hotkey",
     "fieldsReset": "Fields restored",
-    "fieldsResetBody": "Click Save to apply the changes.",
+    "fieldsResetBody": "The changes have already been applied.",
     "restoreConfirmMessage": "This will reset all fields to their default values and apply them immediately. Continue?",
     "restoreConfirmOk": "Restore",
     "devicesUpdated": "Devices updated",
@@ -463,9 +477,18 @@
     "devicesDisabled_other": "{{count}} devices disabled"
   },
   "months": [
-    "January", "February", "March", "April",
-    "May", "June", "July", "August",
-    "September", "October", "November", "December"
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
   ],
   "common": {
     "cancel": "Cancel",

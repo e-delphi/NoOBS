@@ -31,10 +31,16 @@
     border-color: rgba(0,0,0,0.10);
     box-shadow: 0 6px 18px rgba(0,0,0,0.15);
   }
-  /* Cursor "help" (seta com ?) em qualquer elemento que tem data-hint
-     — sinaliza visualmente que tem info extra disponivel ao passar o
-     mouse, sem precisar declarar em cada componente individualmente. */
-  [data-hint] { cursor: help; }
+  /* Cursor "help" (seta com ?) — NAO e global em [data-hint]. Depois que
+     todos os tooltips nativos (title) viraram data-hint, um seletor global
+     daria cursor de ajuda em botoes e controles no lugar do pointer deles.
+     Fica so nos elementos INFORMATIVOS que ja tinham data-hint antes:
+     legenda de faixas e icones de aviso Bluetooth (+ o botao Restaurar).
+     Pra marcar um elemento novo, adicione a classe .hint-cursor. */
+  .track-legend-item[data-hint],
+  .source-bt-icon[data-hint],
+  .source-bt-warn[data-hint],
+  .hint-cursor[data-hint] { cursor: help; }
 
   /* ===== Toast notifications ===== */
   .toast-stack {

@@ -768,7 +768,7 @@ const Player = {
       if (row) row.classList.toggle('muted', isMuted);
       if (muteBt) {
         muteBt.classList.toggle('muted', isMuted);
-        muteBt.title = isMuted ? T('player.unmute') : T('player.muteShort');
+        muteBt.dataset.hint = isMuted ? T('player.unmute') : T('player.muteShort');
         muteBt.innerHTML = MUTE_ICON_SVG(isMuted);
       }
     };

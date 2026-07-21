@@ -75,7 +75,7 @@ function updateRecordButtonAvailability() {
   const anyEnabled = (mons + cams + mics + spks) > 0;
   btn.disabled = !anyEnabled;
   if (!anyEnabled)
-    btn.title = T('record.needDevice');
+    btn.dataset.hint = T('record.needDevice');
   else
     btn.removeAttribute('title');
 }

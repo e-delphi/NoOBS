@@ -441,7 +441,7 @@
     margin-right: 6px;
     vertical-align: middle;
     flex-shrink: 0;
-    /* cursor: help vem do seletor global [data-hint] */
+    /* cursor: help vem de widgets.css (.source-bt-icon[data-hint]) */
   }
   .source-bt-icon svg, .source-bt-warn svg {
     display: block;

@@ -1466,7 +1466,7 @@ begin
   // Inicializa a plataforma RTWQ ANTES de qualquer coisa de audio — o
   // win-wasapi depende dela pra capturar (e o frontend do OBS a inicia
   // aqui, no topo do main). Sem isso, a 1a gravacao sai muda e o shutdown
-  // trava. Ver OBSRtwq e pegadinha #47. Antes do CoInitialize, como o OBS.
+  // trava. Ver OBSRtwq e pegadinha #48. Antes do CoInitialize, como o OBS.
   StartRtwq;
 
   CoInitialize(nil);

@@ -1,8 +1,8 @@
-(*
+﻿(*
   OBSRtwq - inicializa a plataforma RTWQ (Real-Time Work Queue) do
   Windows no arranque do processo, e a finaliza na saida.
 
-  POR QUE ISTO EXISTE (pegadinha #47).
+  POR QUE ISTO EXISTE (pegadinha #48).
 
   O plugin win-wasapi do OBS usa a RTWQ (Media Foundation) pra agendar a
   entrega dos buffers de audio de captura. Mas ele NAO inicializa a
@@ -102,7 +102,7 @@ begin
     Exit;
   end;
 
-  Startup := GetProcAddress(GRtwqModule, 'RtwqStartup');
+  @Startup := GetProcAddress(GRtwqModule, 'RtwqStartup');
   if not Assigned(Startup) then
   begin
     Log('RTWQ: RtwqStartup ausente na DLL — abortando init da plataforma.');
@@ -129,7 +129,7 @@ var
 begin
   if GRtwqModule = 0 then Exit;
 
-  ShutdownFn := GetProcAddress(GRtwqModule, 'RtwqShutdown');
+  @ShutdownFn := GetProcAddress(GRtwqModule, 'RtwqShutdown');
   if Assigned(ShutdownFn) then
     try ShutdownFn(); except end;
 

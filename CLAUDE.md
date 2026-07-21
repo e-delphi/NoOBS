@@ -86,6 +86,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSAudioTracks`    | `ComputeAudioTrackAssignments` (single source of truth) + `BuildTrackNames` + enum de devices via obs_properties |
 | `OBSScene`          | Tipos puros (TOBSMonitor, TAudioDevice) + `ComputeCanvas` + `FilterEnabledMonitors`|
 | `OBSStartupCheck`   | Valida presença de obs.dll, libav, WebView2 antes de criar janela                  |
+| `OBSRtwq`           | `RtwqStartup`/`RtwqShutdown` da plataforma RTWQ no arranque/saída — o win-wasapi depende disso pra capturar (Pegadinha #48) |
 | `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets) |
@@ -139,6 +140,9 @@ App start (OBSUI.Run):
   • EnforceRuntime (OBSStartupCheck): valida obs.dll, WebView2Loader,
     avformat-61.dll, avcodec-61.dll, avutil-59.dll, swscale-8.dll,
     obs-plugins/64bit/*. Se faltar critico → MessageBox + exit.
+  • StartRtwq (OBSRtwq): RtwqStartup da plataforma RTWQ, ANTES do
+    CoInitialize e de qualquer fonte WASAPI — sem isso a 1a gravacao
+    sai muda e o shutdown trava (pegadinha #48)
   • CoInitialize, DPI awareness, registra wndclass, cria janela
   • DoInit (em OBSBridge):
     • PushTheme
@@ -214,11 +218,12 @@ App exit — OBSUI.Run, DEPOIS do message loop e ANTES do CoUninitialize:
   • Para workers (thumb thread, recordwatch, audiowatch, playerserver)
   • Engine.Teardown:
     - Libera output/encoders/sources/scene + ClearAllObsData
-    - Sonda/drena as 3 filas: gráficos, áudio (1s) e destruição (1s)
-    - Se a de destruição não drenar, PULA o obs_shutdown e dumpa as
-      pilhas — sinal de RTWQ morto no win-wasapi (pegadinha #31)
-    - Senão, obs_shutdown NA MAIN THREAD (mesma que chamou obs_startup —
-      contrato da libobs), com TShutdownWatchdog de 5s vigiando
+    - obs_shutdown NA MAIN THREAD (mesma que chamou obs_startup —
+      contrato da libobs), com TShutdownWatchdog de 5s vigiando. Com o
+      RtwqStartup no lugar (#48) conclui em ~80ms; se uma regressão
+      travar, o watchdog encerra o processo (pegadinhas #31/#48)
+  • CoUninitialize, e então StopRtwq (RtwqShutdown) — por último, depois
+    do obs_shutdown que destrói as fontes WASAPI (pegadinha #48)
 ```
 
 ---
@@ -579,119 +584,125 @@ volta pra main via `TThread.Queue`.
 `BuildAndStartRecording`) tem timeout de 3s — se travar, retorna
 lista vazia e gravação inicia sem áudio em vez de pendurar a UI.
 
-### 31. **`obs_shutdown` trava: `WASAPISource::Stop()` espera INFINITE**
+### 31. **`obs_shutdown` travava — era SINTOMA do RTWQ (pegadinha #48)**
+
+✅ **RESOLVIDO** ao corrigir a causa raiz na #48 (`RtwqStartup` faltando).
+Esta entrada fica pelo caminho de investigação e pelas regras de
+`obs_shutdown` que sobreviveram — mas o travamento em si sumiu quando a
+plataforma RTWQ passou a ser inicializada. Log de uma sessão sã:
+
+```
+filas drenadas em 16ms — graficos=responde, audio=responde, destruicao=responde.
+obs[?] Freeing OBS context data
+libobs: shutdown ok em 78ms.
+```
 
 Referências validadas contra a fonte do OBS que casa com a `obs.dll`
 empacotada (**32.1.2**). Há um checkout local em `obs-studio-master\`
 (gitignored, não vem com o clone) — confira lá, não na internet.
 
-**Causa raiz (medida, não deduzida).** É um bug do OBS, não nosso, e o
-gatilho é o mesmo RTWQ que já conhecíamos por "a gravação sai muda":
+**A cadeia do travamento** (agora só dispara se a #48 regredir):
 
-1. O `win-wasapi` usa a RTWQ (Real-Time Work Queue) pra agendar a entrega
-   de buffers. Se `RtwqPutWaitingWorkItem` falha, ele loga
-   **`Could not requeue sample receive work`** (`win-wasapi.cpp:1267`) e
-   seta `stop = true; reconnect = true` — a source entra em modo
-   reconnect e cria o `reconnectThread`.
-2. A partir daí o callback de recepção **nunca mais é agendado**.
-3. Na destruição, `WASAPISource::Stop()` (`win-wasapi.cpp:430`) pega o
+1. `win-wasapi` usa a RTWQ pra agendar a entrega de buffers. Sem a
+   plataforma iniciada (#48), `RtwqPutWaitingWorkItem` falha e loga
+   **`Could not requeue sample receive work`** (`win-wasapi.cpp:1266`),
+   setando `stop = true; reconnect = true` → cria o `reconnectThread`.
+2. Na destruição, `WASAPISource::Stop()` (`win-wasapi.cpp:430`) pega o
    ramo `reconnectThread.Valid()` e faz
-   **`WaitForSingleObject(idleSignal, INFINITE)`** (`:440`) — esperando um
-   sinal que só viria daquele callback morto. Sem timeout.
-4. A destruição de source é diferida pra thread de destruição do libobs
-   (`task.c`, `tiny_tubular_task_thread`), que fica parada ali pra sempre.
-5. `obs_wait_for_destroy_queue` (1ª instrução do `obs_shutdown`) termina em
-   `os_task_queue_wait(obs->destruction_task_thread)` (`obs.c:3372`), que
-   também espera **sem timeout**. Trava o shutdown inteiro.
+   **`WaitForSingleObject(idleSignal, INFINITE)`** (`:440`) — espera um
+   sinal que só viria do callback já morto. Sem timeout.
+3. A destruição de source é diferida pra thread de destruição do libobs
+   (`task.c`, `tiny_tubular_task_thread`) → ela para ali pra sempre.
+4. `obs_wait_for_destroy_queue` (1ª instrução do `obs_shutdown`) termina
+   em `os_task_queue_wait(obs->destruction_task_thread)` (`obs.c:3372`),
+   também sem timeout → trava o shutdown inteiro.
 
-Ordem no log de uma sessão real: `Could not requeue sample receive work`
-às 18:24:23, fila de destruição sem responder às 18:25:08.
+**Regras de `obs_shutdown` que continuam valendo** (independem da #48):
 
-**Não é corrigível daqui** — o wait sem timeout está dentro do plugin.
-Por isso o `Teardown` sonda as três filas e, se a de destruição não drenar
-em `DESTROY_TIMEOUT_MS` (1 s), **pula o `obs_shutdown`**. Isso é legítimo:
-num processo que está saindo ele só libera memória, descarrega plugins e
-destrói o device D3D11 — tudo que o OS recupera no `ExitProcess`. O
-arquivo da gravação já foi finalizado antes (o release do output
-sincroniza o muxer). Não adianta dar prazo maior: quando não drena, não é
-lentidão, é espera infinita.
-
-⚠️ **A falha de RTWQ é um problema MAIOR que o fechamento.** Ela também
-significa que aquela fonte de áudio estava **entregando silêncio** — é a
-mesma condição que o `ObsLogHandler` vigia pra setar `AudioCaptureFault`.
-Se o shutdown está travando, provavelmente a gravação daquela sessão saiu
-muda naquele device. Investigue por esse lado, não pelo shutdown.
-
-**Regras que sobreviveram e continuam valendo:**
-
-- **`obs_startup` e `obs_shutdown` na MESMA thread — a main.** É contrato
-  da libobs: o `obs_startup` faz `CoInitializeEx(0,
-  COINIT_APARTMENTTHREADED)` na thread que o chama (`obs.c:1332` ->
-  `obs-windows.c:1235`) e o `obs_shutdown` faz o `CoUninitialize`
-  correspondente (`obs.c:1475`). O OBS respeita isso
-  (`frontend/OBSApp.cpp:1976`). O CLAUDE.md já afirmou o oposto em
-  maiúsculas ("NÃO troque o worker por chamada direta na main") — era uma
-  observação antiga, feita antes de liberarmos os objetos primeiro, que
-  virou dogma e custou duas rodadas de investigação.
+- **`obs_startup` e `obs_shutdown` na MESMA thread — a main.** Contrato da
+  libobs: o `obs_startup` faz `CoInitializeEx(0, COINIT_APARTMENTTHREADED)`
+  na thread que o chama (`obs.c:1332` -> `obs-windows.c:1235`) e o
+  `obs_shutdown` faz o `CoUninitialize` correspondente (`obs.c:1475`). O
+  OBS respeita isso (`frontend/OBSApp.cpp:1976`). O CLAUDE.md já afirmou o
+  oposto em maiúsculas ("NÃO troque o worker por chamada direta na main")
+  — era observação antiga que virou dogma e custou duas rodadas.
 - **O cleanup roda ANTES do `CoUninitialize`** do `OBSUI.Run`, via
   `OnUIShutdown`; senão o par acima desbalanceia. A `finalization` da unit
-  continua chamando como rede de segurança, daí a guarda `ShutdownDone`.
+  ainda chama como rede de segurança, daí a guarda `ShutdownDone`.
 - **`TShutdownWatchdog`**: a main bloqueada não vigia a si mesma. Se o
-  `obs_shutdown` for chamado e não voltar, ele dumpa a pilha e encerra o
-  processo. Garante que o app sempre fecha.
+  `obs_shutdown` não voltar em 5 s, ele encerra o processo
+  (`TerminateProcess`) — nada de zumbi segurando o mutex. Rede de
+  segurança caso a #48 regrida. **Não dumpa pilha** (ver abaixo).
 
-**Ferramental de diagnóstico (use ANTES de teorizar):**
+> Nota histórica — código de investigação REMOVIDO após o fix (existiu,
+> foi descartado, não reintroduza por reflexo):
+> - *Pré-probe das 3 filas* (`TaskThreadResponds` + `WaitPumpingCom` com
+>   `CoWaitForMultipleHandles`): drenava o `obs_wait_for_destroy_queue`
+>   pra decidir se pulava o `obs_shutdown`. Nasceu das hipóteses erradas
+>   (deadlock de COM); o `WaitPumpingCom` nunca fez nada útil (o
+>   `combase.dll` era pista falsa).
+> - *Dump de pilha* (`LogHungThreadDiagnostics` + `LogAllThreadStacks` +
+>   resolução `módulo+offset`): ~220 linhas de Win32 (`SuspendThread`,
+>   `GetThreadContext`, `ToolHelp32`) que só rodavam no caminho de hang.
+>   Foi o que crackeou a #48, mas com o bug resolvido virou peso morto.
 
-- `LogHungThreadDiagnostics(handle)` — suspende, lê o RIP via
-  `GetThreadContext`, resolve pra `módulo+offset` e varre a pilha atrás de
-  endereços de retorno. Coleta suspenso e só loga **depois de resumir**:
-  se a alvo estiver dentro do nosso `ObsLogHandler` ela segura a seção
-  crítica do `OBSLog`, e logar ali travaria justamente o caminho que
-  existe pra destravar o app.
-- `LogAllThreadStacks(motivo)` — mesma coisa pra todas as threads do
-  processo, filtrando as que têm frame em `obs.dll`. Foi o que achou a
-  thread de destruição parada no `win-wasapi.dll`.
-- **Resolver os offsets**: o número logado é o RVA (`Addr - hModule`),
-  então basta parsear a tabela de exports da DLL e pegar o export de maior
-  RVA ≤ alvo. ~40 linhas de PowerShell. Transformou seis números opacos em
-  `obs_wait_for_destroy_queue + 0x1C6` / `os_task_queue_wait + 0x81`.
-  Offsets de funções estáticas caem no export anterior — é aproximado,
-  mas separa "core do obs" de "plugin" na hora.
+**Como reintroduzir o dump de pilha se um hang voltar** (a técnica, já que
+o código saiu — foi ela que resolveu, não adivinhação):
 
-**Três hipóteses DERRUBADAS por medição** (o padrão: cada uma explicava
-todos os sintomas conhecidos, e nenhuma era o mecanismo em uso):
+1. Numa thread separada (a main trava dentro do `obs_shutdown`, não vigia
+   a si mesma), enumere as threads do processo com `ToolHelp32`
+   (`CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)` + `Thread32First/Next`),
+   pulando a própria e as de outros PIDs.
+2. Por thread: `OpenThread(THREAD_SUSPEND_RESUME or THREAD_GET_CONTEXT or
+   THREAD_QUERY_INFORMATION)` → `SuspendThread` → `GetThreadContext`
+   (`ContextFlags := $00100001`, CONTEXT_CONTROL x64; alinhe o `CONTEXT`
+   em 16 bytes na mão). Pegue `Rip`/`Rsp`, varra a pilha (`Rsp`..topo da
+   região via `VirtualQuery`) atrás de endereços em página executável.
+3. **Colete suspenso, resuma, só ENTÃO logue**: se a thread foi suspensa
+   dentro do nosso `ObsLogHandler` ela segura a seção crítica do `OBSLog`
+   e logar ali trava o próprio caminho de destravamento.
+4. Resolva cada endereço pro módulo via `GetModuleHandleExW(FROM_ADDRESS)`
+   + `GetModuleFileName` → `nome.dll+0x{Addr-hModule}`. Filtre só as
+   threads com frame em `obs.dll`.
+5. **Traduza os offsets**: o número logado É o RVA. Parseie a tabela de
+   exports da DLL e pegue o export de maior RVA ≤ alvo (~40 linhas de
+   PowerShell). Foi o que virou seis números opacos em
+   `obs_wait_for_destroy_queue + 0x1C6`, `os_task_queue_wait + 0x81`,
+   `win-wasapi.dll+...` — sem símbolos, é o que separa core de plugin e
+   apontou a thread de destruição parada no `win-wasapi`.
+
+O código completo desses passos está no histórico do git (procure
+`LogAllThreadStacks` em `OBSEngine.pas` antes desta limpeza).
+
+**Hipóteses DERRUBADAS por medição** (o padrão que custou 4 rodadas: cada
+uma explicava TODOS os sintomas conhecidos, e nenhuma era o mecanismo —
+"explica os sintomas" ≠ "é a causa"; só a pilha capturada resolveu):
 
 1. *"Trava esperando gráficos/áudio no `obs_wait_for_destroy_queue`"* —
    função certa, espera errada. A sondagem mede as duas respondendo em
-   ~15 ms; eu concluí "não é aqui" em vez de olhar a **terceira** espera
-   da mesma função, que eu tinha lido e descartado como "não dá pra
-   sondar".
+   ~15 ms; conclui-se "não é aqui" sem olhar a **terceira** espera da
+   mesma função.
 2. *"A thread de gráficos saiu sozinha"* via `stop_requested()`
-   (`obs-video.c:1084`, que só faz `success = false` dentro do laço sobre
-   os mixes) — a sondagem mostra ela respondendo.
+   (`obs-video.c:1084`) — a sondagem mostra ela respondendo.
 3. *"Deadlock de COM entre apartments"* — `combase.dll` apareceu na pilha
-   e eu construí a explicação inteira em cima disso. Era frame obsoleto da
-   varredura heurística. Bombear COM com `CoWaitForMultipleHandles` por
-   3 s não mudou nada.
+   e virou a explicação inteira; era frame obsoleto da varredura
+   heurística. Bombear COM com `CoWaitForMultipleHandles` não mudou nada.
 
 ⚠️ **NÃO tente derrubar vídeo/áudio pra fazer o guard do
-`obs_wait_for_destroy_queue` cortar** — as duas alavancas óbvias são AV,
-verificado na fonte:
+`obs_wait_for_destroy_queue` cortar** — as duas alavancas óbvias são AV:
 - `obs_reset_video(nil)`: **não tem check de nil**, desreferencia
   `ovi->output_width` de cara (`obs.c:1534`). (Versões antigas do OBS
-  tinham `if (!ovi) { obs_free_video(); return ...; }` — **foi
-  removido**. Não confie em memória de OBS antigo aqui.)
-- `obs_reset_audio2(nil)`: zera `obs->audio.audio` de verdade, mas faz
-  `obs_free_audio()` rodar **duas vezes** (a sua + a do
-  `obs_shutdown:1435`). O 2º passe chama `pthread_mutex_destroy` num mutex
-  já zerado pelo `memset`, e o w32-pthreads desreferencia NULL em
+  tinham `if (!ovi) { obs_free_video(); return ...; }` — **foi removido**.)
+- `obs_reset_audio2(nil)`: zera `obs->audio.audio`, mas faz
+  `obs_free_audio()` rodar **duas vezes** (a sua + a do `obs_shutdown`).
+  O 2º passe chama `pthread_mutex_destroy` num mutex já zerado pelo
+  `memset` → w32-pthreads desreferencia NULL em
   `pthread_mutex_trylock.c:67`. (`obs_reset_audio(nil)` é pior:
   desreferencia `oai->samples_per_sec` em `obs.c:1648`.)
 
-Outras hipóteses já descartadas: sources ainda registradas no core
-(`ClearAllObsData` roda em 0 ms); timeout curto (15 s dá o mesmo
-abandono); `obs_output_stop` assíncrono atropelado; "a thread de gráficos
-depende do nosso message loop" (é pthread próprio, com pump próprio em
+Outras descartadas: sources ainda registradas (`ClearAllObsData` = 0 ms);
+timeout curto (15 s dá o mesmo); `obs_output_stop` atropelado; "a thread
+de gráficos depende do nosso message loop" (é pthread próprio, pump em
 `obs-video.c:1117`).
 
 ### 32. **`obs_set_output_source` antes de `obs_startup` → AV**
@@ -1079,6 +1090,67 @@ Quatro pontos críticos:
 O callback roda NA THREAD do watcher — no full marshalla via `TThread.Queue`
 (libobs/UI só na main); na hibernação usa `PostMessage` (thread-safe).
 
+
+### 48. **RTWQ: o HOST tem que chamar `RtwqStartup` — 1ª gravação muda**
+
+**O bug mais doído do projeto, e a causa raiz de DOIS sintomas:** (a) a 1ª
+gravação de cada sessão saía **sem o áudio do sistema** (desktop/speaker),
+a 2ª em diante gravava; (b) o `obs_shutdown` travava (pegadinha #31).
+
+**Causa.** O plugin `win-wasapi` usa a RTWQ (Real-Time Work Queue, do
+Media Foundation) pra agendar a entrega dos buffers de captura, mas **não
+inicializa a plataforma** — assume que o HOST fez isso. Ver
+`win-wasapi.cpp:347`:
+
+```c
+// OBS will already load DLL on startup if it exists
+const HMODULE rtwq_module = GetModuleHandle(L"RTWorkQ.dll");
+...
+rtwq_supported = rtwq_module != NULL;   // escolhe o caminho RTWQ
+```
+
+`GetModuleHandle`, não `LoadLibrary` — e o comentário diz que o OBS "já
+carregou no startup". Quem carrega **e chama `RtwqStartup()`** é o
+FRONTEND do OBS, no topo do `main` (`frontend/obs-main.cpp:921`), com
+`RtwqShutdown()` na saída (`:1062`).
+
+**O NoOBS substitui o frontend do OBS — então isso é nossa
+responsabilidade, e faltava.** Efeito:
+
+- A `RTWorkQ.dll` acaba carregada no processo por outro caminho (stack de
+  áudio do Windows, WASAPI, MF, D3D). Então o `GetModuleHandle` do plugin
+  a encontra e ele **escolhe o caminho RTWQ** (`rtwq_supported = true`)...
+- ...mas a plataforma nunca foi startada. Os work items de recepção não
+  são servidos de forma confiável → `RtwqPutWaitingWorkItem` falha
+  (`Could not requeue sample receive work`) e a fonte entrega **silêncio**.
+- "1ª muda, 2ª grava": a 1ª chamada RTWQ da fonte aquece a plataforma como
+  efeito colateral; entre gravações o core libobs fica vivo, então as
+  seguintes já a pegam pronta. Com `RtwqStartup()` no arranque, **todas**
+  — inclusive a 1ª — pegam a plataforma viva.
+- Mesma falha trava o `obs_shutdown` (a #31): o requeue falho põe a fonte
+  em modo reconnect → `Stop()` espera `INFINITE` um sinal que não vem.
+
+**Correção** (`OBSRtwq.pas`): `StartRtwq` faz `LoadLibrary('RTWorkQ.dll')`
++ `RtwqStartup()`; `StopRtwq` faz `RtwqShutdown()` + `FreeLibrary`. Idempotentes.
+Chamados em `OBSUI.Run` — `StartRtwq` **antes do `CoInitialize`** (e bem
+antes da 1ª fonte WASAPI), `StopRtwq` **depois do `CoUninitialize`** (=
+depois do `obs_shutdown`, que destrói as fontes que usam a fila). Espelha
+a ordem do frontend do OBS. Só no modo full (`OBSUI.Run`): a hibernação
+não cria fontes libobs, e o `WinMicWatch` usa `IAudioSessionManager2`, não
+RTWQ.
+
+**Confirmação:** log de fechamento são (`destruicao=responde`,
+`Freeing OBS context data`, `shutdown ok em 78ms`) + a 1ª gravação da
+sessão passou a conter o áudio do sistema. A ausência de
+`Could not requeue sample receive work` no log é o sinal verde.
+
+Nota de método: esse bug ficou aberto por sessões porque foi caçado só do
+lado do NoOBS ("nossa concorrência", "nossa init"). A virada foi ler como
+o **plugin** espera ser hospedado (`GetModuleHandle` + o comentário
+"OBS will already load") e o que o **frontend** do OBS faz que nós não
+fazíamos. Quando embarca libobs sem o frontend do OBS, replique o que
+`obs-main.cpp`/`OBSApp.cpp` fazem em volta do `obs_startup`/`obs_shutdown`
+— não só as chamadas libobs em si.
 ---
 
 ## Caches

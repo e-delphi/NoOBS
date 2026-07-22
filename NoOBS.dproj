@@ -83,7 +83,6 @@
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <DCC_DcuOutput>dcu</DCC_DcuOutput>
         <DCC_ExeOutput>exe\bin\64bit</DCC_ExeOutput>
-        <VerInfo_IncludeVerInfo>true</VerInfo_IncludeVerInfo>
         <VerInfo_AutoIncVersion>true</VerInfo_AutoIncVersion>
         <PreBuildEventCancelOnError>false</PreBuildEventCancelOnError>
         <PreBuildEvent><![CDATA[call "$(PROJECTDIR)\gen-version.bat" "$(OUTPUTFILENAME)"
@@ -144,8 +143,8 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win64)'!=''">
-        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.510;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
-        <VerInfo_Build>510</VerInfo_Build>
+        <VerInfo_Keys>CompanyName=;FileDescription=NoOBS;FileVersion=1.0.0.530;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProgramID=com.embarcadero.NoOBS;ProductName=NoOBS;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
+        <VerInfo_Build>530</VerInfo_Build>
         <Icon_MainIcon>icon.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">

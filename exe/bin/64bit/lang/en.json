@@ -296,7 +296,10 @@
       "appsPlaceholder": "teams, whatsapp, zoom",
       "appsHint": "Apps to watch, comma-separated (part of the process name). Empty = any app that uses the microphone. Browser calls show up as chrome.exe / msedge.exe.",
       "exceptPlaceholder": "steam, discord",
-      "exceptHint": "Exceptions: apps to ignore even when they use the microphone (comma-separated). Since you're watching every app, these stay out."
+      "exceptHint": "Exceptions: apps to ignore even when they use the microphone (comma-separated). Since you're watching every app, these stay out.",
+      "devicesLabel": "Devices in automatic recording",
+      "devicesHint": "Choose which devices are included when recording starts on its own from a call — a selection of its own, separate from the home screen. All start checked; only the ones hidden in the Devices menu are left out.",
+      "devicesEmpty": "No devices available. Check the Devices menu."
     },
     "buttons": {
       "reset": "Restore defaults",

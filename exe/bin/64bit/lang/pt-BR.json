@@ -296,7 +296,10 @@
       "appsPlaceholder": "teams, whatsapp, zoom",
       "appsHint": "Apps a monitorar, separados por vírgula (parte do nome do processo). Vazio = qualquer app que use o microfone. Chamadas no navegador aparecem como chrome.exe / msedge.exe.",
       "exceptPlaceholder": "steam, discord",
-      "exceptHint": "Exceções: apps a ignorar mesmo usando o microfone (separados por vírgula). Como está monitorando todos, estes ficam de fora."
+      "exceptHint": "Exceções: apps a ignorar mesmo usando o microfone (separados por vírgula). Como está monitorando todos, estes ficam de fora.",
+      "devicesLabel": "Dispositivos na gravação automática",
+      "devicesHint": "Escolha quais dispositivos entram quando a gravação começa sozinha por uma chamada — uma seleção própria, separada da tela inicial. Começam todos marcados; só ficam de fora os ocultos no menu Dispositivos.",
+      "devicesEmpty": "Nenhum dispositivo disponível. Verifique o menu Dispositivos."
     },
     "buttons": {
       "reset": "Restaurar padrão",

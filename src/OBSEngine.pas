@@ -64,7 +64,12 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure EnsureInitialized;
-    procedure BuildAndStartRecording(const AOutputPath: string);
+    // AAutoProfile=True: usa o perfil de auto-gravacao (subconjunto dos
+    // dispositivos habilitados, marcado na aba Comportamento) em vez de
+    // gravar todos os habilitados. Setado quando a gravacao nasce do
+    // watcher de mic. Pegadinha #47 + perfil de auto-gravacao.
+    procedure BuildAndStartRecording(const AOutputPath: string;
+      AAutoProfile: Boolean = False);
     // Pede o stop e retorna NA HORA (nao bloqueia a UI). A conclusao
     // chega depois via FOnStopped quando o sinal "stop" dispara. Modelo
     // identico ao do OBS (SimpleOutput::StopRecording).
@@ -566,7 +571,21 @@ begin
   end;
 end;
 
-procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string);
+procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string;
+  AAutoProfile: Boolean = False);
+
+  // Resolvedor de "este dispositivo entra na gravacao?". Na gravacao manual
+  // e o GetSourceActive de sempre; na auto-gravacao, tambem exige o device
+  // marcado no perfil (aba Comportamento). Centraliza pra os pontos de
+  // webcam/mic/speaker nao repetirem o if do perfil.
+  function SrcActive(const ACat, AId: string; ADefault: Boolean): Boolean;
+  begin
+    if AAutoProfile then
+      Result := GetSourceActiveForAuto(ACat, AId, ADefault)
+    else
+      Result := GetSourceActive(ACat, AId, ADefault);
+  end;
+
 var
   Monitors: TOBSMonitorArray;
   Cams: TWebcamInfoArray;
@@ -610,7 +629,7 @@ begin
   Log('-- Inventario --');
   Monitors := MonitorsFromWinPreview;
   Log('   %d monitor(es) detectado(s).', [Length(Monitors)]);
-  Monitors := FilterEnabledMonitors(Monitors);
+  Monitors := FilterEnabledMonitors(Monitors, AAutoProfile);
   Log('   %d monitor(es) habilitado(s).', [Length(Monitors)]);
 
   // Sort por PositionX.
@@ -631,7 +650,7 @@ begin
   end;
   Cams := EnumerateWebcams;
   for i := 0 to High(Cams) do
-    if GetSourceActive('webcams', Cams[i].Name, False) then
+    if SrcActive('webcams', Cams[i].Name, False) then
     begin
       BoundingW := BoundingW + Cams[i].Width;
       if Cams[i].Height > BoundingH then BoundingH := Cams[i].Height;
@@ -774,7 +793,7 @@ begin
   Log('-- Webcams --');
   for i := 0 to High(Cams) do
   begin
-    if not GetSourceActive('webcams', Cams[i].Name, False) then Continue;
+    if not SrcActive('webcams', Cams[i].Name, False) then Continue;
 
     SourceName := ToAnsi('NoOBS Webcam - ' + Cams[i].Name);
     Settings := MakeSettings;
@@ -892,13 +911,13 @@ begin
 
   for j := 0 to High(Mics) do
   begin
-    MicEnabledArr[j] := GetSourceActive('mics', Mics[j].Name, True);
+    MicEnabledArr[j] := SrcActive('mics', Mics[j].Name, True);
     MicDefaultArr[j] := (DefaultMicId <> '') and
       SameText(FromAnsi(PAnsiChar(Mics[j].DeviceId)), DefaultMicId);
   end;
   for j := 0 to High(Outputs) do
   begin
-    OutEnabledArr[j] := GetSourceActive('speakers', Outputs[j].Name, True);
+    OutEnabledArr[j] := SrcActive('speakers', Outputs[j].Name, True);
     OutDefaultArr[j] := (DefaultSpkId <> '') and
       SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId);
   end;
@@ -932,7 +951,7 @@ begin
       TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := GetSourceActive('mics', Mics[j].Name, True);
+    Enabled := SrcActive('mics', Mics[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);
@@ -957,7 +976,7 @@ begin
       TrackBitmask := 1;
     obs_source_set_audio_mixers(Src, TrackBitmask);
 
-    Enabled := GetSourceActive('speakers', Outputs[j].Name, True);
+    Enabled := SrcActive('speakers', Outputs[j].Name, True);
     obs_source_set_muted(Src, ByteBool(not Enabled));
 
     obs_set_output_source(AudioChannel, Src);

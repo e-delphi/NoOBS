@@ -211,6 +211,7 @@ const Bridge = {
       renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
       renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
       if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
       const banner = document.getElementById('audioRefreshBanner');
       if (banner) banner.classList.remove('show');
       // silent=true vem do load inicial do app; toast so faz sentido
@@ -240,6 +241,7 @@ const Bridge = {
       Displays.monitors = Devices.setAll('monitors', data.monitors);
       Displays.render();
       if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
       const banner = document.getElementById('monitorRefreshBanner');
       if (banner) banner.classList.remove('show');
       // So mostra toast se houve mudanca real (lista de changes nao vazia)
@@ -256,6 +258,7 @@ const Bridge = {
       Displays.webcams = Devices.setAll('webcams', data.webcams);
       Displays.render();
       if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
       // Mesmo titulo que audio_sources_refreshed pra que o dedup do
       // Toast.show coalesce as duas notificacoes quando hot-plug USB
       // dispara refresh de audio + webcam ao mesmo tempo.

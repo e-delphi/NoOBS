@@ -30,23 +30,33 @@ procedure ComputeCanvas(const Monitors: TOBSMonitorArray;
 
 function MonitorsFromWinPreview: TOBSMonitorArray;
 
-function FilterEnabledMonitors(const AMons: TOBSMonitorArray): TOBSMonitorArray;
+// AAutoProfile=True: aplica tambem o perfil de auto-gravacao (so entra o
+// monitor marcado na aba Comportamento). Usado quando a gravacao nasce do
+// watcher de mic. Default False = gravacao manual (so habilitado/nao oculto).
+function FilterEnabledMonitors(const AMons: TOBSMonitorArray;
+  AAutoProfile: Boolean = False): TOBSMonitorArray;
 
 implementation
 
 uses
   OBSConfig, WinPreview;
 
-function FilterEnabledMonitors(const AMons: TOBSMonitorArray): TOBSMonitorArray;
+function FilterEnabledMonitors(const AMons: TOBSMonitorArray;
+  AAutoProfile: Boolean = False): TOBSMonitorArray;
 var
   i: Integer;
+  Active: Boolean;
 begin
   SetLength(Result, 0);
   for i := 0 to High(AMons) do
   begin
     // GetSourceActive (nao GetSourceBool): monitor oculto nao entra no canvas.
-    if not GetSourceActive('monitors', IntToStr(AMons[i].Index), True) then
-      Continue;
+    // No perfil auto, tambem precisa estar marcado na aba Comportamento.
+    if AAutoProfile then
+      Active := GetSourceActiveForAuto('monitors', IntToStr(AMons[i].Index), True)
+    else
+      Active := GetSourceActive('monitors', IntToStr(AMons[i].Index), True);
+    if not Active then Continue;
     SetLength(Result, Length(Result) + 1);
     Result[High(Result)] := AMons[i];
   end;

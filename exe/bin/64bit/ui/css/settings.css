@@ -774,6 +774,22 @@
     flex-shrink: 0;
   }
 
+  /* Lista de dispositivos do perfil de auto-gravacao (aba "Comportamento").
+     Reusa as classes .devices-* acima; so precisa de um respiro pra separar
+     do campo de excecoes e um label proprio. */
+  #settingsAutoRecordDevicesWrap {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  #settingsAutoRecordDevicesWrap > label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
 
   /* Destaque quando ha versao nova — verde do app, mesmo do restante. */
   .settings-hint.update-available {

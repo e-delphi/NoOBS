@@ -1062,7 +1062,7 @@ tecla) **esconde** o campo de exceções quando há apps monitorados — sem "fi
 ativo escondido", casando com o backend — mas **preserva** o valor digitado (o
 campo reaparece intacto se o user esvaziar os monitorados).
 
-Quatro pontos críticos:
+Cinco pontos críticos:
 - **Excluir o próprio PID.** O NoOBS abre o mic pros medidores e pra gravar
   (pegadinha #12), então sem `Pid <> GetCurrentProcessId` o mic pareceria
   SEMPRE em uso → a auto-gravação nunca pararia.
@@ -1079,6 +1079,18 @@ Quatro pontos críticos:
 - **Auto-stop só do que o watcher iniciou.** `RecordingStartedByMicWatch`
   (OBSBridge) — `HandleRecordStop` limpa o flag; a borda "mic liberado" só
   para se o flag está setado, pra nunca matar uma gravação manual.
+- **A 1ª leitura do watcher é linha de base, não dispara** (`First` em
+  `TMicWatchThread.Execute`). Um mic JÁ em uso quando o watcher sobe é uma
+  chamada EM CURSO, não uma chamada NOVA — só a transição livre→em-uso que
+  acontece com o watcher rodando conta. Sem isso: usuário para a gravação
+  manualmente durante uma chamada (mic ainda em uso) → app hiberna → o
+  `WinMicWatch` do processo de hibernação sobe do zero (`FLastInUse=False`),
+  vê o mic em uso como "borda de entrada" e **re-dispara** a gravação que o
+  usuário acabou de parar. O baseline resolve pros dois modos (full e
+  hibernate): a gravação da chamada em curso só volta se o mic for liberado
+  e reacquirido (chamada nova). Trade-off aceito: cold-launch DURANTE uma
+  chamada não auto-grava aquela chamada (grava a próxima) — o que é o
+  comportamento correto de "auto-gravar chamadas NOVAS".
 - **Hibernação.** O modo `/hibernate` (sem libobs) também roda o `WinMicWatch`;
   o callback faz `PostMessage(WM_MIC_TRIGGER)` → `SpawnFullAndExit('/start-record-mic')`
   (mesmo caminho da hotkey). O sufixo `-mic` (que CONTÉM `/start-record`, então

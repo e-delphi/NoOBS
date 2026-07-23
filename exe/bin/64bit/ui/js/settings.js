@@ -95,8 +95,13 @@ document.addEventListener('keydown', (e) => {
 // botao Salvar). 'change' dispara no blur/Enter pra textos e no toggle pra
 // checkboxes/dropdowns/sliders — nao a cada tecla. A hotkey tem handler proprio
 // (onHotkeyChange -> _commitHotkey); aqui o commit() so ignora ela.
-document.getElementById('settingsOverlay').addEventListener('change', () => {
+document.getElementById('settingsOverlay').addEventListener('change', (e) => {
   if (typeof Settings !== 'undefined' && Settings.commit) Settings.commit();
+  // Ligar/desligar a auto-gravacao mostra/esconde a lista de dispositivos do
+  // perfil na hora (change so dispara no toggle do checkbox — basta aqui).
+  if (e.target && e.target.id === 'settingsAutoRecordOnMic' &&
+      typeof Settings !== 'undefined' && Settings._syncAutoRecordDevicesVisibility)
+    Settings._syncAutoRecordDevicesVisibility();
 });
 // Show/hide do campo de excecoes ao vivo enquanto digita os apps monitorados
 // ('change' so dispara no blur; aqui queremos resposta imediata a cada tecla).
@@ -199,6 +204,7 @@ const Settings = {
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
+    this._syncAutoRecordDevicesVisibility();
     this._syncCodecMaxRes();
     this._updateThemeButtons();
     this.showTab(this.currentTab);
@@ -499,6 +505,7 @@ const Settings = {
     this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
+    this._syncAutoRecordDevicesVisibility();
     this._syncCodecMaxRes();
   },
   setPickedPath(path) {
@@ -852,12 +859,26 @@ const Settings = {
     if (body) body.scrollTop = 0;
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
+    // Idem pro perfil de auto-gravacao: ao entrar na aba Comportamento,
+    // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
+    // hot-plug que ocorreu enquanto o usuario estava em outra aba).
+    if (name === 'behavior') this._syncAutoRecordDevicesVisibility();
   },
   _syncAutoRecordExceptVisibility() {
     const apps = document.getElementById('settingsAutoRecordMicApps');
     const wrap = document.getElementById('settingsAutoRecordExceptWrap');
     if (!apps || !wrap) return;
     wrap.style.display = (apps.value.trim() === '') ? '' : 'none';
+  },
+  // A lista de dispositivos do perfil so faz sentido com a auto-gravacao
+  // ligada — mostra/esconde igual ao campo de excecoes. Ao mostrar, renderiza
+  // (reusa Devices.all, ja populado pelos pushes de dispositivo).
+  _syncAutoRecordDevicesVisibility() {
+    const on = document.getElementById('settingsAutoRecordOnMic');
+    const wrap = document.getElementById('settingsAutoRecordDevicesWrap');
+    if (!on || !wrap) return;
+    wrap.style.display = on.checked ? '' : 'none';
+    if (on.checked && typeof AutoDevices !== 'undefined') AutoDevices.render();
   },
   restoreDefaults() {
     // Reseta os campos e APLICA na hora (commit no fim) — nao ha botao

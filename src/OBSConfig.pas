@@ -57,6 +57,19 @@ procedure SetSourceHidden(const ACategory, AId: string; AValue: Boolean);
 function GetSourceActive(const ACategory, AId: string;
   ADefault: Boolean): Boolean;
 
+// Perfil de gravacao AUTOMATICA: subconjunto dos dispositivos habilitados
+// que entram na gravacao quando ela e disparada pelo monitor de microfone
+// (pegadinha #47). Namespace paralelo 'auto_<categoria>', espelho do
+// 'hidden_<categoria>'. Default True: enquanto o usuario nao desmarca nada,
+// a auto-gravacao grava exatamente o que a manual gravaria.
+function GetSourceAutoRecord(const ACategory, AId: string): Boolean;
+procedure SetSourceAutoRecord(const ACategory, AId: string; AValue: Boolean);
+// "Ativo na auto-gravacao" = GetSourceActive E marcado no perfil auto. A
+// engine usa ESTA no lugar de GetSourceActive quando a gravacao nasceu do
+// watcher de mic.
+function GetSourceActiveForAuto(const ACategory, AId: string;
+  ADefault: Boolean): Boolean;
+
 function ConfigFilePath: string;
 
 // Limpa cache em memoria — proxima leitura recarrega do disco.
@@ -397,6 +410,37 @@ begin
   // Chamadas sequenciais (nao aninhadas) — cada uma pega/solta o ConfigLock.
   Result := GetSourceBool(ACategory, AId, ADefault) and
             not GetSourceHidden(ACategory, AId);
+end;
+
+// Prefixo da categoria paralela do perfil de auto-gravacao:
+// 'mics' -> 'auto_mics'. Espelho de HiddenCategory.
+function AutoRecordCategory(const ACategory: string): string;
+begin
+  Result := 'auto_' + ACategory;
+end;
+
+function GetSourceAutoRecord(const ACategory, AId: string): Boolean;
+begin
+  // Default True: o dispositivo habilitado entra no perfil auto ate o
+  // usuario desmarca-lo explicitamente na aba Comportamento.
+  Result := GetSourceBool(AutoRecordCategory(ACategory), AId, True);
+end;
+
+procedure SetSourceAutoRecord(const ACategory, AId: string; AValue: Boolean);
+begin
+  SetSourceBool(AutoRecordCategory(ACategory), AId, AValue);
+end;
+
+function GetSourceActiveForAuto(const ACategory, AId: string;
+  ADefault: Boolean): Boolean;
+begin
+  // Ativo na auto-gravacao = NAO oculto (menu Dispositivos) E marcado no
+  // perfil auto (aba Comportamento). NAO exige o 'enabled' da tela inicial:
+  // o perfil de auto-gravacao e uma selecao propria, independente da
+  // gravacao manual. ADefault (default do enabled manual) e ignorado de
+  // proposito — o default do perfil auto e True (ver GetSourceAutoRecord).
+  Result := (not GetSourceHidden(ACategory, AId)) and
+            GetSourceAutoRecord(ACategory, AId);
 end;
 
 procedure ResetConfigCache;

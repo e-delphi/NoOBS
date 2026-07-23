@@ -595,6 +595,93 @@ const Devices = {
   }
 };
 
+// =====================================================================
+// AutoDevices — lista do PERFIL DE GRAVACAO AUTOMATICA (aba Comportamento).
+// Reusa Devices.all (mesma fonte da aba Dispositivos). O perfil e
+// INDEPENDENTE da selecao da tela inicial (enabled): mostra TODOS os
+// dispositivos, exceto os OCULTOS no menu Dispositivos (hidden). O checkbox
+// significa "entra na gravacao automatica" (config auto_*, backend
+// set_auto_source), NAO ocultar. Default marcado (auto_* default True no
+// backend). A engine grava, no modo auto, o que for `!hidden && autoRecord`
+// (GetSourceActiveForAuto) — sem gatear pelo enabled da tela inicial.
+// =====================================================================
+const AutoDevices = {
+  _kinds: ['monitors', 'webcams', 'mics', 'speakers'],
+
+  // Todos, exceto os ocultos na aba Dispositivos. NAO filtra por enabled —
+  // o perfil auto e uma selecao propria, separada da gravacao manual.
+  _active(kind) {
+    return (Devices.all[kind] || []).filter(d => !d.hidden);
+  },
+
+  render() {
+    const box = document.getElementById('autoDevicesList');
+    if (!box) return;
+    box.innerHTML = '';
+    let total = 0;
+    this._kinds.forEach(kind => {
+      const act = this._active(kind);
+      if (act.length === 0) return;   // grupo sem device ativo nao aparece
+      total += act.length;
+      // Ordem alfabetica sobre COPIA (mesma razao do Devices.render).
+      const list = act.slice().sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined,
+          { numeric: true, sensitivity: 'base' }));
+      const group = document.createElement('div');
+      group.className = 'devices-group';
+      const title = document.createElement('div');
+      title.className = 'devices-group-title';
+      title.textContent = T('devices.groups.' + kind);
+      group.appendChild(title);
+      list.forEach(d => {
+        const row = document.createElement('label');
+        row.className = 'devices-row';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = d.auto !== false;   // undefined/true => marcado
+        cb.onchange = () => AutoDevices.toggle(kind, d.id, cb.checked);
+        const nm = document.createElement('span');
+        nm.className = 'devices-name';
+        nm.textContent = d.name || d.id;
+        row.appendChild(cb);
+        row.appendChild(nm);
+        if (d.info) {
+          const inf = document.createElement('span');
+          inf.className = 'devices-info';
+          inf.textContent = d.info;
+          row.appendChild(inf);
+        }
+        group.appendChild(row);
+      });
+      box.appendChild(group);
+    });
+    if (total === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-hint';
+      empty.textContent = T('settings.autoRecord.devicesEmpty');
+      box.appendChild(empty);
+    }
+  },
+
+  toggle(kind, id, enabled) {
+    // Atualiza o estado local (Devices.all e a fonte) e persiste no backend.
+    const d = (Devices.all[kind] || []).find(x => x.id === id);
+    if (d) d.auto = enabled;
+    Bridge.send('set_auto_source', { id: id, enabled: enabled });
+  },
+
+  // Re-renderiza so se a lista esta visivel (settings aberto + wrap mostrado).
+  // Chamado pelos refreshes de dispositivo (bridge.js) — como hot-plug muda
+  // Devices.all, a lista do perfil precisa acompanhar.
+  refreshIfVisible() {
+    const ov = document.getElementById('settingsOverlay');
+    if (!ov || !ov.classList.contains('visible')) return;
+    const wrap = document.getElementById('settingsAutoRecordDevicesWrap');
+    if (!wrap || wrap.style.display === 'none') return;
+    this.render();
+  }
+};
+
 function renderSources(kindShort, listId, countId, items) {
   const list = document.getElementById(listId);
   list.innerHTML = '';

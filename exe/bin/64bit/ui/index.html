@@ -450,6 +450,18 @@
             vírgula). Como está monitorando todos, estes ficam de fora.
           </div>
         </div>
+        <div id="settingsAutoRecordDevicesWrap">
+          <label data-i18n="settings.autoRecord.devicesLabel">Dispositivos na gravação automática</label>
+          <div class="settings-hint" data-i18n="settings.autoRecord.devicesHint">
+            Escolha quais dispositivos entram quando a gravação começa sozinha
+            por uma chamada — uma seleção própria, separada da tela inicial.
+            Começam todos marcados; só ficam de fora os ocultos no menu
+            Dispositivos.
+          </div>
+          <!-- Preenchido por AutoDevices.render() (js/displays.js): so os
+               dispositivos habilitados, com checkbox = entra na auto-gravacao. -->
+          <div id="autoDevicesList"></div>
+        </div>
       </div>
       <div class="settings-field" data-panel="updates">
         <label data-i18n="settings.updates.versionLabel">Versão instalada</label>

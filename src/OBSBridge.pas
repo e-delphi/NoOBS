@@ -10,6 +10,8 @@
     ready                : pagina carregou; envia init de volta
     toggle_source        : kind=monitor|mic|speaker, id, enabled
     set_source_hidden    : id, hidden (oculta da lista + tira da gravacao)
+    set_auto_source      : id, enabled (perfil de gravacao automatica — aba
+                           Comportamento; se o device entra na auto-gravacao)
     check_updates        : (sem campos) consulta o GitHub Releases
     set_check_updates    : enabled (Boolean) — checagem automatica no startup
     record_start         : —
@@ -399,6 +401,27 @@ begin
   OBSConfig.SetSourceHidden(Cat, Raw, AHidden);
 end;
 
+// Perfil de auto-gravacao: quais dispositivos habilitados entram na gravacao
+// quando ela e disparada pelo watcher de mic. Namespace 'auto_*' no config
+// (ver OBSConfig). Default True.
+function GetSourceAutoRecordById(const AId: string): Boolean;
+var
+  Cat, Raw: string;
+begin
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit(True);
+  Result := OBSConfig.GetSourceAutoRecord(Cat, Raw);
+end;
+
+procedure SetSourceAutoRecordById(const AId: string; AValue: Boolean);
+var
+  Cat, Raw: string;
+begin
+  SplitSourceId(AId, Cat, Raw);
+  if Cat = '' then Exit;
+  OBSConfig.SetSourceAutoRecord(Cat, Raw, AValue);
+end;
+
 // Politica do medidor de nivel: so segura o microfone se ele estiver
 // marcado E visivel. Sem isso o NoOBS mantinha uma sessao WASAPI de captura
 // aberta em TODO mic do sistema (pegadinha #12) — inclusive o embutido na
@@ -443,6 +466,7 @@ begin
       [Mons[i].Width, Mons[i].Height, Mons[i].X, Mons[i].Y]));
     Item.AddPair('enabled', TJSONBool.Create(GetSourceEnabled(Id, True)));
     Item.AddPair('hidden',  TJSONBool.Create(GetSourceHiddenById(Id)));
+    Item.AddPair('auto',    TJSONBool.Create(GetSourceAutoRecordById(Id)));
     // x/y/width/height numericos pro layout visual proporcional na UI.
     Item.AddPair('x',      TJSONNumber.Create(Mons[i].X));
     Item.AddPair('y',      TJSONNumber.Create(Mons[i].Y));
@@ -478,6 +502,7 @@ begin
     // Default DESMARCADO pra webcams (gravacao normalmente nao precisa).
     Item.AddPair('enabled', TJSONBool.Create(GetSourceEnabled(Id, False)));
     Item.AddPair('hidden',  TJSONBool.Create(GetSourceHiddenById(Id)));
+    Item.AddPair('auto',    TJSONBool.Create(GetSourceAutoRecordById(Id)));
     Item.AddPair('width',  TJSONNumber.Create(Cams[i].Width));
     Item.AddPair('height', TJSONNumber.Create(Cams[i].Height));
     Result.AddElement(Item);
@@ -620,6 +645,7 @@ begin
     Item.AddPair('info', '');
     Item.AddPair('enabled',     TJSONBool.Create(MicEnabled[k]));
     Item.AddPair('hidden',      TJSONBool.Create(GetSourceHiddenById(Id)));
+    Item.AddPair('auto',        TJSONBool.Create(GetSourceAutoRecordById(Id)));
     Item.AddPair('isDefault',   TJSONBool.Create(MicDefault[k]));
     Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
     Item.AddPair('track',       TJSONNumber.Create(MicTracks[k]));
@@ -635,6 +661,7 @@ begin
     Item.AddPair('info', '');
     Item.AddPair('enabled',     TJSONBool.Create(SpkEnabled[k]));
     Item.AddPair('hidden',      TJSONBool.Create(GetSourceHiddenById(Id)));
+    Item.AddPair('auto',        TJSONBool.Create(GetSourceAutoRecordById(Id)));
     Item.AddPair('isDefault',   TJSONBool.Create(SpkDefault[k]));
     Item.AddPair('isBluetooth', TJSONBool.Create(Devs[i].IsBluetooth));
     Item.AddPair('track',       TJSONNumber.Create(SpkTracks[k]));
@@ -2533,6 +2560,17 @@ begin
   end;
 end;
 
+procedure HandleSetAutoSource(const AId: string; AEnabled: Boolean);
+// Toggle do perfil de gravacao automatica (aba Comportamento): marca/desmarca
+// se este dispositivo entra na proxima gravacao AUTOMATICA. So escreve o
+// config — o perfil e lido no BuildAndStartRecording, entao mexer aqui nao
+// afeta uma gravacao em andamento (a atual ja foi montada), so as proximas.
+// Sem guarda de "gravando": ao contrario de ocultar, isto nao muda a cena viva.
+begin
+  SetSourceAutoRecordById(AId, AEnabled);
+  Log('SetAutoSource: "%s" -> %s', [AId, BoolToStr(AEnabled, True)]);
+end;
+
 // Forward — MaybeNotifyRecord e implementada junto das outras de
 // settings (mais abaixo) mas e chamada pelo Handle{Start,Stop}.
 procedure MaybeNotifyRecord(const ATitle, AMessage: string); forward;
@@ -2712,7 +2750,12 @@ begin
     OutputPath := BuildRecordingPath(Now);
 
     TStep := GetTickCount64;
-    Engine.BuildAndStartRecording(OutputPath);
+    // RecordingStartedByMicWatch ja foi setado pelos caminhos automaticos
+    // (OnMicUseChangedThread e o warmup do /start-record-mic) ANTES de
+    // chamar HandleRecordStart; nos manuais fica False (zerado no ultimo
+    // HandleRecordStop). Entao ele e exatamente "esta gravacao e automatica?"
+    // — o gatilho pra usar o perfil de auto-gravacao (aba Comportamento).
+    Engine.BuildAndStartRecording(OutputPath, RecordingStartedByMicWatch);
     // Captura de audio falhou em agendar? As fontes existem e nao estao
     // mutadas, mas nao recebem amostra nenhuma — a gravacao sairia muda e
     // o usuario so descobriria assistindo depois. Avisa AGORA, enquanto da
@@ -4625,6 +4668,8 @@ begin
       HandleToggleSource(GetStrField(Obj, 'id'), GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_source_hidden' then
       HandleSetSourceHidden(GetStrField(Obj, 'id'), GetBoolField(Obj, 'hidden'))
+    else if MsgType = 'set_auto_source' then
+      HandleSetAutoSource(GetStrField(Obj, 'id'), GetBoolField(Obj, 'enabled'))
     else if MsgType = 'check_updates' then
       HandleCheckUpdates
     else if MsgType = 'set_check_updates' then

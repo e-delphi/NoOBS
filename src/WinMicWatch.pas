@@ -9,7 +9,11 @@
   "microfone em uso".
 
   Roda numa thread propria (COM em MTA), com poll de ~1s. Dispara o callback
-  SO na mudanca de estado (em uso <-> livre). O callback roda NA THREAD do
+  SO na TRANSICAO de estado (em uso <-> livre) que acontece com o watcher
+  rodando. A PRIMEIRA leitura so estabelece a linha de base e NAO dispara:
+  um mic ja em uso quando o watcher sobe (chamada em curso) nao e uma chamada
+  nova (pegadinha #47 — sem isso, hibernar durante uma chamada que o usuario
+  parou de gravar re-disparava a gravacao). O callback roda NA THREAD do
   watcher — o consumidor deve marshalar pra main (TThread.Queue) se for tocar
   libobs/UI (modo full) ou postar mensagem pra janela (modo hibernate).
 
@@ -286,9 +290,11 @@ var
   ComOk: Boolean;
   InUse: Boolean;
   Slept: Integer;
+  First: Boolean;
 begin
   ComOk := Succeeded(CoInitializeEx(nil, COINIT_MULTITHREADED));
   try
+    First := True;
     while not Terminated do
     begin
       try
@@ -296,7 +302,19 @@ begin
       except
         InUse := FLastInUse;  // erro transitorio: preserva o estado
       end;
-      if InUse <> FLastInUse then
+      // A PRIMEIRA leitura so estabelece a linha de base — NAO dispara. Um
+      // microfone JA em uso quando o watcher sobe (ex.: chamada em curso ao
+      // hibernar depois de o usuario ter parado a gravacao manualmente) nao e
+      // uma chamada NOVA — so a transicao livre->em-uso que ACONTECE com o
+      // watcher rodando conta. Sem isso, o processo de hibernacao via o mic
+      // em uso como "borda de entrada" e re-disparava a gravacao que o
+      // usuario acabou de parar (pegadinha #47).
+      if First then
+      begin
+        First := False;
+        FLastInUse := InUse;
+      end
+      else if InUse <> FLastInUse then
       begin
         FLastInUse := InUse;
         if Assigned(FCallback) then

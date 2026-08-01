@@ -102,6 +102,10 @@ document.getElementById('settingsOverlay').addEventListener('change', (e) => {
   if (e.target && e.target.id === 'settingsAutoRecordOnMic' &&
       typeof Settings !== 'undefined' && Settings._syncAutoRecordDevicesVisibility)
     Settings._syncAutoRecordDevicesVisibility();
+  // Idem pro seletor de canto do indicador de tela.
+  if (e.target && e.target.id === 'settingsRecIndicator' &&
+      typeof Settings !== 'undefined' && Settings._syncRecIndicatorVisibility)
+    Settings._syncRecIndicatorVisibility();
 });
 // Show/hide do campo de excecoes ao vivo enquanto digita os apps monitorados
 // ('change' so dispara no blur; aqui queremos resposta imediata a cada tecla).
@@ -138,6 +142,9 @@ const Settings = {
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
   currentScrollLockIndicator: false,
+  currentRecIndicator: false,
+  currentRecIndicatorCorner: 'top-right',
+  currentRecIndicatorOpacity: 90,
   currentPlaySoundOnRecord: false,
   currentStopOnLock: false,
   currentHibernate: false,
@@ -179,6 +186,10 @@ const Settings = {
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
     document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
+    document.getElementById('settingsRecIndicator').checked = !!this.currentRecIndicator;
+    document.getElementById('settingsRecIndicatorCorner').value = this.currentRecIndicatorCorner || 'top-right';
+    document.getElementById('settingsRecIndicatorOpacity').value = this.currentRecIndicatorOpacity || 90;
+    this._syncRecIndicatorOpacityLabel();
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
@@ -205,6 +216,7 @@ const Settings = {
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
     this._syncAutoRecordDevicesVisibility();
+    this._syncRecIndicatorVisibility();
     this._syncCodecMaxRes();
     this._updateThemeButtons();
     this.showTab(this.currentTab);
@@ -278,6 +290,9 @@ const Settings = {
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
       const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
+      const recIndicator = document.getElementById('settingsRecIndicator').checked;
+      const recIndicatorCorner = document.getElementById('settingsRecIndicatorCorner').value;
+      const recIndicatorOpacity = parseInt(document.getElementById('settingsRecIndicatorOpacity').value, 10) || 90;
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
@@ -313,6 +328,12 @@ const Settings = {
         Bridge.send('set_notify_on_record', { enabled: notifyOnRecord });
       if (scrollLockIndicator !== this.currentScrollLockIndicator)
         Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
+      if (recIndicator !== this.currentRecIndicator)
+        Bridge.send('set_rec_indicator', { enabled: recIndicator });
+      if (recIndicatorCorner !== this.currentRecIndicatorCorner)
+        Bridge.send('set_rec_indicator_corner', { corner: recIndicatorCorner });
+      if (recIndicatorOpacity !== this.currentRecIndicatorOpacity)
+        Bridge.send('set_rec_indicator_opacity', { opacity: recIndicatorOpacity });
       if (playSoundOnRecord !== this.currentPlaySoundOnRecord)
         Bridge.send('set_play_sound_on_record', { enabled: playSoundOnRecord });
       if (stopOnLock !== this.currentStopOnLock)
@@ -347,6 +368,9 @@ const Settings = {
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
       this.currentScrollLockIndicator = scrollLockIndicator;
+      this.currentRecIndicator = recIndicator;
+      this.currentRecIndicatorCorner = recIndicatorCorner;
+      this.currentRecIndicatorOpacity = recIndicatorOpacity;
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
       this.currentHibernate = hibernate;
@@ -404,6 +428,10 @@ const Settings = {
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
     this.currentScrollLockIndicator = !!data.scrollLockIndicator;
+    this.currentRecIndicator = !!data.recIndicator;
+    this.currentRecIndicatorCorner = data.recIndicatorCorner || 'top-right';
+    this.currentRecIndicatorOpacity =
+      (typeof data.recIndicatorOpacity === 'number') ? data.recIndicatorOpacity : 90;
     // playSoundOnRecord: default true (backend GetConfigBool). O backend sempre
     // envia o valor real; !!data.* so protege contra ausencia acidental.
     this.currentPlaySoundOnRecord = !!data.playSoundOnRecord;
@@ -474,6 +502,13 @@ const Settings = {
     if (nr) nr.checked = this.currentNotifyOnRecord;
     const sl = document.getElementById('settingsScrollLockIndicator');
     if (sl) sl.checked = this.currentScrollLockIndicator;
+    const ri = document.getElementById('settingsRecIndicator');
+    if (ri) ri.checked = this.currentRecIndicator;
+    const ric = document.getElementById('settingsRecIndicatorCorner');
+    if (ric) ric.value = this.currentRecIndicatorCorner || 'top-right';
+    const rio = document.getElementById('settingsRecIndicatorOpacity');
+    if (rio) rio.value = this.currentRecIndicatorOpacity || 90;
+    this._syncRecIndicatorOpacityLabel();
     const ps = document.getElementById('settingsPlaySoundOnRecord');
     if (ps) ps.checked = this.currentPlaySoundOnRecord;
     const sol = document.getElementById('settingsStopOnLock');
@@ -506,6 +541,7 @@ const Settings = {
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
     this._syncAutoRecordDevicesVisibility();
+    this._syncRecIndicatorVisibility();
     this._syncCodecMaxRes();
   },
   setPickedPath(path) {
@@ -848,7 +884,8 @@ const Settings = {
   // dependencia seguem funcionando sem nenhuma alteracao de logica.
   showTab(name) {
     this.currentTab = name;
-    document.querySelectorAll('.settings-field[data-panel]').forEach(f => {
+    // Campos E divisores por aba: ambos carregam data-panel e alternam junto.
+    document.querySelectorAll('.settings-field[data-panel], .settings-divider[data-panel]').forEach(f => {
       f.style.display = (f.dataset.panel === name) ? '' : 'none';
     });
     document.querySelectorAll('.settings-tab').forEach(t => {
@@ -869,6 +906,24 @@ const Settings = {
     const wrap = document.getElementById('settingsAutoRecordExceptWrap');
     if (!apps || !wrap) return;
     wrap.style.display = (apps.value.trim() === '') ? '' : 'none';
+  },
+  // O seletor de canto do indicador de tela so aparece com o indicador ligado.
+  _syncRecIndicatorVisibility() {
+    const on = document.getElementById('settingsRecIndicator');
+    const wrap = document.getElementById('settingsRecIndicatorCornerWrap');
+    if (!on || !wrap) return;
+    wrap.style.display = on.checked ? '' : 'none';
+  },
+  // Atualiza o rotulo "NN%" ao lado do slider de opacidade. Chamado pelo
+  // oninput do range (ao vivo) e ao abrir/aplicar as Config.
+  _syncRecIndicatorOpacityLabel() {
+    const s = document.getElementById('settingsRecIndicatorOpacity');
+    const v = document.getElementById('settingsRecIndicatorOpacityValue');
+    const pct = s ? (parseInt(s.value, 10) || 90) : 90;
+    if (v) v.textContent = pct + '%';
+    // Previa: a opacidade da pilha acompanha o slider (demonstra a transparencia).
+    const p = document.getElementById('recIndicatorPreview');
+    if (p) p.style.opacity = (pct / 100).toFixed(2);
   },
   // A lista de dispositivos do perfil so faz sentido com a auto-gravacao
   // ligada — mostra/esconde igual ao campo de excecoes. Ao mostrar, renderiza
@@ -914,6 +969,10 @@ const Settings = {
         document.getElementById('settingsMinimizeOnRecord').checked = true;
         document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsScrollLockIndicator').checked = false;
+        document.getElementById('settingsRecIndicator').checked = false;
+        document.getElementById('settingsRecIndicatorCorner').value = 'top-right';
+        document.getElementById('settingsRecIndicatorOpacity').value = 90;
+        this._syncRecIndicatorOpacityLabel();
         document.getElementById('settingsPlaySoundOnRecord').checked = true;
         document.getElementById('settingsStopOnLock').checked = true;
         document.getElementById('settingsHibernate').checked = true;
@@ -939,6 +998,7 @@ const Settings = {
         this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
         this._syncAutoRecordExceptVisibility();
+        this._syncRecIndicatorVisibility();
         this._syncQualityHint();
         this._syncFpsHint();
         this._syncKeyframeHint();

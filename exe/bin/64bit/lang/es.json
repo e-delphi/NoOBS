@@ -278,6 +278,18 @@
       "label": "Parpadear LED de Scroll Lock durante la grabación",
       "hint": "Parpadea el LED de Scroll Lock del teclado (1Hz) mientras la grabación está activa — indicador discreto y siempre visible, útil cuando la app está en la bandeja. Se apaga automáticamente al detener."
     },
+    "recIndicator": {
+      "label": "Mostrar un indicador de grabación en pantalla",
+      "hint": "Muestra un punto rojo con el tiempo de grabación en una esquina del monitor principal. El indicador aparece para ti, pero no entra en la grabación (se excluye de la captura). Requiere Windows 10 2004+.",
+      "cornerLabel": "Esquina",
+      "opacityLabel": "Opacidad",
+      "corners": {
+        "topLeft": "Superior izquierda",
+        "topRight": "Superior derecha",
+        "bottomLeft": "Inferior izquierda",
+        "bottomRight": "Inferior derecha"
+      }
+    },
     "playSound": {
       "label": "Reproducir sonido de inicio y fin de grabación",
       "hint": "Reproduce una secuencia corta de dos notas al iniciar (ascendente) y al detener (descendente) la grabación — confirmación auditiva discreta."

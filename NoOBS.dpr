@@ -54,6 +54,7 @@ uses
   OBSVersion in 'src\OBSVersion.pas',
   OBSUpdate in 'src\OBSUpdate.pas',
   WinPreview in 'src\WinPreview.pas',
+  WinRecIndicator in 'src\WinRecIndicator.pas',
   WinWebcam in 'src\WinWebcam.pas',
   NoOBSLockDetector in 'src\NoOBSLockDetector.pas',
   OBSLang in 'src\OBSLang.pas';

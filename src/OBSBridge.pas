@@ -14,6 +14,11 @@
                            Comportamento; se o device entra na auto-gravacao)
     check_updates        : (sem campos) consulta o GitHub Releases
     set_check_updates    : enabled (Boolean) — checagem automatica no startup
+    set_rec_indicator    : enabled (Boolean) — overlay de gravacao na tela
+                           (excluido da propria captura via WDA_EXCLUDEFROMCAPTURE)
+    set_rec_indicator_corner : corner (string: top-left|top-right|bottom-left|
+                           bottom-right) — canto do overlay no monitor principal
+    set_rec_indicator_opacity : opacity (Integer 20..100) — opacidade do overlay
     record_start         : —
     record_stop          : —
     rename_recording     : id (filepath), newName
@@ -87,6 +92,7 @@ uses
   OBSScrollLock,
   WinPreview,
   WinAudioMeter,
+  WinRecIndicator,
   WinWebcam;
 
 const
@@ -2262,6 +2268,9 @@ procedure OnMicUseChangedThread(AInUse: Boolean); forward;
 // Definida bem depois (junto do resto da checagem de versao), mas o DoInit
 // e o tick do TIMER_UPDATE_CHECK ja a chamam aqui em cima.
 procedure MaybeAutoCheckUpdates; forward;
+// Callback do clique no indicador de tela — definida depois do
+// HandleRecordStop (que ela usa), mas o DoInit ja a registra aqui.
+procedure IndicatorClickStop; forward;
 
 procedure DoInit;
 // OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
@@ -2428,6 +2437,9 @@ begin
       GetConfigStr('autoRecordMicExcept', ''), OnMicUseChangedThread);
     except on E: Exception do
       Log('AutoRecord: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
+
+  // Clique no indicador de tela (modo "clicar para parar") -> para a gravacao.
+  WinRecIndicator.OnClickStop := IndicatorClickStop;
 
   // Checagem de atualizacao: worker thread propria, falha silenciosa, no
   // maximo 1x por dia. Nao atrasa o startup.
@@ -2670,6 +2682,22 @@ begin
   Result := Cand;
 end;
 
+// Mostra o indicador de tela lendo TODAS as prefs do config (canto,
+// opacidade, clicar-para-parar). Centraliza os 3 pontos que precisam
+// mostra-lo: HandleRecordStart e os handlers reativos das Configuracoes.
+procedure ShowRecIndicatorFromConfig;
+begin
+  try
+    WinRecIndicator.ShowIndicator(
+      WinRecIndicator.ParseCorner(GetConfigStr('recIndicatorCorner', 'top-right')),
+      RecordingStartTickMs,
+      GetConfigInt('recIndicatorOpacity', 90));
+  except
+    on E: Exception do
+      Log('RecIndicator: falha ao mostrar overlay: %s', [E.Message]);
+  end;
+end;
+
 procedure HandleRecordStart;
 var
   OutputPath: string;
@@ -2826,6 +2854,13 @@ begin
         SCROLL_LOCK_BLINK_INTERVAL_MS, nil);
     end;
 
+    // Indicador NA TELA (opcional, default off) — bolinha + tempo, no canto
+    // escolhido do monitor principal, EXCLUIDO da propria gravacao via
+    // WDA_EXCLUDEFROMCAPTURE (WinRecIndicator). Escondido sempre em
+    // HandleRecordStop. So aparece se o Windows suporta a exclusao.
+    if GetConfigBool('recIndicator', False) then
+      ShowRecIndicatorFromConfig;
+
     Log('HandleRecordStart: total %dms.', [GetTickCount64 - T0]);
   except
     on E: Exception do
@@ -2941,6 +2976,11 @@ begin
   KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
   if GetConfigBool('scrollLockIndicator', False) then
     OBSScrollLock.SetScrollLockState(False);
+
+  // Esconde o indicador de tela (idempotente — no-op se nao estava visivel,
+  // ex.: config off ou Windows sem suporte a exclusao de captura).
+  try WinRecIndicator.HideIndicator; except end;
+
   Elapsed := Integer((GetTickCount - RecordingStartTickMs) div 1000);
 
   // Caminho do arquivo ja e conhecido (geramos no start). O arquivo so
@@ -3015,6 +3055,25 @@ begin
   // ate o sinal "stop" chegar (OnEngineRecordingStopped) ou o timeout.
   PushFinalizing(True);
   Log('HandleRecordStop: fim (retornando ao message loop).');
+end;
+
+procedure IndicatorClickStop;
+// Registrada em WinRecIndicator.OnClickStop (DoInit). Disparada quando o
+// usuario clica no overlay no modo "clicar para parar" — roda na main
+// thread, DENTRO do WndProc do overlay. Por isso DIFERE o stop via
+// TThread.Queue: HandleRecordStop esconde/destroi a janela do overlay, e
+// faze-lo dentro do proprio WndProc dela seria reentrante. O Queue roda no
+// proximo CheckSynchronize do OBSUI.Run, ja fora do WndProc.
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if RecordingActive then
+      begin
+        Log('RecIndicator: clique no overlay — parando a gravacao.');
+        HandleRecordStop;
+      end;
+    end);
 end;
 
 // ---------------------------------------------------------------------
@@ -3747,6 +3806,12 @@ begin
     TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
   Obj.AddPair('scrollLockIndicator',
     TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
+  Obj.AddPair('recIndicator',
+    TJSONBool.Create(GetConfigBool('recIndicator', False)));
+  Obj.AddPair('recIndicatorCorner',
+    GetConfigStr('recIndicatorCorner', 'top-right'));
+  Obj.AddPair('recIndicatorOpacity',
+    TJSONNumber.Create(GetConfigInt('recIndicatorOpacity', 90)));
   Obj.AddPair('playSoundOnRecord',
     TJSONBool.Create(GetConfigBool('playSoundOnRecord', True)));
   Obj.AddPair('stopOnLock',
@@ -3971,6 +4036,36 @@ begin
     KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
     OBSScrollLock.SetScrollLockState(False);
   end;
+end;
+
+procedure HandleSetRecIndicator(AEnable: Boolean);
+begin
+  SetConfigBool('recIndicator', AEnable);
+  Log('RecIndicator: %s', [BoolToStr(AEnable, True)]);
+  // Gravando agora: aplica/remove o overlay na hora (feedback imediato).
+  if not RecordingActive then Exit;
+  if AEnable then ShowRecIndicatorFromConfig
+  else try WinRecIndicator.HideIndicator; except end;
+end;
+
+procedure HandleSetRecIndicatorCorner(const ACorner: string);
+begin
+  SetConfigStr('recIndicatorCorner', ACorner);
+  Log('RecIndicatorCorner: %s', [ACorner]);
+  // Overlay visivel agora: reposiciona na hora (ShowIndicator com a janela
+  // ja criada so reposiciona/reaplica).
+  if RecordingActive and GetConfigBool('recIndicator', False) and
+     WinRecIndicator.IsShowing then
+    ShowRecIndicatorFromConfig;
+end;
+
+procedure HandleSetRecIndicatorOpacity(AOpacity: Integer);
+begin
+  SetConfigInt('recIndicatorOpacity', AOpacity);
+  Log('RecIndicatorOpacity: %d', [AOpacity]);
+  // Slider ao vivo: aplica na janela existente sem recriar.
+  if WinRecIndicator.IsShowing then
+    try WinRecIndicator.SetOpacity(AOpacity); except end;
 end;
 
 procedure HandleSetPlaySoundOnRecord(AEnable: Boolean);
@@ -4730,6 +4825,12 @@ begin
       HandleSetNotifyOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_scroll_lock_indicator' then
       HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_rec_indicator' then
+      HandleSetRecIndicator(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_rec_indicator_corner' then
+      HandleSetRecIndicatorCorner(GetStrField(Obj, 'corner'))
+    else if MsgType = 'set_rec_indicator_opacity' then
+      HandleSetRecIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
     else if MsgType = 'set_play_sound_on_record' then
       HandleSetPlaySoundOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_stop_on_lock' then
@@ -5130,6 +5231,8 @@ begin
   end;
   // Garante que o LED nao fique aceso se o app crashar/fechar mid-blink.
   try OBSScrollLock.SetScrollLockState(False); except end;
+  // Idem pro overlay de gravacao — some junto com o app.
+  try WinRecIndicator.HideIndicator; except end;
   Log('Shutdown: timers off');
 
   if ThumbThread <> nil then

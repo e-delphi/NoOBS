@@ -242,6 +242,61 @@
     display: flex;
     gap: 8px;
   }
+  /* Rotulo inline antes de um controle na mesma linha (ex.: "Canto" + o
+     dropdown do indicador de gravacao na tela). */
+  .settings-inline-label {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  #settingsRecIndicatorCornerWrap { margin-top: 10px; }
+  #settingsRecIndicatorCornerWrap .settings-input-row {
+    margin-top: 8px;
+    align-items: center;
+  }
+  #settingsRecIndicatorCornerWrap .settings-input-row:first-child { margin-top: 0; }
+  #settingsRecIndicatorCornerWrap .settings-input { flex: 1; }
+  .rec-indicator-opacity-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--success);   /* cor primaria do app (igual aos checkboxes) */
+  }
+  #settingsRecIndicatorOpacityValue {
+    min-width: 42px;
+    justify-content: flex-end;
+  }
+  /* Previa do indicador — replica a pilha do overlay real. Cores FIXAS
+     (nao seguem o tema): o overlay na tela e sempre escuro. A opacidade e
+     setada por JS (_syncRecIndicatorOpacityLabel) espelhando o slider, pra
+     mostrar como fica a transparencia sobre o fundo da tela. */
+  .rec-indicator-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border-radius: 8px;
+    background: #18181b;                 /* RGB(24,24,27) — pill do overlay */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: opacity 90ms linear;
+  }
+  .rec-indicator-preview-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f03e3e;                 /* RGB(240,62,62) — bolinha "on" */
+    flex-shrink: 0;
+  }
+  .rec-indicator-preview-time {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
+  }
   .settings-check-row {
     display: flex;
     align-items: center;

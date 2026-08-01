@@ -367,6 +367,45 @@
           parar a gravação.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="behavior">
+      <div class="settings-field" data-panel="behavior">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsRecIndicator">
+          <span data-i18n="settings.recIndicator.label">Mostrar indicador de gravação na tela</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.recIndicator.hint">
+          Mostra uma bolinha vermelha com o tempo de gravação no canto do
+          monitor principal. O indicador aparece pra você, mas <b>não entra
+          na gravação</b> (é excluído da captura). Requer Windows 10 2004+.
+        </div>
+        <div id="settingsRecIndicatorCornerWrap">
+          <div class="settings-input-row">
+            <label class="settings-inline-label"
+                   data-i18n="settings.recIndicator.cornerLabel">Canto</label>
+            <select class="settings-input" id="settingsRecIndicatorCorner">
+              <option value="top-left" data-i18n="settings.recIndicator.corners.topLeft">Superior esquerdo</option>
+              <option value="top-right" data-i18n="settings.recIndicator.corners.topRight">Superior direito</option>
+              <option value="bottom-left" data-i18n="settings.recIndicator.corners.bottomLeft">Inferior esquerdo</option>
+              <option value="bottom-right" data-i18n="settings.recIndicator.corners.bottomRight">Inferior direito</option>
+            </select>
+          </div>
+          <div class="settings-input-row rec-indicator-opacity-row">
+            <label class="settings-inline-label"
+                   data-i18n="settings.recIndicator.opacityLabel">Opacidade</label>
+            <input type="range" id="settingsRecIndicatorOpacity" min="20" max="100" step="5"
+                   oninput="Settings._syncRecIndicatorOpacityLabel()">
+            <!-- Previa ao vivo: replica a pilha do overlay (bolinha + tempo);
+                 a opacidade acompanha o slider pra demonstrar a transparencia.
+                 Fica logo antes do percentual. -->
+            <span class="rec-indicator-preview" id="recIndicatorPreview" aria-hidden="true">
+              <span class="rec-indicator-preview-dot"></span>
+              <span class="rec-indicator-preview-time">00:00:00</span>
+            </span>
+            <span class="settings-inline-label" id="settingsRecIndicatorOpacityValue">90%</span>
+          </div>
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="behavior">
       <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsPlaySoundOnRecord">
@@ -379,6 +418,7 @@
           confirmar que a ação foi recebida.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="behavior">
       <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsStopOnLock">
@@ -417,6 +457,7 @@
              tipo: monitores, webcams, microfones, alto-falantes. -->
         <div id="devicesList"></div>
       </div>
+      <hr class="settings-divider" data-panel="behavior">
       <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutoRecordOnMic">

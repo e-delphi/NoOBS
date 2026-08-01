@@ -101,6 +101,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
 | `WinMicWatch`       | **WASAPI**: sessões de captura (`IAudioSessionManager2`) pra detectar mic em uso por outro app → auto-gravar em chamadas |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
+| `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (8 arquivos por componente: base, layout, record, displays,
@@ -1163,6 +1164,44 @@ o **plugin** espera ser hospedado (`GetModuleHandle` + o comentário
 fazíamos. Quando embarca libobs sem o frontend do OBS, replique o que
 `obs-main.cpp`/`OBSApp.cpp` fazem em volta do `obs_startup`/`obs_shutdown`
 — não só as chamadas libobs em si.
+
+### 49. **Indicador de gravação na tela: `WDA_EXCLUDEFROMCAPTURE`**
+
+`WinRecIndicator` mostra um overlay (bolinha + tempo) que o usuário vê mas
+que **não entra na gravação**. O truque é
+`SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` ($11): o DWM
+renderiza a janela pra tela mas a **omite** de qualquer captura — o
+`monitor_capture` do OBS (que aqui usa **WGC** por padrão, sem `method`
+explícito em `OBSEngine`) mostra o desktop ATRÁS dela. WGC e DXGI honram
+essa affinity; então funciona pro caminho de captura do projeto.
+
+- **`WDA_EXCLUDEFROMCAPTURE` exige Windows 10 2004+** (build 19041). Se
+  `SetWindowDisplayAffinity` falhar (Windows antigo), **NÃO mostrar o
+  overlay** — senão ele apareceria dentro da gravação, o oposto do
+  recurso. `ShowIndicator` destrói a janela e sai nesse caso.
+- Não confundir com `WDA_MONITOR` ($01, Win7+): aquele deixa a janela
+  **preta** na captura (visível como retângulo preto), não a exclui. Só o
+  `WDA_EXCLUDEFROMCAPTURE` some de verdade.
+- A janela é layered + `WS_EX_NOACTIVATE` + `WS_EX_TOOLWINDOW` + topmost,
+  criada na **main thread**: depende do message loop do `OBSUI.Run` pra
+  pintar/atualizar (`WM_PAINT`/`WM_TIMER` a cada 500ms). Só existe no modo
+  full (a gravação só acontece lá).
+- **Opacidade** configurável (`recIndicatorOpacity`, 20..100%) via
+  `SetLayeredWindowAttributes` — `SetOpacity` aplica na janela viva (slider
+  ao vivo), sem recriar.
+- **Clicar para parar (SEMPRE ligado)**: o overlay NÃO é click-through —
+  criado **sem** `WS_EX_TRANSPARENT` pra receber o clique. `WM_LBUTTONUP`
+  chama `OnClickStop`, que o `OBSBridge` registra pra parar a gravação. O
+  stop é DIFERIDO via `TThread.Queue`: `HandleRecordStop` destrói esta
+  janela, e fazê-lo dentro do próprio `WndProc` dela seria reentrante.
+  `WM_SETCURSOR` mostra cursor de mão (sinaliza clicável) e
+  `WM_MOUSEACTIVATE`→`MA_NOACTIVATE` pro clique nunca roubar o foco. Bloquear
+  a áreazinha do overlay (~116×34px) é o trade-off aceito por não ter
+  toggle — o resto da tela segue clicável normal.
+- `SetWindowDisplayAffinity` em si é Win7+ (o import direto é seguro pro
+  load); é a FLAG nova que exige 2004+. `GetDpiForSystem` (escala do
+  overlay) é 1607+ — resolvido via `GetProcAddress` pra não quebrar o load
+  em Windows antigo (fallback 96 DPI).
 ---
 
 ## Caches
@@ -1217,6 +1256,9 @@ recuperáveis manualmente).
 | `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
+| `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
+| `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
+| `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |
 
 ---
 

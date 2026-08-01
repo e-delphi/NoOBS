@@ -278,6 +278,18 @@
       "label": "Blink Scroll Lock LED while recording",
       "hint": "Blinks the keyboard's Scroll Lock LED (1Hz) while a recording is active — discreet, always-visible indicator, useful when the app is in the tray. Turns off automatically when stopped."
     },
+    "recIndicator": {
+      "label": "Show a recording indicator on screen",
+      "hint": "Shows a red dot with the elapsed recording time in a corner of the primary monitor. You see the indicator, but it doesn't appear in the recording (it's excluded from capture). Requires Windows 10 2004+.",
+      "cornerLabel": "Corner",
+      "opacityLabel": "Opacity",
+      "corners": {
+        "topLeft": "Top left",
+        "topRight": "Top right",
+        "bottomLeft": "Bottom left",
+        "bottomRight": "Bottom right"
+      }
+    },
     "playSound": {
       "label": "Play start/stop recording sound",
       "hint": "Plays a short two-note sequence when starting (ascending) and stopping (descending) a recording — discreet audible confirmation."

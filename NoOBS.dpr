@@ -12,6 +12,7 @@
     OBSAudioTracks — atribuicao de faixas de audio + enum de devices.
     NoOBSTypes     — tipos compartilhados (TEncoderCaps, etc).
     FFmpegOps      — wrappers altos sobre libav* (Remux, ExtractFrame, ...).
+    FFmpegExport   — exportacao com re-encode (recorte, regioes, escala).
     FFmpegLib      — bindings raw das DLLs libav*.
     OBSScene       — tipos de monitor/audio e calculo de canvas.
 }
@@ -27,6 +28,7 @@ uses
   NoOBSTypes in 'src\NoOBSTypes.pas',
   FFmpegLib in 'src\FFmpegLib.pas',
   FFmpegOps in 'src\FFmpegOps.pas',
+  FFmpegExport in 'src\FFmpegExport.pas',
   LibOBS in 'src\LibOBS.pas',
   OBSEngine in 'src\OBSEngine.pas',
   OBSAudioTracks in 'src\OBSAudioTracks.pas',

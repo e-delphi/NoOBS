@@ -228,6 +228,14 @@ const
   AV_PIX_FMT_RGB24    = 2;
   AV_PIX_FMT_NV12     = 23;
 
+  // Sample formats (avutil/samplefmt.h) — so os que usamos. O decoder de
+  // AAC entrega FLTP (float planar), que e tambem o formato de entrada do
+  // encoder 'aac' — por isso a mixagem de faixas nao precisa de swresample.
+  AV_SAMPLE_FMT_FLTP = 8;
+
+  // AVPictureType — NONE deixa o encoder decidir o tipo do quadro.
+  AV_PICTURE_TYPE_NONE = 0;
+
   // Codec IDs (avcodec.h) — os que usamos.
   AV_CODEC_ID_MJPEG = $0007;
 
@@ -240,8 +248,11 @@ const
   AVERROR_EOF                   = -541478725; // FFERRTAG('E','O','F',' ') as int32
   AVSEEK_FLAG_BACKWARD          = 1;
 
-  // SWS_BICUBIC algorithm flag
-  SWS_BICUBIC = 4;
+  // Algoritmos de reamostragem do swscale. Valores da tabela de opcoes do
+  // SwsContext (unit "sws_flags"), conferidos contra a swscale-8 empacotada.
+  SWS_BILINEAR = 2;
+  SWS_BICUBIC  = 4;
+  SWS_AREA     = 32;
 
 // ---------------------------------------------------------------------
 // avformat
@@ -319,6 +330,9 @@ procedure av_dict_free(pm: PAVDictionary); cdecl;
 function av_rescale_q(a: Int64; bq, cq: AVRational): Int64; cdecl;
   external LIB_AVUTIL delayed;
 
+function av_strerror(errnum: Integer; errbuf: PAnsiChar;
+  errbuf_size: NativeUInt): Integer; cdecl; external LIB_AVUTIL delayed;
+
 procedure av_freep(ptr: Pointer); cdecl;
   external LIB_AVUTIL delayed;
 
@@ -357,6 +371,21 @@ procedure av_packet_rescale_ts(pkt: PAVPacket; tb_src, tb_dst: AVRational); cdec
 function av_frame_alloc: PAVFrame; cdecl; external LIB_AVUTIL delayed;
 procedure av_frame_free(frame: PPAVFrame); cdecl; external LIB_AVUTIL delayed;
 procedure av_frame_unref(frame: PAVFrame); cdecl; external LIB_AVUTIL delayed;
+// Aloca os buffers de dados do frame a partir de width/height/format (video)
+// ou nb_samples/format/ch_layout (audio) — que o caller preenche ANTES.
+// align=0 deixa o libav escolher o alinhamento otimo pra SIMD.
+function av_frame_get_buffer(frame: PAVFrame; align: Integer): Integer; cdecl;
+  external LIB_AVUTIL delayed;
+// Garante que o frame e gravavel (buffer nao compartilhado). Necessario
+// antes de somar amostras dentro de um frame que veio do decoder.
+function av_frame_make_writable(frame: PAVFrame): Integer; cdecl;
+  external LIB_AVUTIL delayed;
+// Move a posse do conteudo de src pra dst (src fica em branco). Usado pra
+// "adotar" um frame do decoder como acumulador sem copiar os dados — e o
+// jeito de obter um frame de AUDIO valido (com ch_layout preenchido) sem
+// tocar nesse campo, que fica fora da parte declarada do AVFrame.
+procedure av_frame_move_ref(dst, src: PAVFrame); cdecl;
+  external LIB_AVUTIL delayed;
 
 function avcodec_find_decoder(id: Integer): PAVCodec; cdecl;
   external LIB_AVCODEC delayed;
@@ -387,6 +416,11 @@ function avcodec_receive_frame(avctx: PAVCodecContext; frame: PAVFrame): Integer
 function avcodec_send_frame(avctx: PAVCodecContext; frame: PAVFrame): Integer; cdecl;
   external LIB_AVCODEC delayed;
 function avcodec_receive_packet(avctx: PAVCodecContext; avpkt: PAVPacket): Integer; cdecl;
+  external LIB_AVCODEC delayed;
+// Descarta o estado interno do codec. OBRIGATORIO depois de um seek: sem
+// isso o decoder tenta continuar a partir de quadros de referencia que
+// nao valem mais na posicao nova.
+procedure avcodec_flush_buffers(avctx: PAVCodecContext); cdecl;
   external LIB_AVCODEC delayed;
 
 // ---------------------------------------------------------------------
@@ -445,6 +479,11 @@ function ToUtf8(const S: string): UTF8String;
 
 // Le metadata.title (campo opcional comum em MKV).
 function GetMetadataString(m: AVDictionary; const Key: string): string;
+
+// Traduz um codigo de erro negativo do libav pra texto legivel
+// ("Invalid argument", "Immediate exit requested", ...). So pra log —
+// nunca mostre isso ao usuario, que ve as mensagens do OBSLang.
+function AvErrStr(ARc: Integer): string;
 
 // Operacoes de alto nivel (RemuxFile, ExtractAudioTracks,
 // ExtractFrameJpeg) foram movidas pra unit FFmpegOps. Consumidores
@@ -722,6 +761,21 @@ begin
   Entry := av_dict_get(m, PAnsiChar(AKey), nil, 0);
   if (Entry <> nil) and (Entry.value <> nil) then
     Result := UTF8ToString(Entry.value);
+end;
+
+function AvErrStr(ARc: Integer): string;
+// av_strerror devolve 0 e preenche o buffer; se nao conhece o codigo,
+// devolve negativo e a gente cai pro numero cru.
+var
+  Buf: array[0..255] of AnsiChar;
+begin
+  FillChar(Buf, SizeOf(Buf), 0);
+  try
+    if av_strerror(ARc, @Buf[0], SizeOf(Buf)) = 0 then
+      Exit(Format('%d (%s)', [ARc, UTF8ToString(PAnsiChar(@Buf[0]))]));
+  except
+  end;
+  Result := IntToStr(ARc);
 end;
 
 

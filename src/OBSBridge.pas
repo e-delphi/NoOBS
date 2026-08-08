@@ -30,11 +30,38 @@
     set_auto_record_mic_apps: apps (string; nomes de processo, vazio=qualquer)
     set_auto_record_mic_except: apps (string; excecoes ignoradas mesmo usando o mic)
     set_language         : language ('', 'auto', 'pt-BR', 'en', ...)
+    export_recording     : id (filepath), name (nome do arquivo de saida,
+                           sem extensao), container ('mp4'|'mkv'),
+                           segments (array de {startMs,endMs} — os trechos
+                           que o usuario decidiu MANTER, em ordem; sao
+                           emendados um no outro na saida), fps (taxa de
+                           quadros final; 0 = a da origem), regions
+                           (array de INDICES do layout; vazio = canvas
+                           inteiro), targetHeight (0 = original),
+                           encoder (id do vocabulario do config 'codec':
+                           auto|h264-hw|h264-sw|av1-hw|hevc-hw),
+                           crf (0..51, escala do x264: 0 = sem perdas,
+                           51 = pior; o backend traduz pro controle de
+                           qualidade constante de cada encoder, sempre em
+                           bitrate VARIAVEL), scaleAlgo (reamostragem do
+                           swscale: 'bicubic' default | 'bilinear' |
+                           'area'; so tem efeito com reducao de
+                           resolucao), audioStreams (array de
+                           INDICES de stream do arquivo), mixTrackIndex
+                           (indice da faixa de mix, pra regra de exclusao),
+                           mixAudio (Boolean)
+    cancel_export        : — (aborta a exportacao em andamento)
 
   Mensagens Delphi -> JS (campo "type"):
     init                 : monitors, mics, speakers, recordings
     recording_state      : active, elapsed
     recording_added      : item
+    encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, vendor,
+                           vendorLogo, exportEncoders[] ({id,name,hardware}
+                           — encoders do LIBAVCODEC utilizaveis na
+                           exportacao, ja filtrados por existencia)
+    export_progress      : pct (0..100)
+    export_done          : ok, canceled, path
     error                : message
 *)
 unit OBSBridge;
@@ -82,6 +109,7 @@ uses
   System.SyncObjs,
   FFmpegLib,
   FFmpegOps,
+  FFmpegExport,
   NoOBSTypes,
   OBSEncoder,
   OBSAudioTracks,
@@ -221,6 +249,11 @@ var
   // de tray balloon (NIF_INFO). Caso classico: /start-record vindo
   // da hibernacao, gravacao comeca antes do WebView2 finalizar init.
   UIReady: Boolean = False;
+  // Ultimo resultado do DetectEncoderCaps (preenchido no PushEncoderCaps,
+  // durante o warmup). A exportacao consulta essa copia em vez de chamar
+  // o libobs de novo — ela roda muito depois e nao deve depender do
+  // estado do engine naquele instante.
+  LastEncoderCaps: TEncoderCaps;
   // True se a janela estava visivel quando o auto-minimize on record
   // disparou. Usado pra restaurar a janela quando a gravacao parar
   // (via hotkey ou tray menu). Caso o user tenha minimizado manual
@@ -744,6 +777,19 @@ begin
     Result := Format('%d KB', [ABytes div KB])
   else
     Result := Format('%d B', [ABytes]);
+end;
+
+function SanitizeFileName(const AName: string): string;
+// Troca os caracteres que o Windows nao aceita em nome de arquivo por
+// '_'. Usado no rename e no nome sugerido da exportacao.
+const
+  ILLEGAL: array[0..8] of Char = ('\', '/', ':', '*', '?', '"', '<', '>', '|');
+var
+  i: Integer;
+begin
+  Result := Trim(AName);
+  for i := 0 to High(ILLEGAL) do
+    Result := StringReplace(Result, ILLEGAL[i], '_', [rfReplaceAll]);
 end;
 
 function BuildRecordingsArray: TJSONArray;
@@ -3225,10 +3271,6 @@ procedure HandleRenameRecording(const AOldPath, ANewName: string);
 var
   Dir, Ext, Sanitized, NewPath: string;
   Suffix: Integer;
-const
-  ILLEGAL: array[0..8] of Char = ('\', '/', ':', '*', '?', '"', '<', '>', '|');
-var
-  i: Integer;
   Obj: TJSONObject;
 begin
   if (AOldPath = '') or (ANewName = '') then Exit;
@@ -3244,9 +3286,7 @@ begin
     Exit;
   end;
 
-  Sanitized := Trim(ANewName);
-  for i := 0 to High(ILLEGAL) do
-    Sanitized := StringReplace(Sanitized, ILLEGAL[i], '_', [rfReplaceAll]);
+  Sanitized := SanitizeFileName(ANewName);
   if Sanitized = '' then Exit;
 
   Dir := ExtractFilePath(AOldPath);
@@ -4732,6 +4772,372 @@ begin
 end;
 
 // =====================================================================
+// Exportacao (re-encode) — FFmpegExport
+// =====================================================================
+
+var
+  // Uma exportacao por vez. O botao fica desabilitado na UI, mas o guard
+  // aqui e a garantia de verdade (mensagem forjada, duplo clique, etc).
+  ExportBusy: Boolean = False;
+  // Lido pela thread de exportacao a cada pacote. 0 = segue, 1 = aborta.
+  ExportCancelFlag: Integer = 0;
+  ExportLastPushTick: Cardinal = 0;
+
+const
+  // Intervalo minimo entre pushes de progresso. Sem isso o JS recebe
+  // centenas de mensagens por segundo e a fila do WebView engasga.
+  EXPORT_PROGRESS_MS = 250;
+
+procedure PushExportProgress(APct: Double);
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'export_progress');
+  Obj.AddPair('pct', TJSONNumber.Create(APct));
+  PostOwned(Obj);
+end;
+
+procedure PushExportDone(AOk, ACanceled: Boolean; const APath: string);
+var Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'export_done');
+  Obj.AddPair('ok', TJSONBool.Create(AOk));
+  Obj.AddPair('canceled', TJSONBool.Create(ACanceled));
+  Obj.AddPair('path', APath);
+  PostOwned(Obj);
+end;
+
+procedure QueueExportProgress(APct: Double);
+// Procedure NOMEADA de proposito: a closure abaixo captura APct, e um
+// novo stack frame por chamada garante uma captura por invocacao
+// (pegadinha #6 — captura em loop e por referencia).
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if IsShuttingDown then Exit;
+      PushExportProgress(APct);
+    end);
+end;
+
+function GetIntArrayField(AObj: TJSONObject; const AName: string): TArray<Integer>;
+var
+  V: TJSONValue;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  Result := nil;
+  if AObj = nil then Exit;
+  V := AObj.GetValue(AName);
+  if not (V is TJSONArray) then Exit;
+  Arr := TJSONArray(V);
+  SetLength(Result, Arr.Count);
+  for i := 0 to Arr.Count - 1 do
+    if Arr.Items[i] is TJSONNumber then
+      Result[i] := TJSONNumber(Arr.Items[i]).AsInt
+    else
+      Result[i] := -1;
+end;
+
+function MakeExportPath(const ABaseName, AExt: string): string;
+// <RecordDir>\<nome><ext>, com sufixo " (N)" se ja existir. Sai na pasta
+// de gravacoes de proposito: o card aparece sozinho na lista (.mp4 e .mkv
+// ja estao em RECORDING_EXTS).
+var
+  Dir, Base, Cand: string;
+  N: Integer;
+begin
+  Dir := IncludeTrailingPathDelimiter(RecordDir);
+  Base := Trim(ABaseName);
+  if Base = '' then Base := 'Exportado';
+  Base := SanitizeFileName(Base);
+  Cand := Dir + Base + AExt;
+  N := 2;
+  while TFile.Exists(Cand) do
+  begin
+    Cand := Dir + Format('%s (%d)%s', [Base, N, AExt]);
+    Inc(N);
+  end;
+  Result := Cand;
+end;
+
+procedure HandleCancelExport;
+begin
+  if not ExportBusy then Exit;
+  Log('Export: cancelamento pedido pelo usuario.');
+  TInterlocked.Exchange(ExportCancelFlag, 1);
+end;
+
+procedure HandleExportRecording(AObj: TJSONObject);
+// Exporta um trecho da gravacao com re-encode. Roda em worker (pode levar
+// minutos). Validacoes espelham o HandleSplitRecording.
+var
+  Opts: TExportOptions;
+  SrcPath, EncPref, FinalPath, Ext: string;
+  Meta: TRecordingMeta;
+  RegionIdx: TArray<Integer>;
+  Segs, SegObj: TJSONValue;
+  TotalSec: Double;
+  StartMs, EndMs: Integer;
+  i, k: Integer;
+  SrcSize, FreeBytes, Needed: Int64;
+  AudioSel: TArray<Integer>;
+  MixTrackIdx: Integer;
+  HasFirst, HasOther: Boolean;
+begin
+  if AObj = nil then Exit;
+
+  if ExportBusy then
+  begin
+    PostError(OBSLang.T('error.exportBusy'));
+    Exit;
+  end;
+  // Durante a gravacao o libobs ja disputa CPU/GPU — mesma logica que
+  // bloqueia trocar monitor gravando.
+  if RecordingActive then
+  begin
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.exportWhileRecording'));
+    Exit;
+  end;
+  if not FFmpegLibAvailable then
+  begin
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.mediaLibUnavailable'));
+    Exit;
+  end;
+
+  SrcPath := GetStrField(AObj, 'id');
+  if (SrcPath = '') or (not IsPathInRecordDir(SrcPath)) or
+     (not IsRecordingExt(SrcPath)) or (not TFile.Exists(SrcPath)) then
+  begin
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.fileNotFound'));
+    Exit;
+  end;
+
+  Opts := Default(TExportOptions);
+  Opts.SrcPath  := SrcPath;
+
+  // Trechos que o usuario decidiu manter, em ordem. A UI manda pares de
+  // milissegundos; aqui so entram os validos e o total tem que ser > 0.
+  Segs := AObj.GetValue('segments');
+  TotalSec := 0;
+  if Segs is TJSONArray then
+    for i := 0 to TJSONArray(Segs).Count - 1 do
+    begin
+      SegObj := TJSONArray(Segs).Items[i];
+      if not (SegObj is TJSONObject) then Continue;
+      StartMs := GetIntField(TJSONObject(SegObj), 'startMs', 0);
+      EndMs   := GetIntField(TJSONObject(SegObj), 'endMs', 0);
+      if EndMs <= StartMs then Continue;
+      SetLength(Opts.Segments, Length(Opts.Segments) + 1);
+      Opts.Segments[High(Opts.Segments)].StartSec := StartMs / 1000;
+      Opts.Segments[High(Opts.Segments)].EndSec   := EndMs / 1000;
+      TotalSec := TotalSec + (EndMs - StartMs) / 1000;
+    end;
+  if (Length(Opts.Segments) = 0) or (TotalSec <= 0) then
+  begin
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.exportBadRange'));
+    Exit;
+  end;
+
+  Opts.TargetHeight := GetIntField(AObj, 'targetHeight', 0);
+  // 0 = mantem a taxa da origem; o FFmpegExport nunca aumenta.
+  Opts.TargetFps := GetIntField(AObj, 'fps', 0);
+  Opts.MixAudio := GetBoolField(AObj, 'mixAudio', False);
+  // Qualidade: CRF na escala do x264 (0 = sem perdas, 51 = pior). O
+  // FFmpegExport traduz pro controle nativo de cada encoder, sempre em
+  // modo de bitrate variavel — nao existe alvo de bitrate na exportacao.
+  Opts.Crf := GetIntField(AObj, 'crf', EXPORT_CRF_DEFAULT);
+  // Algoritmo de reamostragem, no vocabulario do app. So a UI decide
+  // quando OFERECER a escolha (ela some sem reducao de resolucao); aqui
+  // vale o que veio, e o ResolveScaleFlags cai no bicubic se nao entender.
+  Opts.ScaleAlgo := AnsiString(GetStrField(AObj, 'scaleAlgo', 'bicubic'));
+
+  // Encoder: a UI manda o ID do vocabulario do app ('h264-hw'), nunca o
+  // nome do libavcodec — a traducao (e o fallback) fica no backend.
+  EncPref := GetStrField(AObj, 'encoder', 'auto');
+  Opts.EncoderName := ResolveExportEncoder(EncPref, LastEncoderCaps);
+
+  // Regioes: a UI manda INDICES do layout; o layout de verdade vem do
+  // <hash>.json. Lista vazia = canvas inteiro.
+  RegionIdx := GetIntArrayField(AObj, 'regions');
+  if Length(RegionIdx) > 0 then
+  begin
+    if OBSPlayer.LoadRecordingMeta(SrcPath, Meta) and
+       (Length(Meta.Layout.Regions) > 0) then
+    begin
+      for i := 0 to High(RegionIdx) do
+      begin
+        k := RegionIdx[i];
+        if (k >= 0) and (k <= High(Meta.Layout.Regions)) then
+          Opts.Regions := Opts.Regions + [Meta.Layout.Regions[k]];
+      end;
+    end
+    else
+      Log('Export: layout ausente — exportando o canvas inteiro.');
+  end;
+
+  // Faixas de audio. Regra pedida: a faixa 1 e o MIX de tudo, entao ela
+  // nao pode conviver com as isoladas (o mesmo audio entraria duas
+  // vezes). A UI ja impede; aqui e a rede de seguranca.
+  AudioSel := GetIntArrayField(AObj, 'audioStreams');
+  MixTrackIdx := GetIntField(AObj, 'mixTrackIndex', -1);
+  HasFirst := False;
+  HasOther := False;
+  for i := 0 to High(AudioSel) do
+    if (AudioSel[i] >= 0) and (AudioSel[i] = MixTrackIdx) then HasFirst := True
+    else if AudioSel[i] >= 0 then HasOther := True;
+  if HasFirst and HasOther then
+  begin
+    Log('Export: faixa do mix + isoladas selecionadas — mantendo so o mix.');
+    SetLength(Opts.AudioStreams, 1);
+    Opts.AudioStreams[0] := MixTrackIdx;
+  end
+  else
+    for i := 0 to High(AudioSel) do
+      if AudioSel[i] >= 0 then
+        Opts.AudioStreams := Opts.AudioStreams + [AudioSel[i]];
+
+  // Container: MP4 (default, mais compativel) ou MKV. O muxer vai
+  // explicito pro FFmpegExport — nada e deduzido da extensao.
+  if LowerCase(GetStrField(AObj, 'container', 'mp4')) = 'mkv' then
+  begin
+    Opts.Container := AnsiString('matroska');
+    Ext := '.mkv';
+  end
+  else
+  begin
+    Opts.Container := AnsiString('mp4');
+    Ext := '.mp4';
+  end;
+
+  // Escreve num ".part" e so renomeia no fim. O OBSRecordWatch vigia
+  // FILE_NAME na pasta de gravacoes: criar o arquivo final direto fazia o
+  // watcher disparar no instante do avio_open2 e o card nascia com os 48
+  // bytes do cabecalho ainda vazio. ".part" nao esta em RECORDING_EXTS,
+  // entao nem o watcher nem o ListRecordings enxergam o arquivo enquanto
+  // ele cresce — e um .part orfao de um crash tambem fica invisivel.
+  FinalPath := MakeExportPath(GetStrField(AObj, 'name'), Ext);
+  Opts.DstPath := FinalPath + '.part';
+
+  // Espaco em disco. Nao da pra saber o tamanho final (depende de quanto
+  // o conteudo comprime), entao usamos o tamanho do ORIGINAL como teto —
+  // generoso de proposito: a exportacao so reduz (recorte, escala, % de
+  // bitrate), e e melhor recusar do que encher o disco no meio.
+  SrcSize := 0;
+  try SrcSize := TFile.GetSize(SrcPath); except end;
+  Needed := SrcSize + 64 * 1024 * 1024;
+  FreeBytes := GetRecordDirFreeBytes;
+  if (FreeBytes >= 0) and (FreeBytes < Needed) then
+  begin
+    Log('Export: espaco insuficiente — precisa ~%d, livre %d.',
+      [Needed, FreeBytes]);
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.exportNoSpace',
+      ['needed', FormatBytesShort(Needed), 'free', FormatBytesShort(FreeBytes)]));
+    Exit;
+  end;
+
+  ExportBusy := True;
+  TInterlocked.Exchange(ExportCancelFlag, 0);
+  ExportLastPushTick := 0;
+  PushExportProgress(0);
+  Log('Export: iniciando "%s" -> "%s" (%d trecho(s), %.1fs, encoder=%s).',
+    [ExtractFileName(SrcPath), ExtractFileName(FinalPath),
+     Length(Opts.Segments), TotalSec, string(Opts.EncoderName)]);
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Res: TExportResult;
+      OutSize: Int64;
+    begin
+      Res := erError;
+      try
+        Res := ExportVideo(Opts,
+          procedure(APct: Double)
+          var
+            Tick: Cardinal;
+          begin
+            if IsShuttingDown then Exit;
+            Tick := GetTickCount;
+            if (APct < 100) and (Tick - ExportLastPushTick < EXPORT_PROGRESS_MS) then
+              Exit;
+            ExportLastPushTick := Tick;
+            QueueExportProgress(APct);
+          end,
+          @ExportCancelFlag);
+      except
+        on E: Exception do
+          Log('Export: excecao: %s', [E.Message]);
+      end;
+
+      // Saida vazia conta como falha mesmo com erOk.
+      if Res = erOk then
+      begin
+        OutSize := 0;
+        try OutSize := TFile.GetSize(Opts.DstPath); except end;
+        if OutSize <= 0 then Res := erError;
+      end;
+
+      // Sucesso: o arquivo ja esta COMPLETO (av_write_trailer voltou) —
+      // so agora ele ganha o nome .mp4 e passa a existir pra lista.
+      if Res = erOk then
+      begin
+        try
+          if TFile.Exists(FinalPath) then TFile.Delete(FinalPath);
+          TFile.Move(Opts.DstPath, FinalPath);
+        except
+          on E: Exception do
+          begin
+            Log('Export: falha ao renomear "%s" -> "%s": %s',
+              [ExtractFileName(Opts.DstPath), ExtractFileName(FinalPath),
+               E.Message]);
+            Res := erError;
+          end;
+        end;
+      end;
+
+      // Cancelou ou falhou: o .part esta pela metade, nao deixa lixo.
+      if Res <> erOk then
+        try
+          if TFile.Exists(Opts.DstPath) then TFile.Delete(Opts.DstPath);
+        except end;
+
+      TThread.Queue(nil,
+        procedure
+        begin
+          ExportBusy := False;
+          if IsShuttingDown then Exit;
+          case Res of
+            erOk:
+              begin
+                try GarbageCollectCache(ListRecordings(RecordDir)); except end;
+                PushRecordingAdded(FinalPath, 0);
+                PushExportDone(True, False, FinalPath);
+              end;
+            erCanceled:
+              PushExportDone(False, True, '');
+            erNoEncoder:
+              begin
+                PushExportDone(False, False, '');
+                PostError(OBSLang.T('error.exportNoEncoder'));
+              end;
+          else
+            begin
+              PushExportDone(False, False, '');
+              PostError(OBSLang.T('error.exportFailed'));
+            end;
+          end;
+        end);
+    end).Start;
+end;
+
+// =====================================================================
 // Dispatch publico
 // =====================================================================
 
@@ -4801,6 +5207,10 @@ begin
     end
     else if MsgType = 'split_recording' then
       HandleSplitRecording(GetStrField(Obj, 'id'), GetIntField(Obj, 'posMs') / 1000)
+    else if MsgType = 'export_recording' then
+      HandleExportRecording(Obj)
+    else if MsgType = 'cancel_export' then
+      HandleCancelExport
     else if MsgType = 'pick_record_dir' then
       HandlePickRecordDir
     else if MsgType = 'set_record_dir' then
@@ -5020,7 +5430,10 @@ procedure PushEncoderCaps;
 // no select e mostrar o icone (AMD/NVIDIA/INTEL).
 var
   Caps: TEncoderCaps;
-  Obj: TJSONObject;
+  Obj, ExpObj: TJSONObject;
+  ExpArr: TJSONArray;
+  ExpList: TExportEncoderArray;
+  i: Integer;
   VendorStr, VendorLogo: string;
 begin
   try
@@ -5039,6 +5452,10 @@ begin
     begin VendorStr := ''; VendorLogo := ''; end;
   end;
 
+  // Guarda pro caminho de exportacao (que roda muito depois do warmup e
+  // nao pode depender do libobs estar respondendo naquele instante).
+  LastEncoderCaps := Caps;
+
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'encoder_caps');
   Obj.AddPair('av1Hw', TJSONBool.Create(Caps.Av1Hw));
@@ -5047,6 +5464,22 @@ begin
   Obj.AddPair('h264Sw', TJSONBool.Create(Caps.H264Sw));
   Obj.AddPair('vendor', VendorStr);
   Obj.AddPair('vendorLogo', VendorLogo);
+
+  // Encoders utilizaveis NA EXPORTACAO. Nao da pra derivar isso das caps
+  // acima no JS: aquelas sao os encoders do LIBOBS, e a exportacao usa os
+  // do LIBAVCODEC — nomes diferentes, e nem toda combinacao existe no
+  // build empacotado (nao ha nenhum *_qsv, por exemplo).
+  ExpArr := TJSONArray.Create;
+  ExpList := ListExportEncoders(Caps);
+  for i := 0 to High(ExpList) do
+  begin
+    ExpObj := TJSONObject.Create;
+    ExpObj.AddPair('id', ExpList[i].Id);
+    ExpObj.AddPair('name', ExpList[i].LibavName);
+    ExpObj.AddPair('hardware', TJSONBool.Create(ExpList[i].Hardware));
+    ExpArr.AddElement(ExpObj);
+  end;
+  Obj.AddPair('exportEncoders', ExpArr);
   PostOwned(Obj);
   Log('Encoder caps: av1-hw=%s hevc-hw=%s h264-hw=%s h264-sw=%s vendor=%s',
     [BoolToStr(Caps.Av1Hw, True), BoolToStr(Caps.HevcHw, True),
@@ -5214,6 +5647,10 @@ begin
   // abortarem cedo. Atomico + memory barrier via TInterlocked — todos
   // os workers veem a mudanca imediatamente, sem race nem cache stale.
   SignalShutdown;
+  // A exportacao pode estar no meio de um arquivo de 10 min. O
+  // IsShuttingDown sozinho nao a interrompe — o laco dela olha o proprio
+  // flag de cancelamento, entao marque os dois.
+  TInterlocked.Exchange(ExportCancelFlag, 1);
   // Atalhos globais — libera a combinacao pra outros apps usarem.
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE_ALT);

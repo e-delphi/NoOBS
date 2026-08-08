@@ -380,23 +380,33 @@ begin
   Result := RemuxDispatch(ASrc, Targets, Outputs);
 end;
 
-function FindCutKeyframeSec(const ASrcCtx: AVFormatContext;
-  AVideoIdx: Integer; APosSec: Double): Double;
-// Passada de descoberta: pts-time (segundos) do keyframe de video escolhido
-// pro corte. Preferencia: o PRIMEIRO keyframe com pts_time >= APosSec (a 2a
-// parte comeca num keyframe limpo). Se nao houver nenhum depois da posicao
-// (corte perto do fim), usa o ULTIMO keyframe antes dela. -1 se nao houver
-// keyframe valido.
+function FindCutKeyframe(const ASrcCtx: AVFormatContext;
+  AVideoIdx: Integer; APosSec: Double;
+  out ACutPtsSec, ACutDtsSec: Double): Boolean;
+// Passada de descoberta: localiza o keyframe de video do corte e devolve o
+// tempo dele (segundos) nas DUAS escalas — apresentacao (pts) e decodificacao
+// (dts). Preferencia: o PRIMEIRO keyframe com pts_time >= APosSec (a 2a parte
+// comeca num keyframe limpo). Se nao houver nenhum depois da posicao (corte
+// perto do fim), usa o ULTIMO keyframe antes dela. False = sem keyframe valido.
+//
+// Os dois tempos sao necessarios porque com B-frames o keyframe tem
+// dts = pts - delay. Quem produz B-frames: x264 (h264-sw, default i_bframe=3),
+// NVENC (bf=2) e AMF quando a GPU suporta (bf=2 em AVC/AV1; HEVC nasce com 0).
+// O corte no stream de video acontece em ordem de DECODIFICACAO (dts) e nos
+// demais streams em ordem de APRESENTACAO (pts) — ver SplitFileAtKeyframe.
 const
   AV_PKT_FLAG_KEY = 1;
 var
   Pkt: PAVPacket;
   S: PAVStream;
   Tb: AVRational;
-  PtsTime, LastKf: Double;
+  PtsTime, DtsTime, LastPts, LastDts: Double;
 begin
-  Result := -1;
-  LastKf := -1;
+  Result := False;
+  ACutPtsSec := -1;
+  ACutDtsSec := -1;
+  LastPts := -1;
+  LastDts := -1;
   S := GetStreamByIndex(ASrcCtx, Cardinal(AVideoIdx));
   if (S = nil) or (S.time_base.den <= 0) then Exit;
   Tb := S.time_base;
@@ -412,11 +422,18 @@ begin
            (Pkt.pts <> AV_NOPTS_VALUE) then
         begin
           PtsTime := Pkt.pts * (Tb.num / Tb.den);
-          LastKf := PtsTime;
+          if Pkt.dts <> AV_NOPTS_VALUE then
+            DtsTime := Pkt.dts * (Tb.num / Tb.den)
+          else
+            DtsTime := PtsTime;   // sem B-frames o demuxer entrega dts = pts
+          LastPts := PtsTime;
+          LastDts := DtsTime;
           if PtsTime >= APosSec then
           begin
-            Result := PtsTime;   // 1o keyframe >= posicao (ordem crescente)
-            Exit;
+            // 1o keyframe >= posicao (pts vem em ordem crescente aqui).
+            ACutPtsSec := PtsTime;
+            ACutDtsSec := DtsTime;
+            Exit(True);
           end;
         end;
       finally
@@ -427,7 +444,12 @@ begin
     av_packet_free(@Pkt);
   end;
   // Nenhum keyframe depois da posicao — usa o ultimo antes dela.
-  Result := LastKf;
+  if LastPts >= 0 then
+  begin
+    ACutPtsSec := LastPts;
+    ACutDtsSec := LastDts;
+    Result := True;
+  end;
 end;
 
 function SplitFileAtKeyframe(const ASrc, ADstA, ADstB: string;
@@ -443,7 +465,7 @@ var
   CutInTb: TArray<Int64>;
   i, VideoIdx, Sidx, DstIdx: Integer;
   S, SrcStream, DstStream: PAVStream;
-  CutSec, PktSec: Double;
+  CutPtsSec, CutDtsSec, PktSec: Double;
   TbS, TbUs: AVRational;
   RefUs: Int64;
   WriteFailed, ToB: Boolean;
@@ -477,18 +499,31 @@ begin
       end;
     end;
 
-    // Tempo do corte (keyframe). Sem video (audio-only): tempo bruto pedido.
+    // Tempo do corte (keyframe), nas duas escalas. Sem video (audio-only):
+    // tempo bruto pedido nas duas.
     if VideoIdx >= 0 then
-      CutSec := FindCutKeyframeSec(SrcCtx, VideoIdx, APosSec)
-    else
-      CutSec := APosSec;
-    // CutSec <= 0 = unico keyframe e no inicio (ou nao ha keyframe interno):
-    // o pedaco nao tem onde ser cortado por stream copy. Caso "nada pra
-    // cortar" — reportado distinto do erro pra a UI dar dica util.
-    if CutSec <= 0 then
     begin
-      Log('Split: sem ponto de corte (CutSec=%.3f pos=%.3f) — keyframes ' +
-        'espacados demais pra cortar aqui.', [CutSec, APosSec]);
+      if not FindCutKeyframe(SrcCtx, VideoIdx, APosSec,
+                             CutPtsSec, CutDtsSec) then
+      begin
+        CutPtsSec := -1;
+        CutDtsSec := -1;
+      end;
+    end
+    else
+    begin
+      CutPtsSec := APosSec;
+      CutDtsSec := APosSec;
+    end;
+    // <= 0 = unico keyframe e no inicio (ou nao ha keyframe interno): o pedaco
+    // nao tem onde ser cortado por stream copy. O dts entra na checagem porque
+    // com B-frames o dts do 1o keyframe do arquivo pode ser <= 0 — cortar ali
+    // deixaria a 1a parte vazia. Caso "nada pra cortar" — reportado distinto
+    // do erro pra a UI dar dica util.
+    if (CutPtsSec <= 0) or (CutDtsSec <= 0) then
+    begin
+      Log('Split: sem ponto de corte (pts=%.3f dts=%.3f pos=%.3f) — keyframes ' +
+        'espacados demais pra cortar aqui.', [CutPtsSec, CutDtsSec, APosSec]);
       Exit(soNoCutPoint);
     end;
 
@@ -501,11 +536,14 @@ begin
     if not OpenOutputForStreams(SrcCtx, ADstA, AllIdx, OutA) then Exit;
     if not OpenOutputForStreams(SrcCtx, ADstB, AllIdx, OutB) then Exit;
 
-    // Offset de rebase por stream (= CutSec no time_base de cada um). Subtrair
-    // o mesmo offset temporal de todos preserva o sync A/V na 2a parte.
+    // Offset de rebase por stream (= CutDtsSec no time_base de cada um).
+    // Subtrair o MESMO offset temporal de todos preserva o sync A/V na 2a
+    // parte. Usa o dts (nao o pts) do keyframe pra que o 1o pacote de video
+    // caia em dts 0: com B-frames o pts do keyframe fica `delay` a frente do
+    // dts, entao rebasear pelo pts deixaria o dts NEGATIVO logo no 1o bloco.
     TbUs.num := 1;
     TbUs.den := AV_TIME_BASE;
-    RefUs := Round(CutSec * AV_TIME_BASE);
+    RefUs := Round(CutDtsSec * AV_TIME_BASE);
     SetLength(CutInTb, NbStreams);
     for i := 0 to Integer(NbStreams) - 1 do
     begin
@@ -530,17 +568,37 @@ begin
         if DstIdx < 0 then Continue;
         TbS := SrcStream.time_base;
 
-        // Tempo por DTS (ordem de decodificacao): o keyframe tem dts==pts,
-        // entao dts>=CutSec poe o keyframe e tudo depois na 2a parte; o GOP
-        // anterior (dts<CutSec) fica na 1a. Corte limpo no I-frame.
-        if (Pkt.dts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
-          PktSec := Pkt.dts * (TbS.num / TbS.den)
-        else if (Pkt.pts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
-          PktSec := Pkt.pts * (TbS.num / TbS.den)
+        // Stream de VIDEO: corta em ordem de DECODIFICACAO — dts do pacote
+        // contra o dts do keyframe. Assim o proprio keyframe e tudo que vem
+        // depois dele no bitstream caem na 2a parte, e o GOP anterior fica na
+        // 1a. Comparar o dts do pacote contra o PTS do keyframe (como era
+        // antes) so funcionava sem B-frames: com eles o keyframe tem
+        // dts = pts - delay, caia do lado errado e a 2a parte nascia SEM
+        // I-frame — preta ate o keyframe seguinte, ou preta inteira quando o
+        // corte era no ultimo GOP (e, por tabela, a uniao dessa parte falhava).
+        //
+        // Demais streams (audio): ordem de APRESENTACAO — pts do pacote contra
+        // o pts do keyframe, pra o audio casar com o 1o quadro exibido.
+        if Sidx = VideoIdx then
+        begin
+          if (Pkt.dts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+            PktSec := Pkt.dts * (TbS.num / TbS.den)
+          else if (Pkt.pts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+            PktSec := Pkt.pts * (TbS.num / TbS.den)
+          else
+            PktSec := 0;
+          ToB := PktSec >= CutDtsSec;
+        end
         else
-          PktSec := 0;
-
-        ToB := PktSec >= CutSec;
+        begin
+          if (Pkt.pts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+            PktSec := Pkt.pts * (TbS.num / TbS.den)
+          else if (Pkt.dts <> AV_NOPTS_VALUE) and (TbS.den > 0) then
+            PktSec := Pkt.dts * (TbS.num / TbS.den)
+          else
+            PktSec := 0;
+          ToB := PktSec >= CutPtsSec;
+        end;
         if ToB then
         begin
           DstStream := GetStreamByIndex(OutB.Ctx, Cardinal(DstIdx));
@@ -568,8 +626,8 @@ begin
       end;
     end;
     if not WriteFailed then Result := soOk;
-    Log('Split: cut=%.3fs result=%s', [CutSec,
-      BoolToStr(Result = soOk, True)]);
+    Log('Split: cut pts=%.3fs dts=%.3fs result=%s',
+      [CutPtsSec, CutDtsSec, BoolToStr(Result = soOk, True)]);
   finally
     if Pkt <> nil then av_packet_free(@Pkt);
     CloseOutput(OutA);
@@ -652,7 +710,7 @@ var
   OutFile: TOutputStream;
   Pkt: PAVPacket;
   AllIdx: TArray<Cardinal>;
-  BaseUs: TArray<Int64>;
+  BaseUs: Int64;
   N, i: Cardinal;
   InputIdx: Integer;
   Sidx, DstIdx: Integer;
@@ -703,8 +761,13 @@ begin
       DeclaredDurUs := av_format_context_duration(SrcCtx);
       if DeclaredDurUs < 0 then DeclaredDurUs := 0;
       LocalBestUs := 0;
-      SetLength(BaseUs, N);
-      for i := 0 to N - 1 do BaseUs[i] := AV_NOPTS_VALUE;
+      // Base UNICA por arquivo (o 1o pacote lido — o demuxer entrega
+      // intercalado por tempo), nao uma base POR STREAM. A diferenca de inicio
+      // entre os streams de um mesmo arquivo e informacao de sync: nas
+      // gravacoes do OBS o audio comeca ~20ms antes do video. Zerando cada
+      // stream pelo proprio 1o pacote, essa diferenca sumia e o audio
+      // escorregava alguns ms em relacao ao video a cada trecho unido.
+      BaseUs := AV_NOPTS_VALUE;
 
       while (not WriteFailed) and (av_read_frame(SrcCtx, Pkt) = 0) do
       begin
@@ -724,14 +787,14 @@ begin
           if PktBaseUs = AV_NOPTS_VALUE then
             PktBaseUs := TimestampToUs(Pkt.pts, SrcTb);
           if PktBaseUs = AV_NOPTS_VALUE then PktBaseUs := 0;
-          if BaseUs[Sidx] = AV_NOPTS_VALUE then BaseUs[Sidx] := PktBaseUs;
+          if BaseUs = AV_NOPTS_VALUE then BaseUs := PktBaseUs;
 
           if Pkt.pts <> AV_NOPTS_VALUE then
           begin
             PtsUs := TimestampToUs(Pkt.pts, SrcTb);
             if PtsUs <> AV_NOPTS_VALUE then
             begin
-              Dec(PtsUs, BaseUs[Sidx]);
+              Dec(PtsUs, BaseUs);
               if PtsUs < 0 then PtsUs := 0;
               Pkt.pts := UsToTimestamp(PtsUs + GlobalOffsetUs, DstTb);
             end
@@ -743,7 +806,7 @@ begin
             DtsUs := TimestampToUs(Pkt.dts, SrcTb);
             if DtsUs <> AV_NOPTS_VALUE then
             begin
-              Dec(DtsUs, BaseUs[Sidx]);
+              Dec(DtsUs, BaseUs);
               if DtsUs < 0 then DtsUs := 0;
               Pkt.dts := UsToTimestamp(DtsUs + GlobalOffsetUs, DstTb);
             end
@@ -761,7 +824,7 @@ begin
           Pkt.stream_index := DstIdx;
           Pkt.pos := -1;
 
-          EndUs := PktBaseUs - BaseUs[Sidx];
+          EndUs := PktBaseUs - BaseUs;
           DurUs := TimestampToUs(Pkt.duration, DstTb);
           if DurUs > 0 then Inc(EndUs, DurUs);
           if EndUs > LocalBestUs then LocalBestUs := EndUs;

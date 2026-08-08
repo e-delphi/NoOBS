@@ -78,6 +78,7 @@ Só abrir e gravar.
 | Forma de onda do áudio | Barras de intensidade renderizadas embaixo da seek bar — visão rápida de onde tem áudio alto no vídeo |
 | Dividir vídeo | Corta a gravação em duas no ponto atual, sem reencodar. As duas partes mantêm a data do original |
 | Unir vídeos | Junta várias gravações numa só, na ordem que você selecionou |
+| Exportar | Gera um arquivo menor pra compartilhar, em MP4 ou MKV. Corte o vídeo em trechos e escolha quais entram — os mantidos são emendados sem buraco, com prévia pra ver o que está cortando. Escolha também quais monitores entram (os escolhidos ficam lado a lado, sem o vazio de um que ficou de fora), a resolução, o codificador e quais faixas de áudio manter — ou junte as faixas numa só. A qualidade é um CRF de 0 (sem perdas) a 51, em bitrate variável, com progresso e cancelamento |
 | Velocidade de reprodução | De 0,25× a 8× pra revisar rápido ou analisar detalhe |
 | Lixeira do Windows | Excluir, dividir e unir mandam os originais pra lixeira — nada é apagado em definitivo |
 | Busca e gerenciamento | Filtrar, renomear, excluir em lote (botão de exclusão na header fica vermelho quando há seleção) |

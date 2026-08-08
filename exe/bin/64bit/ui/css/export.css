@@ -1,0 +1,484 @@
+/* ===== Tela de exportacao =====
+   TELA CHEIA, nao modal: ocupa a janela inteira, com fundo opaco (--bg,
+   o mesmo do .app) e sem backdrop. O que sobrou da fase de modal foi so
+   a mecanica de mostrar/esconder (.visible) — nada de dim, blur ou
+   clique-fora-fecha. Sai pelo botao de voltar ou por Esc.
+
+   Mesma linguagem visual das Configuracoes (vars do base.css), mas com
+   classes proprias: o conteudo e bem diferente (faixa de tempo, previa de
+   composicao, barra de progresso) e herdar .settings-* acoplaria os dois. */
+.export-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 8600;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, visibility 160ms ease;
+}
+.export-overlay.visible { opacity: 1; visibility: visible; }
+
+.export-modal {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.export-header {
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  background: var(--panel);
+}
+.export-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+/* Voltar à ESQUERDA do título — mesma convenção do header das
+   Configurações, que também é uma tela e não um diálogo. */
+.export-back-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms, color 120ms;
+}
+.export-back-btn:hover { background: var(--panel-3); color: var(--text); }
+
+.export-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+/* Numa janela larga o formulário não deve esticar até as bordas — os
+   campos ficam numa coluna confortável e centrada. */
+.export-content {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.export-field + .export-field { margin-top: 16px; }
+.export-field > label,
+.export-section-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 7px;
+}
+.export-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.export-row { display: flex; gap: 10px; align-items: center; }
+.export-row > * { min-width: 0; }
+.export-col { flex: 1; }
+
+.export-input {
+  width: 100%;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 7px 9px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.export-input:focus { border-color: var(--success); }
+select.export-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23a1a1aa' d='M0 0l5 6 5-6z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  padding-right: 26px;
+}
+.export-input:disabled { opacity: 0.45; cursor: not-allowed; }
+.export-time-input { width: 74px; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ---- Previa do corte ----
+   Serve o MESMO arquivo que o player toca. Mudo e sem controles: aqui ele
+   e um visor do ponto onde o cursor esta, nao um player. */
+.export-preview-video {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 260px;
+  background: #000;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.export-preview-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.export-preview-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--panel-2);
+  text-align: center;
+  padding: 12px;
+}
+.export-preview-video.ready .export-preview-msg { display: none; }
+.export-preview-video video { cursor: pointer; }
+
+/* ---- Controles da previa ----
+   As VARIANTES de botao (.export-btn-sm, .export-icon-btn, .export-zoom-btn)
+   moram junto do .export-btn base, la embaixo: sao seletores de mesma
+   especificidade, entao quem vem depois no arquivo e que vale. */
+.export-play-bar { margin-top: 8px; }
+.export-volume { width: 92px; accent-color: var(--success); }
+
+/* ---- Linha do tempo com os trechos ----
+   O wrapper e quem rola; a linha do tempo por dentro fica com a largura
+   do zoom (100% * zoom), entao a barra de rolagem aparece sozinha assim
+   que passa da largura util. */
+.export-timeline-scroll {
+  margin-top: 10px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.export-timeline {
+  position: relative;
+  height: 46px;
+  min-width: 100%;
+  cursor: pointer;
+}
+
+/* Regua de tempo: rola junto com a linha do tempo (mesmo wrapper) e o
+   passo dos marcadores se adapta ao zoom (ver _renderTicks). */
+.export-ticks {
+  position: relative;
+  height: 17px;
+  min-width: 100%;
+  border-top: 1px solid var(--border-2);
+  background: var(--panel);
+}
+.export-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border-2);
+  padding-left: 3px;
+  font-size: 9px;
+  line-height: 17px;
+  color: var(--text-3);
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+}
+.export-zoom-level {
+  font-size: 11px;
+  color: var(--text-2);
+  min-width: 34px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.export-parts { display: flex; height: 100%; width: 100%; }
+/* As partes NAO recebem clique: a barra inteira e area de arrastar o
+   cursor. Incluir/tirar um trecho e feito pelo botao que age na posicao
+   do cursor — com uma parte so cobrindo tudo, deixar o clique alternar
+   fazia qualquer toque na barra virar "tirar trecho". */
+.export-part {
+  position: relative;
+  height: 100%;
+  background: var(--accent-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+  min-width: 0;
+}
+.export-part.keep { background: rgba(16, 185, 129, 0.16); color: var(--text); }
+/* Trecho descartado: listrado e apagado — le-se de longe que sai fora. */
+.export-part.drop {
+  color: var(--text-3);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--panel-3) 0 6px,
+    var(--panel-2) 6px 12px);
+}
+/* Trecho sob o cursor: realce sutil pra ligar a barra ao botao de
+   incluir/tirar, que age justamente nele. */
+.export-part.at-cursor { box-shadow: inset 0 0 0 1px var(--border-2); }
+
+/* ---- Marcas de corte ----
+   Linha propria por cima das partes, com bico em cima e embaixo. Antes
+   era so a borda de 1px entre as partes, que sumia quando os dois lados
+   estavam descartados (fundo listrado dos dois lados). */
+.export-cuts { position: absolute; inset: 0; pointer-events: none; }
+.export-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--accent-2);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  z-index: 2;
+}
+.export-cut::before,
+.export-cut::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+}
+.export-cut::before { top: 0; border-top: 5px solid var(--accent-2); }
+.export-cut::after { bottom: 0; border-bottom: 5px solid var(--accent-2); }
+/* A divisao que o botao "Remover divisao" vai apagar — sem esse destaque
+   o usuario nao sabe qual das marcas vai embora. */
+.export-cut.target { background: var(--danger-2); }
+.export-cut.target::before { border-top-color: var(--danger-2); }
+.export-cut.target::after { border-bottom-color: var(--danger-2); }
+
+.export-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 3;
+}
+.export-timeline-bar { margin-top: 9px; }
+.export-footer-spacer { flex: 1; }
+
+/* ---- Lista de checkboxes (monitores / faixas de audio) ---- */
+.export-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.export-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms, background 120ms, opacity 120ms;
+}
+.export-check:hover { border-color: var(--text-3); }
+.export-check input { margin: 0; accent-color: var(--success); cursor: pointer; }
+.export-check.checked { border-color: var(--success); background: var(--accent-bg); }
+.export-check.disabled { opacity: 0.4; cursor: not-allowed; }
+.export-check.disabled input { cursor: not-allowed; }
+
+/* ---- Previa da composicao ----
+   Encolhe pro tamanho do conteudo (inline-flex + width via JS) em vez de
+   esticar pela coluna inteira: uma caixa larga e baixa nao lembra em nada
+   o arranjo real dos monitores. As dimensoes de cada item vem em PIXELS do
+   _renderPreview, calculadas da proporcao verdadeira da composicao. */
+.export-preview {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.export-preview-item {
+  background: var(--thumb-bg);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  flex: none;
+}
+.export-preview-empty {
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* ---- Alternador Qualidade / Tamanho ---- */
+.export-tabs {
+  display: inline-flex;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.export-tab {
+  background: transparent;
+  border: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.export-tab.active { background: var(--panel-3); color: var(--text); }
+
+.export-quality-slider { width: 100%; accent-color: var(--success); }
+.export-estimate {
+  font-size: 11px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- Acao + progresso ----
+   Fica no FLUXO do conteudo, logo depois do ultimo campo — nao e um
+   rodape fixo. Um botao so: vira "Cancelar" enquanto a exportacao roda. */
+.export-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+.export-progress-wrap { flex: 1; min-width: 0; display: none; }
+.export-overlay.running .export-progress-wrap { display: block; }
+.export-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-2);
+  overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--success);
+  border-radius: 3px;
+  transition: width 220ms linear;
+}
+.export-progress-text {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-btn {
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  font-size: 12px;
+  padding: 7px 16px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.export-btn:hover { background: var(--panel-3); }
+.export-btn.primary {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+.export-btn.primary:hover { filter: brightness(1.08); }
+.export-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- Variantes do .export-btn ----
+   TEM que vir depois do bloco base: `.export-btn-sm` e `.export-btn` tem
+   a mesma especificidade (uma classe), entao quem decide e a ordem no
+   arquivo. Estavam la em cima e o base vencia — os botoes pequenos saiam
+   com o padding de 16px do grande, e o +/- do zoom aparecia fora do
+   centro porque a caixa nao era a que eu tinha pedido. */
+.export-btn-sm { padding: 5px 11px; font-size: 11px; }
+
+/* Botao so de icone: flex centraliza o SVG nos dois eixos. */
+.export-icon-btn {
+  width: 28px;
+  padding: 5px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* Tamanho do icone no CSS, e nao so nos atributos width/height do <svg>:
+   como item de um flex container o SVG encolhia pra largura ZERO (a
+   altura vinha certa, o que deixava o botao vazio sem parecer quebrado).
+   `flex: none` e o que impede o encolhimento. */
+.export-icon-btn svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+/* Um SVG por estado; a classe no botao decide qual aparece. */
+.export-icon-btn .ico-pause { display: none; }
+.export-icon-btn.playing .ico-play { display: none; }
+.export-icon-btn.playing .ico-pause { display: block; }
+.export-icon-btn .ico-muted { display: none; }
+.export-icon-btn.muted .ico-sound { display: none; }
+.export-icon-btn.muted .ico-muted { display: block; }
+
+/* Zoom: mesma centralizacao por flex do botao de icone — com text-align
+   o glifo fica na mao do avanco da fonte e sai levemente do centro. */
+.export-zoom-btn {
+  width: 26px;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+}
+/* Enquanto exporta, o unico botao troca de papel (label vem do JS) e
+   perde o verde de acao primaria. */
+.export-overlay.running #exportRunBtn {
+  background: var(--panel-2);
+  border-color: var(--border-2);
+  color: var(--text);
+}

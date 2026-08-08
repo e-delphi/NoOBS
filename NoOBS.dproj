@@ -173,6 +173,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\NoOBSTypes.pas"/>
         <DCCReference Include="src\FFmpegLib.pas"/>
         <DCCReference Include="src\FFmpegOps.pas"/>
+        <DCCReference Include="src\FFmpegExport.pas"/>
         <DCCReference Include="src\LibOBS.pas"/>
         <DCCReference Include="src\OBSEngine.pas"/>
         <DCCReference Include="src\OBSAudioTracks.pas"/>

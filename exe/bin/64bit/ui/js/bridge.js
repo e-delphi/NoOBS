@@ -58,6 +58,11 @@ const Bridge = {
       try { Settings._syncFpsHint(); } catch (e) {}
       try { Settings._syncCodecMaxRes(); } catch (e) {}
       try { Settings._updateHotkeyPreview(); } catch (e) {}
+      // "CRF 23" + a faixa descritiva sao montados em JS (sem data-i18n
+      // por causa do placeholder), entao nao vem no walk do apply().
+      try { Export._syncQualityValue(); } catch (e) {}
+      // Rotulos e legenda do redimensionamento sao montados em JS.
+      try { Export._renderScale(); } catch (e) {}
       try { Displays.render(); } catch (e) {}
       // Re-renderiza a legenda de faixas (textos compostos em JS, sem
       // data-i18n por terem placeholders dinamicos como "Faixa N").
@@ -271,7 +276,12 @@ const Bridge = {
     },
     recording_meta(data) { updateRecordingMeta(data); },
     play_pending(data) { Player.showPending(data.id); },
-    play_url(data) { Player.play(data.url, data.name, data.mode, data.id, data.startClockSec); },
+    // A tela de exportacao usa a MESMA URL que o player — quem estiver
+    // esperando por este id fica com ela (os dois nunca abrem juntos).
+    play_url(data) {
+      if (Export.isWaitingFor(data && data.id)) { Export.onPlayUrl(data); return; }
+      Player.play(data.url, data.name, data.mode, data.id, data.startClockSec);
+    },
     split_pending() { Player._splitting = true; Player._showSplitting(true); },
     split_done(data) { Player.onSplitDone(!!(data && data.ok)); },
     merge_pending() {
@@ -285,10 +295,18 @@ const Bridge = {
         Toast.show(T('toast.mergeDone'), T('toast.mergeDoneMsg'), { ttl: 5000 });
       }
     },
-    video_info(data) { Player.renderInfo(data); },
+    // O mesmo probe serve o painel de info do player E o dialogo de
+    // exportacao — os dois nunca estao abertos ao mesmo tempo, entao quem
+    // estiver esperando por ESTE id fica com a resposta.
+    video_info(data) {
+      if (Export.isWaitingFor(data && data.id)) Export.onVideoInfo(data);
+      else Player.renderInfo(data);
+    },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     waveform_ready(data) { Waveform.onReady(data); },
-    encoder_caps(data) { Settings.applyEncoderCaps(data); },
+    encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
+    export_progress(data) { Export.onProgress(data && data.pct); },
+    export_done(data) { Export.onDone(data); },
     recording_state(data) { applyRecordingState(data.active, data.elapsed); },
     // O libobs ainda esta fechando o arquivo da gravacao anterior. Desabilita
     // o botao: iniciar agora travaria a main thread no release do output.

@@ -414,6 +414,8 @@ const Settings = {
     this.currentRecDir = data.recordDir || '';
     const prevCodec = this.currentCodec;
     this.currentCodec = data.codec || 'auto';
+    // O dialogo de exportacao pre-seleciona o mesmo codec das Configuracoes.
+    if (typeof Export !== 'undefined') Export.setDefaultEncoder(this.currentCodec);
     this.currentWindowTitle = data.windowTitle || 'NoOBS';
     this.currentFilenamePattern =
       data.filenamePattern || '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';

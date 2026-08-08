@@ -168,6 +168,13 @@ function hideCtxMenu() {
 }
 function initCtxMenu() {
   const menu = document.getElementById('ctxMenu');
+  // Acao: exportar — sempre no card CLICADO, mesmo com selecao multipla
+  // (a exportacao e por arquivo: recorte, regioes e faixas sao dele).
+  menu.querySelector('[data-action="export"]').addEventListener('click', () => {
+    const id = menu.dataset.target;
+    hideCtxMenu();
+    if (id) Export.openFor(id);
+  });
   // Acao: excluir
   menu.querySelector('[data-action="delete"]').addEventListener('click', () => {
     const id = menu.dataset.target;
@@ -236,6 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Confirm.init();
   Hint.init();
   Player.init();
+  Export.init();
   Displays.init();
   Bridge.init();
 });

@@ -131,6 +131,16 @@ const RecSelection = {
         ? T('recordings.selectToMerge')
         : T('recordings.mergeN', { count: n });
     }
+    // Exportar opera sobre UMA gravacao — o recorte, as regioes e as
+    // faixas sao especificos do arquivo, nao faz sentido em lote.
+    const expBtn = document.getElementById('exportSelectedBtn');
+    if (expBtn) {
+      const n = this.ids.size;
+      expBtn.disabled = (n !== 1) || Export.running;
+      expBtn.dataset.hint = n === 1
+        ? T('export.buttonHint')
+        : T('export.selectOne');
+    }
     this._syncOrderBadges();
   }
 };

@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="css/displays.css">
 <link rel="stylesheet" href="css/recordings.css">
 <link rel="stylesheet" href="css/player.css">
+<link rel="stylesheet" href="css/export.css">
 <link rel="stylesheet" href="css/settings.css">
 <link rel="stylesheet" href="css/widgets.css">
 </head>
@@ -39,6 +40,232 @@
     <div class="confirm-footer">
       <button class="confirm-btn" id="confirmCancel" data-i18n="common.cancel">Cancelar</button>
       <button class="confirm-btn danger" id="confirmOk" data-i18n="common.delete">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Tela de exportacao (ocupa a janela inteira, nao e modal) =====
+     Preenchido por js/export.js a partir do video_info (duracao, faixas de
+     audio, layout de monitores) + encoder_caps.exportEncoders. -->
+<div class="export-overlay" id="exportOverlay">
+  <div class="export-modal">
+    <div class="export-header">
+      <button class="export-back-btn" id="exportBackBtn" onclick="Export.close()"
+              data-i18n-hint="settings.buttons.back" data-hint="Voltar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12"/>
+          <polyline points="12 19 5 12 12 5"/>
+        </svg>
+      </button>
+      <h3 data-i18n="export.title">Exportar gravação</h3>
+    </div>
+
+    <div class="export-body">
+     <div class="export-content">
+
+      <!-- Cortes: previa + linha do tempo -->
+      <div class="export-field">
+        <label data-i18n="export.range">Trechos</label>
+
+        <!-- Previa do ponto onde o cursor esta. Serve o MESMO arquivo que
+             o player toca (play_recording -> play_url). -->
+        <div class="export-preview-video">
+          <video id="exportVideo" preload="metadata"
+                 onclick="Export.togglePlay()"></video>
+          <div class="export-preview-msg" id="exportVideoMsg"
+               data-i18n="export.previewLoading">Carregando prévia…</div>
+        </div>
+
+        <div class="export-row export-play-bar">
+          <button class="export-btn export-btn-sm export-icon-btn" id="exportPlayBtn"
+                  onclick="Export.togglePlay()"
+                  data-i18n-hint="export.play" data-hint="Tocar">
+            <svg class="ico-play" width="13" height="13" viewBox="0 0 24 24"
+                 fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg class="ico-pause" width="13" height="13" viewBox="0 0 24 24"
+                 fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+          </button>
+          <button class="export-btn export-btn-sm export-icon-btn" id="exportMuteBtn"
+                  onclick="Export.toggleMute()"
+                  data-i18n-hint="export.mute" data-hint="Silenciar">
+            <svg class="ico-sound" width="13" height="13" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="4 9 8 9 13 5 13 19 8 15 4 15" fill="currentColor"/>
+              <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+              <path d="M19 6a9 9 0 0 1 0 12"/>
+            </svg>
+            <svg class="ico-muted" width="13" height="13" viewBox="0 0 24 24"
+                 fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="4 9 8 9 13 5 13 19 8 15 4 15" fill="currentColor"/>
+              <line x1="17" y1="9" x2="22" y2="15"/>
+              <line x1="22" y1="9" x2="17" y2="15"/>
+            </svg>
+          </button>
+          <input type="range" class="export-volume" id="exportVolume"
+                 min="0" max="100" step="1" value="100"
+                 data-i18n-hint="export.volume" data-hint="Volume">
+          <div class="export-footer-spacer"></div>
+          <span class="export-hint" style="margin:0" data-i18n="export.playHint">
+            Espaço toca/pausa
+          </span>
+        </div>
+
+        <!-- Linha do tempo: cada bloco e um trecho. Clicar num bloco
+             inclui/exclui; clicar na regua move o cursor. -->
+        <!-- A linha do tempo cresce com o zoom e rola na horizontal —
+             sem isso nao da pra acertar o segundo exato num video longo. -->
+        <div class="export-timeline-scroll" id="exportTimelineScroll">
+          <div class="export-timeline" id="exportTimeline">
+            <div class="export-parts" id="exportParts"></div>
+            <div class="export-cuts" id="exportCuts"></div>
+            <div class="export-playhead" id="exportPlayhead"></div>
+          </div>
+          <div class="export-ticks" id="exportTicks"></div>
+        </div>
+
+        <div class="export-row export-timeline-bar">
+          <button class="export-btn export-btn-sm" id="exportCutBtn"
+                  onclick="Export.cutHere()"
+                  data-i18n="export.cutHere">Dividir aqui</button>
+          <button class="export-btn export-btn-sm" id="exportUncutBtn"
+                  onclick="Export.removeCutAtCursor()"
+                  data-i18n="export.removeCut">Remover divisão</button>
+          <button class="export-btn export-btn-sm" id="exportTogglePartBtn"
+                  onclick="Export.togglePartAtCursor()"
+                  data-i18n="export.dropPart">Tirar trecho</button>
+          <span class="export-zoom">
+            <button class="export-btn export-btn-sm export-zoom-btn"
+                    onclick="Export.zoomBy(1/1.6)"
+                    data-i18n-hint="export.zoomOut" data-hint="Diminuir zoom">&minus;</button>
+            <span class="export-zoom-level" id="exportZoomLevel">1×</span>
+            <button class="export-btn export-btn-sm export-zoom-btn"
+                    onclick="Export.zoomBy(1.6)"
+                    data-i18n-hint="export.zoomIn" data-hint="Aumentar zoom">+</button>
+          </span>
+          <input type="text" class="export-input export-time-input" id="exportPlayTime"
+                 value="00:00" inputmode="numeric">
+          <span class="export-hint" style="margin:0">/</span>
+          <span class="export-hint" style="margin:0" id="exportTotalTime">00:00</span>
+          <div class="export-footer-spacer"></div>
+          <span class="export-estimate" id="exportRangeLen"></span>
+        </div>
+        <div class="export-hint" data-i18n="export.rangeHint">
+          Arraste na barra para mover o cursor; use a roda do mouse sobre
+          ela (ou Ctrl + + / Ctrl + −) para aproximar e acertar o segundo
+          exato. "Dividir aqui" corta no ponto do cursor; "Remover divisão"
+          desfaz a divisão mais próxima (destacada em vermelho); "Tirar
+          trecho" remove do vídeo final o trecho onde o cursor está. Os
+          trechos mantidos são emendados na ordem, sem buraco.
+        </div>
+      </div>
+
+      <!-- Monitores / regioes -->
+      <div class="export-field" id="exportRegionsField">
+        <label data-i18n="export.regions">Monitores</label>
+        <div class="export-checks" id="exportRegions"></div>
+        <div class="export-preview" id="exportPreview"></div>
+        <div class="export-hint" data-i18n="export.regionsHint">
+          As regiões escolhidas ficam lado a lado, sem espaço vazio de uma
+          que tenha sido deixada de fora.
+        </div>
+      </div>
+
+      <!-- Resolucao + encoder -->
+      <div class="export-field">
+        <div class="export-row">
+          <div class="export-col">
+            <label data-i18n="export.resolution">Resolução</label>
+            <select class="export-input" id="exportResolution"></select>
+          </div>
+          <div class="export-col">
+            <label data-i18n="export.encoder">Codificador</label>
+            <select class="export-input" id="exportEncoder"></select>
+          </div>
+        </div>
+        <div class="export-hint" id="exportResolutionHint"></div>
+      </div>
+
+      <!-- Redimensionamento: so aparece quando ha REDUCAO de resolucao.
+           Em 1:1 o swscale nem reamostra, entao a escolha nao mudaria nem
+           a imagem nem o tempo — oferecer ali seria um controle inerte. -->
+      <div class="export-field" id="exportScaleField">
+        <label data-i18n="export.scale">Redimensionamento</label>
+        <select class="export-input" id="exportScale"></select>
+        <div class="export-hint" id="exportScaleHint"></div>
+      </div>
+
+      <!-- Taxa de quadros -->
+      <div class="export-field" id="exportFpsField">
+        <label data-i18n="export.fps">Quadros por segundo</label>
+        <div class="export-row">
+          <input type="range" class="export-quality-slider" id="exportFps"
+                 min="20" max="60" step="1" value="60">
+          <span class="export-estimate" id="exportFpsValue"></span>
+        </div>
+        <div class="export-hint" data-i18n="export.fpsHint">
+          Menos quadros por segundo deixam o arquivo menor e a exportação
+          mais rápida, ao custo de fluidez.
+        </div>
+      </div>
+
+      <!-- Qualidade -->
+      <div class="export-field">
+        <label data-i18n="export.quality">Qualidade</label>
+        <div class="export-row">
+          <!-- ATENCAO: o value do input NAO e o CRF, e a POSICAO — a barra
+               anda ao contrario da escala (esquerda 51, direita 0), pra que
+               arrastar pra direita melhore a qualidade e o preenchimento
+               cresça junto. Quem converte e Export._crf(). value=28 = CRF 23. -->
+          <input type="range" class="export-quality-slider" id="exportQuality"
+                 min="0" max="51" step="1" value="28">
+          <span class="export-estimate" id="exportQualityValue"></span>
+        </div>
+        <div class="export-hint" id="exportQualityHint"></div>
+      </div>
+
+      <!-- Audio -->
+      <div class="export-field" id="exportAudioField">
+        <label data-i18n="export.audio">Áudio</label>
+        <div class="export-checks" id="exportAudio"></div>
+        <label class="export-check" id="exportMixWrap" style="margin-top:7px">
+          <input type="checkbox" id="exportMixAudio">
+          <span data-i18n="export.mixAudio">Juntar as faixas em uma só</span>
+        </label>
+      </div>
+
+      <!-- Nome + formato -->
+      <div class="export-field">
+        <label data-i18n="export.fileName">Nome do arquivo</label>
+        <div class="export-row">
+          <input type="text" class="export-input export-col" id="exportName">
+          <select class="export-input" id="exportContainer" style="width:96px;flex:none"
+                  data-i18n-aria="export.container" aria-label="Formato">
+            <option value="mp4">MP4</option>
+            <option value="mkv">MKV</option>
+          </select>
+        </div>
+        <div class="export-hint" id="exportContainerHint"></div>
+      </div>
+
+      <!-- Acao + progresso: logo depois do ultimo campo, no fluxo do
+           conteudo. O unico botao vira "Cancelar" enquanto exporta. -->
+      <div class="export-field export-actions">
+        <button class="export-btn primary" id="exportRunBtn"
+                onclick="Export.primaryAction()"
+                data-i18n="export.action">Exportar</button>
+        <div class="export-progress-wrap">
+          <div class="export-progress-bar">
+            <div class="export-progress-fill" id="exportProgressFill"></div>
+          </div>
+          <div class="export-progress-text" id="exportProgressText"></div>
+        </div>
+      </div>
+
+     </div>
     </div>
   </div>
 </div>
@@ -842,6 +1069,17 @@
             </path> 
             </svg>
         </button>
+        <button class="icon-btn export-selected-btn" id="exportSelectedBtn"
+                onclick="Export.openForSelected()" disabled
+                data-i18n-hint="export.buttonHint" data-hint="Exportar gravação selecionada">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
         <button class="icon-btn delete-selected-btn" id="deleteSelectedBtn"
                 onclick="bulkDeleteSelected()" disabled
                 data-i18n-hint="recordings.deleteSelected" data-hint="Excluir gravações selecionadas">
@@ -870,6 +1108,7 @@
 
 <!-- Context menu de gravacao (top-level, fora de .app) -->
 <div class="ctx-menu" id="ctxMenu" style="display:none">
+  <div class="ctx-item" data-action="export" data-i18n="export.menuItem">Exportar…</div>
   <div class="ctx-item danger" data-action="delete" data-i18n="common.delete">Excluir</div>
 </div>
 
@@ -886,6 +1125,7 @@
 <script src="js/hotkey.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/player.js"></script>
+<script src="js/export.js"></script>
 <script src="js/main.js"></script>
 
 </body>

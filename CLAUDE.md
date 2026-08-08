@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (8 comp.) + js/ (10 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (11 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -66,7 +66,8 @@ Arquitetura em 4 camadas:
    - `FFmpegLib` — libavformat/avcodec/avutil/swscale + structs + acessors low-level
 2. **Wrappers altos** — API Delphi limpa sobre as DLLs:
    - `OBSEngine` — TOBSEngine class (init, scene, sources, output MKV)
-   - `FFmpegOps` — RemuxFile, ExtractAudioTracks, ExtractFrameJpeg
+   - `FFmpegOps` — RemuxFile, SplitFileAtKeyframe, MergeFiles, ExtractAudioTracks, ExtractFrameJpeg
+   - `FFmpegExport` — ExportVideo (a única operação que re-encoda)
 3. **Domínio do app** — lógica de negócio:
    - `OBSEncoder` — seleção de codec (AV1/HEVC/H264/x264)
    - `OBSAudioTracks` — atribuição de tracks + enum de audio devices
@@ -89,8 +90,9 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSRtwq`           | `RtwqStartup`/`RtwqShutdown` da plataforma RTWQ no arranque/saída — o win-wasapi depende disso pra capturar (Pegadinha #48) |
 | `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
-| `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets) |
-| `FFmpegOps`         | **Wrappers altos**: `RemuxFile`, `ExtractAudioTracks`, `ExtractFrameJpeg`          |
+| `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets, AvErrStr) |
+| `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `SplitFileAtKeyframe`, `MergeFiles`, `ExtractAudioTracks`, `ExtractFrameJpeg` |
+| `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas) |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
@@ -104,9 +106,10 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
-markup), `css/` (8 arquivos por componente: base, layout, record, displays,
-recordings, player, settings, widgets) e `js/` (10 módulos: i18n, bridge,
-displays, recordings, record, widgets, hotkey, settings, player, main), além
+markup), `css/` (9 arquivos por componente: base, layout, record, displays,
+recordings, player, export, settings, widgets) e `js/` (11 módulos: i18n,
+bridge, displays, recordings, record, widgets, hotkey, settings, player,
+export, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -225,6 +228,104 @@ App exit — OBSUI.Run, DEPOIS do message loop e ANTES do CoUninitialize:
       travar, o watchdog encerra o processo (pegadinhas #31/#48)
   • CoUninitialize, e então StopRtwq (RtwqShutdown) — por último, depois
     do obs_shutdown que destrói as fontes WASAPI (pegadinha #48)
+```
+
+---
+
+## Fluxo de exportação
+
+Único caminho do projeto que **re-encoda**. Roda inteiro em worker thread
+(libav pode e deve — pegadinha #3), sem tocar no libobs.
+
+```
+User seleciona UMA gravação e clica em Exportar (ou botão direito → Exportar):
+  • Export.openFor(id) manda `request_video_info` — MESMA mensagem que o
+    painel de info do player usa (Probe cacheado no <hash>.json). Não há
+    mensagem nova de leitura; o bridge.js entrega a resposta pra tela de
+    exportação quando ela está esperando por aquele id, senão pro player.
+  • A tela de exportação ocupa a JANELA INTEIRA (não é modal): fundo opaco
+    --bg, sem backdrop nem clique-fora-fecha, botão de voltar à esquerda
+    do título como nas Configurações. O formulário fica numa coluna de
+    720px centrada (.export-content), e o rodapé usa a mesma coluna pra
+    os botões não fugirem pra borda da janela.
+  • Também manda `play_recording` — a MESMA URL que o player usa vira a
+    prévia, COM som e play/pause (espaço, ou clique no vídeo), pra achar
+    o ponto de corte de ouvido. Tocando, quem manda no cursor é o vídeo
+    (`timeupdate` → `_setPlaySec`, que NÃO mexe no `currentTime`, senão
+    brigaria com a reprodução). O estado dos controles vem de eventos
+    PERSISTENTES (`canplay`/`loadeddata`/`emptied`/`error`), nunca de um
+    `loadeddata` de disparo único — se ele não vier (mídia em cache, troca
+    de arquivo), os botões ficariam travados pra sempre. Se o WebView2 não
+    tiver o codec, a prévia cai fora com aviso e a exportação segue.
+  • A tela monta: linha do tempo de cortes, regiões do Layout, resoluções
+    (nunca acima da origem), encoders vindos de encoder_caps.exportEncoders,
+    faixas de áudio e o controle de qualidade (CRF 0..51, sem estimativa de
+    tamanho — em qualidade constante quem manda no tamanho é o conteúdo).
+    A barra do CRF corre AO CONTRÁRIO da escala (esquerda 51, direita 0) pra
+    que arrastar pra direita melhore a imagem; o `value` do `<input>` é a
+    posição, e quem converte é `Export._crf()` — nada mais lê o `.value`.
+  • Redimensionamento (`scaleAlgo`): escolha do algoritmo do swscale entre
+    bicubic (padrão), bilinear e área, com a legenda descrevendo o
+    diferencial de cada um. O campo só APARECE quando a saída é menor que a
+    composição — em 1:1 o swscale não reamostra e os três dariam a mesma
+    imagem no mesmo tempo, então seria um controle inerte.
+  • Cortes: `parts` cobre a duração inteira ([{start,end,keep}]). "Dividir
+    aqui" quebra a parte sob o cursor em duas; "Remover divisão" desfaz a
+    divisão MAIS PRÓXIMA do cursor (destacada em vermelho) juntando os dois
+    vizinhos — e o resultado fica `keep` se QUALQUER um dos dois entrava,
+    senão apagar uma divisão viraria um jeito disfarçado de descartar
+    conteúdo; "Tirar trecho" alterna o trecho SOB O CURSOR.
+    As partes são `pointer-events: none` de propósito
+    — a barra inteira é área de arrastar o cursor. (Quando clicar na parte
+    alternava, o 1º clique numa gravação sem cortes caía na parte única e
+    virava "tirar trecho" em vez de posicionar o cursor.)
+  • O que vai pro backend são as partes com keep, com as ADJACENTES
+    FUNDIDAS — menos seek e uma emenda a menos no encoder.
+  • Zoom da linha do tempo (roda do mouse sobre a barra, Ctrl +/−/0):
+    `zoom` = quantas telas a duração ocupa; a barra fica com
+    `width: zoom*100%` dentro de um wrapper com `overflow-x`. O zoom é
+    ANCORADO (mantém o ponto sob o mouse parado), senão aproximar joga o
+    trecho de interesse pra fora da vista. A régua de tempo é
+    VIRTUALIZADA — só a janela visível + uma tela de folga, redesenhada no
+    scroll: num vídeo de 2h no zoom máximo a régua inteira daria 7000+
+    divs. O marcador colado no fim é pulado (o rótulo passaria da largura
+    e criaria rolagem fantasma de 2-3px no zoom 1).
+
+User clica Exportar → `export_recording`:
+  • HandleExportRecording valida (pasta, extensão, arquivo, trecho, espaço,
+    gravação em andamento) e resolve o encoder: a UI manda o ID do
+    vocabulário do app ('h264-hw'), o backend traduz pro nome do
+    libavcodec via ResolveExportEncoder + LastEncoderCaps (pegadinha #51).
+  • Regiões: a UI manda ÍNDICES; o layout de verdade vem do <hash>.json.
+  • Container: 'mp4' (default) ou 'mkv' — vira o nome do muxer e a extensão
+    do arquivo final. A saída é escrita num "<final>.part" (pegadinha #51e).
+  • Worker → FFmpegExport.ExportVideo, UM PASSE POR TRECHO:
+    - a cada trecho: seek pro keyframe anterior + `avcodec_flush_buffers`
+      em TODOS os decoders (sem isso o decoder tentaria continuar de
+      referências que não valem mais na posição nova)
+    - a saída tem linha do tempo própria: `OutOffsetSec` acumula a duração
+      já escrita e emenda o trecho seguinte sem buraco — vídeo, áudio
+      copiado e mixagem usam o mesmo deslocamento, senão o A/V descola
+    - o acumulador da mixagem é fechado na BORDA de cada trecho: o próximo
+      começa noutro ponto e não pode somar por cima do quadro anterior
+    - abre input, acha vídeo + faixas escolhidas
+    - BuildCompRegions: ordena por X, soma larguras × maior altura
+      (mesma regra do OBSScene.ComputeCanvas), tudo arredondado pra par
+    - abre decoder, encoder (+global_header, CRF traduzido pro controle de
+      qualidade constante do encoder — pegadinha #51b) e o MP4 de
+      saída (+faststart)
+    - av_seek_frame pro keyframe antes do início; decodifica descartando
+      o que vem antes do trecho
+    - por quadro: make_writable → preenche preto se preciso → um sws_scale
+      por região (crop por offset de ponteiro, algoritmo do `scaleAlgo` via
+      ResolveScaleFlags) → encoda
+    - áudio: stream copy rebaseado pelo mesmo offset do vídeo, ou mixagem
+      (adota o frame do decoder como acumulador — pegadinha #51d)
+    - progresso pelo pts do vídeo; cancelamento lido a cada pacote
+  • export_progress (limitado a ~4/s) → export_done
+  • Sucesso: o .part é renomeado pro nome final (aí sim COMPLETO) e o
+    PushRecordingAdded monta o card. Falha ou cancelamento: o .part é
+    apagado e nunca chegou a aparecer na lista.
 ```
 
 ---
@@ -1202,6 +1303,213 @@ essa affinity; então funciona pro caminho de captura do projeto.
   load); é a FLAG nova que exige 2004+. `GetDpiForSystem` (escala do
   overlay) é 1607+ — resolvido via `GetProcAddress` pra não quebrar o load
   em Windows antigo (fallback 96 DPI).
+
+### 50. **Corte de vídeo: keyframe é PTS, roteamento é DTS — não misture**
+
+Dividir por stream copy tem DUAS linhas do tempo e elas só coincidem quando
+o encoder não usa B-frames. `FFmpegOps.SplitFileAtKeyframe` escolhe o
+keyframe do corte pelo **pts** (é o tempo que o usuário vê na barra do
+player), mas o loop de cópia decide o lado de cada pacote pelo **dts**
+(ordem de decodificação — é o que garante GOP inteiro de um lado só). Com
+B-frames o keyframe tem `dts = pts - delay`, então comparar `dts >= CutPts`
+manda o **próprio keyframe** pra 1ª parte: a 2ª nasce começando num B/P
+órfão, **sem I-frame**. Sintoma: parte 2 preta até o keyframe seguinte —
+ou **preta inteira** quando o corte cai no último GOP. E como a parte 2 é
+indecodificável do início, a **união** dela com a parte 1 também falha.
+
+Quem produz B-frames (e portanto dispara isso):
+
+| Encoder | B-frames |
+|---|---|
+| `obs-x264` (`h264-sw`) | **sim** — default do x264 é `i_bframe=3`; o `obs-x264` só sobrescreve se houver valor do usuário (`obs-x264.c:429`) |
+| `obs-nvenc` (NVIDIA) | **sim** — `bf=2` default |
+| `*_texture_amf` AVC/AV1 | `bf=2` default (`texture-amf.cpp:1170`/`:2499`), mas **forçado a 0** se `AMF_VIDEO_ENCODER_CAP_BFRAMES` disser que a GPU não suporta |
+| `*_texture_amf` HEVC | não — `bf=0` default (`:1391`) |
+
+Por isso o bug ficou invisível em máquina AMD: as gravações saem com
+`pts == dts` e o corte acerta por coincidência. Confirme com um dump de
+pacotes antes de suspeitar de outra coisa.
+
+**Regras** (já aplicadas em `FindCutKeyframe` + `SplitFileAtKeyframe`):
+
+- Descoberta devolve os **dois** tempos do keyframe (pts e dts).
+- Stream de **vídeo**: `dts >= CutDts` → 2ª parte. Isso põe o keyframe e
+  todo o resto do bitstream depois dele na 2ª parte.
+- **Demais streams** (áudio): `pts >= CutPts` → 2ª parte, pra o áudio casar
+  com o primeiro quadro *exibido*.
+- Rebase da 2ª parte: subtrai **`CutDts`** (o mesmo offset em todos os
+  streams, senão quebra o sync A/V). Tem que ser o dts, não o pts — pelo
+  pts o primeiro dts ficaria **negativo** e o muxer do Matroska recusa. O
+  arquivo começa com `delay` (~2 quadros) de nada antes do 1º frame: é
+  exatamente o atraso de reordenamento, e é o comportamento correto.
+- `soNoCutPoint` checa `CutPts <= 0` **e** `CutDts <= 0` — com B-frames o
+  dts do primeiro keyframe do arquivo pode ser ≤ 0, e cortar ali deixaria a
+  1ª parte vazia.
+
+Pegadinha irmã em `MergeFiles`: a baseline de rebase é **uma por arquivo**
+(primeiro pacote lido), não uma **por stream**. A diferença de início entre
+os streams de um mesmo arquivo é informação de sync — nas gravações do OBS
+o áudio começa ~20ms antes do vídeo. Zerando cada stream pelo próprio
+primeiro pacote, essa diferença sumia e o áudio escorregava alguns ms por
+trecho unido.
+
+### 51. **Exportação (re-encode): as quatro que mordem**
+
+`FFmpegExport.ExportVideo` é a única operação do projeto que decodifica e
+reencoda. Quatro detalhes que não são óbvios e custam horas:
+
+**a) `+global_header` é obrigatório pra MP4.** Antes do `avcodec_open2`:
+`av_opt_set(EncCtx, 'flags', '+global_header', 0)`. Sem isso o SPS/PPS não
+vai pro `extradata` do container e o arquivo não toca em lugar nenhum —
+com o encoder reportando sucesso o tempo todo.
+
+**b) Opções privadas do encoder vão pelo AVDictionary do `avcodec_open2`,
+não por `av_opt_set` direto.** `preset` é opção do *priv_data* do x264;
+`av_opt_set(ctx, 'preset', ...)` com `search_flags=0` **não** desce até lá.
+Passar tudo num `AVDictionary` pro `avcodec_open2` resolve (ele aplica com
+`AV_OPT_SEARCH_CHILDREN`), e o que sobra no dicionário depois é exatamente
+a lista do que o encoder ignorou — vale logar (`LogLeftoverOptions`).
+
+A qualidade da exportação é **CRF (0..51), nunca alvo de bitrate** — e
+sempre em **VBR de qualidade constante**. Este CLAUDE.md já afirmou o
+oposto ("bitrate, nunca CRF: encoder de hardware não tem CRF"); a premissa
+era falsa. Enumerando as `AVOption` de cada encoder do build empacotado
+(`av_opt_next` sobre o `priv_class`), **todos** têm um controle de
+qualidade constante — só que cada um com nome e escala próprios.
+`ApplyQualityOptions` faz a tradução:
+
+| Encoder | Opções | Escala |
+|---|---|---|
+| `libx264` | `crf` (+`preset=veryfast`) | 0..51, idêntica ao controle |
+| `*_nvenc` (h264/hevc) | `rc=vbr` + `cq` + `b=0` | 0..51, **piso 1** |
+| `av1_nvenc` | `rc=vbr` + `cq` + `b=0` | 0..**63** (reescalado) |
+| `*_amf` | `rc=qvbr` + `qvbr_quality_level` | 1..51 |
+| `av1_amf` (plano B) | `rc=cqp` + `qp_i`/`qp_p` | 0..**255** (reescalado) |
+| `*_mf` (Intel) | `rate_control=quality` + `quality` | 0..100 e **invertida** |
+
+Três armadilhas nessa tabela:
+
+- **`cq=0` no NVENC significa "sem alvo de qualidade"**, não "sem perdas".
+  Um CRF 0 passado cru cairia no controle de bitrate padrão — o oposto do
+  pedido. Daí o `Max(1, ...)`.
+- **`rc=qvbr` do AMF exige runtime AMF recente** e o `avcodec_open2` falha
+  **inteiro** se ele não existir (o `AMF_ASSIGN_PROPERTY_INT64` aborta a
+  abertura). Por isso a abertura do encoder é um **laço de tentativas**:
+  o AMF cai pro `cqp` na 2ª. Cada tentativa parte de um `EncCtx` **novo** —
+  um `avcodec_open2` que falhou deixa o contexto meio-desmontado.
+- **Nunca setar `b`/`maxrate`/`bufsize` junto** do parâmetro de qualidade:
+  com alvo de bitrate presente, todos esses encoders voltam pro modo de
+  alvo e o CRF vira enfeite.
+
+Consequência: **não existe estimativa de bitrate nem de tamanho na UI**, e
+`srcBitrate`/`FallbackBitrate`/`QualityPct` **não existem mais** — em
+qualidade constante quem manda no tamanho é o conteúdo, e recortar uma
+região ou baixar a resolução já economiza sozinho (nada de escalar o alvo
+pela área de saída, que era o remendo do modelo antigo). O que sobrou de
+lição do modelo por bitrate: se algum dia a tela voltar a **mostrar** um
+número derivado do encoder, ele e o valor aplicado têm que sair da mesma
+fonte — as duas divergências UI↔backend que já morderam aqui (área pela
+composição em vez do canvas; estimativa `W*H*fps*0,07` dando 92 Mbps
+contra 20 Mbps reais numa gravação 4K a 160fps) eram **silenciosas**.
+
+**c) O crop sai de graça, mas exige coordenada PAR.** Recortar uma região
+é só deslocar os ponteiros de plano antes do `sws_scale` — o `linesize`
+continua sendo o do quadro inteiro. Em YUV420 o croma tem metade da
+resolução nos dois eixos (`div 2` nos planos 1 e 2), então **offset e
+dimensão ímpares corrompem o quadro**. `EvenDown` em tudo. E o frame de
+destino tem que passar por `av_frame_make_writable` a cada quadro: o
+encoder retém referência do frame que recebeu, e reescrever por cima
+corromperia o quadro anterior.
+
+**d) Frame de ÁUDIO não dá pra criar do zero aqui.** `av_frame_get_buffer`
+para áudio precisa de `ch_layout` preenchido, e esse campo fica fora da
+parte declarada do `AVFrame` (a declaração é truncada de propósito — o
+resto do struct não é ABI-estável). Solução na mixagem: **adotar** o frame
+que veio do decoder como acumulador (`av_frame_move_ref` +
+`av_frame_make_writable`) e somar os outros por cima. Funciona porque as
+faixas do NoOBS saem todas do mesmo encoder de áudio do OBS — 48 kHz,
+FLTP, 1024 amostras, timestamps idênticos — então basta acumular por pts
+igual, sem buffer de realinhamento e sem `swresample`.
+
+**e) Escreva num `.part` e renomeie no fim.** O `OBSRecordWatch` vigia
+`FILE_NAME` na pasta de gravações, e o `avio_open2` cria o arquivo de saída
+**antes** de haver qualquer conteúdo. Gravando direto no `.mp4`/`.mkv`
+final, o watcher dispara no instante da criação, o `PushRecordings` re-lista
+a pasta e o card nasce com **48 bytes** — o `ftyp` que o
+`avformat_write_header` acabou de escrever. `.part` não está em
+`RECORDING_EXTS`, então nem o watcher nem o `ListRecordings` enxergam o
+arquivo enquanto ele cresce; o `TFile.Move` pro nome final só acontece
+depois do `av_write_trailer` voltar. Bônus: um `.part` órfão de um crash
+também fica invisível na lista.
+
+Corolário: **o muxer vai sempre explícito** no
+`avformat_alloc_output_context2` (`'mp4'` ou `'matroska'`), nunca deduzido
+do nome do arquivo — com o `.part` no caminho, a dedução por extensão
+escolheria o formato errado.
+
+**Bônus, e é o erro mais fácil de cometer:** as caps de encoder do
+`OBSEncoder.DetectEncoderCaps` são do **libobs** (`av1_texture_amf`,
+`obs_nvenc_*`). A exportação usa **libavcodec**, que tem outros nomes
+(`av1_amf`, `h264_nvenc`, `libx264`). A tradução vive em
+`FFmpegExport.ListExportEncoders`, e todo candidato passa por
+`avcodec_find_encoder_by_name` antes de virar opção na UI. O build do
+FFmpeg que vem com o OBS **não tem nenhum `*_qsv` nem `libx265`** — Intel
+vai por Media Foundation (`h264_mf`/`hevc_mf`, sem AV1).
+
+### 52. **`threads` no libavcodec tem default 1, NÃO "auto"**
+
+A opção `threads` do `AVCodecContext` vem com **`default = 1`** na tabela
+do libavcodec (o `auto` é uma constante nomeada de valor **0**, que você
+tem que pedir). Quem só chama `avcodec_alloc_context3` +
+`avcodec_parameters_to_context` + `avcodec_open2` fica com **um núcleo**.
+
+Sintoma: a exportação arrasta e **nem CPU nem GPU parecem trabalhar** —
+num i7 de 16 threads, um núcleo saturado é ~6% no gerenciador de tarefas,
+que lê como "ocioso". A GPU também fica parada porque o encoder de
+hardware passa o tempo esperando o decoder de software alimentá-lo.
+
+Medido nas DLLs empacotadas (`av_opt_next` + benchmark por ctypes, numa
+gravação 4K real):
+
+| Etapa | `threads=1` | `threads=auto` | Ganho |
+|---|---|---|---|
+| decode H.264 3840×2160 | 173 quadros/s | 435 quadros/s | **2,5×** |
+| encode libx264 3840×2160 | 35,5 ms/quadro | 10,3 ms/quadro | **3,4×** |
+| encode libx264 1920×1080 | 8,9 ms/quadro | 3,0 ms/quadro | **2,9×** |
+| `sws_scale` 4K→1080p | 4,92 ms/quadro | 5,01 ms/quadro | **nenhum** |
+
+Três consequências que não são óbvias:
+
+- **swscale não ganha nada com threads.** Ele *tem* a opção `threads`
+  (default 1 também, via `sws_alloc_context` + `av_opt_set_int` +
+  `sws_init_context`, já que o `sws_getContext` não a expõe), mas medindo
+  dá 0,84×–0,98× — ou seja, empata ou piora. Não vale a troca de bindings.
+  Com o decode paralelo o `sws_scale` passa a ser a etapa mais cara do
+  laço, e o que de fato move o ponteiro ali é o **algoritmo**, não a
+  paralelização (reduzindo 3840×2160 → 1920×1080: bicubic 4,77 ms/quadro,
+  bilinear 2,69, área 2,54, fast_bilinear 6,71 — sim, o "fast" é o mais
+  lento). Daí o `scaleAlgo` ser escolha do usuário. Depois disso, os
+  ganhos restantes são atacar a serialização (hoje decode → escala →
+  encode rodam em sequência na mesma thread) ou decodificar por hardware
+  (`d3d11va`).
+- **Ligar threading no decoder EXIGE drenar o decoder no fim do trecho.**
+  Com threading em quadros o decoder segura vários quadros dentro dele; um
+  trecho que termina por **EOF do arquivo** (e não por termos visto um
+  quadro além do fim) perderia esses quadros — meio segundo sumindo do
+  fim, sem erro nenhum. Daí o `avcodec_send_packet(DecCtx, nil)` +
+  `PumpDecoder` antes de fechar cada trecho. Quando o trecho termina por
+  `VideoDone` o dreno é dispensável: o decoder entrega em ordem de
+  **apresentação**, então depois de um quadro com `pts >= SegEndTs` não
+  sobra nenhum quadro do trecho lá dentro.
+- **Não ligue no caminho de thumbnail.** `FFmpegOps.ExtractFrameJpeg`
+  decodifica **um** quadro (pegadinha #42); com threading em quadros é
+  preciso alimentar vários pacotes antes do primeiro sair, então ali
+  ficaria mais LENTO.
+
+Nos encoders o `threads` só vale pros de **software** (`lib*` é a
+convenção de nome do libavcodec pra eles) — NVENC/AMF/MF encodam na GPU e
+ignoram o campo.
+
 ---
 
 ## Caches
@@ -1449,9 +1757,30 @@ Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
   pra "esperar o arquivo" no caminho de stop da UI — o stop é assíncrono
   via sinal "stop" do output (pegadinha #41). Release sai do callback do
   sinal (ou do timeout). Poll síncrono sobrou só pro shutdown.
+- **NÃO compare** o dts de um pacote contra o pts do keyframe (nem o
+  contrário) ao cortar por stream copy — com B-frames o keyframe vai pro
+  lado errado e a 2ª parte nasce sem I-frame (pegadinha #50).
+- **NÃO derive** os encoders da exportação das caps do `OBSEncoder` — são
+  os IDs do libobs, não os do libavcodec. Use
+  `FFmpegExport.ListExportEncoders`, que valida cada candidato com
+  `avcodec_find_encoder_by_name` (pegadinha #51).
+- **NÃO esqueça** o `+global_header` ao muxar MP4 nem o
+  `av_frame_make_writable` antes de reescrever o frame de saída do
+  encoder (pegadinha #51).
+- **NÃO passe** `b`/`maxrate`/`bufsize` junto do parâmetro de qualidade na
+  exportação — com alvo de bitrate presente o encoder volta pro modo de
+  alvo e o CRF vira enfeite. E **NÃO mande o CRF cru** pro encoder de
+  hardware: cada um tem escala própria (`cq` do av1_nvenc vai a 63, `qp`
+  do av1_amf a 255, `quality` do Media Foundation é 0..100 invertida) e
+  `cq=0` no NVENC quer dizer "sem alvo", não "sem perdas". A tradução vive
+  em `FFmpegExport.ApplyQualityOptions` (pegadinha #51b).
 - **NÃO decodifique** muitos frames pra gerar thumbnail — aceite o
   primeiro keyframe após o seek (pegadinha #42). Decodar até o ts exato
   em canvas multi-monitor (AV1/HEVC software) trava segundos.
+- **NÃO conte** com `threads` sendo "auto" no libavcodec — o default é
+  **1**, e quem esquecer decodifica/encoda num núcleo só (pegadinha #52).
+  E se ligar threading no decoder, **drene o decoder** (`send_packet(nil)`
+  + pump) no fim do trecho, senão o fim da exportação sai cortado.
 - **NÃO inicialize** libobs DIRETO no `DoInit` — pode travar o
   startup do app. Use o `TIMER_OBS_WARMUP` (one-shot ~1.5s depois)
   pra que a UI renderize antes do init bloquear ~300ms.

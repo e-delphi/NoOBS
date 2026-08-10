@@ -152,7 +152,7 @@ const Settings = {
   currentAutoRecordMicApps: '',
   currentAutoRecordMicExcept: '',
   currentCheckUpdates: true,
-  currentRecordingQuality: 0,
+  currentRecordingQuality: 5,
   currentRecordingKeyframe: 2,
   currentLibraryThumbs: 'auto',   // 'auto' | 'always' | 'off'
   recordDirCloud: false,          // pasta de gravacao parece estar no OneDrive
@@ -450,11 +450,13 @@ const Settings = {
     this.currentCheckUpdates = (data.checkUpdates !== false);
     const av = document.getElementById('settingsAppVersion');
     if (av && data.appVersion) av.textContent = data.appVersion;
-    // recordingQuality: -4..+2, default 0
+    // recordingQuality: nivel do slider 0..10, default 5. O backend ja
+    // manda migrado da escala antiga (-4..+2) — ver
+    // OBSEncoder.GetRecordingQualityLevel.
     let rq = parseInt(data.recordingQuality, 10);
-    if (!Number.isFinite(rq)) rq = 0;
-    if (rq < -4) rq = -4;
-    if (rq > 2)  rq = 2;
+    if (!Number.isFinite(rq)) rq = 5;
+    if (rq < 0)  rq = 0;
+    if (rq > 10) rq = 10;
     this.currentRecordingQuality = rq;
     // recordingFps: >= 10, default 30 (padrao do NoOBS).
     let fps = parseInt(data.recordingFps, 10);
@@ -681,31 +683,12 @@ const Settings = {
     const hint = document.getElementById('settingsQualityHint');
     if (!el || !hint) return;
     const v = parseInt(el.value, 10) | 0;
-    // Chave estilo 'settings.quality.hint.-4' .. '.2' — match com o JSON.
-    let txt = (v >= -4 && v <= 2) ? T('settings.quality.hint.' + v) : '';
-    // Anexa a taxa de bits real que sera aplicada no encoder pra esse nivel
-    // (espelha OBSEncoder.QualityLevelToBitrate). Nivel 0 = sem override =
-    // o proprio encoder decide a taxa (sem numero fixo).
-    if (txt) {
-      const kbps = this._qualityBitrate(v);
-      txt += ' ' + (kbps > 0 ? T('settings.quality.bitrate', { kbps })
-                             : T('settings.quality.bitrateDefault'));
-    }
-    hint.textContent = txt;
+    // Chave estilo 'settings.quality.hint.0' .. '.10' — match com o JSON.
+    // A legenda descreve a QUALIDADE, sem numero de taxa: a gravacao roda
+    // em qualidade constante, entao quem manda no tamanho e o conteudo —
+    // nao existe taxa fixa pra anunciar (era o que a legenda antiga fazia).
+    hint.textContent = (v >= 0 && v <= 10) ? T('settings.quality.hint.' + v) : '';
     this._syncSliderFill(el);
-  },
-  // Espelha OBSEncoder.QualityLevelToBitrate (kbps). 0 = sem override (o
-  // encoder usa a taxa dele). Manter em sincronia com o Delphi.
-  _qualityBitrate(level) {
-    switch (level) {
-      case -4: return 800;
-      case -3: return 1500;
-      case -2: return 2500;
-      case -1: return 4000;
-      case 1:  return 10000;
-      case 2:  return 20000;
-      default: return 0;
-    }
   },
   // Atualiza a CSS var --val (0..1) usada pelo linear-gradient da track
   // pra colorir a parte preenchida em verde. Chamado pelos _sync*Hint
@@ -982,7 +965,7 @@ const Settings = {
         document.getElementById('settingsAutoRecordMicApps').value = '';
         document.getElementById('settingsAutoRecordMicExcept').value = '';
         document.getElementById('settingsCheckUpdates').checked = true;
-        document.getElementById('settingsRecordingQuality').value = '0';
+        document.getElementById('settingsRecordingQuality').value = '5';
         // FPS: snap pra 30 (preset garantido a existir se max >= 30).
         // Atualiza currentRecordingFps ANTES de _applyFpsPresetsToSlider
         // pra que o slider sente nessa posicao.

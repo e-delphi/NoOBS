@@ -288,9 +288,34 @@ end;
 
 function ListExportEncoders(const ACaps: TEncoderCaps): TExportEncoderArray;
 // Ordem espelhando o select de Configuracoes (menos 'auto'):
-// H.264 hw, H.264 sw, AV1 hw, HEVC hw. Um candidato so entra se o
+// H.264 hw, H.264 sw, AV1 hw, AV1 sw, HEVC hw. Um candidato so entra se o
 // avcodec_find_encoder_by_name realmente achar — nada de oferecer opcao
 // que vai falhar na hora do avcodec_open2.
+//
+// REGRA DIFERENTE DA GRAVACAO, de proposito. Na gravacao o encoder de
+// software so entra como ultimo recurso, porque a gravacao concorre com o
+// que o usuario esta fazendo e nao pode comer a CPU. Aqui a exportacao
+// roda em worker, o usuario escolheu esperar, e o tempo e um preco
+// aceitavel por um formato melhor. Entao AV1 e oferecido MESMO SEM
+// hardware AV1, via libsvtav1.
+//
+// Os ramos de HARDWARE continuam condicionados as caps: oferecer
+// "AV1 — hardware" numa maquina sem esse encoder so daria erro no
+// avcodec_open2. Quem destrava o formato sem hardware e o ramo software.
+//
+// Custo medido nesta maquina (1920x1080, threads=auto):
+//   libx264    289 quadros/s   (praticamente empata com o hardware)
+//   libsvtav1   72 quadros/s   (~4x mais lento que o x264, aceitavel)
+//   libaom-av1   8 quadros/s   (ja em cpu-used=8, o ajuste mais rapido)
+// Por isso o AV1 software e o libsvtav1, e NAO o libaom-av1: em 4K o
+// libaom cairia pra ~2 quadros/s, e uma gravacao de 10 min viraria mais
+// de duas horas de exportacao — isso nao e "tempo nao e problema", e uma
+// barra de progresso que nao anda.
+//
+// Nao ha HEVC por software: o build empacotado nao tem libx265, e o
+// 'hevc_mf' e um wrapper do Media Foundation que pega o MFT de hardware
+// quando existe — nao serve de caminho por software confiavel, e pode
+// nem abrir numa maquina sem HEVC no sistema.
   procedure Add(const AId, AName: string; AHw: Boolean);
   var
     E: TExportEncoder;
@@ -308,6 +333,7 @@ begin
   if ACaps.H264Hw then Add('h264-hw', HwEncoderName('h264', ACaps.Vendor), True);
   Add('h264-sw', 'libx264', False);
   if ACaps.Av1Hw then Add('av1-hw', HwEncoderName('av1', ACaps.Vendor), True);
+  Add('av1-sw', 'libsvtav1', False);
   if ACaps.HevcHw then Add('hevc-hw', HwEncoderName('hevc', ACaps.Vendor), True);
 end;
 
@@ -610,10 +636,11 @@ function ApplyQualityOptions(var ADict: AVDictionary; const AEncoder: string;
 // qualidade vira enfeite (no NVENC e literalmente ignorado, dai o 'b=0'
 // explicito).
 //
-// AAttempt = 0 e a forma preferida; 1 e o plano B pra quando o driver
-// recusa a primeira. So o AMF tem plano B (o QVBR exige runtime AMF
-// recente e o avcodec_open2 falha inteiro se ele nao existir). Result =
-// False significa "nao ha tentativa AAttempt" — pare de tentar.
+// AAttempt = 0 e a forma preferida; 1 seria o plano B pra quando o driver
+// recusa a primeira. HOJE NENHUM encoder tem plano B — o unico que tinha
+// era o AMF, cuja 1a tentativa era o 'qvbr' INVERTIDO (ver abaixo); com
+// ele fora, o CQP e tentativa unica. Result = False significa "nao ha
+// tentativa AAttempt" — pare de tentar.
 var
   E: string;
 
@@ -645,6 +672,21 @@ begin
     Exit(True);
   end;
 
+  // ---- SVT-AV1: o AV1 por SOFTWARE da exportacao. Tem 'crf' nativo, mas
+  // numa escala 0..63 (confirmado enumerando as AVOption: crf em [0..63]),
+  // nao 0..51 — mandar o CRF cru desperdicaria o topo da escala e deixaria
+  // "qualidade minima" bem melhor do que o pedido.
+  //
+  // Sem 'preset' explicito de proposito: o default (-2, que o SVT resolve
+  // internamente) foi o que rendeu os 72 quadros/s medidos a 1080p. Fixar
+  // outro valor aqui exigiria re-medir.
+  if E = 'libsvtav1' then
+  begin
+    if AAttempt > 0 then Exit;
+    SetOpt('crf', IntToStr(ScaleCrf(ACrf, 63)));
+    Exit(True);
+  end;
+
   // ---- NVENC: 'rc=vbr' + 'cq' = VBR guiado por qualidade. O 'b=0' e
   // explicito porque um bitrate alvo faria o NVENC perseguir o alvo. A
   // escala do AV1 vai a 63, nao a 51.
@@ -663,38 +705,41 @@ begin
     Exit(True);
   end;
 
-  // ---- AMF: QVBR e o VBR guiado por qualidade, e o nivel usa a MESMA
-  // escala 1..51 do CRF (0 nao e valido, dai o Max). Se o runtime AMF for
-  // antigo o avcodec_open2 falha; a 2a tentativa cai no CQP, que existe
-  // em toda GPU AMD com AMF.
+  // ---- AMF: CQP. Tentativa unica — nao ha plano B aqui.
+  //
+  // NAO usar 'qvbr'. O nome promete o VBR guiado por qualidade, mas o
+  // 'qvbr_quality_level' do AMF NAO e um QP: e um NIVEL DE QUALIDADE em
+  // que MAIOR = MELHOR, o inverso da escala do CRF. Passar o CRF cru
+  // (como se fazia aqui) INVERTIA o controle da tela de exportacao —
+  // pedir qualidade minima entregava arquivo maior.
+  //
+  // Medido no av1_amf desta maquina (60 quadros 720p, detalhe fino +
+  // movimento), com o que a UI mandava em cada extremo:
+  //   qvbr level 51 (user pediu MINIMA) -> 6414 KB
+  //   qvbr level  1 (user pediu MAXIMA) -> 2536 KB   <- invertido
+  //   cqp  qp   255 (minima) -> 862 KB | qp 100 -> 6727 KB | qp 0 -> 11712 KB
+  // O CQP e monotonico na direcao certa e cobre uma faixa 13x maior que a
+  // do QVBR (2,5x). Mesma conclusao do caminho de GRAVACAO — ver
+  // OBSEncoder.ApplyConstantQuality e a pegadinha #53.
   if Has('_amf') then
   begin
-    case AAttempt of
-      0:
-        begin
-          SetOpt('rc', 'qvbr');
-          SetOpt('qvbr_quality_level', IntToStr(Max(1, ACrf)));
-          Result := True;
-        end;
-      1:
-        begin
-          SetOpt('rc', 'cqp');
-          if Has('av1') then
-          begin
-            // No AV1 do AMF o qp vai a 255, nao a 51.
-            SetOpt('qp_i', IntToStr(ScaleCrf(ACrf, 255)));
-            SetOpt('qp_p', IntToStr(ScaleCrf(ACrf, 255)));
-          end
-          else
-          begin
-            SetOpt('qp_i', IntToStr(ACrf));
-            SetOpt('qp_p', IntToStr(ACrf));
-            // qp_b so existe no AVC (o HEVC do AMF nao expoe).
-            if Has('h264') then SetOpt('qp_b', IntToStr(ACrf));
-          end;
-          Result := True;
-        end;
+    if AAttempt <> 0 then Exit;
+    SetOpt('rc', 'cqp');
+    if Has('av1') then
+    begin
+      // No AV1 do AMF o qp vai a 255, nao a 51 (confirmado enumerando as
+      // AVOption do av1_amf: qp_i/qp_p em [-1..255]).
+      SetOpt('qp_i', IntToStr(ScaleCrf(ACrf, 255)));
+      SetOpt('qp_p', IntToStr(ScaleCrf(ACrf, 255)));
+    end
+    else
+    begin
+      SetOpt('qp_i', IntToStr(ACrf));
+      SetOpt('qp_p', IntToStr(ACrf));
+      // qp_b so existe no AVC (o HEVC do AMF nao expoe).
+      if Has('h264') then SetOpt('qp_b', IntToStr(ACrf));
     end;
+    Result := True;
     Exit;
   end;
 
@@ -763,6 +808,10 @@ var
   FrameInterval, NextKeepSec, OutSec: Double;
   VideoTb, EncTb, MixTb, MixSrcTb, FpsRat: AVRational;
   SegStartTs, SegEndTs: Int64;
+  // Ultimo pts entregue ao encoder de video, na time_base DELE. Serve pra
+  // guarda de monotonicidade em EncodeVideoFrame.
+  LastEncPts: Int64;
+  PtsCollisionLogged: Boolean;
   // Linha do tempo da SAIDA: quanto ja foi escrito, em segundos. E o que
   // emenda um trecho no outro sem buraco. Convertido pro time_base de
   // cada stream na hora de escrever.
@@ -907,6 +956,22 @@ var
   var
     R: Integer;
   begin
+    // Guarda de monotonicidade. So morde no SVT-AV1, cuja time_base e a
+    // do FPS de saida (ver EncTb): se a origem tiver cadencia irregular,
+    // dois quadros podem cair no MESMO tique e o encoder recusa pts
+    // repetido — falha no meio de uma exportacao longa. Nos outros
+    // encoders a time_base e a da origem e isto nunca dispara.
+    if (LastEncPts <> Low(Int64)) and (APts <= LastEncPts) then
+    begin
+      if not PtsCollisionLogged then
+      begin
+        PtsCollisionLogged := True;
+        Log('Export: pts repetido apos quantizar pro time_base do encoder; ' +
+          'empurrando 1 tique (so este aviso).');
+      end;
+      APts := LastEncPts + 1;
+    end;
+    LastEncPts := APts;
     OutFrame.pts := APts;
     R := avcodec_send_frame(EncCtx, OutFrame);
     if R < 0 then
@@ -1000,8 +1065,12 @@ var
     for k := 0 to High(Regs) do BlitRegion(Regs[k], Src, OutFrame);
     // Emenda na linha do tempo de saida: posicao dentro do trecho mais o
     // que ja foi escrito pelos trechos anteriores.
+    // O pts do quadro esta na time_base da ORIGEM; o encoder espera na
+    // dele. Quando as duas coincidem (todo encoder menos o SVT-AV1) o
+    // av_rescale_q e no-op, entao um caminho so serve pros dois.
     Result := EncodeVideoFrame(
-      (Frame.pts - SegStartTs) + SecToTs(OutOffsetSec, EncTb));
+      av_rescale_q(Frame.pts - SegStartTs, VideoTb, EncTb) +
+      SecToTs(OutOffsetSec, EncTb));
   end;
 
   procedure PumpDecoder;
@@ -1107,6 +1176,8 @@ begin
   SrcFmt := AV_PIX_FMT_NONE;
   OutOffsetSec := 0;
   TotalSec := 0;
+  LastEncPts := Low(Int64);
+  PtsCollisionLogged := False;
   // SegStartSec/SegEndSec/SegStartTs sao lidos pelas rotinas aninhadas
   // (HandleMixPacket, ComposeAndEncode) e precisam de valor mesmo antes do
   // 1o trecho. SegEndTs so e usado depois de atribuido no laco.
@@ -1225,6 +1296,24 @@ begin
     // time_base do encoder = a do stream de video da origem. Assim os pts
     // passam sem reescala e o corte fica exato.
     EncTb := VideoTb;
+    // ...EXCETO no SVT-AV1. O wrapper dele deriva a taxa de quadros do
+    // TIME_BASE (nao do campo 'framerate', que setamos logo abaixo e ele
+    // ignora) e valida contra um teto de 240 fps. Como o MKV do OBS tem
+    // time_base 1/1000, o SVT lia "1000 fps" e o avcodec_open2 devolvia -22:
+    //   Svt[error]: Instance 1: The maximum allowed frame rate is 240 fps
+    // Nenhum outro encoder do build valida isso, por isso so ele muda de
+    // regra — manter a time_base da origem nos demais preserva o pts exato.
+    //
+    // Consequencia conhecida: exportar ACIMA de 240 fps por SVT-AV1 falha
+    // na abertura, e falha alto de proposito. Clampar a time_base em 1/240
+    // faria os quadros chegarem mais rapido que os tiques, e a guarda de
+    // monotonicidade os empurraria um a um — o video sairia em camera
+    // lenta, silenciosamente. Melhor recusar do que entregar errado.
+    if LowerCase(string(AOpts.EncoderName)) = 'libsvtav1' then
+    begin
+      EncTb.num := 1;
+      EncTb.den := OutFps;
+    end;
     // Dica de framerate = a taxa de SAIDA. Passar a da origem depois de
     // descartar quadros faria o encoder achar que tem mais quadros do que
     // tera, e o intervalo de keyframe sairia errado.
@@ -1295,8 +1384,10 @@ begin
     end;
     if Rc < 0 then Exit(erNoEncoder);
 
+    // "qualidade constante" sem prometer VBR: o AMF vai por CQP (QP fixo),
+    // nao por um VBR guiado por qualidade — ver ApplyQualityOptions.
     Log('Export: encoder=%s %dx%d @%dfps (origem %dfps) crf=%d ' +
-      '(qualidade constante/VBR, tentativa %d)',
+      '(qualidade constante, tentativa %d)',
       [string(AOpts.EncoderName), OutW, OutH, OutFps, Fps, Crf, Attempt]);
 
     // ---- faixas de audio selecionadas ----

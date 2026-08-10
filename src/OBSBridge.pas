@@ -3866,8 +3866,11 @@ begin
   Obj.AddPair('checkUpdates', TJSONBool.Create(GetConfigBool('checkUpdates', True)));
   Obj.AddPair('appVersion', OBSVersion.DisplayVersion);
   Obj.AddPair('isDevBuild', TJSONBool.Create(OBSVersion.IsDevBuild));
+  // recordingQuality: nivel do slider 0..10 (padrao 5). Vem do
+  // OBSEncoder.GetRecordingQualityLevel — que ja migra o valor da escala
+  // antiga (-4..+2) — pra UI e encoder nunca discordarem sobre o nivel.
   Obj.AddPair('recordingQuality',
-    TJSONNumber.Create(GetConfigInt('recordingQuality', 0)));
+    TJSONNumber.Create(GetRecordingQualityLevel));
   // recordingFps: 0 = nao configurado → UI interpreta como 30 (default
   // do NoOBS — mais compacto que o 60fps do OBS Studio).
   // maxMonitorHz: taxa maxima dos monitores conectados agora — UI usa como
@@ -3940,11 +3943,15 @@ end;
 
 procedure HandleSetRecordingQuality(ALevel: Integer);
 begin
-  // Clampa pra range valido — UI envia -4..+2 mas defensivo contra
+  // Clampa pra range valido — UI envia 0..10 mas defensivo contra
   // edicao manual de config.json ou mensagem malformada.
-  if ALevel < -4 then ALevel := -4;
-  if ALevel >  2 then ALevel :=  2;
-  SetConfigInt('recordingQuality', ALevel);
+  //
+  // Grava em 'recordingQualityLevel', NAO na 'recordingQuality' antiga: as
+  // duas escalas se sobrepoem em 0/1/2 e a chave separada e o que permite
+  // ao GetRecordingQualityLevel saber se ja migrou (pegadinha #53).
+  if ALevel <  0 then ALevel :=  0;
+  if ALevel > 10 then ALevel := 10;
+  SetConfigInt('recordingQualityLevel', ALevel);
   Log('RecordingQuality: %d', [ALevel]);
 end;
 

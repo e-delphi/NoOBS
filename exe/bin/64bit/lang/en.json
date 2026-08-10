@@ -194,6 +194,7 @@
       "h264Hw": "H.264 — hardware",
       "h264Sw": "H.264 — software (x264, CPU)",
       "av1Hw": "AV1 — hardware",
+      "av1Sw": "AV1 — software (SVT-AV1, CPU)",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(unavailable)",
       "hwSuffix": " — hardware",
@@ -278,16 +279,18 @@
       "label": "Recording quality",
       "lower": "Lower",
       "higher": "Higher",
-      "bitrate": "({{kbps}} kbps rate)",
-      "bitrateDefault": "(no fixed rate)",
       "hint": {
-        "0": "Default — same as encoder defaults, balanced between file size and visual quality.",
-        "1": "High quality — larger files, sharper video.",
-        "2": "Maximum quality — large files, close to visually lossless.",
-        "-4": "Maximum compression — tiny files, quality well below normal.",
-        "-3": "Very high compression — very small files, noticeably reduced quality.",
-        "-2": "Aggressive compression — much smaller files, visibly lower quality.",
-        "-1": "Moderate compression — smaller files, slightly lower quality."
+        "0": "Maximum compression — tiny files, very low quality.",
+        "1": "Extreme compression — very small files, clearly visible loss.",
+        "2": "Very high compression — small files, noticeably reduced quality.",
+        "3": "High compression — much smaller files, visibly below normal.",
+        "4": "Moderate compression — smaller files, slight loss of sharpness.",
+        "5": "Default — balanced between file size and visual quality.",
+        "6": "Good quality — slightly larger files, cleaner image.",
+        "7": "High quality — larger files, sharper video.",
+        "8": "Very high quality — much larger files, loss hard to notice.",
+        "9": "Extremely high quality — large files, virtually no visible loss.",
+        "10": "Maximum quality — huge files, beyond what the eye can tell apart."
       }
     },
     "fps": {

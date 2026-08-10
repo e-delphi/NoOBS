@@ -1383,8 +1383,8 @@ qualidade constante — só que cada um com nome e escala próprios.
 | `libx264` | `crf` (+`preset=veryfast`) | 0..51, idêntica ao controle |
 | `*_nvenc` (h264/hevc) | `rc=vbr` + `cq` + `b=0` | 0..51, **piso 1** |
 | `av1_nvenc` | `rc=vbr` + `cq` + `b=0` | 0..**63** (reescalado) |
-| `*_amf` | `rc=qvbr` + `qvbr_quality_level` | 1..51 |
-| `av1_amf` (plano B) | `rc=cqp` + `qp_i`/`qp_p` | 0..**255** (reescalado) |
+| `*_amf` (h264/hevc) | `rc=cqp` + `qp_i`/`qp_p`/`qp_b` | 0..51 |
+| `av1_amf` | `rc=cqp` + `qp_i`/`qp_p` | 0..**255** (reescalado) |
 | `*_mf` (Intel) | `rate_control=quality` + `quality` | 0..100 e **invertida** |
 
 Três armadilhas nessa tabela:
@@ -1392,11 +1392,19 @@ Três armadilhas nessa tabela:
 - **`cq=0` no NVENC significa "sem alvo de qualidade"**, não "sem perdas".
   Um CRF 0 passado cru cairia no controle de bitrate padrão — o oposto do
   pedido. Daí o `Max(1, ...)`.
-- **`rc=qvbr` do AMF exige runtime AMF recente** e o `avcodec_open2` falha
-  **inteiro** se ele não existir (o `AMF_ASSIGN_PROPERTY_INT64` aborta a
-  abertura). Por isso a abertura do encoder é um **laço de tentativas**:
-  o AMF cai pro `cqp` na 2ª. Cada tentativa parte de um `EncCtx` **novo** —
-  um `avcodec_open2` que falhou deixa o contexto meio-desmontado.
+- **NÃO use `rc=qvbr` no AMF — ele é INVERTIDO** (mesma armadilha da #53,
+  do lado da gravação). O `qvbr_quality_level` não é um QP: é um nível em
+  que **maior = melhor**, então mandar o CRF cru fazia a tela de
+  exportação funcionar ao contrário — pedir qualidade mínima entregava
+  arquivo maior. Medido no `av1_amf` (60 quadros 720p): `qvbr` nível 51
+  (mínima pedida) → 6414 KB contra nível 1 (máxima pedida) → 2536 KB; já o
+  `cqp` vai de 862 KB (qp 255) a 11712 KB (qp 0), monotônico e com faixa
+  13× maior. Hoje o AMF é **CQP em tentativa única**.
+  O laço de tentativas do `avcodec_open2` continua existindo (e cada
+  tentativa parte de um `EncCtx` **novo** — um `avcodec_open2` que falhou
+  deixa o contexto meio-desmontado), mas **nenhum encoder tem plano B**:
+  se a tentativa 0 falhar, a exportação retorna `erNoEncoder` em vez de
+  cair calada num modo errado.
 - **Nunca setar `b`/`maxrate`/`bufsize` junto** do parâmetro de qualidade:
   com alvo de bitrate presente, todos esses encoders voltam pro modo de
   alvo e o CRF vira enfeite.
@@ -1456,6 +1464,68 @@ escolheria o formato errado.
 FFmpeg que vem com o OBS **não tem nenhum `*_qsv` nem `libx265`** — Intel
 vai por Media Foundation (`h264_mf`/`hevc_mf`, sem AV1).
 
+**f) A regra de "software" da exportação é OUTRA, não copie a da
+gravação.** Na gravação, encoder de software é último recurso: ela
+concorre com o que o usuário está fazendo e não pode comer a CPU. Na
+exportação o usuário escolheu esperar, então o formato vale mais que o
+tempo — por isso `ListExportEncoders` oferece **AV1 mesmo sem hardware
+AV1**, via `libsvtav1`. Os ramos de *hardware* seguem condicionados às
+caps (oferecer "AV1 — hardware" onde não existe só daria erro no
+`avcodec_open2`); quem destrava o formato é o ramo software.
+
+Inventário real de encoders de vídeo do build empacotado (enumerado com
+`av_codec_iterate` + `av_codec_is_encoder`, 107 no total):
+
+| Família | Software | Hardware |
+|---|---|---|
+| H.264 | `libx264`, `libx264rgb`, `h264_mf` | `h264_amf`, `h264_nvenc` |
+| HEVC | `hevc_mf` | `hevc_amf`, `hevc_nvenc`, `hevc_d3d12va` |
+| AV1 | `libaom-av1`, `libsvtav1` | `av1_amf`, `av1_nvenc` |
+
+Duas consequências: **existe AV1 por software** (o CLAUDE.md já afirmou o
+contrário por tabela de bolso), e **não existe HEVC por software de
+verdade** — o `hevc_mf` é wrapper do Media Foundation, que pega o MFT de
+*hardware* quando há um e pode nem abrir sem HEVC no sistema.
+
+Escolha do AV1 software medida nesta máquina (1920×1080, `threads=auto`):
+
+| Encoder | quadros/s |
+|---|---|
+| `h264_amf` (hw) | 352 |
+| `av1_amf` (hw) | 329 |
+| `libx264` (sw) | 289 |
+| `libsvtav1` (sw) | **72** |
+| `libaom-av1` (sw, `cpu-used=8`) | **8** |
+
+Daí ser `libsvtav1` e não `libaom-av1`: em 4K o libaom cairia pra ~2
+quadros/s — uma gravação de 10 min viraria 2h+ de exportação, o que não é
+"tempo não é problema", é barra de progresso travada. E o `crf` do
+`libsvtav1` vai de **0..63** (não 0..51), então passa por `ScaleCrf`.
+
+**g) O SVT-AV1 tira a taxa de quadros do `time_base`, não do `framerate` —
+e recusa acima de 240 fps.** O resto da exportação usa como `time_base` do
+encoder a do stream de origem, pra os pts passarem sem reescala e o corte
+ficar exato. Mas o MKV do OBS tem `time_base` **1/1000**, e o wrapper do
+SVT lê isso como *1000 fps*, batendo no teto dele:
+
+```
+Svt[error]: Instance 1: The maximum allowed frame rate is 240 fps
+[libsvtav1] Error setting encoder parameters: bad parameter (0x80001005)
+```
+
+O `avcodec_open2` devolve **-22** e a exportação morre antes do 1º quadro.
+Setar `framerate` no contexto **não resolve** — ele ignora. Bissectado: a
+mesma configuração (3840×2160, `+global_header`, `g=60`) abre com
+`time_base` 1/30 e falha com 1/1000, em qualquer resolução.
+
+Por isso o `EncTb` vira **1/OutFps só pro `libsvtav1`**, e o pts do quadro
+passa por `av_rescale_q(…, VideoTb, EncTb)` — que é no-op nos demais
+encoders, então o caminho é um só. A quantização que isso introduz pode
+fazer dois quadros de origem irregular caírem no mesmo tique, daí a guarda
+de monotonicidade em `EncodeVideoFrame` (loga uma vez e empurra 1 tique).
+Exportar acima de 240 fps por SVT-AV1 **falha de propósito**: clampar em
+1/240 entregaria câmera lenta em silêncio.
+
 ### 52. **`threads` no libavcodec tem default 1, NÃO "auto"**
 
 A opção `threads` do `AVCodecContext` vem com **`default = 1`** na tabela
@@ -1510,6 +1580,105 @@ Nos encoders o `threads` só vale pros de **software** (`lib*` é a
 convenção de nome do libavcodec pra eles) — NVENC/AMF/MF encodam na GPU e
 ignoram o campo.
 
+### 53. **Gravação: o default de TODO encoder do libobs é CBR — e CBR enche linguiça**
+
+Não setar `rate_control` não significa "deixa o encoder escolher bem".
+Significa **CBR**, em todos eles, sem exceção no Windows:
+
+| Encoder | default | fonte |
+|---|---|---|
+| `obs-x264` | `"CBR"` | `obs-x264.c:110` |
+| `obs-nvenc` | `"cbr"` | `nvenc-properties.c:49` |
+| `*_texture_amf` (AVC/HEVC/AV1) | `"CBR"` | `texture-amf.cpp:1165`/`:2094`/`:2497` |
+| `obs_qsv11_*` | `"CBR"` | `obs-qsv11.c:169` |
+
+E CBR não é só "taxa fixa" — os três encoders que carregamos **inserem
+bits de lixo** pra bater o alvo quando a cena não precisa deles: x264
+`rc.b_filler` (`obs-x264.c:472`), NVENC `enableFillerDataInsertion`
+(`nvenc.c:447`/`:551`/`:662`), AMF `FILLER_DATA_ENABLE`
+(`texture-amf.cpp:1331`). Numa gravação de tela — que é quase toda tela
+parada — isso é o pior caso possível: megabits por segundo de nada.
+
+Por isso a gravação usa **qualidade constante adaptativa**, igual à
+exportação e igual ao que o frontend do OBS faz pro caminho de gravação
+(`SimpleOutput.cpp`: CRF pro x264 `:421`, CQP pro NVENC `:467` e pro AMF
+`:509`, ICQ pro QSV `:454` — CBR lá só aparece no encoder de *streaming* e
+no áudio, `:379`). A tradução vive em `OBSEncoder.ApplyConstantQuality`:
+
+| Encoder libobs | `rate_control` | chave do valor | escala |
+|---|---|---|---|
+| `obs_x264` | `"CRF"` | `crf` | 0..51 |
+| `obs_nvenc_*` | `"CQVBR"` | **`target_quality`** | 1..51 (AV1: 1..63) |
+| `*_texture_amf` | `"CQP"` | `cqp` | 0..51 (AV1: 0..63) |
+| `obs_qsv11_*` | `"ICQ"` | `icq_quality` | 1..51 (AV1: 1..63) |
+
+Cinco detalhes que mordem:
+
+- **O `QVBR` do AMF é INVERTIDO — não use.** O nome promete o VBR guiado
+  por qualidade, mas `AMF_VIDEO_ENCODER_QVBR_QUALITY_LEVEL` **não é um
+  QP**: é um nível de qualidade em que **MAIOR = MELHOR**, o inverso da
+  escala do CRF. E o plugin alimenta essa propriedade com a **mesma chave
+  `cqp`** (`texture-amf.cpp:1341-1344`), então mandar o CRF cru pro QVBR
+  inverte o controle — pedir qualidade mínima entrega qualidade quase
+  máxima, com o arquivo 4× maior que o CBR que se queria substituir.
+  Medido no encoder AMF real (90 quadros 720p, via libavcodec sobre as
+  DLLs empacotadas):
+
+  | Modo | pior | meio | melhor |
+  |---|---|---|---|
+  | `qvbr` nível 51 / 12 / 1 | 10980 KB | 6815 KB | 5190 KB |
+  | `cqp` qp 50 / — / 12 | 1997 KB | — | 16776 KB |
+
+  Além de invertido, o QVBR tem faixa útil muito menor: o piso dele
+  (5190 KB) é **2,6× o piso do CQP** (1997 KB), então "qualidade mínima"
+  é inalcançável por QVBR. Daí `CQP` — que é o que o frontend do OBS usa
+  pra gravar em AMD (`UpdateRecordingSettings_amd_cqp`). Custo aceito: o
+  OBS não liga `ENABLE_VBAQ` no modo `CONSTANT_QP`
+  (`texture-amf.cpp:1520-1524`), então a AMD perde a quantização
+  adaptativa por variância.
+- **NVENC lê `target_quality`, NÃO `cqp`.** São chaves diferentes
+  (`nvenc-properties.c:129` vs `:137`) e em CQVBR o `cqp` é ignorado.
+- **`max_bitrate` do NVENC continua valendo em CQVBR, e o default é 10000
+  kbps.** O plugin trata CQVBR como VBR (`nvenc.c:231`) e aplica
+  `maxBitRate` (`:349`). Sem setar explicitamente, a gravação fica com
+  teto de 10 Mbps — estrangulando justo as cenas de movimento, que são as
+  que a qualidade constante deveria deixar gastar mais. `OBSEncoder` seta
+  sempre, a partir de `recordingMaxBitrate` (default 100000 = 100 Mbps).
+  Esse campo é a **rede de segurança** contra pico ilimitado em canvas
+  multi-monitor saturar o disco; `0` desliga o teto.
+- **Falha de propriedade no AMF é SILENCIOSA pro resultado.** O
+  `set_amf_property` só **loga** o erro e segue (`texture-amf.cpp:276-281`),
+  então uma propriedade recusada não quebra a gravação — ela sai com
+  qualidade errada e ninguém percebe até medir o arquivo. E o log do NoOBS
+  **filtra `LOG_INFO`** (`OBSEngine.ObsLogHandler`), que é justamente o
+  nível do dump de configurações do plugin AMF (`texture-amf.cpp:1570`);
+  sobram só os `[E]`, e mesmo esses perdem o nome da propriedade porque o
+  handler resolve só o primeiro `%s` e o nome vem como `%ls`. Ao depurar
+  encoder, não confie no log: **meça o arquivo**.
+- **`bitrate` não entra junto**, mesma regra da #51b: com alvo de taxa
+  presente todos voltam pro modo de alvo e o controle de qualidade vira
+  enfeite.
+
+**A escala do slider mudou de `-4..+2` pra `0..10` (padrão 5), e por isso a
+chave do config mudou de nome.** As duas faixas se sobrepõem em 0/1/2, então
+é impossível saber pelo VALOR se um `0` guardado significa "padrão" (escala
+velha) ou "compactação máxima" (nova) — ler a chave antiga como se fosse a
+nova rebaixaria em silêncio a qualidade de todo mundo que nunca tocou no
+slider. Daí `recordingQualityLevel` nova + `recordingQuality` legada só de
+leitura, com a tradução em `OBSEncoder.GetRecordingQualityLevel` (que é a
+**fonte única** — o `OBSBridge` empurra o valor dela pra UI e o encoder
+deriva o CRF dela, pra não existirem duas interpretações da mesma chave).
+Bumpar o `version` do config.json não serviria: ele **descarta o arquivo
+inteiro**, e perder todas as preferências por causa de um slider seria
+desproporcional.
+
+Nota sobre a Intel: **`obs-qsv11` não está na whitelist do
+`OBSEngine.LoadModules`**, então os IDs `obs_qsv11_*` nunca se registram e
+**máquina Intel grava em x264 (CPU)** — o encoder de hardware da Intel não
+é usado pra nada hoje, e a detecção de `qsv` em `OBSEncoder` é código morto
+na prática. O ramo ICQ do `ApplyConstantQuality` fica mapeado só pra que
+ligar o plugin um dia não reintroduza o CBR por omissão.
+
 ---
 
 ## Caches
@@ -1559,7 +1728,9 @@ recuperáveis manualmente).
 | `sources.webcams[name]`          | `true` / `false` (default: `false`)                |
 | `hidden_monitors[idx]`, `hidden_mics[name]`, `hidden_speakers[name]`, `hidden_webcams[name]` | `true` = dispositivo **oculto**: some da lista da tela inicial **e** não entra na gravação. Ausente/`false` = visível. Namespace separado do `sources.*` de propósito — ocultar não mexe no "enabled", então desocultar devolve o device com a mesma preferência de gravação de antes |
 | `language`                       | `""` (auto, segue Windows), `"pt-BR"`, `"en"`, `"es"`, ... |
-| `recordingQuality`               | `-4..+2` (default `0`; `-4`/`-3` são os níveis extras de mais compressão) |
+| `recordingQualityLevel`          | `0..10` (default `5`; 10 = melhor). Vira **CRF** 50/44/38/33/28/**23**/21/19/17/15/12 via `OBSEncoder.QualityLevelToCrf` — qualidade constante, nunca alvo de bitrate. Degraus desiguais de propósito: CRF é perceptualmente logarítmico, então a metade de cima anda de 2 em 2 e a de baixo de 5-6 (Pegadinha #53) |
+| `recordingQuality`               | **legado** — escala antiga `-4..+2`. Só é lida quando `recordingQualityLevel` não existe, pra migrar (`-4→1 … 0→5 … +2→9`). Nunca escrita. As duas faixas se sobrepõem em 0/1/2, por isso a chave nova em vez de reinterpretar a antiga (Pegadinha #53) |
+| `recordingMaxBitrate`            | teto de pico em kbps aplicado ao `max_bitrate` do NVENC em CQVBR (default `100000` = 100 Mbps; `0` = sem teto). Só existe como chave do JSON — não tem controle na UI. Necessário porque o default do plugin é 10000 e estrangularia a qualidade constante (Pegadinha #53) |
 | `recordingFps`                   | `10..maxMonitorHz` (default `30` — padrão do NoOBS, mais compacto que o 60fps do OBS Studio) |
 | `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
@@ -1774,6 +1945,13 @@ Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
   do av1_amf a 255, `quality` do Media Foundation é 0..100 invertida) e
   `cq=0` no NVENC quer dizer "sem alvo", não "sem perdas". A tradução vive
   em `FFmpegExport.ApplyQualityOptions` (pegadinha #51b).
+- **NÃO deixe** o `rate_control` de fora ao criar o encoder de **gravação**
+  achando que o encoder escolhe algo sensato: o default de todos eles é
+  **CBR**, e CBR enche o arquivo de bits de lixo (`b_filler` /
+  `enableFillerDataInsertion` / `FILLER_DATA_ENABLE`) — o pior caso pra
+  gravação de tela. Use `OBSEncoder.ApplyConstantQuality`, e lembre que o
+  NVENC lê `target_quality` (não `cqp`) e que o `max_bitrate` dele precisa
+  ser explícito, senão vira teto de 10 Mbps (pegadinha #53).
 - **NÃO decodifique** muitos frames pra gerar thumbnail — aceite o
   primeiro keyframe após o seek (pegadinha #42). Decodar até o ts exato
   em canvas multi-monitor (AV1/HEVC software) trava segundos.

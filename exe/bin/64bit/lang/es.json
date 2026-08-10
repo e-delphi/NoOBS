@@ -194,6 +194,7 @@
       "h264Hw": "H.264 — hardware",
       "h264Sw": "H.264 — software (x264, CPU)",
       "av1Hw": "AV1 — hardware",
+      "av1Sw": "AV1 — software (SVT-AV1, CPU)",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(no disponible)",
       "hwSuffix": " — hardware",
@@ -278,16 +279,18 @@
       "label": "Calidad de la grabación",
       "lower": "Menor",
       "higher": "Mayor",
-      "bitrate": "(tasa de {{kbps}} kbps)",
-      "bitrateDefault": "(sin tasa fija)",
       "hint": {
-        "0": "Predeterminado — misma calidad del codificador, equilibrado entre tamaño y calidad visual.",
-        "1": "Calidad alta — archivos más grandes, video más nítido.",
-        "2": "Calidad máxima — archivos grandes, casi sin pérdida visual.",
-        "-4": "Compresión máxima — archivos diminutos, calidad muy por debajo de lo normal.",
-        "-3": "Compresión muy alta — archivos muy pequeños, calidad notablemente reducida.",
-        "-2": "Compresión agresiva — archivos mucho más pequeños, calidad visiblemente inferior.",
-        "-1": "Compresión moderada — archivos más pequeños, calidad ligeramente inferior."
+        "0": "Compresión máxima — archivos diminutos, calidad muy baja.",
+        "1": "Compresión altísima — archivos muy pequeños, pérdida bien visible.",
+        "2": "Compresión muy alta — archivos pequeños, calidad notablemente reducida.",
+        "3": "Compresión alta — archivos mucho más pequeños, calidad visiblemente inferior.",
+        "4": "Compresión moderada — archivos más pequeños, leve pérdida de nitidez.",
+        "5": "Predeterminado — equilibrado entre tamaño de archivo y calidad visual.",
+        "6": "Calidad buena — archivos algo más grandes, imagen más limpia.",
+        "7": "Calidad alta — archivos más grandes, video más nítido.",
+        "8": "Calidad muy alta — archivos bastante más grandes, pérdida difícil de notar.",
+        "9": "Calidad altísima — archivos grandes, prácticamente sin pérdida visible.",
+        "10": "Calidad máxima — archivos enormes, más allá de lo que el ojo distingue."
       }
     },
     "fps": {

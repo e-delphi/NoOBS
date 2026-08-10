@@ -194,6 +194,7 @@
       "h264Hw": "H.264 — hardware",
       "h264Sw": "H.264 — software (x264, CPU)",
       "av1Hw": "AV1 — hardware",
+      "av1Sw": "AV1 — software (SVT-AV1, CPU)",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(indisponível)",
       "hwSuffix": " — hardware",
@@ -278,16 +279,18 @@
       "label": "Qualidade da gravação",
       "lower": "Menor",
       "higher": "Maior",
-      "bitrate": "(taxa de {{kbps}} kbps)",
-      "bitrateDefault": "(sem taxa fixa)",
       "hint": {
-        "0": "Padrão — mesma qualidade do encoder, balanceado entre tamanho do arquivo e qualidade visual.",
-        "1": "Qualidade alta — arquivos maiores, vídeo mais nítido.",
-        "2": "Qualidade máxima — arquivos grandes, próximo de lossless visual.",
-        "-4": "Compactação máxima — arquivos minúsculos, qualidade bem abaixo do normal.",
-        "-3": "Compactação muito alta — arquivos bem pequenos, qualidade nitidamente reduzida.",
-        "-2": "Compactação agressiva — arquivos bem menores, qualidade visível abaixo do normal.",
-        "-1": "Compactação moderada — arquivos menores, qualidade ligeiramente abaixo do normal."
+        "0": "Compactação máxima — arquivos minúsculos, qualidade bem baixa.",
+        "1": "Compactação altíssima — arquivos muito pequenos, perda bem visível.",
+        "2": "Compactação muito alta — arquivos pequenos, qualidade nitidamente reduzida.",
+        "3": "Compactação alta — arquivos bem menores, qualidade visivelmente abaixo do normal.",
+        "4": "Compactação moderada — arquivos menores, leve perda de nitidez.",
+        "5": "Padrão — balanceado entre tamanho do arquivo e qualidade visual.",
+        "6": "Qualidade boa — arquivos um pouco maiores, imagem mais limpa.",
+        "7": "Qualidade alta — arquivos maiores, vídeo mais nítido.",
+        "8": "Qualidade muito alta — arquivos bem maiores, perda difícil de notar.",
+        "9": "Qualidade altíssima — arquivos grandes, praticamente sem perda visível.",
+        "10": "Qualidade máxima — arquivos enormes, além do que o olho distingue."
       }
     },
     "fps": {

@@ -178,10 +178,14 @@ const Export = {
     if (!sel) return;
     const prev = sel.value;
     sel.innerHTML = '';
+    // 'av1-sw' so aparece AQUI, nao nas Configuracoes: a exportacao aceita
+    // encoder de software pra qualquer formato (o usuario escolheu esperar),
+    // enquanto a gravacao evita software pra nao competir com a maquina.
     const labels = {
       'h264-hw': T('settings.codec.h264Hw'),
       'h264-sw': T('settings.codec.h264Sw'),
       'av1-hw':  T('settings.codec.av1Hw'),
+      'av1-sw':  T('settings.codec.av1Sw'),
       'hevc-hw': T('settings.codec.hevcHw')
     };
     if (this.encoders.length === 0) {

@@ -5,97 +5,58 @@
   <img src="app-white.png" alt="NoOBS — tema claro" width="49%">
 </p>
 
-Gravador de tela simples e direto, sem complicação. Uma interface
-pensada pra ser fácil de usar que aproveita toda a potência do OBS
-— você não precisa instalar nem configurar o OBS, tudo já vem pronto.
-Só abrir e gravar.
-
-> **Premium e leve.** Modo hibernação que cai pra ~5 MB de RAM
-> enquanto não está gravando. Tema acompanha o Windows na primeira
-> execução. UI focada só em gravar.
+Gravador de tela com o OBS Studio embarcado. Toda a potência do OBS, sem
+instalar nem configurar nada — só abrir e gravar.
 
 ---
 
-## Recursos
+## Por que o NoOBS
 
-### Gravação
-| Recurso | Descrição |
-|---|---|
-| Captura multi-monitor | Grava todos os seus monitores ao mesmo tempo em um único arquivo, lado a lado |
-| Webcam | Detecta suas webcams automaticamente e permite adicionar na gravação |
-| Áudio separado por dispositivo | Cada microfone e alto-falante em faixas independentes, facilitando edição depois |
-| Gravação só de áudio | Se nenhum monitor ou webcam estiver selecionado, o áudio ainda é gravado |
-| Detecção em tempo real | Reconhece quando você conecta ou desconecta microfones, alto-falantes, monitores e webcams — inclusive troca de dispositivo padrão no Painel de Som |
-| Codec automático | Detecta sua placa de vídeo e usa o melhor encoder disponível (H.264 hardware → x264 → AV1 → HEVC) — priorizando compatibilidade. Default é H.264 hardware |
-| Qualidade ajustável | Slider de 7 níveis pra balancear tamanho de arquivo e qualidade visual, mostrando o bitrate real de cada nível |
-| Taxa de quadros ajustável | Escolha o FPS da gravação (padrão 30, mais compacto que os 60 do OBS) até a taxa máxima do monitor |
-| Intervalo de keyframe ajustável | Controla de quanto em quanto tempo há um ponto de corte exato — equilíbrio entre precisão ao dividir e tamanho do arquivo |
-| Faixa "Mix" + isoladas | Faixa 1 é o mix de tudo; faixas 2–6 individuais por dispositivo (até 6 no total) |
-| Dispositivo padrão preservado | O microfone e alto-falante padrão do Windows sempre ficam em faixas individuais quando possível |
+- **Zero configuração.** Sem cenas, sem fontes, sem perfis. Abriu, seus
+  monitores e microfones já estão lá, prontos.
 
-### Interface
-| Recurso | Descrição |
-|---|---|
-| Tema claro/escuro/sistema | A opção "Sistema" acompanha o Windows em tempo real; claro e escuro podem ser fixados nas Configurações |
-| Múltiplos idiomas | Interface em português, inglês e espanhol; detecta o idioma do Windows na primeira execução e permite trocar nas Configurações |
-| Botão de gravação cinematográfico | Botão circular com halo pulsante, timer com centésimos de segundo e onda radial vermelha ao iniciar |
-| Preview ao vivo | Miniaturas dos monitores e webcams atualizando a 2 FPS, identifica facilmente o que será gravado |
-| Legenda de faixas de áudio | Mostra qual dispositivo está em qual faixa do vídeo, com cores distintas |
-| Indicador de dispositivo padrão | Bolinha verde nos dispositivos definidos como padrão no Windows |
-| Ocultar dispositivos | Esconda monitores, webcams, microfones ou alto-falantes que você nunca usa — somem da tela inicial e ficam fora da gravação, sem perder a marcação de quando voltarem |
-| Nome do arquivo personalizável | Modelo com códigos de data e hora (`{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}`) e prévia ao vivo do nome gerado |
-| Título da janela personalizável | Renomeie o que aparece na barra de título, na barra de tarefas e na bandeja |
-| Espaço em disco visível | Painel de gravações mostra quanto disco está usado e quanto sobra — alerta laranja abaixo de 5 GB |
-| Notificações detalhadas | Avisa o que mudou (dispositivo adicionado, removido, padrão trocado) com o nome do dispositivo |
-| Configurações em abas | Geral, Gravação, Arquivos, Dispositivos, Janela e bandeja, Comportamento, Atualizações e Sobre — cada assunto no seu lugar, salvando na hora (sem botão Salvar). `F1` abre direto no Sobre |
+- **Some quando não está usando.** Depois de 1 minuto na bandeja, cai pra
+  **~5 MB de RAM** — só o ícone e o atalho global. Volta sozinho na hora
+  de gravar.
 
-### Atalhos e automação
-| Recurso | Descrição |
-|---|---|
-| Atalho global configurável | Padrão: tecla `Pause`. Configurável com modificadores (Ctrl/Shift/Alt/Win) + uma tecla — incluindo as teclas de mídia do teclado (Play/Pause, Stop, faixa anterior/próxima) |
-| Som de início/fim | Opção pra tocar uma sequência curta de duas notas ao iniciar (ascendente) e parar (descendente) a gravação — discreto, confirmação auditiva |
-| Indicador no LED Scroll Lock | Opção pra piscar o LED de Scroll Lock do teclado enquanto grava — útil quando o app está na bandeja |
-| Bandeja do sistema | Ícone próximo ao relógio com menu para iniciar/parar gravação, abrir e fechar. Ícone troca pra uma bolinha vermelha enquanto grava |
-| Iniciar com Windows | Abre minimizado na bandeja ao logar, gravação fica pronta no atalho global. Sincronizado com o Task Manager — respeita o estado de "Desabilitado" do Windows |
-| Gravar automaticamente em chamadas | Detecta quando outro app (Teams, WhatsApp, Meet...) abre o microfone e inicia a gravação sozinho, parando quando a chamada termina. Filtro por nome de processo e lista de exceções. Funciona até com o app hibernando |
-| Verificação de atualizações | Consulta a página de releases do GitHub no máximo uma vez por dia, em segundo plano. Nada é baixado nem instalado — apenas um aviso. Pode ser desligado |
-| Parar ao bloquear o computador | Opção que finaliza automaticamente a gravação quando o Windows bloqueia (Win+L, troca de usuário, bloqueio automático) |
-| Modo hibernação | Após 1 min na bandeja (ou cold-start via autostart), o app libera todos os recursos e fica em ~5 MB de RAM, só com tray icon + hotkey. Volta automaticamente ao normal quando precisar |
-| Minimizar ao gravar | Opção pra esconder a janela automaticamente quando a gravação começa |
-| Fechamento inteligente | Botão [X] minimiza pra bandeja se estiver gravando ou se "iniciar com Windows" estiver ativo |
+- **Todos os monitores num arquivo só.** Lado a lado, sem faixa preta de
+  monitor que ficou de fora.
 
-### Reprodução e gerenciamento
-| Recurso | Descrição |
-|---|---|
-| Player embutido | Assista suas gravações direto no app, com zoom e controles de reprodução |
-| Volume com boost até 200% | Sliders master e por-faixa vão de 0% a 200%; barra vermelha acima de 100% indica amplificação. Pra cada vídeo o volume volta automático a 100% |
-| Atalhos rápidos de volume | Tooltip mostra o `%` ao vivo durante o drag; double-click no slider reseta pra 100% |
-| Volume por faixa | Ajuste o volume de cada microfone e alto-falante separadamente ao assistir; faixas individuais podem ser mutadas |
-| Navegação quadro a quadro | Setas `←` / `→` no player pausado avançam um quadro por vez (1/30s); tocando, pulam ±5 s |
-| Feedback visual de pause | Pulso curto no centro ao pausar + badge persistente "PAUSADO" no header + seek bar fica cinza durante o pause |
-| Informações do vídeo | Detalhes técnicos da gravação: resolução, duração, codec, bitrate, faixas de áudio |
-| Lista com miniaturas | Cards com thumbnail, duração e tamanho de cada gravação. Click na miniatura abre o player; duplo-click no nome ou tamanho renomeia o arquivo |
-| Forma de onda do áudio | Barras de intensidade renderizadas embaixo da seek bar — visão rápida de onde tem áudio alto no vídeo |
-| Dividir vídeo | Corta a gravação em duas no ponto atual, sem reencodar. As duas partes mantêm a data do original |
-| Unir vídeos | Junta várias gravações numa só, na ordem que você selecionou |
-| Exportar | Gera um arquivo menor pra compartilhar, em MP4 ou MKV. Corte o vídeo em trechos e escolha quais entram — os mantidos são emendados sem buraco, com prévia pra ver o que está cortando. Escolha também quais monitores entram (os escolhidos ficam lado a lado, sem o vazio de um que ficou de fora), a resolução, o codificador e quais faixas de áudio manter — ou junte as faixas numa só. A qualidade é um CRF de 0 (sem perdas) a 51, em bitrate variável, com progresso e cancelamento |
-| Velocidade de reprodução | De 0,25× a 8× pra revisar rápido ou analisar detalhe |
-| Lixeira do Windows | Excluir, dividir e unir mandam os originais pra lixeira — nada é apagado em definitivo |
-| Busca e gerenciamento | Filtrar, renomear, excluir em lote (botão de exclusão na header fica vermelho quando há seleção) |
-| Compatível com editores | MKV padrão com metadata correta de nome de faixa — abre direto no DaVinci, Premiere, etc. |
+- **Cada microfone e alto-falante na própria faixa.** Faixa 1 é a mistura
+  de tudo; as outras ficam isoladas por dispositivo, até 6. Abre no
+  DaVinci ou no Premiere com os nomes certos, pronto pra separar voz de
+  áudio do sistema.
+
+- **Arquivos que não desperdiçam espaço.** Grava por qualidade, não por
+  taxa fixa: tela parada quase não ocupa nada, e as cenas de movimento
+  gastam o que precisarem.
+
+- **Corta, junta e exporta sem sair do app.** Dividir e unir não
+  reencodam — são instantâneos e sem perda. A exportação recorta trechos,
+  escolhe monitores e reduz resolução, com prévia do que está saindo.
+
+- **Grava chamadas sozinho.** Detecta quando o Teams, o Meet ou o
+  WhatsApp abre o microfone, começa a gravar e para quando a chamada
+  acaba. Funciona até com o app hibernando.
+
+- **À prova de queda de energia.** Grava em MKV, recuperável quadro a
+  quadro. Um travamento não leva a gravação junto.
+
+Também tem tema claro/escuro acompanhando o Windows, interface em
+português, inglês e espanhol, atalho global, ícone na bandeja, início com
+o Windows, player embutido com zoom, velocidade e forma de onda, e
+exclusão sempre pela lixeira.
 
 ---
 
 ## Instalação
 
-Baixe a versão mais recente em [Releases](https://github.com/e-delphi/NoOBS/releases).
+Baixe a versão mais recente em
+[Releases](https://github.com/e-delphi/NoOBS/releases/latest).
 
-O instalador inclui:
-
-- **Iniciar com o Windows** *(marcado por padrão numa instalação nova)* — sobe o NoOBS automaticamente no logon. Combinado com "Minimizar para bandeja", o app inicia em modo hibernação consumindo só ~5 MB. Numa reinstalação, sua escolha anterior é preservada.
-- **Atalho na área de trabalho** *(desmarcado)* — cria um atalho do NoOBS no Desktop.
-
-Na **primeira execução** após instalação, o app abre direto na tela de Configurações pra você ajustar pasta de gravação, atalho e demais opções antes da primeira gravação.
+O instalador oferece **iniciar com o Windows** (marcado por padrão) e
+**atalho na área de trabalho** (desmarcado). Na primeira execução o app
+abre nas Configurações pra você escolher a pasta de gravação e o atalho.
 
 ---
 

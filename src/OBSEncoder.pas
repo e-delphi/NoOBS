@@ -46,6 +46,13 @@ function GetEncoderMaxDimension: Integer;
 // o CRF dele.
 function GetRecordingQualityLevel: Integer;
 
+// Traduz um ID de encoder do libobs ('av1_texture_amf', 'obs_x264',
+// 'ffmpeg_svt_av1', ...) no rotulo curto de familia que a UI mostra
+// ('AV1', 'H.264', 'HEVC') e se e hardware. Serve pra registrar na meta
+// da gravacao COMO ela foi feita. Familia desconhecida devolve ''.
+procedure DescribeEncoderId(const AId: string; out AFamily: string;
+  out AHardware: Boolean);
+
 implementation
 
 uses
@@ -54,11 +61,90 @@ uses
   OBSLog,
   OBSConfig;
 
+type
+  // Um valor de qualidade por nivel do slider (0..10).
+  TQualityTable = array[0..10] of Integer;
+
 const
   // Escala de referencia do controle de qualidade: a do x264 (0..51), a
-  // mesma que a exportacao usa. Os caminhos AV1 de NVENC/AMF/QSV expoem
-  // 0..63 e sao reescalados em ScaleQuality.
+  // mesma que a exportacao usa.
   CRF_SCALE_MAX = 51;
+
+  // ------------------------------------------------------------------
+  // Tabelas de qualidade CALIBRADAS, uma por encoder.
+  //
+  // Reescalar linearmente entre as escalas nativas (o que se fazia antes)
+  // parte da premissa de que "mesma posicao relativa na escala = mesma
+  // qualidade". A premissa e FALSA, e por larga margem. Medido nesta
+  // maquina encodando quadros REAIS de tela, decodando de volta e
+  // comparando PSNR do plano Y contra a origem — no nivel 5 (padrao),
+  // que deveria dar os 46,5 dB do x264 em crf 23:
+  //
+  //   encoder      valor antigo   PSNR entregue   valor calibrado
+  //   x264            crf 23         46,5 dB           23
+  //   SVT-AV1         crf 28         56,6 dB  (+10!)   54
+  //   AMF AV1         qp  112        46,0 dB           109
+  //   AMF H.264       qp   23        49,9 dB  (+3,4)    27
+  //   AMF HEVC        qp   23        51,7 dB  (+5,2)    29
+  //
+  // O SVT-AV1 entregava 10 dB a mais do que o pedido — o usuario escolhia
+  // "equilibrado" e recebia quase-lossless, com arquivo 2,4x maior que o
+  // mesmo nivel no AV1 por hardware. Cada linha abaixo e o parametro que
+  // IGUALA o PSNR do x264 naquele nivel, resolvido por interpolacao sobre
+  // a curva medida de cada encoder.
+  //
+  // Referencia = x264 porque a escala do app sempre foi definida como
+  // "CRF do x264", e o 23 do nivel 5 e a ancora herdada do OBS.
+  // ------------------------------------------------------------------
+
+  // x264: e a propria referencia.
+  Q_X264: TQualityTable =
+    (50, 44, 38, 33, 28, 23, 21, 19, 17, 15, 12);
+
+  // SVT-AV1 (crf 0..63). Os niveis 0..3 saturam em 63: no maximo da
+  // escala ele ainda entrega ~40 dB, bem acima do que o x264 da em crf
+  // 38..50. Nao e defeito — o quantizador do AV1 simplesmente nao desce
+  // tanto. Efeito pratico: nos dois niveis mais baixos o arquivo sai um
+  // pouco maior que o pedido, porem com qualidade melhor.
+  Q_SVT_AV1: TQualityTable =
+    (63, 63, 63, 63, 61, 54, 50, 46, 41, 37, 29);
+
+  // AMF AV1. A chave 'cqp' do plugin vai de 0..63 e ele multiplica por 4
+  // internamente (texture-amf.cpp: qp := cq_value * 4), chegando na faixa
+  // 0..255 do AMF — que foi a que se mediu. Estes valores ja sao o /4.
+  Q_AMF_AV1: TQualityTable =
+    (63, 61, 53, 45, 36, 27, 23, 18, 14, 12, 7);
+
+  // AMF H.264 e HEVC (qp 0..51). O HEVC precisa de qp mais alto que o
+  // H.264 pro mesmo PSNR — e mais eficiente, entrega a mesma qualidade
+  // jogando fora mais informacao.
+  Q_AMF_H264: TQualityTable =
+    (51, 48, 42, 37, 32, 27, 25, 23, 21, 19, 16);
+  Q_AMF_HEVC: TQualityTable =
+    (51, 50, 44, 39, 34, 29, 27, 25, 23, 21, 18);
+
+  // AV1 por CPU, registrado pelo obs-ffmpeg (obs-ffmpeg-av1.c). Escolha
+  // EXPLICITA do usuario — nunca entra na cadeia automatica, porque satura
+  // todos os nucleos e a gravacao nao pode competir com o que o usuario
+  // esta fazendo. O 'ffmpeg_aom_av1' existe no mesmo plugin e foi
+  // descartado: medido a ~8 quadros/s em 1080p, nem de longe tempo real.
+  AV1_SW_ID: AnsiString = 'ffmpeg_svt_av1';
+
+  // Preset do SVT-AV1 (0 = mais lento/melhor, 13 = mais rapido). FIXO, sem
+  // controle na UI: medido com quadros REAIS de tela nesta maquina (16
+  // threads), o tamanho do arquivo praticamente nao muda entre presets
+  // (96..120 KB nos mesmos 40 quadros — tela e conteudo facil), mas a
+  // velocidade muda em ordem de grandeza:
+  //
+  //   preset |   720p   |  1080p   |   4K
+  //        8 | 121 q/s  |  40 q/s  |  23 q/s
+  //       10 | 241 q/s  | 133 q/s  |  35 q/s
+  //       12 | 344 q/s  | 186 q/s  |  36 q/s
+  //
+  // 10 e o joelho da curva: abaixo dele nao da tempo real em 1080p e nao
+  // se ganha qualidade perceptivel; acima, o ganho ja saturou. Expor isso
+  // como opcao so daria ao usuario um jeito de piorar as duas coisas.
+  AV1_SW_PRESET = 10;
 
   // Teto de pico (kbps) aplicado ao 'max_bitrate' do NVENC em CQVBR.
   // Generoso de proposito: serve de rede de seguranca pra um canvas
@@ -119,6 +205,7 @@ begin
   Result.HevcHw := False;
   Result.H264Hw := False;
   Result.H264Sw := False;
+  Result.Av1Sw  := False;
   Result.Vendor := gvUnknown;
 
   i := 0;
@@ -130,6 +217,12 @@ begin
       // x264 = CPU.
       if (Id = 'obs_x264') or (Id = 'ffmpeg_x264') then
         Result.H264Sw := True
+      // AV1 por CPU. Vem no obs-ffmpeg (que ja carregamos), entao esta
+      // disponivel em qualquer maquina — nao depende de GPU nenhuma e por
+      // isso NAO mexe no Vendor. O irmao 'ffmpeg_aom_av1' e ignorado de
+      // proposito: lento demais pra tempo real (ver AV1_SW_ID).
+      else if Id = string(AV1_SW_ID) then
+        Result.Av1Sw := True
       // NVIDIA: obs_nvenc_*, jim_nvenc, jim_hevc_nvenc
       else if (Pos('nvenc', Id) > 0) or (Pos('jim_nvenc', Id) > 0) or
               (Pos('jim_hevc_nvenc', Id) > 0) then
@@ -190,20 +283,8 @@ function QualityLevelToCrf(ALevel: Integer): Integer;
 // com qualidade constante nao ha taxa fixa pra anunciar, e um espelho que
 // ninguem le sai de sincronia calado.
 begin
-  case ALevel of
-     0: Result := 50;
-     1: Result := 44;
-     2: Result := 38;
-     3: Result := 33;
-     4: Result := 28;
-     6: Result := 21;
-     7: Result := 19;
-     8: Result := 17;
-     9: Result := 15;
-    10: Result := 12;
-  else
-    Result := 23;   // nivel 5 (padrao) e qualquer valor fora da faixa
-  end;
+  if (ALevel < 0) or (ALevel > 10) then ALevel := 5;   // 5 = padrao
+  Result := Q_X264[ALevel];
 end;
 
 function GetRecordingQualityLevel: Integer;
@@ -250,20 +331,41 @@ begin
   if Result > 10 then Result := 10;
 end;
 
+procedure DescribeEncoderId(const AId: string; out AFamily: string;
+  out AHardware: Boolean);
+// A familia sai do NOME do encoder, nao de tabela de IDs conhecidos: os
+// IDs variam entre versoes do OBS (jim_nvenc -> obs_nvenc_h264_tex, etc)
+// e uma lista fixa envelheceria calada. 'Hardware' = nao e um dos dois
+// encoders de CPU que carregamos.
+var
+  Id: string;
+begin
+  Id := LowerCase(AId);
+  AFamily := '';
+  if Pos('av1', Id) > 0 then AFamily := 'AV1'
+  else if (Pos('hevc', Id) > 0) or (Pos('h265', Id) > 0) then AFamily := 'HEVC'
+  else if (Pos('h264', Id) > 0) or (Pos('x264', Id) > 0) or
+          (Pos('avc', Id) > 0) or (Pos('jim_nvenc', Id) > 0) then
+    AFamily := 'H.264';
+  AHardware := (Pos('x264', Id) = 0) and (Id <> string(AV1_SW_ID));
+end;
+
 function ScaleQuality(ACrf, AMax: Integer): Integer;
-// Reescala o CRF 0..51 pra escala nativa de um encoder que vai ate AMax
-// (os caminhos AV1 do NVENC/AMF/QSV expoem 0..63). Irmao do
-// FFmpegExport.ScaleCrf — mesma armadilha, outro lado da casa.
+// Reescala o CRF 0..51 pra escala nativa de um encoder que vai ate AMax.
+// SO serve pros encoders ainda NAO CALIBRADOS (NVENC e QSV) — os
+// calibrados usam as tabelas Q_* acima, porque reescalar linearmente
+// assume que "mesma posicao na escala = mesma qualidade", e a medicao
+// mostrou que isso e falso (ver comentario de TQualityTable).
 begin
   if AMax = CRF_SCALE_MAX then Exit(ACrf);
   Result := Round(ACrf * (AMax / CRF_SCALE_MAX));
 end;
 
 procedure ApplyConstantQuality(ASettings: obs_data_t; const AId: AnsiString;
-  ACrf: Integer);
-// Traduz o CRF 0..51 pro modo de QUALIDADE CONSTANTE ADAPTATIVA de cada
-// encoder — aquele que varia o QP conforme a cena, gastando menos onde o
-// olho nao percebe. Cada fabricante batizou o seu:
+  ALevel: Integer);
+// Aplica o nivel do slider (0..10) no modo de QUALIDADE CONSTANTE
+// ADAPTATIVA de cada encoder — aquele que varia o QP conforme a cena,
+// gastando menos onde o olho nao percebe. Cada fabricante batizou o seu:
 //
 //   x264   -> CRF    (crf)
 //   NVENC  -> CQVBR  (target_quality)   <- chave PROPRIA, nao e o 'cqp'
@@ -282,18 +384,43 @@ procedure ApplyConstantQuality(ASettings: obs_data_t; const AId: AnsiString;
 var
   Id: string;
   IsAv1: Boolean;
-  MaxPeak: Integer;
+  MaxPeak, ACrf, V: Integer;
 begin
+  if (ALevel < 0) or (ALevel > 10) then ALevel := 5;
+  // CRF equivalente na escala de referencia. So os ramos NAO CALIBRADOS
+  // (NVENC, QSV e o fallback generico) usam este valor; os calibrados
+  // indexam a propria tabela pelo nivel.
+  ACrf := Q_X264[ALevel];
+
   // Mesmo estilo do DetectEncoderCaps: compara como string, nao AnsiString
   // (evita ambiguidade entre System.Pos e System.AnsiStrings.Pos).
   Id := LowerCase(string(AId));
   IsAv1 := Pos('av1', Id) > 0;
 
-  // ---- x264: CRF nativo, exatamente a mesma escala do controle.
+  // ---- x264: CRF nativo — e a propria referencia da calibracao.
   if Pos('x264', Id) > 0 then
   begin
     obs_data_set_string(ASettings, 'rate_control', 'CRF');
-    obs_data_set_int(ASettings, 'crf', ACrf);
+    obs_data_set_int(ASettings, 'crf', Q_X264[ALevel]);
+    Log('Encoder rc: CRF crf=%d (nivel %d)', [Q_X264[ALevel], ALevel]);
+    Exit;
+  end;
+
+  // ---- SVT-AV1 (CPU): o plugin compara `astrcmpi(rc, "cqp")` e aplica o
+  // valor da chave 'cqp' TANTO no 'crf' quanto no 'qp' do libsvtav1
+  // (obs-ffmpeg-av1.c:103-110). Escala nativa 0..63, nao 0..51.
+  //
+  // O nome do modo aqui e 'cqp' MINUSCULO e tem que ser exatamente esse:
+  // qualquer outra string (inclusive o 'CRF' do ramo generico la embaixo)
+  // nao casa no astrcmpi e cai no ramo final do plugin, que e **CBR**
+  // (obs-ffmpeg-av1.c:112). Seria a pegadinha #53 de novo, num encoder
+  // novo — silenciosa, porque o arquivo sai, so que gordo.
+  if Id = string(AV1_SW_ID) then
+  begin
+    obs_data_set_string(ASettings, 'rate_control', 'cqp');
+    obs_data_set_int(ASettings, 'cqp', Q_SVT_AV1[ALevel]);
+    obs_data_set_int(ASettings, 'preset', AV1_SW_PRESET);
+    Log('Encoder rc: cqp=%d (nivel %d, calibrado)', [Q_SVT_AV1[ALevel], ALevel]);
     Exit;
   end;
 
@@ -318,6 +445,12 @@ begin
     MaxPeak := GetConfigInt('recordingMaxBitrate', DEFAULT_MAX_BITRATE);
     if MaxPeak < 0 then MaxPeak := 0;   // 0 = sem teto
     obs_data_set_int(ASettings, 'max_bitrate', MaxPeak);
+    // NAO CALIBRADO: a calibracao por PSNR foi feita em maquina AMD, sem
+    // NVIDIA disponivel pra medir. Segue no reescalonamento linear, que a
+    // medicao dos outros mostrou ser so uma aproximacao. Quando houver uma
+    // maquina NVIDIA, repetir o metodo e trocar por uma tabela Q_NVENC_*.
+    Log('Encoder rc: CQVBR target_quality~%d (nivel %d, NAO calibrado)',
+      [ACrf, ALevel]);
     Exit;
   end;
 
@@ -345,11 +478,17 @@ begin
   // vale mais que um adaptativo que anda pra tras.
   if Pos('amf', Id) > 0 then
   begin
-    obs_data_set_string(ASettings, 'rate_control', 'CQP');
     if IsAv1 then
-      obs_data_set_int(ASettings, 'cqp', ScaleQuality(ACrf, 63))
+      V := Q_AMF_AV1[ALevel]
+    // O HEVC do AMF precisa de qp MAIOR que o H.264 pro mesmo PSNR — e
+    // mais eficiente, entrega a mesma qualidade jogando fora mais dado.
+    else if (Pos('h265', Id) > 0) or (Pos('hevc', Id) > 0) then
+      V := Q_AMF_HEVC[ALevel]
     else
-      obs_data_set_int(ASettings, 'cqp', ACrf);
+      V := Q_AMF_H264[ALevel];
+    obs_data_set_string(ASettings, 'rate_control', 'CQP');
+    obs_data_set_int(ASettings, 'cqp', V);
+    Log('Encoder rc: CQP cqp=%d (nivel %d, calibrado)', [V, ALevel]);
     Exit;
   end;
 
@@ -390,9 +529,11 @@ begin
     // exatamente ele que enchia a gravacao de tela parada de bits de lixo.
     QLevel := GetRecordingQualityLevel;
     Crf := QualityLevelToCrf(QLevel);
-    ApplyConstantQuality(Settings, AId, Crf);
-    Log('Encoder quality: nivel=%d crf=%d (qualidade constante)',
+    Log('Encoder quality: nivel=%d (equivale a crf %d na referencia x264)',
       [QLevel, Crf]);
+    // A partir daqui cada encoder resolve o proprio parametro pela tabela
+    // calibrada — nao pelo CRF acima, que serve so de referencia comum.
+    ApplyConstantQuality(Settings, AId, QLevel);
 
     // Intervalo de keyframe (chave padrao de TODOS os encoders do OBS: x264,
     // NVENC, AMF, QSV). Sem isto o default e 0 = "auto", que poe keyframes
@@ -465,15 +606,28 @@ begin
   if Result <> nil then Log('Encoder: obs_x264');
 end;
 
+function TryAv1Sw: obs_encoder_t;
+begin
+  Result := TryCreateVideoEncoder(AV1_SW_ID);
+  if Result <> nil then Log('Encoder: %s (CPU)', [string(AV1_SW_ID)]);
+end;
+
 function SelectVideoEncoder: obs_encoder_t;
 var
   Pref: string;
 begin
-  // Le preferencia do usuario. Valores: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
+  // Le preferencia do usuario. Valores:
+  //   auto | av1-hw | hevc-hw | h264-hw | h264-sw | av1-sw
   // Default 'auto': deixa o app decidir o melhor codec via fallback
   // chain (H.264 hw -> H.264 sw -> AV1 hw -> HEVC hw). Compatibilidade
   // primeiro, com fallback automatico pra software quando o hw nao
   // suporta.
+  //
+  // O 'av1-sw' NAO entra na cadeia automatica em hipotese nenhuma — so
+  // roda quando o usuario escolhe na mao. Ele satura todos os nucleos, e
+  // gravacao concorre com o que o usuario esta fazendo; cair nele sozinho
+  // transformaria uma maquina sem AV1 por hardware numa maquina lenta sem
+  // o usuario ter pedido nada.
   Pref := LowerCase(GetConfigStr('codec', 'auto'));
   Log('Codec preferido: %s', [Pref]);
 
@@ -500,6 +654,12 @@ begin
     Result := TryH264Sw;
     if Result <> nil then Exit;
     Log('Codec h264-sw indisponivel (estranho), caindo pro fallback.');
+  end
+  else if Pref = 'av1-sw' then
+  begin
+    Result := TryAv1Sw;
+    if Result <> nil then Exit;
+    Log('Codec av1-sw indisponivel, caindo pro fallback.');
   end;
 
   // Auto (ou fallback de qualquer escolha que falhou):
@@ -565,6 +725,12 @@ begin
     Exit(FallbackMax);
   end;
   if Pref = 'h264-sw' then Exit(MAX_OTHER);  // x264 sempre presente
+  // SVT-AV1 aceita bem alem de 8192; MAX_OTHER aqui e sanity, igual x264.
+  if Pref = 'av1-sw' then
+  begin
+    if Caps.Av1Sw then Exit(MAX_OTHER);
+    Exit(FallbackMax);
+  end;
 
   // 'auto' (ou valor desconhecido): comeca do topo da chain = FallbackMax.
   Result := FallbackMax;

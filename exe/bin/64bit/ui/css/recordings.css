@@ -294,11 +294,57 @@
     cursor: text;
     outline: none;
   }
+  /* Rodape do card: tamanho a esquerda, selos a direita, MESMA linha.
+     O card tem altura fixa no grid — pôr os selos numa linha propria
+     empurraria a grade inteira, que e exatamente o que nao se quer.
+     min-width:0 no .size deixa o texto do tamanho encolher/elipsar antes
+     de espremer os selos, que sao curtos e nao quebram bem. */
+  .rec-card .rec-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 1px;
+    /* Trava a altura na do texto de 11px: mesmo que um selo tenha
+       padding, a linha nao cresce e o card mantem a altura de hoje. */
+    min-height: 15px;
+  }
   .rec-card .size {
     font-size: 11px;
     color: var(--text-3);
-    margin-top: 1px;
     font-variant-numeric: tabular-nums;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rec-badges {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;          /* nunca encolhe: quem cede espaco e o tamanho */
+  }
+  .rec-badge {
+    font-size: 9px;
+    line-height: 13px;
+    padding: 0 4px;
+    border-radius: 3px;
+    color: var(--text-3);
+    background: var(--panel-2);
+    border: 1px solid var(--border-2);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.2px;
+  }
+  /* Codec por hardware x software: so o software ganha destaque, porque
+     e o que tem custo de CPU e o usuario precisa reconhecer de relance. */
+  .rec-badge.sw {
+    color: #b45309;
+    border-color: #f59e0b;
+  }
+  :root[data-theme="dark"] .rec-badge.sw { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .rec-badge.sw { color: #fbbf24; }
   }
 
   /* Context menu (right-click) */
@@ -323,6 +369,18 @@
   .ctx-item:hover { background: var(--panel-3); }
   .ctx-item.danger { color: var(--danger-2); }
   .ctx-item.danger:hover { background: var(--danger); color: white; }
+  /* Item desabilitado: continua VISIVEL (some seria pior — o usuario
+     procuraria a opcao e nao acharia), so esmaecido e inerte. O hover
+     tambem some, senao pareceria clicavel. */
+  .ctx-item[data-disabled="true"] {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .ctx-item[data-disabled="true"]:hover { background: none; }
+  .ctx-item.danger[data-disabled="true"]:hover {
+    background: none;
+    color: var(--danger-2);
+  }
   .ctx-sep { height: 1px; background: var(--border); margin: 4px 2px; }
 
   /* ===== Loading overlay (apenas sobre a sidebar de sources) ===== */

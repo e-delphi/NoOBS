@@ -208,6 +208,53 @@ function setMergeBusy(busy) {
   RecSelection._syncMode();
 }
 
+// Selos de "como foi gravado" (codec, fps, nível de qualidade), no canto
+// direito da linha do tamanho. Só desenha o que o backend conhece:
+// gravações anteriores a esses campos não trazem nenhum, e aí a função
+// devolve null e a linha fica só com o tamanho — sem "?" nem "—".
+//
+// Texto curto de propósito: o card é estreito e a linha é compartilhada
+// com o tamanho. O detalhe legível fica no tooltip (data-hint).
+function buildRecBadges(item) {
+  const parts = [];
+  if (item.codec) {
+    parts.push({
+      text: item.codec,
+      // Hardware x software muda o que o usuário deve esperar de CPU
+      // numa próxima gravação — vale distinguir.
+      hint: item.codecHw ? T('recordings.badge.codecHw', { codec: item.codec })
+                         : T('recordings.badge.codecSw', { codec: item.codec }),
+      cls: item.codecHw ? 'hw' : 'sw'
+    });
+  }
+  if (item.fps > 0) {
+    parts.push({
+      text: item.fps + T('recordings.badge.fpsSuffix'),
+      hint: T('recordings.badge.fps', { fps: item.fps }),
+      cls: ''
+    });
+  }
+  if (typeof item.quality === 'number' && item.quality >= 0) {
+    parts.push({
+      text: T('recordings.badge.qualityShort', { level: item.quality }),
+      hint: T('recordings.badge.quality', { level: item.quality }),
+      cls: ''
+    });
+  }
+  if (!parts.length) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'rec-badges';
+  parts.forEach(p => {
+    const b = document.createElement('span');
+    b.className = 'rec-badge' + (p.cls ? ' ' + p.cls : '');
+    b.textContent = p.text;
+    b.dataset.hint = p.hint;
+    wrap.appendChild(b);
+  });
+  return wrap;
+}
+
 function buildRecCard(item) {
   const card = document.createElement('div');
   card.className = 'rec-card';
@@ -278,12 +325,22 @@ function buildRecCard(item) {
   when.className = 'when';
   when.textContent = item.name || formatWhen(item.date);
 
+  // Linha do rodape: tamanho a esquerda, selos de como foi gravado a
+  // direita. Os selos entram NA MESMA linha de proposito — o card tem
+  // altura fixa no grid, e uma linha a mais empurraria a grade inteira.
+  const foot = document.createElement('div');
+  foot.className = 'rec-foot';
+
   const size = document.createElement('div');
   size.className = 'size';
   size.textContent = item.sizeText || '';
+  foot.appendChild(size);
+
+  const badges = buildRecBadges(item);
+  if (badges) foot.appendChild(badges);
 
   body.appendChild(when);
-  body.appendChild(size);
+  body.appendChild(foot);
   // Dblclick em qualquer parte do body (nome OU tamanho) → edita o
   // nome. Antes estava so no .when — agora o tamanho tambem serve de
   // alvo, consistente com o single-click do body que tambem nao abre

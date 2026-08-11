@@ -53,6 +53,9 @@ type
     // depois do start pra persistir em <hash>.json (player usa pra
     // seletor de monitor / zoom).
     FCurrentLayout: TRecordingLayout;
+    // ID do encoder de video que esta gravacao REALMENTE usou (o fallback
+    // pode ter escolhido outro que o pedido). Vira meta do arquivo.
+    FVideoEncoderId: string;
     procedure ResolvePaths;
     procedure LoadModules;
     procedure ReleaseRecordingObjects;
@@ -90,6 +93,7 @@ type
     property Initialized: Boolean read FInitialized;
     property OutputPath: string read FOutputPath;
     property CurrentLayout: TRecordingLayout read FCurrentLayout;
+    property VideoEncoderId: string read FVideoEncoderId;
     property OnStopped: TOBSStoppedProc read FOnStopped write FOnStopped;
   end;
 
@@ -992,6 +996,15 @@ begin
   Log('-- Encoder --');
   GVideoEncoder := SelectVideoEncoder;
   obs_encoder_set_video(GVideoEncoder, obs_get_video);
+  // Guarda COMO esta gravacao foi feita, pra virar meta do arquivo. Le do
+  // encoder criado, nao do config: o fallback pode ter escolhido outro
+  // codec, e o config pode mudar antes do stop.
+  FVideoEncoderId := '';
+  if GVideoEncoder <> nil then
+  begin
+    var EncIdPtr := obs_encoder_get_id(GVideoEncoder);
+    if EncIdPtr <> nil then FVideoEncoderId := FromAnsi(EncIdPtr);
+  end;
 
   // Audio encoders: um por track. O "name" do encoder (2o param de
   // obs_audio_encoder_create) e escrito como metadata "title" da

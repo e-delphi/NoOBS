@@ -1380,12 +1380,35 @@ qualidade constante — só que cada um com nome e escala próprios.
 
 | Encoder | Opções | Escala |
 |---|---|---|
-| `libx264` | `crf` (+`preset=veryfast`) | 0..51, idêntica ao controle |
-| `*_nvenc` (h264/hevc) | `rc=vbr` + `cq` + `b=0` | 0..51, **piso 1** |
-| `av1_nvenc` | `rc=vbr` + `cq` + `b=0` | 0..**63** (reescalado) |
-| `*_amf` (h264/hevc) | `rc=cqp` + `qp_i`/`qp_p`/`qp_b` | 0..51 |
-| `av1_amf` | `rc=cqp` + `qp_i`/`qp_p` | 0..**255** (reescalado) |
-| `*_mf` (Intel) | `rate_control=quality` + `quality` | 0..100 e **invertida** |
+| `libx264` | `crf` (+`preset=veryfast`) | 0..51, é a **referência** |
+| `libsvtav1` | `crf` | 0..63, **calibrado** (piso 1) |
+| `*_amf` (h264/hevc) | `rc=cqp` + `qp_i`/`qp_p`/`qp_b` | 0..51, **calibrado** |
+| `av1_amf` | `rc=cqp` + `qp_i`/`qp_p` | 0..255, **calibrado** |
+| `*_nvenc` (h264/hevc) | `rc=vbr` + `cq` + `b=0` | 0..51, piso 1 — não calibrado |
+| `av1_nvenc` | `rc=vbr` + `cq` + `b=0` | 0..63 reescalado — não calibrado |
+| `*_mf` (Intel) | `rate_control=quality` + `quality` | 0..100 e **invertida** — não calibrado |
+
+**"Calibrado" = medido, não reescalado.** Vale a mesma descoberta da #53:
+reescalar linearmente entre escalas nativas não alinha qualidade. Num
+CRF 23 pedido na tela, medindo PSNR sobre quadros reais de tela:
+
+| Encoder | valor antigo | PSNR | valor equivalente de verdade |
+|---|---|---|---|
+| `libx264` | crf 23 | 46,5 dB | 23 (referência) |
+| `libsvtav1` | crf 28 | **56,6 dB** | **55** |
+| `h264_amf` | qp 23 | 49,9 dB | 27 |
+| `hevc_amf` | qp 23 | 51,7 dB | 29 |
+| `av1_amf` | qp 112 | 46,0 dB | 109 |
+
+`FFmpegExport.CalibratedQuality` interpola entre 16 âncoras medidas
+(`CRF_ANCHOR` + as `Q_EXP_*`), densas em 17..28 onde o olho discrimina e
+esparsas nos extremos onde tudo satura. `ScaleCrf` (linear) sobrou só
+para NVENC e Media Foundation, que não têm hardware aqui para medir.
+
+**`crf 0` no SVT-AV1 NÃO é qualidade máxima** — o wrapper trata 0 como
+"não setado" e cai no qp default (~35). Medido: `crf 0` → 54,3 dB / 1,01
+Mbps contra `crf 1` → 65,0 dB / 3,04 Mbps. Mesma armadilha do `cq=0` do
+NVENC, daí o piso 1 na tabela.
 
 Três armadilhas nessa tabela:
 
@@ -1610,9 +1633,17 @@ no áudio, `:379`). A tradução vive em `OBSEncoder.ApplyConstantQuality`:
 | `obs_x264` | `"CRF"` | `crf` | 0..51 |
 | `obs_nvenc_*` | `"CQVBR"` | **`target_quality`** | 1..51 (AV1: 1..63) |
 | `*_texture_amf` | `"CQP"` | `cqp` | 0..51 (AV1: 0..63) |
+| `ffmpeg_svt_av1` | `"cqp"` **minúsculo** | `cqp` | 0..63 |
 | `obs_qsv11_*` | `"ICQ"` | `icq_quality` | 1..51 (AV1: 1..63) |
 
-Cinco detalhes que mordem:
+Seis detalhes que mordem:
+
+- **O `ffmpeg_svt_av1` compara o modo com `astrcmpi(rc, "cqp")`
+  (`obs-ffmpeg-av1.c:103`) e qualquer outra string cai no ramo final, que
+  é CBR (`:112`)** — inclusive o `"CRF"` do ramo genérico. Seria esta
+  mesma pegadinha reincidindo num encoder novo, e silenciosa: o arquivo
+  sai, só que gordo. O valor de `cqp` ele aplica em `crf` **e** `qp` do
+  libsvtav1, na escala nativa 0..63.
 
 - **O `QVBR` do AMF é INVERTIDO — não use.** O nome promete o VBR guiado
   por qualidade, mas `AMF_VIDEO_ENCODER_QVBR_QUALITY_LEVEL` **não é um
@@ -1659,6 +1690,42 @@ Cinco detalhes que mordem:
   presente todos voltam pro modo de alvo e o controle de qualidade vira
   enfeite.
 
+**Reescalonar linearmente entre as escalas nativas NÃO alinha qualidade —
+cada encoder precisa de tabela própria, medida.** A premissa de que "mesma
+posição relativa na escala = mesma qualidade" é falsa por larga margem.
+Medido encodando quadros reais de tela, decodificando de volta e
+comparando **PSNR do plano Y** contra a origem — no nível 5, que deveria
+entregar os 46,5 dB do x264 em CRF 23:
+
+| Encoder | valor antigo | PSNR entregue | valor calibrado |
+|---|---|---|---|
+| x264 | crf 23 | 46,5 dB | 23 |
+| **SVT-AV1** | crf 28 | **56,6 dB** (+10,1) | **54** |
+| AMF AV1 | qp 112 | 46,0 dB | 109 (`cqp` 27) |
+| AMF H.264 | qp 23 | 49,9 dB (+3,4) | 27 |
+| AMF HEVC | qp 23 | 51,7 dB (+5,2) | 29 |
+
+O SVT-AV1 entregava **10 dB acima** do pedido: o usuário escolhia
+"equilibrado" e recebia quase-lossless, com arquivo 2,4× maior que o mesmo
+nível no AV1 por hardware — exatamente a discrepância que se via
+comparando gravações reais (4,3 MB contra 10,4 MB). Depois de calibrado,
+as taxas convergem no nível 5: 0,70 / 0,50 / 0,63 / 0,72 / 0,68 Mbps.
+
+As tabelas (`Q_X264`, `Q_SVT_AV1`, `Q_AMF_AV1`, `Q_AMF_H264`,
+`Q_AMF_HEVC`) vivem em `OBSEncoder` e são indexadas pelo NÍVEL, não pelo
+CRF — o `ApplyConstantQuality` recebe o nível justamente pra isso.
+
+Três limites honestos dessa calibração:
+
+- **NVENC e QSV continuam NÃO calibrados** (`ScaleQuality` linear). Não há
+  máquina NVIDIA aqui pra medir. O log diz `NAO calibrado` no ramo deles.
+- **PSNR é proxy de qualidade, não percepção.** Para conteúdo de tela é
+  bem comportado, e é infinitamente melhor que o desalinhamento anterior.
+- **Os níveis 0..3 do SVT-AV1 saturam em `crf 63`**: no máximo da escala
+  ele ainda entrega ~40 dB, acima do que o x264 dá em CRF 38..50. O
+  quantizador do AV1 não desce tanto — nos dois níveis mais baixos o
+  arquivo sai um pouco maior que o pedido, com qualidade melhor.
+
 **A escala do slider mudou de `-4..+2` pra `0..10` (padrão 5), e por isso a
 chave do config mudou de nome.** As duas faixas se sobrepõem em 0/1/2, então
 é impossível saber pelo VALOR se um `0` guardado significa "padrão" (escala
@@ -1671,6 +1738,26 @@ deriva o CRF dela, pra não existirem duas interpretações da mesma chave).
 Bumpar o `version` do config.json não serviria: ele **descarta o arquivo
 inteiro**, e perder todas as preferências por causa de um slider seria
 desproporcional.
+
+**AV1 por software na gravação (`av1-sw`) é opt-in e nunca automático.**
+O `ffmpeg_svt_av1` vem no `obs-ffmpeg`, que já carregamos — não precisa de
+plugin novo. Mas ele codifica na CPU disputando a máquina com o usuário, o
+oposto do princípio da gravação, então: fica fora da cadeia de fallback do
+`SelectVideoEncoder`, usa **preset fixo 10** (`AV1_SW_PRESET`) e a tela de
+Configurações mostra um aviso de CPU quando selecionado. Medido com
+quadros REAIS de tela nesta máquina (16 threads, arquivo praticamente do
+mesmo tamanho em todos os presets — tela é conteúdo fácil):
+
+| preset | 720p | 1080p | 4K |
+|---|---|---|---|
+| 8 | 121 q/s | 40 q/s | 23 q/s (**0,76× de 30fps**) |
+| 10 | 241 q/s | 133 q/s | 35 q/s (1,15×) |
+| 12 | 344 q/s | 186 q/s | 36 q/s (1,19×) |
+
+O preset 10 é o joelho da curva. Em 4K a folga é de 15% **com a máquina
+ociosa** — some assim que algo mais disputar CPU, daí o aviso. O
+`ffmpeg_aom_av1` existe no mesmo plugin e foi descartado: ~8 quadros/s em
+1080p, nem perto de tempo real.
 
 Nota sobre a Intel: **`obs-qsv11` não está na whitelist do
 `OBSEngine.LoadModules`**, então os IDs `obs_qsv11_*` nunca se registram e
@@ -1721,14 +1808,14 @@ recuperáveis manualmente).
 | `recordDir`                      | path absoluto                                      |
 | `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |
 | `filenamePattern`                | modelo do nome do arquivo; códigos `{AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}` (default `"{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"`) |
-| `codec`                          | `"auto"`, `"av1-hw"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"` |
+| `codec`                          | `"auto"`, `"av1-hw"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"`, `"av1-sw"`. O `av1-sw` (`ffmpeg_svt_av1`, CPU) **nunca entra na cadeia automática** — só por escolha explícita, porque satura todos os núcleos e a gravação concorre com o que o usuário está fazendo (Pegadinha #53) |
 | `sources.monitors[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |
 | `sources.speakers[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.webcams[name]`          | `true` / `false` (default: `false`)                |
 | `hidden_monitors[idx]`, `hidden_mics[name]`, `hidden_speakers[name]`, `hidden_webcams[name]` | `true` = dispositivo **oculto**: some da lista da tela inicial **e** não entra na gravação. Ausente/`false` = visível. Namespace separado do `sources.*` de propósito — ocultar não mexe no "enabled", então desocultar devolve o device com a mesma preferência de gravação de antes |
 | `language`                       | `""` (auto, segue Windows), `"pt-BR"`, `"en"`, `"es"`, ... |
-| `recordingQualityLevel`          | `0..10` (default `5`; 10 = melhor). Vira **CRF** 50/44/38/33/28/**23**/21/19/17/15/12 via `OBSEncoder.QualityLevelToCrf` — qualidade constante, nunca alvo de bitrate. Degraus desiguais de propósito: CRF é perceptualmente logarítmico, então a metade de cima anda de 2 em 2 e a de baixo de 5-6 (Pegadinha #53) |
+| `recordingQualityLevel`          | `0..10` (default `5`; 10 = melhor). Cada encoder tem sua **tabela calibrada** (`Q_*` em `OBSEncoder`) — o nível vira um parâmetro diferente em cada um, escolhido pra entregar a mesma qualidade medida. A referência é o x264, cujo nível 5 é CRF 23 (âncora herdada do OBS). Qualidade constante, nunca alvo de bitrate. Degraus desiguais de propósito: CRF é perceptualmente logarítmico (Pegadinha #53) |
 | `recordingQuality`               | **legado** — escala antiga `-4..+2`. Só é lida quando `recordingQualityLevel` não existe, pra migrar (`-4→1 … 0→5 … +2→9`). Nunca escrita. As duas faixas se sobrepõem em 0/1/2, por isso a chave nova em vez de reinterpretar a antiga (Pegadinha #53) |
 | `recordingMaxBitrate`            | teto de pico em kbps aplicado ao `max_bitrate` do NVENC em CQVBR (default `100000` = 100 Mbps; `0` = sem teto). Só existe como chave do JSON — não tem controle na UI. Necessário porque o default do plugin é 10000 e estrangularia a qualidade constante (Pegadinha #53) |
 | `recordingFps`                   | `10..maxMonitorHz` (default `30` — padrão do NoOBS, mais compacto que o 60fps do OBS Studio) |

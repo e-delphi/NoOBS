@@ -72,7 +72,15 @@
     "confirmMergeN": "Criar um novo vídeo unindo {{count}} gravações na ordem selecionada? Os originais irão para a lixeira (recuperáveis).",
     "confirmDeleteSingleTitle": "Excluir gravação",
     "confirmDeleteNamed": "Mover \"{{name}}\" para a Lixeira do Windows?",
-    "deleteNShort": "Excluir {{count}} selecionadas"
+    "deleteNShort": "Excluir {{count}} selecionadas",
+    "badge": {
+      "codecHw": "{{codec}} por hardware (placa de vídeo)",
+      "codecSw": "{{codec}} por software (CPU)",
+      "fpsSuffix": "fps",
+      "fps": "{{fps}} quadros por segundo",
+      "qualityShort": "Q{{level}}",
+      "quality": "Nível de qualidade {{level}} de 10"
+    }
   },
   "export": {
     "menuItem": "Exportar…",
@@ -195,6 +203,7 @@
       "h264Sw": "H.264 — software (x264, CPU)",
       "av1Hw": "AV1 — hardware",
       "av1Sw": "AV1 — software (SVT-AV1, CPU)",
+      "swWarn": "Codifica na CPU e usa todos os núcleos. Acima de 1080p pode não acompanhar a gravação e perder quadros. Prefira um codificador de hardware se a sua placa tiver um.",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(indisponível)",
       "hwSuffix": " — hardware",
@@ -600,6 +609,8 @@
     "ok": "OK"
   },
   "banner": {
+    "updateTitle": "Nova versão disponível",
+    "updateBody": "A versão {{version}} já está disponível para download.",
     "audioTitle": "Dispositivo de áudio mudou",
     "monitorTitle": "Configuração de monitor mudou",
     "body": "A lista será atualizada assim que você parar a gravação."

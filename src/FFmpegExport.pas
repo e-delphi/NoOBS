@@ -152,6 +152,42 @@ const
   // gravacao do app — mantem o resultado divisivel pelo split depois.
   OUT_KEYINT_SEC = 2;
 
+  // ------------------------------------------------------------------
+  // Calibracao de qualidade entre encoders.
+  //
+  // CRF_ANCHOR sao pontos da escala de REFERENCIA (o CRF do x264, que e o
+  // numero que a tela de exportacao mostra). Cada Q_* abaixo diz, naquele
+  // mesmo ponto, qual parametro nativo do encoder entrega a MESMA
+  // qualidade — medido por PSNR sobre quadros reais de tela, encodando e
+  // decodificando de volta. Valores intermediarios saem por interpolacao
+  // em CalibratedQuality.
+  //
+  // Sem isto, a tela mostrava "CRF 23" e cada encoder entendia uma coisa
+  // diferente: o SVT-AV1 entregava 56,6 dB onde o x264 dava 46,5.
+  //
+  // Ancoras densas no meio (17..28), onde o olho discrimina, e esparsas
+  // nos extremos, onde tudo satura.
+  // ------------------------------------------------------------------
+  CRF_ANCHOR: array[0..15] of Integer =
+    (0, 4, 8, 12, 15, 17, 19, 21, 23, 26, 28, 31, 34, 38, 44, 51);
+
+  // SVT-AV1 (crf 1..63). Piso 1: o 'crf 0' do wrapper significa "nao
+  // setado" e cai no qp default (~35) — medido em 54,3 dB contra os
+  // 65,0 dB do crf 1. Mesma armadilha do 'cq=0' do NVENC.
+  Q_EXP_SVTAV1: array[0..15] of Integer =
+    (1, 5, 17, 29, 37, 42, 46, 51, 55, 60, 61, 63, 63, 63, 63, 63);
+
+  // AMF AV1 (qp 0..255 pelo libavcodec — aqui NAO ha o /4 do plugin
+  // libobs; este e o caminho do libavcodec, que expoe a escala cheia).
+  Q_EXP_AV1AMF: array[0..15] of Integer =
+    (0, 0, 12, 30, 46, 57, 73, 93, 109, 131, 145, 165, 186, 212, 244, 255);
+
+  // AMF H.264 e HEVC (qp 0..51). O HEVC pede qp maior pro mesmo PSNR.
+  Q_EXP_H264AMF: array[0..15] of Integer =
+    (0, 6, 11, 16, 19, 21, 23, 25, 27, 30, 32, 35, 38, 42, 48, 51);
+  Q_EXP_HEVCAMF: array[0..15] of Integer =
+    (0, 9, 14, 18, 21, 23, 25, 27, 29, 32, 34, 37, 40, 44, 50, 51);
+
   // Preto em YUV limited range (que e o que o OBS grava). Usar 0 no Y
   // daria "super preto", fora da faixa legal.
   YUV_BLACK_Y = 16;
@@ -614,10 +650,50 @@ begin
   Result := SWS_BICUBIC;
 end;
 
+function CalibratedQuality(const ATable: array of Integer;
+  ACrf, AMin, AMax: Integer): Integer;
+// Traduz o CRF de referencia (0..51, escala do x264 — a que a tela de
+// exportacao mostra) pro parametro nativo do encoder, interpolando entre
+// as ancoras MEDIDAS.
+//
+// Por que nao reescalar linearmente (o que se fazia aqui antes): porque
+// "mesma posicao relativa na escala" NAO significa "mesma qualidade".
+// Medido encodando quadros reais de tela, decodificando de volta e
+// comparando PSNR do plano Y contra a origem, num CRF 23:
+//
+//   x264      crf 23 -> 46,5 dB      (referencia)
+//   SVT-AV1   crf 28 -> 56,6 dB      era o que o reescalonamento dava
+//   SVT-AV1   crf 55 -> 46,5 dB      e o que realmente equivale
+//   AMF H.264 qp  23 -> 49,9 dB      /  qp 27 equivale
+//   AMF HEVC  qp  23 -> 51,7 dB      /  qp 29 equivale
+//
+// Ou seja: no mesmo numero da tela, o AV1 por software entregava 10 dB a
+// mais do que o pedido — arquivo muito maior, sem o usuario ter pedido.
+// As ancoras vivem em CRF_ANCHOR; cada encoder tem a sua linha.
+var
+  i: Integer;
+  T0, T1, V0, V1: Integer;
+begin
+  if ACrf <= CRF_ANCHOR[0] then Exit(ATable[0]);
+  if ACrf >= CRF_ANCHOR[High(CRF_ANCHOR)] then Exit(ATable[High(CRF_ANCHOR)]);
+  for i := 0 to High(CRF_ANCHOR) - 1 do
+    if (ACrf >= CRF_ANCHOR[i]) and (ACrf <= CRF_ANCHOR[i + 1]) then
+    begin
+      T0 := CRF_ANCHOR[i];     T1 := CRF_ANCHOR[i + 1];
+      V0 := ATable[i];         V1 := ATable[i + 1];
+      if T1 = T0 then Exit(V0);
+      Result := V0 + Round((V1 - V0) * (ACrf - T0) / (T1 - T0));
+      if Result < AMin then Result := AMin;
+      if Result > AMax then Result := AMax;
+      Exit;
+    end;
+  Result := ATable[High(CRF_ANCHOR)];
+end;
+
 function ScaleCrf(ACrf, AMax: Integer): Integer;
-// Reescala o CRF 0..51 pra escala nativa de um encoder que vai ate AMax
-// (o cq do av1_nvenc vai a 63, o qp do av1_amf a 255, o quality do
-// Media Foundation a 100).
+// Reescalonamento LINEAR — sobrou so pros encoders ainda NAO calibrados
+// (NVENC e Media Foundation, sem hardware desses aqui pra medir). Nos
+// calibrados use CalibratedQuality, que e medido em vez de suposto.
 begin
   Result := Round(ACrf * (AMax / EXPORT_CRF_MAX));
   if Result < 0 then Result := 0;
@@ -642,7 +718,7 @@ function ApplyQualityOptions(var ADict: AVDictionary; const AEncoder: string;
 // ele fora, o CQP e tentativa unica. Result = False significa "nao ha
 // tentativa AAttempt" — pare de tentar.
 var
-  E: string;
+  E, Q: string;
 
   procedure SetOpt(const AKey, AVal: string);
   begin
@@ -683,7 +759,7 @@ begin
   if E = 'libsvtav1' then
   begin
     if AAttempt > 0 then Exit;
-    SetOpt('crf', IntToStr(ScaleCrf(ACrf, 63)));
+    SetOpt('crf', IntToStr(CalibratedQuality(Q_EXP_SVTAV1, ACrf, 1, 63)));
     Exit(True);
   end;
 
@@ -729,15 +805,23 @@ begin
     begin
       // No AV1 do AMF o qp vai a 255, nao a 51 (confirmado enumerando as
       // AVOption do av1_amf: qp_i/qp_p em [-1..255]).
-      SetOpt('qp_i', IntToStr(ScaleCrf(ACrf, 255)));
-      SetOpt('qp_p', IntToStr(ScaleCrf(ACrf, 255)));
+      Q := IntToStr(CalibratedQuality(Q_EXP_AV1AMF, ACrf, 0, 255));
+      SetOpt('qp_i', Q);
+      SetOpt('qp_p', Q);
+    end
+    else if Has('hevc') or Has('h265') then
+    begin
+      Q := IntToStr(CalibratedQuality(Q_EXP_HEVCAMF, ACrf, 0, 51));
+      SetOpt('qp_i', Q);
+      SetOpt('qp_p', Q);
+      // qp_b so existe no AVC — o HEVC do AMF nao expoe.
     end
     else
     begin
-      SetOpt('qp_i', IntToStr(ACrf));
-      SetOpt('qp_p', IntToStr(ACrf));
-      // qp_b so existe no AVC (o HEVC do AMF nao expoe).
-      if Has('h264') then SetOpt('qp_b', IntToStr(ACrf));
+      Q := IntToStr(CalibratedQuality(Q_EXP_H264AMF, ACrf, 0, 51));
+      SetOpt('qp_i', Q);
+      SetOpt('qp_p', Q);
+      SetOpt('qp_b', Q);
     end;
     Result := True;
     Exit;

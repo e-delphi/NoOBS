@@ -153,6 +153,20 @@ function showCtxMenu(clientX, clientY, recordingId) {
       ? T('recordings.deleteNShort', { count: selectedAll.length })
       : T('common.delete');
   }
+  // Exportar opera sobre UMA gravacao (recorte, regioes e faixas sao
+  // especificos do arquivo). Em modo lote o menu inteiro fala das N
+  // selecionadas — deixar "Exportar" ativo ali sugeriria exportar todas,
+  // quando na verdade exportaria so a clicada. Desabilita, mesma regra do
+  // botao da header (que exige exatamente 1 selecionada).
+  //
+  // Quando o clique e num card FORA da selecao, o menu ja opera so nele
+  // (o "Excluir" tambem vira singular), entao exportar segue liberado.
+  const exportItem = menu.querySelector('[data-action="export"]');
+  if (exportItem) {
+    const blocked = useSelection || Export.running;
+    exportItem.dataset.disabled = blocked ? 'true' : 'false';
+    exportItem.dataset.hint = blocked ? T('export.selectOne') : '';
+  }
   menu.style.display = 'block';
   // Posiciona — clamp para nao escapar da janela.
   const w = menu.offsetWidth, h = menu.offsetHeight;
@@ -170,7 +184,11 @@ function initCtxMenu() {
   const menu = document.getElementById('ctxMenu');
   // Acao: exportar — sempre no card CLICADO, mesmo com selecao multipla
   // (a exportacao e por arquivo: recorte, regioes e faixas sao dele).
-  menu.querySelector('[data-action="export"]').addEventListener('click', () => {
+  menu.querySelector('[data-action="export"]').addEventListener('click', (e) => {
+    // Desabilitado nao e so visual: sem esta guarda o clique ainda abriria
+    // a exportacao do card sob o cursor, que e exatamente a ambiguidade
+    // que o estado desabilitado existe pra evitar.
+    if (e.currentTarget.dataset.disabled === 'true') return;
     const id = menu.dataset.target;
     hideCtxMenu();
     if (id) Export.openFor(id);

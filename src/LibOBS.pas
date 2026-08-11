@@ -345,6 +345,12 @@ function obs_enum_encoder_types(idx: NativeUInt; var id: PAnsiChar): ByteBool;
 procedure obs_encoder_release(encoder: obs_encoder_t);
   cdecl; external 'obs.dll' delayed;
 
+// ID do tipo com que o encoder foi criado ('obs_x264', 'av1_texture_amf',
+// 'ffmpeg_svt_av1', ...). Devolve ponteiro pra string estatica do libobs,
+// ou nil se o handle nao for valido.
+function obs_encoder_get_id(encoder: obs_encoder_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+
 procedure obs_encoder_set_video(encoder: obs_encoder_t; video: video_t);
   cdecl; external 'obs.dll' delayed;
 

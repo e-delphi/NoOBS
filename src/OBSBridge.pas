@@ -56,7 +56,7 @@
     init                 : monitors, mics, speakers, recordings
     recording_state      : active, elapsed
     recording_added      : item
-    encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, vendor,
+    encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, av1Sw, vendor,
                            vendorLogo, exportEncoders[] ({id,name,hardware}
                            — encoders do LIBAVCODEC utilizaveis na
                            exportacao, ja filtrados por existencia)
@@ -792,6 +792,23 @@ begin
     Result := StringReplace(Result, ILLEGAL[i], '_', [rfReplaceAll]);
 end;
 
+procedure AddRecordingBadges(AItem: TJSONObject;
+  const AMeta: TRecordingMeta);
+// Acrescenta ao card os selos de COMO a gravacao foi feita. Cada chave so
+// aparece se conhecida — gravacao anterior a estes campos nao tem nenhuma,
+// e a UI simplesmente nao desenha o selo (nada de "?" ou "-").
+begin
+  if AMeta.Codec <> '' then
+  begin
+    AItem.AddPair('codec', AMeta.Codec);
+    AItem.AddPair('codecHw', TJSONBool.Create(AMeta.CodecHw));
+  end;
+  if AMeta.Fps > 0 then
+    AItem.AddPair('fps', TJSONNumber.Create(AMeta.Fps));
+  if AMeta.QualityLevel >= 0 then
+    AItem.AddPair('quality', TJSONNumber.Create(AMeta.QualityLevel));
+end;
+
 function BuildRecordingsArray: TJSONArray;
 var
   Files: TStringDynArray;
@@ -802,6 +819,7 @@ var
   FDate: TDateTime;
   CachedDur: Integer;
   CachedThumb: string;
+  CachedMeta: TRecordingMeta;
 begin
   Result := TJSONArray.Create;
   if (RecordDir = '') or (not TDirectory.Exists(RecordDir)) then Exit;
@@ -835,13 +853,14 @@ begin
     // roda em background depois pra preencher os que faltam.
     CachedDur := 0;
     CachedThumb := '';
-    GetCachedMeta(FilePath, CachedDur, CachedThumb);
+    GetCachedMeta(FilePath, CachedDur, CachedThumb, CachedMeta);
     if CachedDur > 0 then
       Item.AddPair('duration', TJSONNumber.Create(CachedDur))
     else
       Item.AddPair('duration', '');
     if CachedThumb <> '' then
       Item.AddPair('thumb', CachedThumb);
+    AddRecordingBadges(Item, CachedMeta);
 
     Result.AddElement(Item);
   end;
@@ -929,6 +948,9 @@ var
   Obj, Item: TJSONObject;
   FSize: Int64;
   FDate: TDateTime;
+  AddedDur: Integer;
+  AddedThumb: string;
+  AddedMeta: TRecordingMeta;
 begin
   Log('PushRecordingAdded: path="%s" duration=%d', [AFilePath, ADurationSec]);
   if not TFile.Exists(AFilePath) then
@@ -960,6 +982,10 @@ begin
   Item.AddPair('size',     TJSONNumber.Create(FSize));
   Item.AddPair('sizeText', FormatBytesShort(FSize));
   Item.AddPair('duration', TJSONNumber.Create(ADurationSec));
+  // O SaveRecordingMeta ja rodou (OnEngineRecordingStopped chama antes
+  // deste push), entao os selos ja estao no <hash>.json.
+  GetCachedMeta(AFilePath, AddedDur, AddedThumb, AddedMeta);
+  AddRecordingBadges(Item, AddedMeta);
 
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recording_added');
@@ -2657,6 +2683,12 @@ begin
     Meta := Default(TRecordingMeta);
     Meta.DurationSec := LastRecordingDuration;
     Meta.Layout := Engine.CurrentLayout;
+    // Como foi gravado. O codec vem do encoder que o engine REALMENTE
+    // criou (o fallback pode ter trocado o pedido); fps e qualidade vem
+    // do config, que nao muda durante a gravacao.
+    DescribeEncoderId(Engine.VideoEncoderId, Meta.Codec, Meta.CodecHw);
+    Meta.Fps := GetConfigInt('recordingFps', 30);
+    Meta.QualityLevel := GetRecordingQualityLevel;
     try
       OBSPlayer.SaveRecordingMeta(AOutputPath, Meta);
     except
@@ -4188,11 +4220,18 @@ begin
 end;
 
 procedure HandleSetCodec(const ACodec: string);
-// Valores aceitos: auto | av1-hw | hevc-hw | h264-hw | h264-sw.
+// Valores aceitos: auto | av1-hw | hevc-hw | h264-hw | h264-sw | av1-sw.
 // OBSEncoder.SelectVideoEncoder consulta config 'codec' em cada
 // gravacao; mudanca aqui afeta a proxima gravacao.
+//
+// Esta lista tem que acompanhar o <select> de codec do index.html E os
+// ramos do SelectVideoEncoder. Quando o 'av1-sw' foi adicionado nos dois
+// e esquecido aqui, o efeito foi mudo do jeito pior: a UI mostrava a
+// opcao escolhida, o valor era DESCARTADO no Exit sem log nenhum, e a
+// gravacao seguinte usava o codec antigo.
 const
-  VALID: array[0..4] of string = ('auto', 'av1-hw', 'hevc-hw', 'h264-hw', 'h264-sw');
+  VALID: array[0..5] of string = ('auto', 'av1-hw', 'hevc-hw', 'h264-hw',
+    'h264-sw', 'av1-sw');
 var
   i: Integer;
   Ok: Boolean;
@@ -4200,7 +4239,15 @@ begin
   Ok := False;
   for i := 0 to High(VALID) do
     if SameText(ACodec, VALID[i]) then begin Ok := True; Break; end;
-  if not Ok then Exit;
+  if not Ok then
+  begin
+    // Nunca mais em silencio: um valor recusado aqui e sempre bug nosso
+    // (a UI so oferece o que existe), e sem log ele so aparece quando o
+    // usuario percebe que a gravacao saiu no codec errado.
+    Log('HandleSetCodec: valor recusado "%s" — fora da lista aceita.',
+      [ACodec]);
+    Exit;
+  end;
   SetConfigStr('codec', ACodec);
   Log('Codec preferido alterado para: %s', [ACodec]);
 end;
@@ -5469,6 +5516,7 @@ begin
   Obj.AddPair('hevcHw', TJSONBool.Create(Caps.HevcHw));
   Obj.AddPair('h264Hw', TJSONBool.Create(Caps.H264Hw));
   Obj.AddPair('h264Sw', TJSONBool.Create(Caps.H264Sw));
+  Obj.AddPair('av1Sw', TJSONBool.Create(Caps.Av1Sw));
   Obj.AddPair('vendor', VendorStr);
   Obj.AddPair('vendorLogo', VendorLogo);
 
@@ -5488,9 +5536,11 @@ begin
   end;
   Obj.AddPair('exportEncoders', ExpArr);
   PostOwned(Obj);
-  Log('Encoder caps: av1-hw=%s hevc-hw=%s h264-hw=%s h264-sw=%s vendor=%s',
+  Log('Encoder caps: av1-hw=%s hevc-hw=%s h264-hw=%s h264-sw=%s ' +
+    'av1-sw=%s vendor=%s',
     [BoolToStr(Caps.Av1Hw, True), BoolToStr(Caps.HevcHw, True),
-     BoolToStr(Caps.H264Hw, True), BoolToStr(Caps.H264Sw, True), VendorStr]);
+     BoolToStr(Caps.H264Hw, True), BoolToStr(Caps.H264Sw, True),
+     BoolToStr(Caps.Av1Sw, True), VendorStr]);
 end;
 
 procedure OnTimer(ATimerId: UINT_PTR);

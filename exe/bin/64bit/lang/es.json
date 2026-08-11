@@ -72,7 +72,15 @@
     "confirmMergeN": "¿Crear un nuevo video uniendo {{count}} grabaciones en el orden seleccionado? Los originales irán a la papelera (recuperables).",
     "confirmDeleteSingleTitle": "Eliminar grabación",
     "confirmDeleteNamed": "¿Mover \"{{name}}\" a la Papelera de Windows?",
-    "deleteNShort": "Eliminar {{count}} seleccionadas"
+    "deleteNShort": "Eliminar {{count}} seleccionadas",
+    "badge": {
+      "codecHw": "{{codec}} por hardware (tarjeta gráfica)",
+      "codecSw": "{{codec}} por software (CPU)",
+      "fpsSuffix": "fps",
+      "fps": "{{fps}} cuadros por segundo",
+      "qualityShort": "Q{{level}}",
+      "quality": "Nivel de calidad {{level}} de 10"
+    }
   },
   "export": {
     "menuItem": "Exportar…",
@@ -195,6 +203,7 @@
       "h264Sw": "H.264 — software (x264, CPU)",
       "av1Hw": "AV1 — hardware",
       "av1Sw": "AV1 — software (SVT-AV1, CPU)",
+      "swWarn": "Codifica en la CPU y usa todos los núcleos. Por encima de 1080p puede no seguir el ritmo de la grabación y perder cuadros. Prefiere un codificador por hardware si tu tarjeta tiene uno.",
       "hevcHw": "HEVC / H.265 — hardware",
       "unavailable": "(no disponible)",
       "hwSuffix": " — hardware",
@@ -600,6 +609,8 @@
     "ok": "OK"
   },
   "banner": {
+    "updateTitle": "Nueva versión disponible",
+    "updateBody": "La versión {{version}} ya está disponible para descargar.",
     "audioTitle": "Dispositivo de audio cambió",
     "monitorTitle": "La configuración de pantalla cambió",
     "body": "La lista se actualizará en cuanto detengas la grabación."

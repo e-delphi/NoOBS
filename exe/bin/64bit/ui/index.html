@@ -408,12 +408,21 @@
             <option value="h264-hw" data-i18n="settings.codec.h264Hw">H.264 — hardware</option>
             <option value="h264-sw" data-i18n="settings.codec.h264Sw">H.264 — software (x264, CPU)</option>
             <option value="av1-hw"  data-i18n="settings.codec.av1Hw">AV1 — hardware</option>
+            <option value="av1-sw"  data-i18n="settings.codec.av1Sw">AV1 — software (SVT-AV1, CPU)</option>
             <option value="hevc-hw" data-i18n="settings.codec.hevcHw">HEVC / H.265 — hardware</option>
           </select>
           <img id="settingsGpuLogo" class="settings-gpu-logo" alt="">
         </div>
         <div class="settings-hint" id="settingsCodecMaxRes">
           Resolução máxima do codec: 4096 × 4096
+        </div>
+        <!-- Aviso de uso de CPU. Só aparece com 'av1-sw' escolhido — ver
+             Settings._syncCodecCpuWarn. -->
+        <div class="settings-warn" id="settingsCodecCpuWarn" hidden
+             data-i18n="settings.codec.swWarn">
+          Codifica na CPU e usa todos os núcleos. Acima de 1080p pode não
+          acompanhar a gravação e perder quadros. Prefira um codificador
+          de hardware se a sua placa tiver um.
         </div>
         <div class="settings-hint" id="settingsCodecHint" data-i18n="settings.codec.hint">
           Automático escolhe a melhor opção disponível na ordem
@@ -957,6 +966,19 @@
       <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
         <div class="loading-text" id="loadingText"><span data-i18n="common.loading">Carregando recursos</span><span class="loading-dots"></span></div>
+      </div>
+
+      <!-- Nova versao disponivel. Aparece assim que a checagem responde
+           (startup + a cada 24h), NAO so dentro de Configuracoes — quem
+           nunca abre a aba de atualizacoes nunca ficaria sabendo.
+           Verde porque e novidade boa, nao problema; os outros banners
+           sao ambar por serem avisos de pendencia. -->
+      <div class="banner banner-good" id="updateBanner">
+        <button class="banner-close" id="updateBannerClose" type="button"
+                data-i18n-title="header.close" title="Fechar">×</button>
+        <div class="banner-title" id="updateBannerTitle"
+             data-i18n="banner.updateTitle">Nova versão disponível</div>
+        <div id="updateBannerBody"></div>
       </div>
 
       <!-- Banner pendente (hot-plug de audio durante gravacao) -->

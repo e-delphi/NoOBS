@@ -56,7 +56,8 @@ function EnsureRecordingMeta(const APath: string;
 // So le o cache (instantaneo, sem ffmpeg). Devolve duracao=0 e thumb=''
 // se nao houver. Pra usar na main thread sem travar.
 procedure GetCachedMeta(const APath: string;
-  out ADurationSec: Integer; out AThumbUrl: string);
+  out ADurationSec: Integer; out AThumbUrl: string;
+  out AMeta: TRecordingMeta);
 
 // ---- Metadata unificada (.json em <hash>.json) ----
 // Le/escreve duracao + layout (canvas + regions de cada monitor/webcam).
@@ -352,6 +353,10 @@ var
 begin
   Result := False;
   AMeta := Default(TRecordingMeta);
+  // 0 e um NIVEL VALIDO de qualidade (compactacao maxima), entao o zero do
+  // Default nao serve de "desconhecido" — tem que ser -1, senao gravacao
+  // antiga sem a chave apareceria como se tivesse sido feita no minimo.
+  AMeta.QualityLevel := -1;
 
   MetaFile := MetaFilePath(APath);
   if not FileExists(MetaFile) then Exit;
@@ -367,6 +372,17 @@ begin
       V := Obj.GetValue('duration');
       if V is TJSONNumber then
         AMeta.DurationSec := TJSONNumber(V).AsInt;
+      // Como foi gravado. Ausente em gravacoes anteriores a estes campos:
+      // Codec fica '' e QualityLevel -1, e a UI omite os selos.
+      V := Obj.GetValue('codec');
+      if V is TJSONString then AMeta.Codec := TJSONString(V).Value;
+      V := Obj.GetValue('codecHw');
+      AMeta.CodecHw := (V is TJSONBool) and TJSONBool(V).AsBoolean;
+      V := Obj.GetValue('fps');
+      if V is TJSONNumber then AMeta.Fps := TJSONNumber(V).AsInt;
+      V := Obj.GetValue('quality');
+      if V is TJSONNumber then AMeta.QualityLevel := TJSONNumber(V).AsInt
+      else AMeta.QualityLevel := -1;
       V := Obj.GetValue('canvas');
       if V is TJSONObject then
       begin
@@ -433,6 +449,17 @@ begin
     Obj := TJSONObject.Create;
     try
       Obj.AddPair('duration', TJSONNumber.Create(AMeta.DurationSec));
+      // Como a gravacao foi feita. So grava o que existe — gravacoes
+      // antigas ficam sem estas chaves e a UI omite os selos.
+      if AMeta.Codec <> '' then
+      begin
+        Obj.AddPair('codec', AMeta.Codec);
+        Obj.AddPair('codecHw', TJSONBool.Create(AMeta.CodecHw));
+      end;
+      if AMeta.Fps > 0 then
+        Obj.AddPair('fps', TJSONNumber.Create(AMeta.Fps));
+      if AMeta.QualityLevel >= 0 then
+        Obj.AddPair('quality', TJSONNumber.Create(AMeta.QualityLevel));
       if (AMeta.Layout.CanvasW > 0) and (AMeta.Layout.CanvasH > 0) then
       begin
         CanvasObj := TJSONObject.Create;
@@ -609,13 +636,15 @@ begin
 end;
 
 procedure GetCachedMeta(const APath: string;
-  out ADurationSec: Integer; out AThumbUrl: string);
+  out ADurationSec: Integer; out AThumbUrl: string;
+  out AMeta: TRecordingMeta);
 var
   CacheDir, ThumbFile, Token: string;
-  Meta: TRecordingMeta;
 begin
   ADurationSec := 0;
   AThumbUrl := '';
+  AMeta := Default(TRecordingMeta);
+  AMeta.QualityLevel := -1;    // 0 e nivel valido; -1 = desconhecido
   if not FileExists(APath) then Exit;
   CacheDir := CacheRootDir;
   if not DirectoryExists(CacheDir) then Exit;
@@ -623,8 +652,11 @@ begin
   Token := HashName(APath);
   ThumbFile := IncludeTrailingPathDelimiter(CacheDir) + Token + '.jpg';
 
-  LoadRecordingMeta(APath, Meta);
-  ADurationSec := Meta.DurationSec;
+  // AMeta sai daqui inteiro (duracao, layout, codec/fps/qualidade) — o
+  // chamador que monta o card usa os tres ultimos pros selos, sem
+  // reabrir o <hash>.json.
+  LoadRecordingMeta(APath, AMeta);
+  ADurationSec := AMeta.DurationSec;
 
   if FileExists(ThumbFile) and (Server <> nil) then
     AThumbUrl := MakeUrl('-thumb', ThumbFile, '.jpg');

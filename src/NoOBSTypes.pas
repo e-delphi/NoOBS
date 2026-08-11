@@ -32,6 +32,7 @@ type
     HevcHw: Boolean;   // qualquer encoder HEVC hardware
     H264Hw: Boolean;   // qualquer encoder H.264 hardware (excluindo x264)
     H264Sw: Boolean;   // x264 (CPU) — sempre True na pratica
+    Av1Sw:  Boolean;   // ffmpeg_svt_av1 (CPU) — vem com o obs-ffmpeg
     Vendor: TGpuVendor;
   end;
 
@@ -77,6 +78,14 @@ type
   TRecordingMeta = record
     DurationSec: Integer;
     Layout: TRecordingLayout;
+    // Como esta gravacao foi feita. Preenchido no stop, a partir do que o
+    // engine REALMENTE usou (nao do config, que pode ter mudado depois).
+    // Vazio/zero em gravacoes antigas, anteriores a estes campos — a UI
+    // simplesmente nao mostra o selo correspondente.
+    Codec: string;          // rotulo curto pra UI: 'AV1', 'H.264', 'HEVC'
+    CodecHw: Boolean;       // True = encoder de hardware
+    Fps: Integer;           // taxa de quadros configurada
+    QualityLevel: Integer;  // nivel do slider 0..10; -1 = desconhecido
   end;
 
 implementation

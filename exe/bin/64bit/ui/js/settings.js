@@ -29,12 +29,45 @@ const Updates = {
     Bridge.send('check_updates', {});
   },
 
+  // Banner verde na tela inicial. É o único lugar que o usuário comum vê
+  // sem ir procurar — a aba "Atualizações" só é aberta por quem já
+  // desconfia que existe versão nova.
+  //
+  // Dispensa vale só para a sessão: não persiste em config de propósito.
+  // Gravar "já dispensou a v0.21" faria quem clicou no X uma vez nunca
+  // mais ser avisado daquela versão, e o custo de reaparecer no próximo
+  // arranque é baixo (um X).
+  showBanner(data) {
+    const el = document.getElementById('updateBanner');
+    const body = document.getElementById('updateBannerBody');
+    if (!el || !body) return;
+    body.textContent = T('banner.updateBody', { version: data.latest || '' });
+    if (data.url) {
+      body.appendChild(document.createTextNode(' '));
+      const a = document.createElement('span');
+      a.className = 'about-link';
+      a.setAttribute('role', 'link');
+      a.tabIndex = 0;
+      a.textContent = T('settings.updates.openPage');
+      a.onclick = () => About.openUrl(data.url);
+      body.appendChild(a);
+    }
+    el.classList.add('show');
+    const close = document.getElementById('updateBannerClose');
+    if (close) close.onclick = () => el.classList.remove('show');
+  },
+
   applyResult(data) {
+    // O banner vem ANTES de qualquer guarda de elemento da tela de
+    // Configuracoes: ele tem que aparecer mesmo que aquela tela nao
+    // esteja montada, que e justamente o caso normal.
+    this._lastUrl = data.url || '';
+    if (data.ok && data.hasUpdate) this.showBanner(data);
+
     const st = document.getElementById('settingsUpdateStatus');
     const bt = document.getElementById('settingsCheckNowBtn');
     if (bt) bt.disabled = false;
     if (!st) return;
-    this._lastUrl = data.url || '';
 
     if (!data.ok) {
       // Falha e silenciosa por design — so informa quem pediu explicitamente.
@@ -674,9 +707,25 @@ const Settings = {
     const caps = this.encoderCaps || {};
     let dim;
     if (codec === 'h264-hw') dim = 4096;
-    else if (codec === 'h264-sw' || codec === 'hevc-hw' || codec === 'av1-hw') dim = 8192;
+    else if (codec === 'h264-sw' || codec === 'hevc-hw' ||
+             codec === 'av1-hw' || codec === 'av1-sw') dim = 8192;
     else /* auto */ dim = caps.h264Hw ? 4096 : 8192;
     el.textContent = T('settings.codec.maxRes', { w: dim, h: dim });
+    // O aviso de CPU depende exatamente das mesmas coisas que a resolucao
+    // maxima (codec escolhido + caps), e esta funcao ja e chamada nos 6
+    // pontos onde qualquer uma das duas muda — incluindo a chegada das
+    // caps depois do warmup do libobs. Pendurar aqui evita repetir a
+    // chamada em todos eles e esquecer de um.
+    this._syncCodecCpuWarn();
+  },
+  // Aviso de uso de CPU do AV1 por software. Só o 'av1-sw' codifica na
+  // CPU disputando a máquina com o usuário — o 'h264-sw' também roda em
+  // CPU, mas é barato o bastante pra não merecer alarme.
+  _syncCodecCpuWarn() {
+    const sel = document.getElementById('settingsCodec');
+    const warn = document.getElementById('settingsCodecCpuWarn');
+    if (!sel || !warn) return;
+    warn.hidden = (sel.value !== 'av1-sw');
   },
   _syncQualityHint() {
     const el = document.getElementById('settingsRecordingQuality');
@@ -1129,6 +1178,7 @@ const Settings = {
       else if (opt.value === 'hevc-hw') avail = !!caps.hevcHw;
       else if (opt.value === 'h264-hw') avail = !!caps.h264Hw;
       else if (opt.value === 'h264-sw') avail = !!caps.h264Sw;
+      else if (opt.value === 'av1-sw') avail = !!caps.av1Sw;
       opt.disabled = !avail;
       // Label dinamico mostrando vendor pra hw options.
       if (opt.value === 'av1-hw' || opt.value === 'hevc-hw' || opt.value === 'h264-hw') {
@@ -1143,6 +1193,9 @@ const Settings = {
           (avail ? tag : ' ' + T('settings.codec.unavailable'));
       } else if (opt.value === 'h264-sw') {
         opt.textContent = T('settings.codec.h264Sw') +
+          (avail ? '' : ' ' + T('settings.codec.unavailable'));
+      } else if (opt.value === 'av1-sw') {
+        opt.textContent = T('settings.codec.av1Sw') +
           (avail ? '' : ' ' + T('settings.codec.unavailable'));
       }
     });

@@ -542,6 +542,23 @@
     color: var(--text-3);
     line-height: 1.4;
   }
+  /* Aviso dentro de um campo de Configuracoes — mesmo tamanho da hint,
+     mas em ambar (o mesmo #f59e0b dos outros avisos do app) e com barra
+     lateral, pra distinguir "atencao" de "explicacao" sem gritar.
+     Usa [hidden] do HTML pra aparecer/sumir; display:none precisa vir
+     depois da regra base pra ganhar da especificidade. */
+  .settings-warn {
+    font-size: 11px;
+    line-height: 1.4;
+    color: #b45309;
+    border-left: 2px solid #f59e0b;
+    padding-left: 8px;
+  }
+  :root[data-theme="dark"] .settings-warn { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .settings-warn { color: #fbbf24; }
+  }
+  .settings-warn[hidden] { display: none; }
   /* Logo do fabricante da GPU ao lado direito do dropdown de codec.
      Mora dentro do mesmo .settings-input-row do dropdown — assim o gap
      label-para-row fica identico aos outros campos. Logo centralizado
@@ -698,6 +715,35 @@
     font-weight: 600;
     margin-bottom: 2px;
   }
+  /* Variante VERDE: novidade boa (nova versao), nao pendencia. Os outros
+     banners sao ambar porque avisam de algo travado esperando o usuario. */
+  .banner.banner-good {
+    background: #16a34a;
+    border-color: #15803d;
+    color: #f0fdf4;
+    position: relative;
+    padding-right: 28px;   /* espaco do X, pra o texto nao passar por baixo */
+  }
+  .banner.banner-good .about-link {
+    color: #f0fdf4;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .banner-close {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+    cursor: pointer;
+    opacity: 0.75;
+    border-radius: 4px;
+  }
+  .banner-close:hover { opacity: 1; background: rgba(0, 0, 0, 0.15); }
 
   /* ===== Layout de abas (menu lateral) =====
      Grid no proprio modal: o <nav> e IRMAO do .settings-body, entao nao ha

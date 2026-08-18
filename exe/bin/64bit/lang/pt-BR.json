@@ -80,7 +80,23 @@
       "fps": "{{fps}} quadros por segundo",
       "qualityShort": "Q{{level}}",
       "quality": "Nível de qualidade {{level}} de 10"
-    }
+    },
+    "foldersGroup": "Pastas",
+    "newFolder": "Nova pasta",
+    "newFolderName": "Nova pasta",
+    "folderOpen": "Abrir pasta",
+    "folderUp": "Voltar",
+    "folderUpHint": "Voltar para a pasta acima",
+    "libraryRoot": "Gravações",
+    "cut": "Recortar",
+    "cutN": "Recortar {{count}} selecionadas",
+    "paste": "Colar aqui",
+    "pasteInto": "Colar nesta pasta",
+    "nothingCut": "Nada foi recortado ainda",
+    "confirmDeleteFolderTitle": "Excluir pasta",
+    "confirmDeleteFolderEmpty": "Mover a pasta \"{{name}}\" para a Lixeira do Windows?",
+    "confirmDeleteFolder_one": "A pasta \"{{name}}\" tem 1 gravação dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?",
+    "confirmDeleteFolder_other": "A pasta \"{{name}}\" tem {{count}} gravações dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?"
   },
   "export": {
     "menuItem": "Exportar…",
@@ -527,7 +543,10 @@
     "exportDone": "Exportação concluída",
     "exportDoneMsg": "O arquivo já está na lista de gravações.",
     "exportCanceled": "Exportação cancelada",
-    "exportCanceledMsg": "O arquivo parcial foi descartado."
+    "exportCanceledMsg": "O arquivo parcial foi descartado.",
+    "cutTitle": "Recortado",
+    "cutOne": "1 item pronto pra colar em outra pasta.",
+    "cutN": "{{count}} itens prontos pra colar em outra pasta."
   },
   "error": {
     "loadVideo": "Erro ao carregar vídeo.",
@@ -554,7 +573,12 @@
     "exportBadRange": "Trecho inválido. Escolha um início antes do fim.",
     "exportNoSpace": "Espaço insuficiente em disco para exportar. São necessários ~{{needed}} livres, mas só há {{free}}. Libere espaço e tente de novo.",
     "exportNoEncoder": "Não foi possível abrir o codificador escolhido. Tente H.264 — software (x264), que funciona em qualquer máquina.",
-    "exportFailed": "Não foi possível exportar esta gravação. Veja o log para detalhes."
+    "exportFailed": "Não foi possível exportar esta gravação. Veja o log para detalhes.",
+    "createFolderFailed": "Não foi possível criar a pasta.",
+    "deleteFolderFailed": "Não foi possível excluir a pasta \"{{name}}\".",
+    "moveFailed": "Não foi possível mover \"{{file}}\".",
+    "moveIntoItself": "Uma pasta não pode ser movida para dentro dela mesma.",
+    "moveWhileRecording": "Não dá pra mover a gravação que está em andamento."
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."
@@ -606,7 +630,8 @@
     "loading": "Carregando recursos",
     "yes": "Sim",
     "no": "Não",
-    "ok": "OK"
+    "ok": "OK",
+    "rename": "Renomear"
   },
   "banner": {
     "updateTitle": "Nova versão disponível",

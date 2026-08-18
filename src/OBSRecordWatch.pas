@@ -172,8 +172,16 @@ begin
 end;
 
 procedure UpdateDir(const ANewDir: string);
+var
+  Cb: TRecordChangeCallback;
 begin
+  // Guarda o callback ANTES do Stop. O Stop zera GCallback de proposito
+  // (pra nao disparar callback com o Bridge ja em teardown), entao ler
+  // depois dele daria SEMPRE nil e o watcher nunca voltava a subir — a
+  // pasta nova ficava sem vigilancia pro resto da sessao.
+  Cb := GCallback;
   if GThread <> nil then Stop;
+  GCallback := Cb;
   if not Assigned(GCallback) then Exit;
   if (ANewDir = '') or (not DirectoryExists(ANewDir)) then Exit;
   GThread := TRecordWatchThread.Create(ANewDir, GCallback);

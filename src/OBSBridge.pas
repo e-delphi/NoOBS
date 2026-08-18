@@ -23,6 +23,16 @@
     record_stop          : —
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
+    open_folder          : id (pasta a navegar; '' = raiz da pasta de
+                           gravacao). Toda listagem passa a ser da pasta
+                           navegada — ver CurrentBrowseDir
+    create_folder        : name (nome da pasta nova, criada na navegada)
+    rename_folder        : id (pasta), newName
+    delete_folder        : id (pasta; vai INTEIRA pra Lixeira)
+    move_items           : ids (array de paths — gravacoes e/ou pastas),
+                           target (pasta destino; '' = a navegada).
+                           Mesma mensagem pro arrastar-e-soltar e pro
+                           colar do menu de contexto
     set_recording_fps    : fps (Integer, >= 10)
     set_window_title     : title (string; vazio = 'NoOBS')
     set_filename_pattern : pattern (string com codigos {AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ})
@@ -53,7 +63,15 @@
     cancel_export        : — (aborta a exportacao em andamento)
 
   Mensagens Delphi -> JS (campo "type"):
-    init                 : monitors, mics, speakers, recordings
+    init                 : monitors, mics, speakers, recordings + os
+                           campos de navegacao abaixo
+    recordings_loaded    : recordings, folders ({id,name,count,size,
+                           sizeText}), currentDir, parentDir, atRoot,
+                           breadcrumb ({id,name,root}), recordDir,
+                           freeBytes
+    folder_created       : id (pasta recem-criada; a UI abre a edicao do
+                           nome nela — chega DEPOIS do recordings_loaded
+                           pra o card ja existir no DOM)
     recording_state      : active, elapsed
     recording_added      : item
     encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, av1Sw, vendor,
@@ -281,6 +299,13 @@ var
   RecordingMonitorsSnapshot: TMonitorInfoArray;
 
   RecordDir: string = '';
+
+  // Pasta que a lista de gravacoes esta mostrando. '' = raiz (RecordDir).
+  // Sempre um caminho DENTRO de RecordDir — CurrentBrowseDir revalida a
+  // cada leitura e volta pra raiz sozinho se a pasta sumiu por fora.
+  // Nao persiste em config: a biblioteca sempre abre na raiz, que e o
+  // unico lugar onde gravacoes novas caem.
+  BrowseDirPath: string = '';
 
 // =====================================================================
 // Shutdown signaling — thread-safe
@@ -733,6 +758,90 @@ begin
   SetLength(Result, n);
 end;
 
+function ListRecordingsRecursive(const ADir: string): TStringDynArray;
+// Igual ao ListRecordings, mas descendo nas subpastas.
+//
+// Usado pelo GC do cache: o cache e indexado por hash do path COMPLETO,
+// entao uma gravacao guardada dentro de uma pasta continua viva mesmo
+// sem aparecer na listagem da pasta navegada. Passar so o topo pro
+// GarbageCollectCache apagaria thumb/duracao/mp4/faixas de tudo que o
+// usuario organizou em pastas — e o proximo scan regeraria do zero.
+var
+  All: TStringDynArray;
+  i, n: Integer;
+begin
+  SetLength(Result, 0);
+  if (ADir = '') or (not TDirectory.Exists(ADir)) then Exit;
+  try
+    All := TDirectory.GetFiles(ADir, '*.*', TSearchOption.soAllDirectories);
+  except
+    Exit;
+  end;
+  n := 0;
+  SetLength(Result, Length(All));
+  for i := 0 to High(All) do
+    if MatchStr(LowerCase(ExtractFileExt(All[i])), RECORDING_EXTS) then
+    begin
+      Result[n] := All[i];
+      Inc(n);
+    end;
+  SetLength(Result, n);
+end;
+
+function ListSubFolders(const ADir: string): TStringDynArray;
+// Subpastas diretas da pasta navegada. Oculta/sistema ficam de fora —
+// sao pastas do Windows (ex.: "System Volume Information", quando a
+// pasta de gravacao e a raiz de um drive), nao organizacao do usuario.
+//
+// O teste de atributo usa GetFileAttributesW direto, e nao o FileGetAttr
+// do SysUtils nem o TDirectory.GetAttributes: os dois caminhos do RTL sao
+// marcados `platform` (faHidden/faSysFile no SysUtils, TFileAttributes no
+// IOUtils) e rendem W1002 num projeto que so existe pra Windows. A API
+// do Winapi.Windows nao tem essa marca.
+var
+  All: TStringDynArray;
+  i, n: Integer;
+  Attr: DWORD;
+begin
+  SetLength(Result, 0);
+  if (ADir = '') or (not TDirectory.Exists(ADir)) then Exit;
+  try
+    All := TDirectory.GetDirectories(ADir, '*', TSearchOption.soTopDirectoryOnly);
+  except
+    Exit;
+  end;
+  n := 0;
+  SetLength(Result, Length(All));
+  for i := 0 to High(All) do
+  begin
+    Attr := GetFileAttributesW(PWideChar(All[i]));
+    // INVALID (pasta sumiu entre a listagem e a leitura): mostra. Some
+    // sozinha no proximo refresh, e esconder seria pior que um card morto.
+    if (Attr <> INVALID_FILE_ATTRIBUTES) and
+       ((Attr and (FILE_ATTRIBUTE_HIDDEN or FILE_ATTRIBUTE_SYSTEM)) <> 0) then
+      Continue;
+    Result[n] := ExcludeTrailingPathDelimiter(All[i]);
+    Inc(n);
+  end;
+  SetLength(Result, n);
+end;
+
+procedure FolderStats(const ADir: string; out ACount: Integer; out ASize: Int64);
+// Quantas gravacoes a pasta tem dentro (recursivo) e quanto ocupam.
+// Vai junto na listagem de proposito: o aviso de exclusao precisa do
+// numero, e pedir isso por round-trip so na hora de confirmar deixaria
+// o dialogo aparecer sem a informacao que o justifica.
+var
+  Files: TStringDynArray;
+  i: Integer;
+begin
+  ASize := 0;
+  Files := ListRecordingsRecursive(ADir);
+  ACount := Length(Files);
+  for i := 0 to High(Files) do
+    try ASize := ASize + TFile.GetSize(Files[i]); except end;
+end;
+
 function IsRecordingExt(const APath: string): Boolean;
 // True se a extensao e de um formato de gravacao conhecido.
 begin
@@ -761,6 +870,61 @@ begin
   // StartsText = case-insensitive (Windows). Base tem delimitador final,
   // entao "C:\Vids\" nao casa com um vizinho "C:\VidsOutro\rec.mkv".
   Result := StartsText(Base, Full);
+end;
+
+function IsDirInRecordDir(const ADir: string): Boolean;
+// Mesma defesa do IsPathInRecordDir, mas pra PASTA — e aceitando a
+// propria pasta de gravacao como alvo valido. A versao de arquivo
+// compara contra a base terminada em barra, entao "C:\Vids" (sem barra)
+// nunca casaria com "C:\Vids\"; pra arquivo isso nunca importou, mas a
+// raiz e destino legitimo de navegacao e de "colar aqui".
+var
+  Base, Full: string;
+begin
+  Result := False;
+  if (ADir = '') or (RecordDir = '') then Exit;
+  try
+    Base := IncludeTrailingPathDelimiter(
+      TPath.GetFullPath(ExcludeTrailingPathDelimiter(RecordDir)));
+    Full := IncludeTrailingPathDelimiter(
+      TPath.GetFullPath(ExcludeTrailingPathDelimiter(ADir)));
+  except
+    Exit;
+  end;
+  Result := StartsText(Base, Full);
+end;
+
+function CurrentBrowseDir: string;
+// Pasta que a UI esta listando. SEMPRE valida: se a navegada sumiu
+// (excluida pelo Explorer, drive removido, RecordDir trocado), zera o
+// estado e devolve a raiz — senao a lista ficaria vazia pra sempre sem
+// o usuario ter como voltar.
+begin
+  Result := RecordDir;
+  if (BrowseDirPath = '') or (RecordDir = '') then Exit;
+  if IsDirInRecordDir(BrowseDirPath) and TDirectory.Exists(BrowseDirPath) then
+    Result := BrowseDirPath
+  else
+    BrowseDirPath := '';
+end;
+
+function IsBrowseRoot: Boolean;
+begin
+  Result := SameText(ExcludeTrailingPathDelimiter(CurrentBrowseDir),
+                     ExcludeTrailingPathDelimiter(RecordDir));
+end;
+
+function BrowseParentDir: string;
+// Pasta acima da navegada; '' na raiz. Nunca sobe da raiz — o clamp
+// final existe pra que um BrowseDirPath estranho nao vire um "voltar"
+// apontando pra fora da pasta de gravacao.
+begin
+  Result := '';
+  if IsBrowseRoot then Exit;
+  Result := ExcludeTrailingPathDelimiter(
+    ExtractFilePath(ExcludeTrailingPathDelimiter(CurrentBrowseDir)));
+  if not IsDirInRecordDir(Result) then
+    Result := ExcludeTrailingPathDelimiter(RecordDir);
 end;
 
 function FormatBytesShort(ABytes: Int64): string;
@@ -820,11 +984,15 @@ var
   CachedDur: Integer;
   CachedThumb: string;
   CachedMeta: TRecordingMeta;
+  Dir: string;
 begin
   Result := TJSONArray.Create;
-  if (RecordDir = '') or (not TDirectory.Exists(RecordDir)) then Exit;
+  // Lista a pasta NAVEGADA, nao a raiz: a biblioteca e navegavel por
+  // subpastas (ver CurrentBrowseDir). Na raiz as duas sao a mesma coisa.
+  Dir := CurrentBrowseDir;
+  if (Dir = '') or (not TDirectory.Exists(Dir)) then Exit;
 
-  Files := ListRecordings(RecordDir);
+  Files := ListRecordings(Dir);
 
   for i := 0 to High(Files) do
   begin
@@ -866,6 +1034,78 @@ begin
   end;
 end;
 
+function BuildFoldersArray: TJSONArray;
+// Subpastas da pasta navegada, cada uma com quantas gravacoes guarda
+// (recursivo) e quanto ocupam.
+var
+  Dirs: TStringDynArray;
+  i, Cnt: Integer;
+  Sz: Int64;
+  Item: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  Dirs := ListSubFolders(CurrentBrowseDir);
+  for i := 0 to High(Dirs) do
+  begin
+    FolderStats(Dirs[i], Cnt, Sz);
+    Item := TJSONObject.Create;
+    Item.AddPair('id',       Dirs[i]);
+    Item.AddPair('name',     ExtractFileName(Dirs[i]));
+    Item.AddPair('count',    TJSONNumber.Create(Cnt));
+    Item.AddPair('size',     TJSONNumber.Create(Sz));
+    Item.AddPair('sizeText', FormatBytesShort(Sz));
+    Result.AddElement(Item);
+  end;
+end;
+
+function BuildBreadcrumbArray: TJSONArray;
+// Caminho da raiz ate a pasta navegada, um item por nivel. O primeiro e
+// sempre a pasta de gravacao (a UI desenha como "inicio").
+var
+  Cur, Rel, Part, Acc, Root: string;
+  Parts: TArray<string>;
+  i: Integer;
+  Item: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  Root := ExcludeTrailingPathDelimiter(RecordDir);
+  Item := TJSONObject.Create;
+  Item.AddPair('id',   Root);
+  Item.AddPair('name', ExtractFileName(Root));
+  Item.AddPair('root', TJSONBool.Create(True));
+  Result.AddElement(Item);
+  if IsBrowseRoot then Exit;
+
+  Cur := ExcludeTrailingPathDelimiter(CurrentBrowseDir);
+  Rel := Copy(Cur, Length(IncludeTrailingPathDelimiter(Root)) + 1, MaxInt);
+  Parts := Rel.Split([PathDelim]);
+  Acc := Root;
+  for i := 0 to High(Parts) do
+  begin
+    Part := Parts[i];
+    if Part = '' then Continue;
+    Acc := IncludeTrailingPathDelimiter(Acc) + Part;
+    Item := TJSONObject.Create;
+    Item.AddPair('id',   Acc);
+    Item.AddPair('name', Part);
+    Item.AddPair('root', TJSONBool.Create(False));
+    Result.AddElement(Item);
+  end;
+end;
+
+procedure AddBrowseInfo(AObj: TJSONObject);
+// Campos de navegacao que acompanham TODA listagem (init e
+// recordings_loaded). A UI precisa deles pra desenhar o caminho, o
+// "voltar" e habilitar o "colar aqui" — mandar junto evita um estado
+// que pode divergir da lista que chegou no mesmo push.
+begin
+  AObj.AddPair('folders',    BuildFoldersArray);
+  AObj.AddPair('currentDir', ExcludeTrailingPathDelimiter(CurrentBrowseDir));
+  AObj.AddPair('parentDir',  BrowseParentDir);
+  AObj.AddPair('atRoot',     TJSONBool.Create(IsBrowseRoot));
+  AObj.AddPair('breadcrumb', BuildBreadcrumbArray);
+end;
+
 // =====================================================================
 // Push de estado
 // =====================================================================
@@ -905,6 +1145,7 @@ begin
   end;
   Init.AddPair('webcams',    BuildWebcamsFromWin);
   Init.AddPair('recordings', BuildRecordingsArray);
+  AddBrowseInfo(Init);
   Init.AddPair('recordDir',  RecordDir);
   Init.AddPair('freeBytes',  TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Init);
@@ -956,6 +1197,21 @@ begin
   if not TFile.Exists(AFilePath) then
   begin
     Log('PushRecordingAdded: arquivo NAO existe (cancelado).');
+    Exit;
+  end;
+  // O card so entra se o arquivo pertence a pasta que a UI esta
+  // mostrando. Gravacao nova sempre cai na RAIZ; se o usuario estiver
+  // navegando numa subpasta, empurrar o card ali colocaria a gravacao
+  // visualmente dentro de uma pasta onde ela nao esta. Ele a encontra ao
+  // voltar pra raiz. Vale tambem pro split/merge/export, que criam
+  // arquivo ao lado do original.
+  if not SameText(ExcludeTrailingPathDelimiter(ExtractFilePath(AFilePath)),
+                  ExcludeTrailingPathDelimiter(CurrentBrowseDir)) then
+  begin
+    Log('PushRecordingAdded: fora da pasta navegada — card nao adicionado.');
+    // A meta (thumb/duracao) ainda e gerada: o card aparece pronto
+    // quando o usuario navegar ate la.
+    ScanSingleRecordingMeta(AFilePath);
     Exit;
   end;
 
@@ -1280,18 +1536,24 @@ procedure ScanRecordingsMeta;
 // removendo arquivos cuja gravacao original ja nao existe.
 var
   Files: TStringDynArray;
+  AllFiles: TStringDynArray;
   LivePaths: TArray<string>;
   i: Integer;
 begin
   if (RecordDir = '') or (not TDirectory.Exists(RecordDir)) then Exit;
   if not FFmpegLibAvailable then Exit;
 
-  Files := ListRecordings(RecordDir);
+  // Previa/duracao so pra pasta VISIVEL — navegar pra outra pasta
+  // dispara este scan de novo pro conteudo dela.
+  Files := ListRecordings(CurrentBrowseDir);
 
-  // Snapshot dos paths vivos pro GC.
-  SetLength(LivePaths, Length(Files));
-  for i := 0 to High(Files) do
-    LivePaths[i] := Files[i];
+  // ...mas o GC do cache olha a arvore INTEIRA: gravacao guardada numa
+  // subpasta continua viva mesmo fora da pasta navegada (pegadinha:
+  // passar so a pasta atual apagaria a thumb de tudo que esta guardado).
+  AllFiles := ListRecordingsRecursive(RecordDir);
+  SetLength(LivePaths, Length(AllFiles));
+  for i := 0 to High(AllFiles) do
+    LivePaths[i] := AllFiles[i];
 
   TThread.CreateAnonymousThread(
     procedure
@@ -1554,6 +1816,7 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recordings_loaded');
   Obj.AddPair('recordings', BuildRecordingsArray);
+  AddBrowseInfo(Obj);
   Obj.AddPair('recordDir',  RecordDir);
   Obj.AddPair('freeBytes',  TJSONNumber.Create(GetRecordDirFreeBytes));
   PostOwned(Obj);
@@ -4310,6 +4573,7 @@ begin
     NewPath := GetEnvironmentVariable('USERPROFILE') + '\Videos';
     SetConfigStr('recordDir', '');
     RecordDir := NewPath;
+    BrowseDirPath := '';
     Log('Pasta de gravacao restaurada pro padrao: %s', [NewPath]);
     PushSettings;
     PushRecordings;
@@ -4325,6 +4589,9 @@ begin
 
   SetConfigStr('recordDir', APath);
   RecordDir := APath;
+  // Pasta trocou: a navegacao anterior aponta pra uma arvore que nao e
+  // mais a biblioteca. Volta pra raiz nova.
+  BrowseDirPath := '';
   Log('Pasta de gravacao alterada para: %s', [APath]);
   PushSettings;
   PushRecordings;  // re-lista do novo dir
@@ -4383,7 +4650,7 @@ begin
           // Limpa cache desse arquivo agora — GC pegaria no proximo
           // start, mas sem custo fazer aqui.
           try
-            GarbageCollectCache(ListRecordings(RecordDir));
+            GarbageCollectCache(ListRecordingsRecursive(RecordDir));
           except end;
 
           Obj := TJSONObject.Create;
@@ -4394,6 +4661,341 @@ begin
           PostOwned(Obj);
         end);
     end).Start;
+end;
+
+// =====================================================================
+// Pastas da biblioteca de gravacoes
+// =====================================================================
+// A pasta de gravacao virou navegavel: subpastas aparecem como cards, a
+// UI anda pra dentro/fora e o usuario organiza arrastando ou por
+// recortar/colar. TUDO confinado a RecordDir — todo path que chega da
+// UI passa por IsDirInRecordDir/IsPathInRecordDir antes de virar
+// operacao de disco (mesma defesa em profundidade do delete/rename).
+
+procedure MigrateCacheForTree(const AOldRoot, ANewRoot: string);
+// Depois de mover/renomear uma PASTA, cada gravacao dentro dela mudou de
+// path — e o cache (thumb/duracao/mp4/faixas) e indexado por hash do
+// path. Sem migrar, o proximo GC apagaria tudo e o scan seguinte
+// regeraria do zero (thumb de canvas 4K custa segundos por arquivo).
+var
+  Files: TStringDynArray;
+  i: Integer;
+  Prefix, Rel, OldPath: string;
+begin
+  // Lista no DESTINO (a arvore ja foi movida) e reconstroi o path antigo
+  // por prefixo — o relativo dentro da pasta nao mudou.
+  Files := ListRecordingsRecursive(ANewRoot);
+  Prefix := IncludeTrailingPathDelimiter(ANewRoot);
+  for i := 0 to High(Files) do
+  begin
+    Rel := Copy(Files[i], Length(Prefix) + 1, MaxInt);
+    OldPath := IncludeTrailingPathDelimiter(AOldRoot) + Rel;
+    try OBSPlayer.RenameCacheEntries(OldPath, Files[i]); except end;
+  end;
+end;
+
+function UniqueTargetPath(const ADir, ABaseName, AExt: string): string;
+// <dir>\<base><ext> com sufixo " (N)" ate nao colidir. Serve pra arquivo
+// (AExt com ponto) e pra pasta (AExt vazio). Testa os dois tipos: um
+// arquivo "Aulas.mkv" nao impede a pasta "Aulas", mas uma pasta "Aulas"
+// impede outra pasta "Aulas".
+var
+  Base: string;
+  N: Integer;
+begin
+  Base := IncludeTrailingPathDelimiter(ADir);
+  Result := Base + ABaseName + AExt;
+  N := 2;
+  while TFile.Exists(Result) or TDirectory.Exists(Result) do
+  begin
+    Result := Base + Format('%s (%d)%s', [ABaseName, N, AExt]);
+    Inc(N);
+  end;
+end;
+
+function CleanFolderName(const AName: string): string;
+// Nome de pasta aceitavel pro Windows. Alem dos caracteres ilegais
+// (SanitizeFileName), corta ponto e espaco do FIM: o Windows os descarta
+// silenciosamente, e a pasta criada ficaria com nome diferente do que a
+// UI acabou de mostrar no card.
+begin
+  Result := SanitizeFileName(AName);
+  while (Result <> '') and CharInSet(Result[Length(Result)], ['.', ' ']) do
+    Delete(Result, Length(Result), 1);
+end;
+
+procedure HandleOpenFolder(const APath: string);
+// Navega pra uma pasta ('' = raiz). Re-lista, re-agenda o scan de meta e
+// RE-APONTA O WATCHER: sem isso, mudanca feita pelo Explorer dentro da
+// pasta aberta nao atualizaria a tela (o watcher nao e recursivo).
+var
+  Target, Root: string;
+begin
+  Root := ExcludeTrailingPathDelimiter(RecordDir);
+  if APath = '' then Target := Root
+  else Target := ExcludeTrailingPathDelimiter(APath);
+
+  if not IsDirInRecordDir(Target) then
+  begin
+    Log('HandleOpenFolder: fora da pasta de gravacao, ignorado: %s', [APath]);
+    Exit;
+  end;
+  if not TDirectory.Exists(Target) then
+  begin
+    // Pasta sumiu entre a listagem e o clique (Explorer, outro app).
+    // Volta pra raiz em vez de deixar a UI apontando pro nada.
+    PostError(OBSLang.T('error.folderNotFound'));
+    BrowseDirPath := '';
+    PushRecordings;
+    Exit;
+  end;
+
+  if SameText(Target, Root) then BrowseDirPath := ''
+  else BrowseDirPath := Target;
+
+  PushRecordings;
+  ScanRecordingsMeta;
+  try OBSRecordWatch.UpdateDir(CurrentBrowseDir); except end;
+end;
+
+procedure HandleCreateFolder(const AName: string);
+var
+  Nm, NewPath: string;
+  Obj: TJSONObject;
+begin
+  Nm := Trim(AName);
+  if Nm = '' then Nm := OBSLang.T('recordings.newFolderName');
+  Nm := CleanFolderName(Nm);
+  if Nm = '' then Exit;
+
+  if (RecordDir = '') or (not TDirectory.Exists(CurrentBrowseDir)) then
+  begin
+    PostError(OBSLang.T('error.folderNotFound'));
+    Exit;
+  end;
+
+  NewPath := UniqueTargetPath(CurrentBrowseDir, Nm, '');
+  try
+    if not ForceDirectories(NewPath) then
+      raise Exception.Create(SysErrorMessage(GetLastError));
+  except
+    on E: Exception do
+    begin
+      Log('HandleCreateFolder: falha criando "%s": %s', [NewPath, E.Message]);
+      PostError(OBSLang.T('error.createFolderFailed'));
+      Exit;
+    end;
+  end;
+  Log('Pasta criada: %s', [NewPath]);
+
+  PushRecordings;
+  // DEPOIS da lista: a UI usa esta mensagem pra achar o card recem-criado
+  // e ja abrir a edicao do nome (mesmo gesto do Explorer). Se viesse
+  // antes, o card ainda nao existiria no DOM.
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'folder_created');
+  Obj.AddPair('id', NewPath);
+  PostOwned(Obj);
+end;
+
+procedure HandleRenameFolder(const APath, ANewName: string);
+var
+  Old, Parent, Nm, NewPath: string;
+begin
+  Old := ExcludeTrailingPathDelimiter(APath);
+  if (Old = '') or (ANewName = '') then Exit;
+  if not IsDirInRecordDir(Old) then
+  begin
+    Log('HandleRenameFolder: fora da pasta de gravacao, ignorado: %s', [APath]);
+    Exit;
+  end;
+  // A raiz e a pasta configurada nas Configuracoes — renomear ali seria
+  // mexer no destino das gravacoes por um caminho que nao avisa isso.
+  if SameText(Old, ExcludeTrailingPathDelimiter(RecordDir)) then Exit;
+  if not TDirectory.Exists(Old) then
+  begin
+    PostError(OBSLang.T('error.folderNotFound'));
+    Exit;
+  end;
+
+  Nm := CleanFolderName(ANewName);
+  if Nm = '' then Exit;
+  if SameStr(ExtractFileName(Old), Nm) then Exit;   // sem mudanca
+
+  Parent := ExcludeTrailingPathDelimiter(ExtractFilePath(Old));
+  // Trocar so maiuscula/minuscula ("aulas" -> "Aulas") e um rename
+  // valido no NTFS, mas o UniqueTargetPath veria a propria pasta como
+  // colisao (o Windows nao diferencia) e entregaria "Aulas (2)".
+  if SameText(ExtractFileName(Old), Nm) then
+    NewPath := IncludeTrailingPathDelimiter(Parent) + Nm
+  else
+    NewPath := UniqueTargetPath(Parent, Nm, '');
+  try
+    TDirectory.Move(Old, NewPath);
+  except
+    on E: Exception do
+    begin
+      Log('HandleRenameFolder: falha "%s" -> "%s": %s', [Old, NewPath, E.Message]);
+      PostError(OBSLang.T('error.renameFailed'));
+      Exit;
+    end;
+  end;
+  MigrateCacheForTree(Old, NewPath);
+  Log('Pasta renomeada: "%s" -> "%s"', [Old, NewPath]);
+  PushRecordings;
+end;
+
+procedure HandleDeleteFolder(const APath: string);
+// Manda a pasta INTEIRA pra Lixeira (recuperavel). Async pelo mesmo
+// motivo do delete de gravacao: SHFileOperation pode bloquear ate ~1.5s
+// com sharing violation enquanto a worker de thumbnail segura um arquivo
+// la dentro. O aviso de "tem N gravacoes dentro" e da UI — a contagem ja
+// viaja no card da pasta (FolderStats), sem round-trip extra.
+var
+  PathCopy: string;
+begin
+  PathCopy := ExcludeTrailingPathDelimiter(APath);
+  if PathCopy = '' then Exit;
+  if not IsDirInRecordDir(PathCopy) then
+  begin
+    Log('HandleDeleteFolder: fora da pasta de gravacao, ignorado: %s', [APath]);
+    Exit;
+  end;
+  if SameText(PathCopy, ExcludeTrailingPathDelimiter(RecordDir)) then
+  begin
+    Log('HandleDeleteFolder: recusado — e a propria pasta de gravacao.');
+    Exit;
+  end;
+  if not TDirectory.Exists(PathCopy) then Exit;  // ja sumiu: silencioso
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Ok: Boolean;
+    begin
+      Ok := DeleteToRecycleBin(PathCopy);
+      TThread.Queue(nil,
+        procedure
+        begin
+          if IsShuttingDown then Exit;
+          if not Ok then
+          begin
+            PostError(OBSLang.T('error.deleteFolderFailed',
+              ['name', ExtractFileName(PathCopy)]));
+            Exit;
+          end;
+          Log('Pasta excluida: %s', [PathCopy]);
+          // Se a pasta navegada estava dentro da excluida, CurrentBrowseDir
+          // volta pra raiz sozinho na primeira leitura — que e o
+          // PushRecordings logo abaixo.
+          try
+            GarbageCollectCache(ListRecordingsRecursive(RecordDir));
+          except end;
+          PushRecordings;
+          try OBSRecordWatch.UpdateDir(CurrentBrowseDir); except end;
+        end);
+    end).Start;
+end;
+
+procedure HandleMoveItems(AIds: TJSONArray; const ATarget: string);
+// Move gravacoes e/ou pastas pra dentro de outra pasta. Caminho unico do
+// arrastar-e-soltar e do colar do menu de contexto — os dois mandam a
+// mesma mensagem.
+var
+  Target, Src, Dest, Nm: string;
+  i, Moved: Integer;
+  V: TJSONValue;
+  IsDir: Boolean;
+begin
+  if AIds = nil then Exit;
+  if ATarget = '' then Target := ExcludeTrailingPathDelimiter(CurrentBrowseDir)
+  else Target := ExcludeTrailingPathDelimiter(ATarget);
+
+  if not IsDirInRecordDir(Target) then
+  begin
+    Log('HandleMoveItems: destino fora da pasta de gravacao: %s', [ATarget]);
+    Exit;
+  end;
+  if not TDirectory.Exists(Target) then
+  begin
+    PostError(OBSLang.T('error.folderNotFound'));
+    Exit;
+  end;
+
+  Moved := 0;
+  for i := 0 to AIds.Count - 1 do
+  begin
+    V := AIds.Items[i];
+    if V = nil then Continue;
+    Src := ExcludeTrailingPathDelimiter(Trim(V.Value));
+    if Src = '' then Continue;
+
+    IsDir := TDirectory.Exists(Src);
+    if IsDir then
+    begin
+      if not IsDirInRecordDir(Src) then Continue;
+      if SameText(Src, ExcludeTrailingPathDelimiter(RecordDir)) then Continue;
+      // Uma pasta nao pode entrar em si mesma nem numa descendente dela:
+      // TDirectory.Move faria a arvore desaparecer dentro da propria
+      // origem. A UI ja bloqueia o alvo; isto e a rede de seguranca.
+      if SameText(Src, Target) or
+         StartsText(IncludeTrailingPathDelimiter(Src),
+                    IncludeTrailingPathDelimiter(Target)) then
+      begin
+        PostError(OBSLang.T('error.moveIntoItself'));
+        Continue;
+      end;
+    end
+    else
+    begin
+      if (not IsPathInRecordDir(Src)) or (not IsRecordingExt(Src)) then Continue;
+      if not TFile.Exists(Src) then Continue;
+      // Gravacao em andamento: o muxer ainda esta escrevendo nela.
+      if RecordingActive and (LastRecordingPath <> '') and
+         SameText(Src, LastRecordingPath) then
+      begin
+        PostError(OBSLang.T('error.moveWhileRecording'));
+        Continue;
+      end;
+    end;
+
+    // Ja esta no destino — nada a fazer (arrastar pra pasta atual).
+    if SameText(ExcludeTrailingPathDelimiter(ExtractFilePath(Src)), Target) then
+      Continue;
+
+    Nm := ExtractFileName(Src);
+    if IsDir then
+      Dest := UniqueTargetPath(Target, Nm, '')
+    else
+      Dest := UniqueTargetPath(Target, ChangeFileExt(Nm, ''), ExtractFileExt(Nm));
+
+    try
+      if IsDir then TDirectory.Move(Src, Dest)
+      else TFile.Move(Src, Dest);
+    except
+      on E: Exception do
+      begin
+        Log('HandleMoveItems: falha movendo "%s" -> "%s": %s',
+          [Src, Dest, E.Message]);
+        PostError(OBSLang.T('error.moveFailed', ['file', ExtractFileName(Src)]));
+        Continue;
+      end;
+    end;
+
+    // O cache segue o arquivo: o hash e do path, entao sem migrar o
+    // proximo GC apagaria thumb/duracao e tudo seria regerado.
+    try
+      if IsDir then MigrateCacheForTree(Src, Dest)
+      else OBSPlayer.RenameCacheEntries(Src, Dest);
+    except end;
+    Inc(Moved);
+  end;
+
+  if Moved > 0 then
+  begin
+    Log('HandleMoveItems: %d item(ns) movido(s) para "%s".', [Moved, Target]);
+    PushRecordings;
+  end;
 end;
 
 function MakeSplitPath(const AOrig: string; APart: Integer): string;
@@ -4645,7 +5247,7 @@ begin
             Obj.AddPair('id', RecycledPaths[k]);
             PostOwned(Obj);
           end;
-          try GarbageCollectCache(ListRecordings(RecordDir)); except end;
+          try GarbageCollectCache(ListRecordingsRecursive(RecordDir)); except end;
           PushRecordingAdded(OutPath, 0);
           PushMergeDone(True);
         end);
@@ -4814,7 +5416,7 @@ begin
           end;
           // Cache orfao do original removido aqui (GC pegaria no proximo
           // start de qualquer forma).
-          try GarbageCollectCache(ListRecordings(RecordDir)); except end;
+          try GarbageCollectCache(ListRecordingsRecursive(RecordDir)); except end;
           // Adiciona as duas partes (duracao=0 → ScanSingleRecordingMeta
           // preenche thumb + duracao em background).
           PushRecordingAdded(PathA, 0);
@@ -5170,7 +5772,7 @@ begin
           case Res of
             erOk:
               begin
-                try GarbageCollectCache(ListRecordings(RecordDir)); except end;
+                try GarbageCollectCache(ListRecordingsRecursive(RecordDir)); except end;
                 PushRecordingAdded(FinalPath, 0);
                 PushExportDone(True, False, FinalPath);
               end;
@@ -5253,6 +5855,20 @@ begin
       HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'open_folder' then
+      HandleOpenFolder(GetStrField(Obj, 'id'))
+    else if MsgType = 'create_folder' then
+      HandleCreateFolder(GetStrField(Obj, 'name'))
+    else if MsgType = 'rename_folder' then
+      HandleRenameFolder(GetStrField(Obj, 'id'), GetStrField(Obj, 'newName'))
+    else if MsgType = 'delete_folder' then
+      HandleDeleteFolder(GetStrField(Obj, 'id'))
+    else if MsgType = 'move_items' then
+    begin
+      Arr := Obj.GetValue('ids');
+      if Arr is TJSONArray then
+        HandleMoveItems(TJSONArray(Arr), GetStrField(Obj, 'target'));
+    end
     else if MsgType = 'merge_recordings' then
     begin
       Arr := Obj.GetValue('ids');

@@ -80,7 +80,23 @@
       "fps": "{{fps}} cuadros por segundo",
       "qualityShort": "Q{{level}}",
       "quality": "Nivel de calidad {{level}} de 10"
-    }
+    },
+    "foldersGroup": "Carpetas",
+    "newFolder": "Nueva carpeta",
+    "newFolderName": "Nueva carpeta",
+    "folderOpen": "Abrir carpeta",
+    "folderUp": "Volver",
+    "folderUpHint": "Volver a la carpeta superior",
+    "libraryRoot": "Grabaciones",
+    "cut": "Cortar",
+    "cutN": "Cortar {{count}} seleccionadas",
+    "paste": "Pegar aquí",
+    "pasteInto": "Pegar en esta carpeta",
+    "nothingCut": "Todavía no se ha cortado nada",
+    "confirmDeleteFolderTitle": "Eliminar carpeta",
+    "confirmDeleteFolderEmpty": "¿Mover la carpeta \"{{name}}\" a la Papelera de reciclaje de Windows?",
+    "confirmDeleteFolder_one": "La carpeta \"{{name}}\" tiene 1 grabación dentro. ¿Mover la carpeta y todo su contenido a la Papelera de reciclaje de Windows?",
+    "confirmDeleteFolder_other": "La carpeta \"{{name}}\" tiene {{count}} grabaciones dentro. ¿Mover la carpeta y todo su contenido a la Papelera de reciclaje de Windows?"
   },
   "export": {
     "menuItem": "Exportar…",
@@ -527,7 +543,10 @@
     "exportDone": "Exportación completada",
     "exportDoneMsg": "El archivo ya está en la lista de grabaciones.",
     "exportCanceled": "Exportación cancelada",
-    "exportCanceledMsg": "El archivo parcial se descartó."
+    "exportCanceledMsg": "El archivo parcial se descartó.",
+    "cutTitle": "Cortado",
+    "cutOne": "1 elemento listo para pegar en otra carpeta.",
+    "cutN": "{{count}} elementos listos para pegar en otra carpeta."
   },
   "error": {
     "loadVideo": "Error al cargar el video.",
@@ -554,7 +573,12 @@
     "exportBadRange": "Fragmento inválido. Elige un inicio anterior al final.",
     "exportNoSpace": "Espacio insuficiente en disco para exportar. Se necesitan ~{{needed}} libres, pero solo hay {{free}}. Libera espacio e inténtalo de nuevo.",
     "exportNoEncoder": "No se pudo abrir el codificador elegido. Prueba H.264 — software (x264), que funciona en cualquier equipo.",
-    "exportFailed": "No se pudo exportar esta grabación. Revisa el registro para más detalles."
+    "exportFailed": "No se pudo exportar esta grabación. Revisa el registro para más detalles.",
+    "createFolderFailed": "No se pudo crear la carpeta.",
+    "deleteFolderFailed": "No se pudo eliminar la carpeta \"{{name}}\".",
+    "moveFailed": "No se pudo mover \"{{file}}\".",
+    "moveIntoItself": "Una carpeta no se puede mover dentro de sí misma.",
+    "moveWhileRecording": "No se puede mover la grabación en curso."
   },
   "warning": {
     "canvasOverflow": "La resolución combinada de las pantallas excede el límite del códec ({{max}} × {{max}}). La grabación se reducirá proporcionalmente. Cambia a AV1 o HEVC en Configuración para grabar hasta 8192 × 8192."
@@ -606,7 +630,8 @@
     "loading": "Cargando recursos",
     "yes": "Sí",
     "no": "No",
-    "ok": "OK"
+    "ok": "OK",
+    "rename": "Renombrar"
   },
   "banner": {
     "updateTitle": "Nueva versión disponible",

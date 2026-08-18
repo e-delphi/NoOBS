@@ -1082,6 +1082,17 @@
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
         </button>
+        <button class="icon-btn" id="newFolderBtn"
+                onclick="RecFolders.create()"
+                data-i18n-hint="recordings.newFolder" data-hint="Nova pasta">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <line x1="12" y1="11" x2="12" y2="17"/>
+            <line x1="9" y1="14" x2="15" y2="14"/>
+          </svg>
+        </button>
         <button class="icon-btn merge-selected-btn" id="mergeSelectedBtn"
                 onclick="mergeSelectedRecordings()" disabled
                 data-i18n-hint="recordings.mergeSelected" data-hint="Unir gravações selecionadas">
@@ -1116,6 +1127,11 @@
         </div>
       </div>
 
+      <!-- Caminho da pasta navegada. Oculto na raiz (RecFolders.renderPath).
+           Cada pedaco tambem e alvo de drop: arrastar pra cima de um
+           ancestral move pra la sem precisar navegar ate ele. -->
+      <div class="rec-path" id="recPath" hidden></div>
+
       <div class="empty-state" id="emptyState" style="display:none" data-i18n="recordings.empty">
         Nenhuma gravação encontrada.
       </div>
@@ -1127,11 +1143,11 @@
 
 </div>
 
-<!-- Context menu de gravacao (top-level, fora de .app) -->
-<div class="ctx-menu" id="ctxMenu" style="display:none">
-  <div class="ctx-item" data-action="export" data-i18n="export.menuItem">Exportar…</div>
-  <div class="ctx-item danger" data-action="delete" data-i18n="common.delete">Excluir</div>
-</div>
+<!-- Context menu da biblioteca (top-level, fora de .app). VAZIO de
+     proposito: os itens sao montados por showCtxMenu (main.js), porque
+     mudam conforme o alvo (gravacao, pasta ou fundo da lista) e conforme
+     ha ou nao um recorte pendente. -->
+<div class="ctx-menu" id="ctxMenu" style="display:none"></div>
 
 <!-- JS modularizado em js/ — carregados nesta ordem (escopo global compartilhado,
      scripts comuns, NAO modules: os handlers inline do HTML dependem dos objetos
@@ -1141,6 +1157,7 @@
 <script src="js/bridge.js"></script>
 <script src="js/displays.js"></script>
 <script src="js/recordings.js"></script>
+<script src="js/folders.js"></script>
 <script src="js/record.js"></script>
 <script src="js/widgets.js"></script>
 <script src="js/hotkey.js"></script>

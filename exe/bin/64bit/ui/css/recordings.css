@@ -347,6 +347,150 @@
     :root:not([data-theme="light"]) .rec-badge.sw { color: #fbbf24; }
   }
 
+  /* ===== Pastas da biblioteca ===== */
+  /* Caminho da pasta navegada. NAO e sticky de proposito: o titulo de
+     cada grupo ja gruda em top:58px, e uma segunda barra grudada na
+     mesma altura passaria por baixo dele. O acesso permanente ao
+     "voltar" fica no card do grupo de pastas (e em Backspace/Alt+Esq.). */
+  .rec-path {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin: 0 0 10px;
+    padding: 2px 0 8px;
+    font-size: 12px;
+    color: var(--text-3);
+    user-select: none;
+  }
+  .rec-path[hidden] { display: none; }
+  .path-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 6px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .path-back:hover {
+    background: var(--panel-3);
+    border-color: var(--border-2);
+    color: var(--text);
+  }
+  .path-crumb {
+    padding: 2px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background 0.12s, color 0.12s;
+  }
+  .path-crumb:hover { background: var(--panel-3); color: var(--text); }
+  /* A pasta atual nao e um link: clicar nela nao leva a lugar nenhum. */
+  .path-crumb.current {
+    color: var(--text);
+    font-weight: 600;
+    cursor: default;
+  }
+  .path-crumb.current:hover { background: none; }
+  .path-sep { color: var(--border-2); }
+
+  /* Card de pasta. Divide a grade com os cards de gravacao (mesmo
+     .rec-group-grid), mas e baixo: sem thumb, so icone + nome + quanto
+     tem dentro. Altura menor de proposito — uma fileira de pastas nao
+     deve custar o mesmo espaco vertical que uma fileira de videos. */
+  .rec-folder {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s,
+                background 0.15s;
+  }
+  .rec-folder:hover {
+    border-color: var(--border-2);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+  }
+  .rec-folder .folder-icon {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    color: var(--text-3);
+  }
+  .rec-folder:hover .folder-icon { color: var(--text-2); }
+  .rec-folder .folder-icon svg { width: 100%; height: 100%; display: block; }
+  .rec-folder .folder-body { min-width: 0; }
+  .rec-folder .folder-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 4px;
+    margin: -2px -4px;
+    padding: 2px 4px;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .rec-folder .folder-name.editing {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    background: var(--panel-2);
+    box-shadow: 0 0 0 1.5px var(--success);
+    cursor: text;
+    outline: none;
+  }
+  .rec-folder .folder-meta {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+  /* "Voltar" e navegacao, nao conteudo: fica esmaecido pra nao competir
+     com as pastas de verdade. */
+  .rec-folder.up { opacity: 0.75; }
+  .rec-folder.up:hover { opacity: 1; }
+
+  /* Arrastar e soltar. O alvo acende com a cor de acao (verde do
+     .rec-check/selecao) pra o gesto ter a mesma linguagem do resto. */
+  .rec-card.dragging,
+  .rec-folder.dragging { opacity: 0.45; }
+  .rec-folder.drop-target {
+    border-color: var(--success);
+    box-shadow: 0 0 0 2px var(--success);
+    background: var(--panel-2);
+  }
+  .rec-folder.drop-target .folder-icon { color: var(--success); }
+  .path-crumb.drop-target,
+  .path-back.drop-target {
+    background: var(--success);
+    color: white;
+  }
+  /* Item recortado esperando um "Colar": mantem-se visivel (ainda esta
+     na pasta — o move so acontece no colar) mas esmaecido, do jeito que
+     o Explorer sinaliza. */
+  .rec-card.cut,
+  .rec-folder.cut {
+    opacity: 0.45;
+    border-style: dashed;
+  }
+
   /* Context menu (right-click) */
   .ctx-menu {
     position: fixed;

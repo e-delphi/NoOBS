@@ -287,8 +287,14 @@ function buildRecCard(item) {
   };
   card.oncontextmenu = (e) => {
     e.preventDefault();
-    showCtxMenu(e.clientX, e.clientY, card.dataset.id);
+    e.stopPropagation();
+    showCtxMenu(e.clientX, e.clientY, { kind: 'recording', id: card.dataset.id });
   };
+  // Arrastar o card pra cima de uma pasta move o arquivo. Se o card faz
+  // parte de uma seleção, vai a seleção inteira (RecFolders.targetIds).
+  RecFolders._wireDrag(card, item.id);
+  // Recorte pendente sobrevive a um re-render da lista.
+  if (RecFolders.clipboard.indexOf(item.id) >= 0) card.classList.add('cut');
 
   const thumb = document.createElement('div');
   thumb.className = 'thumb';
@@ -380,13 +386,41 @@ function periodKey(date) {
   };
 }
 
+// Um nome em edicao existe SO no DOM. Um re-render destroi o campo, e o
+// blur que vem junto comita o texto de antes — e re-render acontece
+// sozinho: o file watcher dispara um a cada mudanca na pasta, INCLUSIVE a
+// criacao da pasta que acabamos de mandar nomear (o debounce dele e de
+// 400ms, entao o editor abria e morria logo em seguida). Adia o render
+// ate a edicao terminar.
+let _pendingRecordingsRender = false;
+
+// Chamada quando uma edicao de nome termina. `arenamed` = a edicao mandou
+// um rename, entao o backend ja vai empurrar a lista nova: descartar o
+// render adiado evita piscar o nome ANTIGO antes dela chegar.
+function finishRecordingsRender(renamed) {
+  const pending = _pendingRecordingsRender;
+  _pendingRecordingsRender = false;
+  if (!pending || renamed) return;
+  // Fora do handler de blur: o render remove o proprio elemento que
+  // ainda esta despachando o evento.
+  setTimeout(() => renderRecordings(window._lastRecordingsItems), 0);
+}
+
 function renderRecordings(items) {
   // Cache pra re-renderizar em troca de idioma (date groups + months
   // dependem do bundle ativo). Sem cache, language_changed nao tem
   // como repintar a lista.
   if (Array.isArray(items)) window._lastRecordingsItems = items;
+  if (document.querySelector('#recGrid .editing')) {
+    _pendingRecordingsRender = true;
+    return;
+  }
+  _pendingRecordingsRender = false;
   const grid = document.getElementById('recGrid');
   grid.innerHTML = '';
+  // Pastas primeiro, antes dos grupos de data — é a ordem que deixa
+  // "onde estou / pra onde posso ir" acima do conteúdo.
+  RecFolders.renderInto(grid);
   const arr = (items || []).slice();
   arr.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
@@ -492,7 +526,11 @@ function addRecordingCard(item) {
     inner.className = 'rec-group-grid';
     group.appendChild(h);
     group.appendChild(inner);
-    grid.insertBefore(group, grid.firstChild);
+    // Depois do grupo de pastas, nunca antes: o card novo é do período
+    // "Hoje", mas as pastas são a barra de navegação da lista.
+    const folders = grid.querySelector('.rec-group[data-group-key="folders"]');
+    if (folders) grid.insertBefore(group, folders.nextSibling);
+    else grid.insertBefore(group, grid.firstChild);
   }
   const inner = group.querySelector('.rec-group-grid');
   const card = buildRecCard(item);
@@ -697,6 +735,10 @@ function editName(event, el, id) {
   event.stopPropagation();
   if (el.classList.contains('editing')) return;
   const original = el.textContent;
+  // Card arrastável + texto editável brigam: o mousedown no texto vira
+  // início de arrasto em vez de posicionar o cursor. Desliga enquanto edita.
+  const card = el.closest('.rec-card');
+  if (card) { card.draggable = false; card.dataset.editing = 'true'; }
   el.classList.add('editing');
   el.contentEditable = 'true';
   el.focus();
@@ -712,7 +754,11 @@ function editName(event, el, id) {
     el.removeEventListener('keydown', onKey);
     el.contentEditable = 'false';
     el.classList.remove('editing');
-    if (!commit) { el.textContent = original; return; }
+    if (card) {
+      card.draggable = true;
+      setTimeout(() => { delete card.dataset.editing; }, 0);
+    }
+    if (!commit) { el.textContent = original; finishRecordingsRender(false); return; }
     // Sanitiza no cliente: remove quebras e caracteres ilegais de nome de
     // arquivo (\ / : * ? " < > |) e limita o tamanho. O backend tambem
     // sanitiza (HandleRenameRecording), mas isto evita round-trip e da
@@ -724,10 +770,12 @@ function editName(event, el, id) {
       .slice(0, 150);
     if (newName === '' || newName === original) {
       el.textContent = original;
+      finishRecordingsRender(false);
       return;
     }
     el.textContent = newName;
     Bridge.send('rename_recording', { id, newName });
+    finishRecordingsRender(true);
   };
   const onBlur = () => finish(true);
   const onKey = (ev) => {

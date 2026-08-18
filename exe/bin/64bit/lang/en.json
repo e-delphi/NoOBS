@@ -80,7 +80,23 @@
       "fps": "{{fps}} frames per second",
       "qualityShort": "Q{{level}}",
       "quality": "Quality level {{level}} of 10"
-    }
+    },
+    "foldersGroup": "Folders",
+    "newFolder": "New folder",
+    "newFolderName": "New folder",
+    "folderOpen": "Open folder",
+    "folderUp": "Back",
+    "folderUpHint": "Go to the folder above",
+    "libraryRoot": "Recordings",
+    "cut": "Cut",
+    "cutN": "Cut {{count}} selected",
+    "paste": "Paste here",
+    "pasteInto": "Paste into this folder",
+    "nothingCut": "Nothing has been cut yet",
+    "confirmDeleteFolderTitle": "Delete folder",
+    "confirmDeleteFolderEmpty": "Move the folder \"{{name}}\" to the Windows Recycle Bin?",
+    "confirmDeleteFolder_one": "The folder \"{{name}}\" has 1 recording inside. Move the folder and everything in it to the Windows Recycle Bin?",
+    "confirmDeleteFolder_other": "The folder \"{{name}}\" has {{count}} recordings inside. Move the folder and everything in it to the Windows Recycle Bin?"
   },
   "export": {
     "menuItem": "Export…",
@@ -527,7 +543,10 @@
     "exportDone": "Export finished",
     "exportDoneMsg": "The file is already in the recordings list.",
     "exportCanceled": "Export canceled",
-    "exportCanceledMsg": "The partial file was discarded."
+    "exportCanceledMsg": "The partial file was discarded.",
+    "cutTitle": "Cut",
+    "cutOne": "1 item ready to paste into another folder.",
+    "cutN": "{{count}} items ready to paste into another folder."
   },
   "error": {
     "loadVideo": "Error loading video.",
@@ -554,7 +573,12 @@
     "exportBadRange": "Invalid range. Pick a start before the end.",
     "exportNoSpace": "Not enough disk space to export. About {{needed}} free is needed, but only {{free}} is available. Free up space and try again.",
     "exportNoEncoder": "Could not open the selected encoder. Try H.264 — software (x264), which works on any machine.",
-    "exportFailed": "Could not export this recording. Check the log for details."
+    "exportFailed": "Could not export this recording. Check the log for details.",
+    "createFolderFailed": "Could not create the folder.",
+    "deleteFolderFailed": "Could not delete the folder \"{{name}}\".",
+    "moveFailed": "Could not move \"{{file}}\".",
+    "moveIntoItself": "A folder cannot be moved into itself.",
+    "moveWhileRecording": "The recording in progress cannot be moved."
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."
@@ -606,7 +630,8 @@
     "loading": "Loading resources",
     "yes": "Yes",
     "no": "No",
-    "ok": "OK"
+    "ok": "OK",
+    "rename": "Rename"
   },
   "banner": {
     "updateTitle": "New version available",

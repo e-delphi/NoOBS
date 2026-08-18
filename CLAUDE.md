@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (11 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (12 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -80,7 +80,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | Unit                | Papel                                                                              |
 |---------------------|------------------------------------------------------------------------------------|
 | `OBSUI`             | Host WebView2, janela, message pump, splash, sync de tema, hotkey global (`WM_HOTKEY`) |
-| `OBSBridge`         | Dispatcher central UI ↔ Delphi. Timers. Lifecycle de gravação via OBSEngine     |
+| `OBSBridge`         | Dispatcher central UI ↔ Delphi. Timers. Lifecycle de gravação via OBSEngine. Navegação em pastas da biblioteca (`CurrentBrowseDir` + criar/renomear/excluir/mover) |
 | `LibOBS`            | Bindings Delphi para obs.dll (tipos opacos, structs, enums, funções cdecl)         |
 | `OBSEngine`         | Motor de gravação: init libobs, scene, sources, output MKV (TOBSEngine class)      |
 | `OBSEncoder`        | Detecção/seleção de encoder de vídeo (AV1/HEVC/H264 hw, x264 sw)                   |
@@ -107,9 +107,9 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
-recordings, player, export, settings, widgets) e `js/` (11 módulos: i18n,
-bridge, displays, recordings, record, widgets, hotkey, settings, player,
-export, main), além
+recordings, player, export, settings, widgets) e `js/` (12 módulos: i18n,
+bridge, displays, recordings, folders, record, widgets, hotkey, settings,
+player, export, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -327,6 +327,53 @@ User clica Exportar → `export_recording`:
     PushRecordingAdded monta o card. Falha ou cancelamento: o .part é
     apagado e nunca chegou a aparecer na lista.
 ```
+
+---
+
+## Biblioteca em pastas
+
+A lista de gravações é **navegável**. A pasta de gravação (`RecordDir`)
+é a raiz; subpastas viram cards antes dos grupos de data, e o usuário
+organiza arrastando um vídeo pra cima de uma pasta ou por recortar/colar.
+
+```
+Estado (Delphi, OBSBridge):
+  • BrowseDirPath — pasta navegada. '' = raiz. NÃO persiste no config:
+    a biblioteca sempre abre na raiz, que é o único lugar onde gravação
+    nova cai (BuildRecordingPath usa RecordDir, não a navegada).
+  • CurrentBrowseDir — leitor que REVALIDA: se a pasta sumiu (Explorer,
+    drive removido, RecordDir trocado), zera e devolve a raiz. Todo
+    caminho de listagem passa por ele, nunca por BrowseDirPath direto.
+  • IsDirInRecordDir — igual ao IsPathInRecordDir, mas aceita a própria
+    raiz. Todo path de pasta vindo da UI passa por um dos dois antes de
+    virar operação de disco.
+
+Navegação (open_folder):
+  • BrowseDirPath := alvo
+  • PushRecordings (lista + folders + breadcrumb + parentDir + atRoot)
+  • ScanRecordingsMeta (thumbs/durações da pasta nova)
+  • OBSRecordWatch.UpdateDir(CurrentBrowseDir) — o watcher NÃO é
+    recursivo, então sem re-apontar, mudança feita pelo Explorer dentro
+    da pasta aberta não atualizaria a tela
+
+Mover (move_items) — mesmo caminho do arrastar e do colar:
+  • valida origem e destino, recusa pasta dentro de si mesma
+  • TFile.Move / TDirectory.Move (mesmo volume: é rename, instantâneo)
+  • MIGRA O CACHE (RenameCacheEntries por arquivo, MigrateCacheForTree
+    pra árvore) — o cache é indexado por hash do PATH
+  • PushRecordings
+
+Excluir pasta (delete_folder):
+  • worker → DeleteToRecycleBin na pasta inteira → GC do cache →
+    PushRecordings. O aviso de "tem N gravações dentro" é da UI: a
+    contagem já viaja no card da pasta (FolderStats), sem round-trip.
+```
+
+Na UI (`js/folders.js`), o objeto `RecFolders` guarda onde estamos, o que
+tem aqui e o recorte pendente. O estado **não é deduzido no cliente** —
+chega inteiro no mesmo push que traz a lista, pra nunca divergir dela.
+O menu de contexto (`showCtxMenu` em `main.js`) passou a ser **montado em
+JS**, com três alvos: card de gravação, card de pasta e o fundo da lista.
 
 ---
 
@@ -1766,6 +1813,75 @@ Nota sobre a Intel: **`obs-qsv11` não está na whitelist do
 na prática. O ramo ICQ do `ApplyConstantQuality` fica mapeado só pra que
 ligar o plugin um dia não reintroduza o CBR por omissão.
 
+### 54. **`OBSRecordWatch.UpdateDir` matava o watcher pra sempre**
+
+`Stop` zera `GCallback` de propósito (pra não disparar callback com o
+Bridge já em teardown). O `UpdateDir` chamava `Stop` e **logo depois**
+lia `GCallback` pra recriar a thread — que a essa altura já era `nil`,
+então o `if not Assigned(GCallback) then Exit` sempre saía e **a thread
+nunca voltava a subir**.
+
+Sintoma antigo (silencioso): trocar a pasta de gravação nas Configurações
+desligava o refresh automático da lista pelo resto da sessão. Com a
+biblioteca em pastas ficou barulhento — cada navegação chama `UpdateDir`,
+então bastava entrar numa pasta uma vez.
+
+**Correção**: guardar o callback numa local ANTES do `Stop` e restaurar
+depois. `Stop` continua zerando (o teardown depende disso).
+
+Regra geral: quando uma rotina de parada limpa estado de propósito, quem
+reinicia precisa de um snapshot **anterior** à parada — não dá pra ler o
+estado de volta depois.
+
+### 55. **Cache é indexado por hash do PATH — mover/renomear pasta invalida tudo dentro**
+
+`OBSPlayer` guarda thumb/duração/mp4/faixas em `<hash>.*`, onde `<hash>`
+sai do caminho completo do arquivo. Duas consequências que só aparecem
+com pastas:
+
+- **GC**: `GarbageCollectCache(ListRecordings(RecordDir))` passava só o
+  topo. Com gravações guardadas em subpastas, os hashes delas não estão
+  na lista de vivos → o GC apagaria thumb/duração de **tudo que o usuário
+  organizou**, e o scan seguinte regeraria do zero (thumb de canvas 4K
+  custa segundos por arquivo). Todo call site do GC usa
+  `ListRecordingsRecursive` agora. A listagem VISÍVEL continua sendo só
+  a da pasta navegada — são coisas diferentes, não unifique.
+- **Move/rename**: mudar o caminho muda o hash. `RenameCacheEntries`
+  (já existia pro rename de gravação) cobre um arquivo;
+  `MigrateCacheForTree` faz a árvore inteira depois de mover/renomear uma
+  pasta, reconstruindo o path antigo por prefixo (o relativo dentro da
+  pasta não mudou).
+
+### 56. **Nome em edição vive só no DOM — e o file watcher rebuilda a lista por baixo**
+
+`renderRecordings` limpa `#recGrid` e refaz tudo. Se um nome está sendo
+editado (`.when` da gravação ou `.folder-name` da pasta, ambos
+`contenteditable`), o elemento é destruído no meio: o `blur` que vem junto
+dispara o `finish(true)`, que comita **o texto de antes** e some com o
+cursor.
+
+O que fecha o ciclo: **criar uma pasta dispara o próprio refresh que mata
+o editor**. O `OBSRecordWatch` vigia `FILE_NOTIFY_CHANGE_DIR_NAME` na
+pasta navegada, o `mkdir` do `create_folder` acende o evento, o debounce
+de 400 ms expira e o `PushRecordings` chega — logo depois de a UI ter
+aberto a edição do nome. Sintoma: o campo abre com o texto selecionado e
+perde o foco sozinho um instante depois, salvando "Nova pasta".
+
+**Solução**: `renderRecordings` ADIA o render enquanto existir
+`#recGrid .editing`, marcando `_pendingRecordingsRender`. Quem termina a
+edição chama `finishRecordingsRender(renamed)`:
+
+- `renamed = false` (cancelou / nome igual) → roda o render adiado, num
+  `setTimeout(0)` — dentro do handler de `blur` o render removeria o
+  próprio elemento que ainda está despachando o evento.
+- `renamed = true` → **descarta** o adiado. O rename já vai gerar um
+  `PushRecordings` do backend; renderizar antes dele mostraria o nome
+  ANTIGO por um instante, parecendo que a edição não pegou.
+
+Corolário pra qualquer estado que só exista no DOM (edição, arrasto em
+curso, seleção de texto): um push do backend pode chegar a qualquer
+momento, e nem todo push nasce de um clique do usuário.
+
 ---
 
 ## Caches
@@ -2039,6 +2155,19 @@ Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
   gravação de tela. Use `OBSEncoder.ApplyConstantQuality`, e lembre que o
   NVENC lê `target_quality` (não `cqp`) e que o `max_bitrate` dele precisa
   ser explícito, senão vira teto de 10 Mbps (pegadinha #53).
+- **NÃO passe** `ListRecordings(RecordDir)` pro `GarbageCollectCache` — o
+  cache é por hash do path completo, então gravação guardada em subpasta
+  não estaria na lista de vivos e teria thumb/duração apagadas. Use
+  `ListRecordingsRecursive` (pegadinha #55). A LISTAGEM da tela continua
+  sendo só a pasta navegada (`CurrentBrowseDir`) — são coisas diferentes.
+- **NÃO mova nem renomeie** pasta/arquivo da biblioteca sem migrar o
+  cache junto (`OBSPlayer.RenameCacheEntries` pra um arquivo,
+  `MigrateCacheForTree` pra uma árvore) — sem isso o próximo GC apaga
+  tudo e o scan regenera do zero (pegadinha #55).
+- **NÃO leia** `BrowseDirPath` direto num caminho de listagem — use
+  `CurrentBrowseDir`, que revalida e volta pra raiz quando a pasta
+  navegada sumiu. E todo path de pasta vindo da UI passa por
+  `IsDirInRecordDir` antes de virar operação de disco.
 - **NÃO decodifique** muitos frames pra gerar thumbnail — aceite o
   primeiro keyframe após o seek (pegadinha #42). Decodar até o ts exato
   em canvas multi-monitor (AV1/HEVC software) trava segundos.

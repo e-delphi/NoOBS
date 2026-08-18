@@ -41,6 +41,9 @@ const Bridge = {
       renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
       // freeBytes antes de renderRecordings — updateRecMeta usa.
       if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      // Estado de navegacao antes do render: renderRecordings desenha o
+      // grupo de pastas a partir dele.
+      RecFolders.apply(data);
       renderRecordings(data.recordings);
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
       hideLoading();
@@ -87,6 +90,9 @@ const Bridge = {
       // Re-render do meta (X arquivos · Y usados · Z livres) — buildRecMetaHtml
       // usa T() pluralizado. recalcRecMetaFromDom le do DOM atual.
       try { recalcRecMetaFromDom(); } catch (e) {}
+      // Caminho da pasta: "Gravações" (raiz) e "Voltar" sao traduzidos e
+      // ficam fora do walk do apply() — o breadcrumb e montado em JS.
+      try { RecFolders.renderPath(); } catch (e) {}
       Toast.show(T('toast.languageChanged'), '', { ttl: 1800 });
     },
     init_pending(data) { showLoading(data && data.message); },
@@ -200,9 +206,13 @@ const Bridge = {
       // Espaco livre vem ANTES de renderRecordings pra que updateRecMeta
       // (chamada dentro do render) ja pegue o valor novo.
       if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      RecFolders.apply(data);
       renderRecordings(data.recordings);
       if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
     },
+    // Chega DEPOIS do recordings_loaded da mesma operacao — o card ja
+    // existe no DOM e pode receber o cursor pra renomear.
+    folder_created(data) { RecFolders.onCreated(data && data.id); },
     settings(data) { Settings.applySettings(data); },
     update_result(data) { Updates.applyResult(data); },
     record_dir_picked(data) { Settings.setPickedPath(data.path); },

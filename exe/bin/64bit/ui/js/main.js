@@ -85,17 +85,22 @@ function updateRecordButtonAvailability() {
 // =====================================================================
 function onSearch() {
   const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-  const cards = document.querySelectorAll('#recGrid .rec-card');
+  // Pastas entram no filtro junto com os cards: buscar sem elas deixaria
+  // uma linha de pastas irrelevantes acima do unico resultado. O card de
+  // "voltar" tambem some — durante a busca a navegacao nao e o assunto.
+  const cards = document.querySelectorAll('#recGrid .rec-card, #recGrid .rec-folder');
   let visible = 0;
   cards.forEach(card => {
+    const isUp = card.classList.contains('up');
     const text = card.textContent.toLowerCase();
-    const match = q === '' || text.includes(q);
+    const match = (q === '') ? true : (!isUp && text.includes(q));
     card.style.display = match ? '' : 'none';
     if (match) visible++;
   });
   // Esconde grupos cujos cards estao todos filtrados.
   document.querySelectorAll('#recGrid .rec-group').forEach(g => {
-    const hasVisible = !!g.querySelector('.rec-card:not([style*="display: none"])');
+    const hasVisible = !!g.querySelector(
+      '.rec-card:not([style*="display: none"]), .rec-folder:not([style*="display: none"])');
     g.style.display = hasVisible ? '' : 'none';
   });
   document.getElementById('emptyState').style.display =
@@ -135,92 +140,139 @@ try {
 } catch (e) {}
 
 // =====================================================================
-// Context menu (right-click em rec-card)
+// Context menu (right-click na biblioteca)
 // =====================================================================
-function showCtxMenu(clientX, clientY, recordingId) {
+// Três alvos, um só menu: card de gravação, card de pasta e o fundo da
+// lista. Os itens são montados na hora — antes eram markup fixo no HTML,
+// mas com pastas o conjunto de ações muda por alvo e ainda depende de
+// haver ou não um recorte pendente.
+function confirmDeleteOneRecording(id) {
+  const card = document.querySelector(
+    `#recGrid .rec-card[data-id="${cssEscape(id)}"]`);
+  const name = card ? (card.querySelector('.when')?.textContent || id) : id;
+  Confirm.open({
+    title: T('recordings.confirmDeleteSingleTitle'),
+    message: T('recordings.confirmDeleteNamed', { name: name }),
+    okLabel: T('common.delete'),
+    onOk: () => {
+      // Limpa selecao otimisticamente — evita race com o file watcher
+      // que pode rebuildar a lista antes do recording_removed chegar.
+      if (RecSelection.ids.delete(id)) {
+        RecSelection._syncGroups();
+        RecSelection._syncMode();
+      }
+      Bridge.send('delete_recording', { id });
+    }
+  });
+}
+
+function ctxMenuItems(ctx) {
+  const items = [];
+  const canPaste = RecFolders.canPaste();
+  const pasteHint = canPaste ? '' : T('recordings.nothingCut');
+
+  if (ctx.kind === 'recording') {
+    // Com selecao multipla que inclui o card clicado, o menu opera sobre
+    // TODOS os selecionados; senao so sobre ele.
+    const ids = RecFolders.targetIds(ctx.id);
+    const bulk = ids.length > 1;
+    // Exportar opera sobre UMA gravacao (recorte, regioes e faixas sao
+    // do arquivo). Em lote o menu fala das N selecionadas — deixar
+    // "Exportar" ativo ali sugeriria exportar todas, quando exportaria
+    // so a clicada.
+    const expBlocked = bulk || Export.running;
+    items.push({
+      label: T('export.menuItem'),
+      disabled: expBlocked,
+      hint: expBlocked ? T('export.selectOne') : '',
+      run: () => Export.openFor(ctx.id)
+    });
+    items.push({
+      label: bulk ? T('recordings.cutN', { count: ids.length }) : T('recordings.cut'),
+      run: () => RecFolders.cut(ids)
+    });
+    items.push({ sep: true });
+    items.push({
+      label: bulk ? T('recordings.deleteNShort', { count: ids.length })
+                  : T('common.delete'),
+      danger: true,
+      run: () => { if (bulk) bulkDeleteSelected(); else confirmDeleteOneRecording(ctx.id); }
+    });
+    return items;
+  }
+
+  if (ctx.kind === 'folder') {
+    items.push({ label: T('recordings.folderOpen'), run: () => RecFolders.open(ctx.id) });
+    items.push({ label: T('common.rename'),         run: () => RecFolders.renameById(ctx.id) });
+    items.push({ label: T('recordings.cut'),        run: () => RecFolders.cut([ctx.id]) });
+    items.push({
+      label: T('recordings.pasteInto'),
+      disabled: !canPaste,
+      hint: pasteHint,
+      run: () => RecFolders.paste(ctx.id)
+    });
+    items.push({ sep: true });
+    items.push({
+      label: T('common.delete'), danger: true,
+      run: () => RecFolders.remove(ctx.id)
+    });
+    return items;
+  }
+
+  items.push({ label: T('recordings.newFolder'), run: () => RecFolders.create() });
+  items.push({
+    label: T('recordings.paste'),
+    disabled: !canPaste,
+    hint: pasteHint,
+    run: () => RecFolders.paste('')
+  });
+  if (!RecFolders.atRoot) {
+    items.push({ sep: true });
+    items.push({ label: T('recordings.folderUp'), run: () => RecFolders.goUp() });
+  }
+  return items;
+}
+
+function showCtxMenu(clientX, clientY, ctx) {
+  // Compat: chamadas antigas passavam so o id da gravacao.
+  if (typeof ctx === 'string') ctx = { kind: 'recording', id: ctx };
+  ctx = ctx || { kind: 'empty', id: '' };
   const menu = document.getElementById('ctxMenu');
-  menu.dataset.target = recordingId;
-  // Se ha selecao multipla e o card clicado faz parte dela, o menu
-  // opera sobre TODOS os selecionados. Caso contrario, opera so no
-  // card clicado (e mantemos a selecao intacta).
-  const selectedAll = RecSelection.all();
-  const useSelection = selectedAll.length > 1 &&
-                       RecSelection.has(recordingId);
-  menu.dataset.bulk = useSelection ? '1' : '0';
-  const deleteItem = menu.querySelector('[data-action="delete"]');
-  if (deleteItem) {
-    deleteItem.textContent = useSelection
-      ? T('recordings.deleteNShort', { count: selectedAll.length })
-      : T('common.delete');
-  }
-  // Exportar opera sobre UMA gravacao (recorte, regioes e faixas sao
-  // especificos do arquivo). Em modo lote o menu inteiro fala das N
-  // selecionadas — deixar "Exportar" ativo ali sugeriria exportar todas,
-  // quando na verdade exportaria so a clicada. Desabilita, mesma regra do
-  // botao da header (que exige exatamente 1 selecionada).
-  //
-  // Quando o clique e num card FORA da selecao, o menu ja opera so nele
-  // (o "Excluir" tambem vira singular), entao exportar segue liberado.
-  const exportItem = menu.querySelector('[data-action="export"]');
-  if (exportItem) {
-    const blocked = useSelection || Export.running;
-    exportItem.dataset.disabled = blocked ? 'true' : 'false';
-    exportItem.dataset.hint = blocked ? T('export.selectOne') : '';
-  }
+  menu.innerHTML = '';
+  ctxMenuItems(ctx).forEach(spec => {
+    if (spec.sep) {
+      const s = document.createElement('div');
+      s.className = 'ctx-sep';
+      menu.appendChild(s);
+      return;
+    }
+    const el = document.createElement('div');
+    el.className = 'ctx-item' + (spec.danger ? ' danger' : '');
+    el.textContent = spec.label;
+    if (spec.disabled) el.dataset.disabled = 'true';
+    if (spec.hint) el.dataset.hint = spec.hint;
+    el.addEventListener('click', () => {
+      // Desabilitado nao e so visual: sem esta guarda o clique ainda
+      // rodaria a acao que o estado desabilitado existe pra evitar.
+      if (el.dataset.disabled === 'true') return;
+      hideCtxMenu();
+      spec.run();
+    });
+    menu.appendChild(el);
+  });
   menu.style.display = 'block';
   // Posiciona — clamp para nao escapar da janela.
   const w = menu.offsetWidth, h = menu.offsetHeight;
-  const maxX = window.innerWidth  - w - 4;
-  const maxY = window.innerHeight - h - 4;
-  menu.style.left = Math.min(clientX, maxX) + 'px';
-  menu.style.top  = Math.min(clientY, maxY) + 'px';
+  menu.style.left = Math.max(4, Math.min(clientX, window.innerWidth  - w - 4)) + 'px';
+  menu.style.top  = Math.max(4, Math.min(clientY, window.innerHeight - h - 4)) + 'px';
 }
+
 function hideCtxMenu() {
   const menu = document.getElementById('ctxMenu');
   menu.style.display = 'none';
-  menu.dataset.target = '';
 }
+
 function initCtxMenu() {
-  const menu = document.getElementById('ctxMenu');
-  // Acao: exportar — sempre no card CLICADO, mesmo com selecao multipla
-  // (a exportacao e por arquivo: recorte, regioes e faixas sao dele).
-  menu.querySelector('[data-action="export"]').addEventListener('click', (e) => {
-    // Desabilitado nao e so visual: sem esta guarda o clique ainda abriria
-    // a exportacao do card sob o cursor, que e exatamente a ambiguidade
-    // que o estado desabilitado existe pra evitar.
-    if (e.currentTarget.dataset.disabled === 'true') return;
-    const id = menu.dataset.target;
-    hideCtxMenu();
-    if (id) Export.openFor(id);
-  });
-  // Acao: excluir
-  menu.querySelector('[data-action="delete"]').addEventListener('click', () => {
-    const id = menu.dataset.target;
-    const bulk = menu.dataset.bulk === '1';
-    hideCtxMenu();
-    if (bulk) {
-      // Mesma logica do botao da header (header → bulkDeleteSelected).
-      bulkDeleteSelected();
-      return;
-    }
-    if (!id) return;
-    const card = document.querySelector(`#recGrid .rec-card[data-id="${CSS.escape(id)}"]`);
-    const name = card ? (card.querySelector('.when')?.textContent || id) : id;
-    Confirm.open({
-      title: T('recordings.confirmDeleteSingleTitle'),
-      message: T('recordings.confirmDeleteNamed', { name: name }),
-      okLabel: T('common.delete'),
-      onOk: () => {
-        // Limpa selecao otimisticamente — evita race com o file watcher
-        // que pode rebuildar a lista antes do recording_removed chegar.
-        if (RecSelection.ids.delete(id)) {
-          RecSelection._syncGroups();
-          RecSelection._syncMode();
-        }
-        Bridge.send('delete_recording', { id });
-      }
-    });
-  });
   // Fecha em click fora
   document.addEventListener('mousedown', (e) => {
     if (!e.target.closest('.ctx-menu')) hideCtxMenu();
@@ -236,13 +288,52 @@ function initCtxMenu() {
   window.addEventListener('resize', () => Player._fitCompositeToStage());
 }
 
+// Atalhos da biblioteca. So valem com o foco na lista: dentro de um
+// campo de texto Ctrl+X/Ctrl+V sao do texto, e com player/exportacao/
+// configuracoes abertos a biblioteca esta atras de uma tela cheia.
+function libraryShortcutsAllowed() {
+  const a = document.activeElement;
+  if (a) {
+    const t = (a.tagName || '').toUpperCase();
+    if (t === 'INPUT' || t === 'TEXTAREA' || a.isContentEditable) return false;
+  }
+  const blockers = ['playerOverlay', 'exportOverlay', 'settingsOverlay', 'confirmOverlay'];
+  for (let i = 0; i < blockers.length; i++) {
+    const el = document.getElementById(blockers[i]);
+    if (el && el.classList.contains('visible')) return false;
+  }
+  return true;
+}
+
 // =====================================================================
 // Boot
 // =====================================================================
-// Suprime o menu padrao do browser em toda a UI. Apenas cards de
-// gravacao tem context menu proprio (Excluir).
+// Suprime o menu padrao do browser em toda a UI. Cards de gravacao e de
+// pasta tem handler proprio (com stopPropagation), entao aqui so chega o
+// que caiu no VAZIO da biblioteca — que ganha o menu de "Nova pasta /
+// Colar", o unico jeito de criar pasta ou colar sem mirar num card.
 document.addEventListener('contextmenu', (e) => {
-  if (!e.target.closest('.rec-card')) e.preventDefault();
+  e.preventDefault();
+  const inLibrary = e.target.closest('.recordings') &&
+                    !e.target.closest('.displays-block') &&
+                    !e.target.closest('input, textarea, button');
+  if (inLibrary) showCtxMenu(e.clientX, e.clientY, { kind: 'empty', id: '' });
+});
+
+// Recortar/colar e voltar uma pasta pelo teclado. Espelham o menu de
+// contexto — quem descobriu a acao ali espera o atalho.
+document.addEventListener('keydown', (e) => {
+  if (!libraryShortcutsAllowed()) return;
+  const k = e.key;
+  if (e.ctrlKey && (k === 'x' || k === 'X')) {
+    const ids = RecSelection.all();
+    if (ids.length) { e.preventDefault(); RecFolders.cut(ids); }
+  } else if (e.ctrlKey && (k === 'v' || k === 'V')) {
+    if (RecFolders.canPaste()) { e.preventDefault(); RecFolders.paste(''); }
+  } else if ((e.altKey && k === 'ArrowLeft') ||
+             (!e.ctrlKey && !e.altKey && k === 'Backspace')) {
+    if (!RecFolders.atRoot) { e.preventDefault(); RecFolders.goUp(); }
+  }
 });
 
 // Bloqueia zoom do browser — Ctrl+scroll, Ctrl + / -, Ctrl 0.

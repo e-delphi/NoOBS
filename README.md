@@ -35,6 +35,10 @@ instalar nem configurar nada — só abrir e gravar.
   reencodam — são instantâneos e sem perda. A exportação recorta trechos,
   escolhe monitores e reduz resolução, com prévia do que está saindo.
 
+- **Organiza em pastas, sem abrir o Explorer.** Crie pastas na própria
+  lista, arraste uma gravação pra dentro ou use recortar e colar. Excluir
+  uma pasta avisa quantas gravações vão junto.
+
 - **Grava chamadas sozinho.** Detecta quando o Teams, o Meet ou o
   WhatsApp abre o microfone, começa a gravar e para quando a chamada
   acaba. Funciona até com o app hibernando.

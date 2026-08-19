@@ -13,6 +13,15 @@
 // Faixa do controle de qualidade, na escala do x264 (0 = sem perdas,
 // 51 = pior). Tem que casar com EXPORT_CRF_* do FFmpegExport.pas e com
 // os limites do <input type="range"> do index.html.
+// Comprimento MÍNIMO de um lado, em pixels de tela, pra a alça de borda
+// caber. Ela é recuada de uma alça inteira (18px) em cada ponta, então
+// abaixo disso não sobra nada pra ela — e o desenho acabaria em cima das
+// alças de canto. Ver Export._renderCrop.
+const CROP_EDGE_MIN = 46;
+// Altura de tela que a medida do recorte precisa acima da moldura pra
+// caber na folga do palco; abaixo disso ela desce pra dentro.
+const CROP_LABEL_ROOM = 22;
+
 const CRF_MIN = 0;
 const CRF_MAX = 51;
 const CRF_DEFAULT = 23;
@@ -26,6 +35,13 @@ const Export = {
   layout: null,          // { canvasW, canvasH, regions: [...] }
   audioStreams: [],      // [{ index, title, channels }]
   selectedRegions: null, // Set<number> — vazio = todas
+  crop: null,            // {x,y,w,h} em pixels da ORIGEM; null = quadro inteiro
+  _cropDrag: null,       // gesto de recorte em curso
+  cropZoom: 1,           // zoom da prévia (1..12) — precisão do recorte
+  cropPanX: 0,           // deslocamento da vista, em px de tela
+  cropPanY: 0,
+  _panDrag: null,        // gesto de deslocamento em curso
+  _lastPanMoved: 0,      // quanto o último arrasto andou (suprime o play)
   selectedAudio: null,   // Set<number> — indices de STREAM do arquivo
   parts: [],             // [{start,end,keep}] cobrindo a duracao inteira
   playSec: 0,            // posicao do cursor na linha do tempo
@@ -48,6 +64,8 @@ const Export = {
     this.currentId = id;
     this._loading = true;
     this.selectedRegions = new Set();
+    this.crop = null;
+    this.resetCropZoom();
     this.selectedAudio = new Set();
     this.durationSec = 0;
     this.parts = [];
@@ -102,6 +120,11 @@ const Export = {
     // mostra o formulario no meio de onde o usuario tinha parado.
     const body = document.querySelector('.export-body');
     if (body) body.scrollTop = 0;
+    // O recorte é da gravação que estava aberta; deixá-lo de pé faria a
+    // próxima abrir com a moldura de outra, no tamanho errado.
+    this.crop = null;
+    this._cropDrag = null;
+    this.resetCropZoom();
     this.currentId = null;
   },
 
@@ -146,6 +169,7 @@ const Export = {
       this.selectedAudio.add(this.audioStreams[0].index);
 
     this._resetParts();
+    this._wireStage();
     this._wireTimeline();
     this._applyZoom();
     this._renderTicks();
@@ -155,6 +179,12 @@ const Export = {
     this._renderResolutions();
     this._renderScale();
     this._renderFps();
+    // Proporção da caixa ANTES de desenhar a moldura: o retângulo é
+    // posicionado em % da caixa, e a conversão só fecha se a caixa tiver
+    // a proporção da origem.
+    this._syncStageAspect();
+    this._renderCrop();
+    this._syncCropInfo();
     this._renderPreview();
     this._syncQualityValue();
     document.getElementById('exportRunBtn').disabled = false;
@@ -611,6 +641,29 @@ const Export = {
       n.classList.toggle('target', i === cutIdx - 1));
   },
 
+  _wireStage() {
+    if (this._stageWired) return;
+    this._stageWired = true;
+    const stage = document.getElementById('exportStage');
+    if (!stage) return;
+    // passive:false porque o _cropWheel dá preventDefault quando o Ctrl
+    // está pressionado — sem isso o WebView aplicaria o zoom dele.
+    stage.addEventListener('wheel', (ev) => this._cropWheel(ev), { passive: false });
+    // No stage, não no vídeo: o gesto tem que pegar também quando começa
+    // sobre a sombra de fora do recorte. As alças e a moldura dão
+    // stopPropagation, então gesto de recorte nunca vira deslocamento.
+    stage.addEventListener('pointerdown', (ev) => this._stageDown(ev));
+    // O botão do meio abre o auto-scroll do Chromium (aquela bolinha de
+    // rolagem). Como aqui ele desloca a vista, é preciso barrar os dois
+    // eventos que disparam aquilo.
+    stage.addEventListener('mousedown', (ev) => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+    stage.addEventListener('auxclick', (ev) => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+  },
+
   _wireTimeline() {
     if (this._timelineWired) return;
     this._timelineWired = true;
@@ -742,7 +795,13 @@ const Export = {
   },
 
   _afterRegionChange() {
+    // Recorte e escolha de monitor são dois jeitos de dizer que parte do
+    // canvas sai — o último gesto vale. Mexer nos monitores desfaz o
+    // recorte (e some com a moldura, via _cropAvailable).
+    this.crop = null;
     this._renderRegions();
+    this._renderCrop();
+    this._syncCropInfo();
     this._renderResolutions();
     this._renderPreview();
     // Tirar uma regiao muda a composicao, e com ela o "esta reduzindo?".
@@ -752,8 +811,13 @@ const Export = {
   // Tamanho nativo da composicao — mesma regra do backend
   // (BuildCompRegions): soma das larguras x maior altura.
   _composedSize() {
-    if (!this.layout || this.selectedRegions.size === 0)
-      return { w: this.srcW, h: this.srcH };
+    // Sem monitores escolhidos, o que sai é o RECORTE — que por padrão é
+    // o quadro inteiro, então este caminho continua valendo pra quem
+    // nunca tocou na moldura.
+    if (!this.layout || this.selectedRegions.size === 0) {
+      const c = this._cropRect();
+      return { w: c.w || this.srcW, h: c.h || this.srcH };
+    }
     let w = 0, h = 0;
     this._orderedRegions().forEach(r => { w += r.w; h = Math.max(h, r.h); });
     return { w: w || this.srcW, h: h || this.srcH };
@@ -789,8 +853,9 @@ const Export = {
         box.appendChild(d);
         return;
       }
-      regs = [{ w: this.srcW, h: this.srcH }];
-      full = true;
+      const c = this._cropRect();
+      regs = [{ w: c.w, h: c.h }];
+      full = !this._hasCrop();
     }
 
     const PREF_H = 88;          // altura confortavel da previa
@@ -815,6 +880,448 @@ const Export = {
         ? T('export.previewFull') : `${r.w}×${r.h}`;
       box.appendChild(d);
     });
+  },
+
+  // ---- recorte (crop) -------------------------------------------------
+  //
+  // O retângulo vive em coordenadas da ORIGEM (pixels do canvas gravado).
+  // A caixa da prévia tem a proporção EXATA da gravação — `aspect-ratio`
+  // definido por _syncStageAspect —, então o vídeo preenche a caixa sem
+  // tarja preta e converter tela <-> origem é uma regra de três direta.
+  // Se a caixa tivesse proporção fixa, todo clique precisaria descontar o
+  // letterbox do `object-fit: contain`, que muda com o tamanho da janela.
+  //
+  // No backend isto vira UMA região de forma livre: o BuildCompRegions já
+  // trata retângulo arbitrário (clamp no canvas + arredondamento par), o
+  // mesmo caminho que o recorte por monitor usa.
+
+  _syncStageAspect() {
+    const stage = document.getElementById('exportStage');
+    const frame = document.getElementById('exportFrame');
+    if (!stage || !frame) return;
+    if (!(this.srcW > 0 && this.srcH > 0)) {
+      frame.style.removeProperty('aspect-ratio');
+      stage.style.removeProperty('max-width');
+      return;
+    }
+    // A proporção vai no QUADRO. O palco só o envolve, com a folga das
+    // alças em volta — daí ele não poder ter proporção própria.
+    frame.style.aspectRatio = this.srcW + ' / ' + this.srcH;
+    // O teto de ALTURA vira teto de LARGURA. Se a altura fosse limitada
+    // direto, numa gravação larga (dois monitores lado a lado) só a
+    // largura seria cortada pelo container e a caixa ficaria com
+    // proporção errada — o vídeo letterboxa dentro dela e o retângulo em
+    // % da caixa deixa de ser o retângulo em pixels da origem. Com a
+    // altura sempre saindo da proporção, isso não acontece: ou a largura
+    // do container manda (e a altura fica abaixo do teto), ou este
+    // max-width manda (e a altura bate exatamente no teto).
+    const maxH = Math.min(window.innerHeight * 0.58, 560);
+    // A folga sai do próprio CSS (padding do palco), não de um número
+    // repetido aqui: se um dia ela mudar lá, esta conta acompanha.
+    const gut = parseFloat(getComputedStyle(stage).paddingLeft) || 0;
+    stage.style.maxWidth =
+      Math.round(maxH * (this.srcW / this.srcH) + gut * 2) + 'px';
+    // A folga do deslocamento sai do tamanho do stage: se ele encolheu, o
+    // pan atual pode ter ficado além do limite novo.
+    this._clampPan();
+    this._stageTransform();
+  },
+
+  // Com monitores escolhidos não há recorte: a prévia mostra o canvas
+  // inteiro, mas a saída é a composição deles lado a lado — desenhar uma
+  // moldura ali diria uma coisa e o arquivo sairia outra.
+  _cropAvailable() {
+    return !!this.currentId && this.srcW > 0 && this.srcH > 0 &&
+           (!this.selectedRegions || this.selectedRegions.size === 0);
+  },
+
+  _cropRect() {
+    return this.crop || { x: 0, y: 0, w: this.srcW, h: this.srcH };
+  },
+
+  _hasCrop() {
+    if (!this.crop) return false;
+    return this.crop.x > 0 || this.crop.y > 0 ||
+           this.crop.w < this.srcW || this.crop.h < this.srcH;
+  },
+
+  // Coordenada e dimensão ÍMPARES corrompem o quadro em YUV420 (o croma
+  // tem metade da resolução nos dois eixos), então o backend arredonda
+  // tudo pra par. Arredondar aqui também mantém o número que a tela
+  // mostra igual ao que o arquivo vai ter.
+  _evenRect(r) {
+    const ev = v => Math.max(0, Math.floor(v) & ~1);
+    const x = ev(r.x), y = ev(r.y);
+    const w = Math.max(2, Math.min(ev(r.w), ev(this.srcW) - x));
+    const h = Math.max(2, Math.min(ev(r.h), ev(this.srcH) - y));
+    return { x: x, y: y, w: w, h: h };
+  },
+
+  resetCrop() {
+    if (!this.crop) return;
+    this.crop = null;
+    this._afterCropChange();
+  },
+
+  _afterCropChange() {
+    this._renderCrop();
+    this._renderResolutions();
+    this._renderPreview();
+    // Recortar muda o tamanho da composição, e com ele o "está reduzindo?"
+    // que decide se o campo de redimensionamento aparece.
+    this._renderScale();
+    this._syncCropInfo();
+  },
+
+  _syncCropInfo() {
+    const btn = document.getElementById('exportCropResetBtn');
+    if (btn) btn.disabled = !this._hasCrop();
+    const el = document.getElementById('exportCropInfo');
+    if (!el) return;
+    // SÓ a medida. A dica vive num bloco próprio (#exportCropHint), que
+    // quebra linha: aqui o texto é de uma linha só com reticências, e a
+    // dica inteira não cabia — o fim dela sumia sem aviso.
+    const r = this._cropRect();
+    el.textContent = this._hasCrop()
+      ? T('export.cropOf', { w: r.w, h: r.h, sw: this.srcW, sh: this.srcH })
+      : '';
+  },
+
+  _renderCrop() {
+    const stage = document.getElementById('exportStage');
+    const box = document.getElementById('exportCrop');
+    const bar = document.getElementById('exportCropBar');
+    if (!stage || !box) return;
+    const on = this._cropAvailable();
+    stage.classList.toggle('no-crop', !on);
+    if (bar) bar.style.display = on ? '' : 'none';
+    const hintEl = document.getElementById('exportCropHint');
+    if (hintEl) hintEl.style.display = on ? '' : 'none';
+    // O zoom existe pra posicionar a moldura; sem ela (monitores
+    // escolhidos) ficaria uma vista deslocada que ninguém pediu.
+    if (!on && this.cropZoom > 1.001) this.resetCropZoom();
+    box.innerHTML = '';
+    if (!on) return;
+
+    const r = this._cropRect();
+    const l = 100 * r.x / this.srcW,  t = 100 * r.y / this.srcH;
+    const w = 100 * r.w / this.srcW,  h = 100 * r.h / this.srcH;
+
+    // Tamanho da moldura EM PIXELS DE TELA (o rect do quadro já vem com o
+    // zoom aplicado). É por ele que se decide o que cabe desenhar — o
+    // tamanho em pixels da origem não diz nada sobre isso.
+    const fr = document.getElementById('exportFrame').getBoundingClientRect();
+    const known = fr.width > 0 && fr.height > 0;
+    const boxW = known ? (r.w / this.srcW) * fr.width  : 0;
+    const boxH = known ? (r.h / this.srcH) * fr.height : 0;
+
+    // Escurece o que fica FORA: quatro faixas em vez de um box-shadow
+    // gigante, que vazaria pelo border-radius da caixa da prévia.
+    const shade = (css) => {
+      const d = document.createElement('div');
+      d.className = 'export-crop-shade';
+      Object.keys(css).forEach(k => { d.style[k] = css[k]; });
+      box.appendChild(d);
+    };
+    shade({ left: '0', top: '0', width: '100%', height: t + '%' });
+    shade({ left: '0', top: (t + h) + '%', width: '100%', bottom: '0' });
+    shade({ left: '0', top: t + '%', width: l + '%', height: h + '%' });
+    shade({ left: (l + w) + '%', top: t + '%', right: '0', height: h + '%' });
+
+    const rect = document.createElement('div');
+    rect.className = 'export-crop-box';
+    rect.style.left = l + '%';
+    rect.style.top = t + '%';
+    rect.style.width = w + '%';
+    rect.style.height = h + '%';
+
+    const size = document.createElement('div');
+    size.className = 'export-crop-size';
+    size.textContent = r.w + '\u00D7' + r.h;
+    // A medida fica ACIMA da moldura, na folga do palco. Com a moldura
+    // colada no topo não sobra altura pra ela ali e o `overflow: hidden`
+    // a cortava pela metade — nesse caso ela desce pra dentro.
+    if (known) {
+      const sr = stage.getBoundingClientRect();
+      const topOnScreen = fr.top + (r.y / this.srcH) * fr.height;
+      if (topOnScreen - sr.top < CROP_LABEL_ROOM) size.classList.add('inside');
+    }
+    rect.appendChild(size);
+
+    // Alça de borda só entra se o lado tiver comprimento pra ela: ela é
+    // recuada das pontas, então numa moldura pequena sobra comprimento
+    // negativo e o desenho ia parar em cima das alças de canto (era o
+    // amontoado de quadradinhos num recorte de 32x32).
+    const edges = [];
+    if (!known || boxW >= CROP_EDGE_MIN) edges.push('n', 's');
+    if (!known || boxH >= CROP_EDGE_MIN) edges.push('w', 'e');
+    // BORDAS primeiro, CANTOS depois: os cantos são o alvo mais difícil e
+    // precisam ficar por cima. Com a ordem invertida, a alça de borda
+    // (criada depois) roubava o clique do canto e arrastar na diagonal
+    // virava arrastar na horizontal ou na vertical.
+    edges.concat(['nw', 'ne', 'sw', 'se']).forEach(dir => {
+      const hd = document.createElement('div');
+      hd.className = 'export-crop-h';
+      hd.dataset.dir = dir;
+      hd.addEventListener('pointerdown', (e) => this._cropDown(e, dir));
+      rect.appendChild(hd);
+    });
+    // Arrastar o miolo move a moldura inteira. O alvo é checado porque as
+    // alças ficam DENTRO do retângulo e têm handler próprio.
+    rect.addEventListener('pointerdown', (e) => {
+      if (e.target !== rect) return;
+      this._cropDown(e, 'move');
+    });
+    box.appendChild(rect);
+  },
+
+  _cropDown(ev, dir) {
+    if (!this._cropAvailable()) return;
+    // Gesto de DESLOCAR tem prioridade: sai daqui sem parar a propagação
+    // pra que o stage o receba. Aproximado, a moldura costuma cobrir a
+    // vista inteira e não sobraria fundo nenhum pra agarrar.
+    if (ev.button === 1 || ev.shiftKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const stage = document.getElementById('exportStage');
+    const frame = document.getElementById('exportFrame');
+    // getBoundingClientRect do QUADRO já vem com o zoom aplicado (é o
+    // tamanho na tela), então não há divisão manual pelo zoom: mede-se
+    // direto o que o usuário está vendo. É daí que sai a precisão ao
+    // aproximar — mais pixels de tela para os mesmos pixels de origem.
+    const rect = frame && frame.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    const s = this._cropRect();
+    this._cropDrag = {
+      dir: dir,
+      // Pixels da ORIGEM por pixel de tela. Os dois eixos dão o mesmo
+      // fator (o quadro tem a proporção da origem), mas medir cada um
+      // sobrevive a um arredondamento de layout de meio pixel.
+      kx: this.srcW / rect.width,
+      ky: this.srcH / rect.height,
+      sx: ev.clientX, sy: ev.clientY,
+      x: s.x, y: s.y, w: s.w, h: s.h,
+      moved: 0
+    };
+    stage.classList.add('cropping');
+    const move = (e) => this._cropMove(e);
+    const up = (e) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      this._cropUp(e);
+    };
+    // No window, não no elemento: arrastar rápido tira o ponteiro de cima
+    // da alça e o gesto morreria no meio.
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  },
+
+  _cropMove(ev) {
+    const d = this._cropDrag;
+    if (!d) return;
+    const MIN = 32;   // menor recorte útil, em pixels da origem
+    const dxPx = ev.clientX - d.sx, dyPx = ev.clientY - d.sy;
+    d.moved = Math.max(d.moved, Math.abs(dxPx) + Math.abs(dyPx));
+    const dx = Math.round(dxPx * d.kx), dy = Math.round(dyPx * d.ky);
+
+    let x = d.x, y = d.y, w = d.w, h = d.h;
+    if (d.dir === 'move') {
+      x = Math.min(Math.max(0, d.x + dx), this.srcW - d.w);
+      y = Math.min(Math.max(0, d.y + dy), this.srcH - d.h);
+    } else {
+      // Cada letra da direção mexe no seu lado; 'nw' mexe nos dois. Ao
+      // puxar a borda esquerda/de cima, a largura/altura compensa pra que
+      // o lado OPOSTO fique parado.
+      if (d.dir.indexOf('w') >= 0) {
+        const nx = Math.min(Math.max(0, d.x + dx), d.x + d.w - MIN);
+        w = d.x + d.w - nx;
+        x = nx;
+      }
+      if (d.dir.indexOf('e') >= 0)
+        w = Math.min(Math.max(MIN, d.w + dx), this.srcW - d.x);
+      if (d.dir.indexOf('n') >= 0) {
+        const ny = Math.min(Math.max(0, d.y + dy), d.y + d.h - MIN);
+        h = d.y + d.h - ny;
+        y = ny;
+      }
+      if (d.dir.indexOf('s') >= 0)
+        h = Math.min(Math.max(MIN, d.h + dy), this.srcH - d.y);
+    }
+    this.crop = this._evenRect({ x: x, y: y, w: w, h: h });
+    // Só o desenho durante o arrasto: refazer resolução/prévia/escala a
+    // cada pixel seria trabalho jogado fora dezenas de vezes por segundo.
+    this._renderCrop();
+    this._syncCropInfo();
+  },
+
+  _cropUp() {
+    const d = this._cropDrag;
+    this._cropDrag = null;
+    const stage = document.getElementById('exportStage');
+    if (stage) stage.classList.remove('cropping');
+    if (!d) return;
+
+    // Clique parado no miolo não é arrasto: continua tocando/pausando,
+    // que é o que clicar no vídeo sempre fez. Sem isto, ligar o recorte
+    // tiraria em silêncio um gesto que já existia.
+    if (d.dir === 'move' && d.moved < 4) {
+      const back = { x: d.x, y: d.y, w: d.w, h: d.h };
+      this.crop = (back.x === 0 && back.y === 0 &&
+                   back.w >= this.srcW - 1 && back.h >= this.srcH - 1)
+        ? null : back;
+      this._renderCrop();
+      this.togglePlay();
+      return;
+    }
+    // Recorte que voltou a cobrir o quadro inteiro = sem recorte (o -1
+    // absorve o arredondamento par de uma origem com lado ímpar).
+    if (this.crop && this.crop.x === 0 && this.crop.y === 0 &&
+        this.crop.w >= this.srcW - 1 && this.crop.h >= this.srcH - 1)
+      this.crop = null;
+    this._afterCropChange();
+  },
+
+  // ---- zoom da prévia -------------------------------------------------
+  //
+  // Serve pra ENCOSTAR a borda do recorte no lugar certo: numa gravação de
+  // dois monitores (7680px) mostrada em ~850px, um pixel de tela vale 9 da
+  // origem — sem aproximar não dá pra acertar.
+  //
+  // Mesmo modelo do player: `translate(pan) scale(zoom)` com a roda
+  // ancorada no cursor. A moldura recebe o MESMO transform do vídeo (as
+  // duas cobrem o stage inteiro, com a mesma origem), então ficam travadas
+  // uma na outra em qualquer zoom — e o retângulo continua em % da caixa,
+  // sem nenhuma conversão nova no desenho.
+
+  _stageTransform() {
+    const tf = 'translate(' + this.cropPanX + 'px, ' + this.cropPanY + 'px) ' +
+               'scale(' + this.cropZoom + ')';
+    // Um elemento só: o quadro carrega o vídeo E a moldura, então os dois
+    // andam grudados sem precisar de dois transforms iguais.
+    const f = document.getElementById('exportFrame');
+    if (f) {
+      f.style.transform = tf;
+      // Publica o zoom pro CSS: alças, espessura da moldura e o rótulo da
+      // medida são divididos por ele pra manter o MESMO tamanho na tela.
+      // Sem isso a ferramenta engorda junto com a imagem — quanto mais o
+      // usuário aproxima buscando precisão, mais grossa fica a alça.
+      f.style.setProperty('--z', String(this.cropZoom));
+    }
+    const stage = document.getElementById('exportStage');
+    if (stage) stage.classList.toggle('zoomed', this.cropZoom > 1.001);
+    const badge = document.getElementById('exportZoomBadge');
+    if (badge) badge.textContent = Math.round(this.cropZoom * 100) + '%';
+    const btn = document.getElementById('exportZoomResetBtn');
+    if (btn) btn.disabled = this.cropZoom <= 1.001;
+  },
+
+  _clampPan() {
+    const frame = document.getElementById('exportFrame');
+    if (!frame) return;
+    // offsetWidth/Height = tamanho de LAYOUT do quadro (o transform não
+    // entra), que é a vista em zoom 1. O conteúdo cresce a partir do
+    // CENTRO (transform-origin padrão), então a folga de cada lado é
+    // METADE do que sobrou — a conta de origem no canto deixaria arrastar
+    // até o vídeo sair inteiro da vista de um lado.
+    const mx = Math.max(0, frame.offsetWidth  * (this.cropZoom - 1) / 2);
+    const my = Math.max(0, frame.offsetHeight * (this.cropZoom - 1) / 2);
+    this.cropPanX = Math.max(-mx, Math.min(mx, this.cropPanX));
+    this.cropPanY = Math.max(-my, Math.min(my, this.cropPanY));
+  },
+
+  // Aproxima mantendo parado o ponto (vx,vy) do conteúdo, que estava em
+  // (cx,cy) da vista — ambos medidos a partir do CENTRO do stage.
+  _setCropZoom(z, cx, cy, vx, vy) {
+    const next = Math.max(1, Math.min(12, z));
+    if (Math.abs(next - this.cropZoom) < 0.0001) return;
+    this.cropZoom = next;
+    if (typeof vx === 'number') {
+      this.cropPanX = cx - vx * next;
+      this.cropPanY = cy - vy * next;
+    }
+    if (next <= 1.001) { this.cropPanX = 0; this.cropPanY = 0; }
+    this._clampPan();
+    this._stageTransform();
+  },
+
+  // Botões: âncora no centro da vista (cx=cy=0).
+  cropZoomBy(factor) {
+    this._setCropZoom(this.cropZoom * factor, 0, 0,
+      -this.cropPanX / this.cropZoom, -this.cropPanY / this.cropZoom);
+  },
+
+  resetCropZoom() {
+    this.cropZoom = 1;
+    this.cropPanX = 0;
+    this.cropPanY = 0;
+    this._stageTransform();
+  },
+
+  _cropWheel(ev) {
+    // SÓ com Ctrl, ao contrário da linha do tempo (que zooma com a roda
+    // pelada). A diferença é deliberada: a linha do tempo é uma tira de
+    // ~40px, mas a prévia agora ocupa boa parte da tela de exportação, que
+    // é um formulário longo. Com roda pelada, rolar o formulário com o
+    // cursor por cima da prévia daria zoom sem ninguém pedir.
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const stage = document.getElementById('exportStage');
+    const r = stage.getBoundingClientRect();
+    const cx = ev.clientX - r.left - r.width / 2;
+    const cy = ev.clientY - r.top - r.height / 2;
+    const vx = (cx - this.cropPanX) / this.cropZoom;
+    const vy = (cy - this.cropPanY) / this.cropZoom;
+    this._setCropZoom(this.cropZoom * (ev.deltaY < 0 ? 1.2 : 1 / 1.2),
+      cx, cy, vx, vy);
+  },
+
+  // Arrastar o fundo desloca a vista. Só faz sentido aproximado — em 100%
+  // não há nada fora da vista pra alcançar.
+  _stageDown(ev) {
+    if (this.cropZoom <= 1.001) return;
+    // Esquerdo no fundo, botão do MEIO em qualquer lugar, ou Shift +
+    // esquerdo em qualquer lugar. Os dois últimos existem porque com a
+    // moldura grande (o caso normal ao aproximar) não sobra fundo.
+    if (ev.button !== 0 && ev.button !== 1) return;
+    ev.preventDefault();
+    const stage = document.getElementById('exportStage');
+    const d = { sx: ev.clientX, sy: ev.clientY,
+                px: this.cropPanX, py: this.cropPanY, moved: 0 };
+    this._panDrag = d;
+    this._lastPanMoved = 0;
+    stage.classList.add('panning');
+    const move = (e) => {
+      if (!this._panDrag) return;
+      d.moved = Math.max(d.moved,
+        Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy));
+      this.cropPanX = d.px + (e.clientX - d.sx);
+      this.cropPanY = d.py + (e.clientY - d.sy);
+      this._clampPan();
+      this._stageTransform();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      this._panDrag = null;
+      this._lastPanMoved = d.moved;
+      stage.classList.remove('panning');
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  },
+
+  // Clique no vídeo. Arrastar pra deslocar a vista não pode virar
+  // play/pause — mesma regra dos 4px do arrasto da moldura.
+  onPreviewClick() {
+    const moved = this._lastPanMoved || 0;
+    this._lastPanMoved = 0;
+    if (moved >= 4) return;
+    this.togglePlay();
   },
 
   // ---- resolucao -----------------------------------------------------
@@ -1050,6 +1557,11 @@ const Export = {
       segments: segs.map(s => ({ startMs: Math.round(s.start * 1000),
                                  endMs: Math.round(s.end * 1000) })),
       regions: [...this.selectedRegions],
+      // Retângulo em coordenadas da ORIGEM. Vai só quando há recorte de
+      // fato: o backend trata a presença do campo como "substitui as
+      // regiões", então mandar o quadro inteiro seria dizer a mesma coisa
+      // por um caminho mais frágil.
+      crop: this._hasCrop() ? { ...this.crop } : null,
       targetHeight: +document.getElementById('exportResolution').value || 0,
       fps: this._targetFps(),
       encoder: document.getElementById('exportEncoder').value || 'auto',

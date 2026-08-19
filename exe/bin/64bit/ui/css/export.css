@@ -70,7 +70,7 @@
 /* Numa janela larga o formulário não deve esticar até as bordas — os
    campos ficam numa coluna confortável e centrada. */
 .export-content {
-  max-width: 720px;
+  max-width: 880px;
   margin: 0 auto;
   padding: 18px;
 }
@@ -120,11 +120,23 @@ select.export-input {
 /* ---- Previa do corte ----
    Serve o MESMO arquivo que o player toca. Mudo e sem controles: aqui ele
    e um visor do ponto onde o cursor esta, nao um player. */
+/* A caixa tem a proporcao EXATA da gravacao (definida em JS a partir de
+   srcW/srcH), nao um 16/9 fixo. Com isso o video preenche a caixa inteira
+   sem tarja preta, e o overlay de recorte mapeia 1:1 com o quadro — o
+   retangulo em porcentagem da caixa E o retangulo em pixels da origem,
+   sem nenhuma matematica de letterbox no meio.
+
+   A ALTURA sai sempre da proporcao (`height: auto`), nunca de um valor
+   proprio: com altura fixa + max-width, uma gravacao larga (dois
+   monitores lado a lado) tem so a LARGURA cortada e a caixa fica com
+   proporcao errada — aparece tarja preta e o recorte passa a mirar pixel
+   errado. O teto de altura vira teto de LARGURA, calculado em JS
+   (_syncStageAspect), que e a unica forma dos dois limites nao brigarem. */
 .export-preview-video {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: 260px;
+  max-width: 100%;
+  margin: 0 auto;
   background: #000;
   border: 1px solid var(--border-2);
   border-radius: 8px;
@@ -132,11 +144,30 @@ select.export-input {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Folga pras alças caberem FORA do vídeo. Sem ela, a alça de uma borda
+     encostada na beirada seria cortada pelo `overflow: hidden` — e é o
+     estado inicial do recorte, com a moldura no quadro inteiro.
+     O JS LÊ este valor (getComputedStyle) pra calcular a largura máxima
+     do palco; não há número mágico duplicado. */
+  padding: 14px;
+  /* Sem `aspect-ratio` aqui: a proporção é do QUADRO, e a altura do palco
+     sai dela mais a folga. Pôr a proporção no palco faria o quadro (já
+     descontada a folga) ficar com proporção diferente da origem — e aí a
+     conversão tela<->origem do recorte deixaria de fechar. */
+}
+/* O vídeo e a moldura, juntos. É este elemento que recebe o
+   zoom/deslocamento, então os dois andam sempre grudados. */
+.export-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;   /* fallback ate o JS saber o tamanho da origem */
 }
 .export-preview-video video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: fill;
   display: block;
 }
 .export-preview-msg {
@@ -152,6 +183,220 @@ select.export-input {
   padding: 12px;
 }
 .export-preview-video.ready .export-preview-msg { display: none; }
+/* Com recorte, o palco é superfície de trabalho e não cartão: o canto
+   arredondado cortava a alça encostada na beirada (o `overflow: hidden`
+   segue o raio). Sem recorte disponível o arredondado volta. */
+.export-preview-video:not(.no-crop) { border-radius: 0; }
+/* ===== Recorte (crop) sobre a prévia =====
+   Só a moldura e as alças recebem o mouse; o resto do overlay é
+   `pointer-events: none` pra que clicar no vídeo continue tocando/
+   pausando, como sempre foi. */
+.export-crop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.export-preview-video.no-crop .export-crop { display: none; }
+
+/* Escurece o que fica FORA do recorte. Quatro faixas em vez de um
+   box-shadow gigante: o shadow vazaria pelo border-radius da caixa. */
+.export-crop-shade {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.export-crop-box {
+  position: absolute;
+  /* Espessura dividida pelo zoom, mesma razão das alças: a moldura é
+     ferramenta, não conteúdo — tem que ter sempre a mesma grossura na
+     tela, senão em 12x viraria uma faixa branca cobrindo o recorte.
+
+     E é `box-shadow`, não `border`: o Chromium arredonda border-width
+     para no mínimo 1px de LAYOUT, então `calc(1px / 12)` continuava
+     valendo 1px e virava 12px na tela depois da escala. A sombra aceita
+     valor fracionário e é desenhada com anti-aliasing. */
+  border: 0;
+  box-shadow:
+    inset 0 0 0 calc(1px / var(--z, 1)) rgba(255, 255, 255, 0.9),
+    0 0 0 calc(1px / var(--z, 1)) rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  cursor: move;
+}
+/* Grade de terços — referência de enquadramento, e deixa claro que a
+   moldura é uma ferramenta e não um artefato do vídeo. */
+.export-crop-box::before,
+.export-crop-box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.35;
+}
+.export-crop-box::before {
+  background:
+    linear-gradient(to right, transparent calc(33.33% - (0.5px / var(--z, 1))),
+      rgba(255,255,255,0.9) calc(33.33% - (0.5px / var(--z, 1))), rgba(255,255,255,0.9) calc(33.33% + (0.5px / var(--z, 1))),
+      transparent calc(33.33% + (0.5px / var(--z, 1)))),
+    linear-gradient(to right, transparent calc(66.66% - (0.5px / var(--z, 1))),
+      rgba(255,255,255,0.9) calc(66.66% - (0.5px / var(--z, 1))), rgba(255,255,255,0.9) calc(66.66% + (0.5px / var(--z, 1))),
+      transparent calc(66.66% + (0.5px / var(--z, 1))));
+}
+.export-crop-box::after {
+  background:
+    linear-gradient(to bottom, transparent calc(33.33% - (0.5px / var(--z, 1))),
+      rgba(255,255,255,0.9) calc(33.33% - (0.5px / var(--z, 1))), rgba(255,255,255,0.9) calc(33.33% + (0.5px / var(--z, 1))),
+      transparent calc(33.33% + (0.5px / var(--z, 1)))),
+    linear-gradient(to bottom, transparent calc(66.66% - (0.5px / var(--z, 1))),
+      rgba(255,255,255,0.9) calc(66.66% - (0.5px / var(--z, 1))), rgba(255,255,255,0.9) calc(66.66% + (0.5px / var(--z, 1))),
+      transparent calc(66.66% + (0.5px / var(--z, 1))));
+}
+
+/* Alças.
+   A área de clique é maior que o desenho: mirar num quadradinho de 8px
+   numa borda é frustrante, ainda mais nos cantos.
+
+   TUDO é dividido por `--z` (o zoom, publicado por _stageTransform). A
+   moldura inteira recebe `scale(zoom)` junto com o vídeo, então sem essa
+   divisão as alças cresceriam com o zoom — quanto mais o usuário
+   aproxima pra ganhar precisão, mais grossa ficaria a ferramenta,
+   comendo justamente a precisão que ele foi buscar.
+
+   O DESENHO fica INTEIRO FORA da moldura (nunca a cavalo da borda, nem
+   por dentro): por dentro ele cobre justamente a quina da imagem que o
+   usuário está tentando enquadrar. Cabe fora porque o palco tem folga nas
+   beiradas — é pra isso que ela existe. */
+.export-crop-h {
+  --hs:   calc(18px / var(--z, 1));
+  --half: calc(9px  / var(--z, 1));
+  --dot:  calc(8px  / var(--z, 1));
+  position: absolute;
+  width: var(--hs);
+  height: var(--hs);
+  pointer-events: auto;
+  z-index: 2;
+}
+.export-crop-h::after {
+  content: '';
+  position: absolute;
+  width: var(--dot);
+  height: var(--dot);
+  background: #fff;
+  /* Mesma armadilha do border-width arredondado: contorno por sombra. */
+  box-shadow: 0 0 0 calc(1px / var(--z, 1)) rgba(0, 0, 0, 0.55);
+  border-radius: calc(2px / var(--z, 1));
+}
+.export-crop-h:hover::after {
+  background: var(--success);
+  box-shadow: 0 0 0 calc(1px / var(--z, 1)) var(--success);
+}
+
+/* Alças de BORDA. A área de clique acompanha o lado, mas RECUADA das
+   pontas: sem o recuo ela cobriria os cantos, e como o canto é o alvo
+   mais difícil de acertar, arrastar na diagonal virava arrastar na
+   horizontal ou na vertical. */
+.export-crop-h[data-dir="n"], .export-crop-h[data-dir="s"] {
+  left: var(--hs); right: var(--hs); width: auto;
+}
+.export-crop-h[data-dir="w"], .export-crop-h[data-dir="e"] {
+  top: var(--hs); bottom: var(--hs); height: auto;
+}
+.export-crop-h[data-dir="n"]::after,
+.export-crop-h[data-dir="s"]::after { left: 50%; margin-left: calc(var(--dot) / -2); }
+.export-crop-h[data-dir="w"]::after,
+.export-crop-h[data-dir="e"]::after { top: 50%; margin-top: calc(var(--dot) / -2); }
+
+.export-crop-h[data-dir="nw"] { top:    calc(-1 * var(--half)); left:  calc(-1 * var(--half)); cursor: nwse-resize; }
+.export-crop-h[data-dir="ne"] { top:    calc(-1 * var(--half)); right: calc(-1 * var(--half)); cursor: nesw-resize; }
+.export-crop-h[data-dir="sw"] { bottom: calc(-1 * var(--half)); left:  calc(-1 * var(--half)); cursor: nesw-resize; }
+.export-crop-h[data-dir="se"] { bottom: calc(-1 * var(--half)); right: calc(-1 * var(--half)); cursor: nwse-resize; }
+.export-crop-h[data-dir="n"]  { top:    calc(-1 * var(--half)); cursor: ns-resize; }
+.export-crop-h[data-dir="s"]  { bottom: calc(-1 * var(--half)); cursor: ns-resize; }
+.export-crop-h[data-dir="w"]  { left:   calc(-1 * var(--half)); cursor: ew-resize; }
+.export-crop-h[data-dir="e"]  { right:  calc(-1 * var(--half)); cursor: ew-resize; }
+
+/* Desenho encostado do lado de FORA da moldura, por direção. Ancorar no
+   lado oposto do que se quer é o que joga o desenho pra fora: numa alça
+   de 18px centrada na borda, `bottom: 9px` põe o quadradinho de 8px
+   inteiramente ACIMA da linha. */
+.export-crop-h[data-dir="nw"]::after,
+.export-crop-h[data-dir="ne"]::after,
+.export-crop-h[data-dir="n"]::after  { bottom: var(--half); }
+.export-crop-h[data-dir="sw"]::after,
+.export-crop-h[data-dir="se"]::after,
+.export-crop-h[data-dir="s"]::after  { top:    var(--half); }
+.export-crop-h[data-dir="nw"]::after,
+.export-crop-h[data-dir="sw"]::after,
+.export-crop-h[data-dir="w"]::after  { right:  var(--half); }
+.export-crop-h[data-dir="ne"]::after,
+.export-crop-h[data-dir="se"]::after,
+.export-crop-h[data-dir="e"]::after  { left:   var(--half); }
+
+/* Medida do recorte. Fica ACIMA da moldura, do lado de fora, pelo mesmo
+   motivo das alças: dentro, tapa o canto da imagem que se está
+   enquadrando. */
+.export-crop-size {
+  position: absolute;
+  /* Contra-escala: o texto é interface, não parte da imagem. */
+  transform: scale(calc(1 / var(--z, 1)));
+  transform-origin: bottom left;
+  bottom: calc(100% + 3px / var(--z, 1));
+  left: 0;
+}
+/* Moldura colada no topo da prévia: não sobra folga acima pra medida, e o
+   `overflow: hidden` do palco a cortava pela metade. Aí ela desce pra
+   dentro — tapar um pedaço da imagem é melhor que ficar ilegível.
+   Quem decide é o JS (Export._renderCrop), que é quem sabe onde a moldura
+   está na tela depois do zoom e do deslocamento. */
+.export-crop-size.inside {
+  bottom: auto;
+  top: calc(3px / var(--z, 1));
+  transform-origin: top left;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Enquanto arrasta: a moldura fica verde e o cursor não muda ao passar
+   por cima de outra alça no meio do gesto. */
+.export-preview-video.cropping .export-crop-box { border-color: var(--success); }
+.export-preview-video.cropping .export-crop-h::after {
+  background: var(--success);
+  border-color: var(--success);
+}
+.export-preview-video.cropping video { pointer-events: none; }
+
+/* Zoom da prévia. O transform é aplicado ao vídeo E à moldura; o stage já
+   tem `overflow: hidden`, então o que sai da vista é cortado. */
+.export-preview-video.zoomed video { cursor: grab; }
+.export-preview-video.panning video { cursor: grabbing; }
+/* Enquanto desloca, a moldura não deve piscar cursores de redimensionar
+   ao passar por baixo do ponteiro. */
+.export-preview-video.panning .export-crop { pointer-events: none; }
+
+/* Barra de ações do recorte, abaixo da prévia. */
+.export-crop-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+.export-crop-info {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .export-preview-video video { cursor: pointer; }
 
 /* ---- Controles da previa ----

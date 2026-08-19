@@ -7,7 +7,13 @@
 ; Geral
 ;--------------------------------
 Name "NoOBS"
-OutFile "NoOBS-Setup.exe"
+; O nome do arquivo de saida vem do make-installer.bat via /DOUTFILE (que
+; deriva a versao da tag do git). Sem esse define - compilando o .nsi na
+; mao - cai no nome generico de sempre.
+!ifndef OUTFILE
+  !define OUTFILE "NoOBS-Setup.exe"
+!endif
+OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\NoOBS"
 InstallDirRegKey HKCU "Software\NoOBS" "InstallDir"
 RequestExecutionLevel user

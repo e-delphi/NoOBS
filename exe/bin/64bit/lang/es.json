@@ -109,7 +109,7 @@
     "range": "Fragmentos",
     "rangeLength": "final: {{len}}",
     "regions": "Monitores",
-    "regionsHint": "Las regiones elegidas quedan una al lado de la otra, sin hueco vacío de la que se dejó fuera.",
+    "regionsHint": "Las regiones elegidas quedan una al lado de la otra, sin hueco vacío de la que se dejó fuera. Elegir un monitor aquí deshace el recorte hecho en la vista previa: son dos maneras de decir lo mismo, y vale el último gesto.",
     "allRegions": "Todos",
     "regionN": "Región {{n}}",
     "previewFull": "Lienzo completo",
@@ -166,7 +166,11 @@
     "removeCutNone": "No hay división que quitar",
     "fps": "Cuadros por segundo",
     "fpsValue": "{{fps}} fps",
-    "fpsHint": "Menos cuadros por segundo hacen el archivo más pequeño y la exportación más rápida, a costa de fluidez. Por encima de 60 fps la ganancia de tamaño es pequeña: los cuadros vecinos son casi idénticos y cuestan poco."
+    "fpsHint": "Menos cuadros por segundo hacen el archivo más pequeño y la exportación más rápida, a costa de fluidez. Por encima de 60 fps la ganancia de tamaño es pequeña: los cuadros vecinos son casi idénticos y cuestan poco.",
+    "cropReset": "Usar la pantalla entera",
+    "cropHint": "Arrastra los bordes de la vista previa para recortar; arrastra el centro del marco para reposicionar. Ctrl + rueda del ratón acerca (o los botones − y + de arriba). Con la vista acercada, arrastra con el botón central del ratón —o con Shift + botón izquierdo— para desplazar la vista y alcanzar el resto de la imagen.",
+    "cropOf": "Recorte de {{w}}×{{h}}, de {{sw}}×{{sh}} del origen",
+    "zoomReset": "100%"
   },
   "settings": {
     "title": "Configuración",
@@ -420,7 +424,7 @@
     "updates": {
       "versionLabel": "Versión instalada",
       "autoLabel": "Buscar actualizaciones automáticamente",
-      "autoHint": "Consulta la página de releases de GitHub como máximo una vez al día, en segundo plano. No se descarga ni instala nada — solo un aviso cuando haya una versión nueva.",
+      "autoHint": "Consulta la página de releases de GitHub una vez al día, a partir de las 6 de la mañana, en segundo plano. No se descarga ni instala nada — solo un aviso cuando haya una versión nueva.",
       "checkNow": "Buscar ahora",
       "checking": "Buscando...",
       "upToDate": "Estás en la versión más reciente.",

@@ -109,7 +109,7 @@
     "range": "Trechos",
     "rangeLength": "final: {{len}}",
     "regions": "Monitores",
-    "regionsHint": "As regiões escolhidas ficam lado a lado, sem espaço vazio de uma que tenha sido deixada de fora.",
+    "regionsHint": "As regiões escolhidas ficam lado a lado, sem espaço vazio de uma que tenha sido deixada de fora. Escolher um monitor aqui desfaz o recorte feito na prévia — são dois jeitos de dizer a mesma coisa, e o último gesto vale.",
     "allRegions": "Todos",
     "regionN": "Região {{n}}",
     "previewFull": "Canvas inteiro",
@@ -166,7 +166,11 @@
     "removeCutNone": "Não há divisão para remover",
     "fps": "Quadros por segundo",
     "fpsValue": "{{fps}} fps",
-    "fpsHint": "Menos quadros por segundo deixam o arquivo menor e a exportação mais rápida, ao custo de fluidez. Acima de 60 fps o ganho de tamanho é pequeno: quadros vizinhos são quase idênticos e custam pouco."
+    "fpsHint": "Menos quadros por segundo deixam o arquivo menor e a exportação mais rápida, ao custo de fluidez. Acima de 60 fps o ganho de tamanho é pequeno: quadros vizinhos são quase idênticos e custam pouco.",
+    "cropReset": "Usar tela inteira",
+    "cropHint": "Arraste as bordas da prévia para recortar; arraste o meio da moldura para reposicionar. Ctrl + roda do mouse aproxima (ou os botões − e + acima). Com a prévia aproximada, arraste com o botão do meio do mouse — ou com Shift + botão esquerdo — para deslocar a vista e alcançar as outras partes da imagem.",
+    "cropOf": "Recorte de {{w}}×{{h}}, de {{sw}}×{{sh}} da origem",
+    "zoomReset": "100%"
   },
   "settings": {
     "title": "Configurações",
@@ -420,7 +424,7 @@
     "updates": {
       "versionLabel": "Versão instalada",
       "autoLabel": "Verificar atualizações automaticamente",
-      "autoHint": "Consulta a página de releases do GitHub no máximo uma vez por dia, em segundo plano. Nada é baixado nem instalado — apenas um aviso quando houver versão nova.",
+      "autoHint": "Consulta a página de releases do GitHub uma vez por dia, a partir das 6h da manhã, em segundo plano. Nada é baixado nem instalado — apenas um aviso quando houver versão nova.",
       "checkNow": "Verificar agora",
       "checking": "Verificando...",
       "upToDate": "Você está na versão mais recente.",

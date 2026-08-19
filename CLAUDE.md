@@ -257,6 +257,45 @@ User seleciona UMA gravação e clica em Exportar (ou botão direito → Exporta
     `loadeddata` de disparo único — se ele não vier (mídia em cache, troca
     de arquivo), os botões ficariam travados pra sempre. Se o WebView2 não
     tiver o codec, a prévia cai fora com aviso e a exportação segue.
+  • RECORTE (crop): a prévia tem uma moldura com 8 alças; arrastar uma
+    borda move aquela borda, arrastar o miolo reposiciona o retângulo. O
+    retângulo vive em coordenadas da ORIGEM, e a caixa da prévia recebe o
+    `aspect-ratio` da gravação (`_syncStageAspect`) justamente pra que a
+    conversão tela↔origem seja regra de três: com proporção fixa, todo
+    clique teria que descontar o letterbox do `object-fit: contain`, que
+    muda com o tamanho da janela. Coordenadas e dimensões são arredondadas
+    pra PAR já na UI, pra o número que a tela mostra ser o do arquivo
+    (YUV420 não aceita ímpar — pegadinha #51c).
+    Um clique PARADO no miolo (menos de 4px de movimento) cai no
+    `togglePlay` de sempre: ligar o recorte não podia tirar em silêncio
+    um gesto que já existia.
+    A prévia é PALCO (`#exportStage`, recorte visível com folga nas
+    beiradas) + QUADRO (`#exportFrame`, o vídeo e a moldura juntos). O
+    quadro tem a proporção da origem e é ele que recebe o
+    zoom/deslocamento; a folga do palco é onde as alças cabem, do lado de
+    FORA da moldura, sem serem cortadas pelo `overflow: hidden`.
+    ZOOM da prévia (`cropZoom`/`cropPanX`/`cropPanY`), no mesmo modelo do
+    player: `translate(pan) scale(zoom)`, roda ancorada no cursor,
+    arrastar o fundo desloca. Existe pra ENCOSTAR a borda no lugar certo —
+    em dois monitores (7680px) mostrados em ~850px, um pixel de tela vale
+    9 da origem; no teto (12×) vale 0,76. O transform vai no vídeo E na
+    moldura (as duas cobrem o stage, mesma origem), então elas ficam
+    travadas e o retângulo continua em % da caixa; a única conta que muda
+    é o `kx`/`ky` do `_cropDown`, que divide pelo zoom.
+    Deslocar a vista: arrastar o fundo com o esquerdo, ou — de QUALQUER
+    lugar, inclusive de dentro da moldura — botão do MEIO ou Shift +
+    esquerdo. Os dois últimos existem porque aproximado a moldura costuma
+    cobrir a vista inteira e não sobra fundo pra agarrar.
+    A roda exige **Ctrl**, ao contrário da linha do tempo (roda pelada).
+    A diferença é deliberada: a linha do tempo é uma tira de ~40px, mas a
+    prévia ocupa boa parte de um formulário longo — roda pelada daria zoom
+    no meio de uma rolagem. Daí também os botões −/+ na barra: o gesto com
+    modificador ninguém adivinha.
+    Recorte e escolha de monitor são MUTUAMENTE EXCLUSIVOS — os dois
+    dizem que parte do canvas sai, e o último gesto vale. Com monitores
+    escolhidos a moldura some (`_cropAvailable`): a prévia mostra o canvas
+    inteiro mas a saída é a composição deles lado a lado, então desenhar
+    uma moldura ali diria uma coisa e o arquivo sairia outra.
   • A tela monta: linha do tempo de cortes, regiões do Layout, resoluções
     (nunca acima da origem), encoders vindos de encoder_caps.exportEncoders,
     faixas de áudio e o controle de qualidade (CRF 0..51, sem estimativa de
@@ -297,6 +336,11 @@ User clica Exportar → `export_recording`:
     vocabulário do app ('h264-hw'), o backend traduz pro nome do
     libavcodec via ResolveExportEncoder + LastEncoderCaps (pegadinha #51).
   • Regiões: a UI manda ÍNDICES; o layout de verdade vem do <hash>.json.
+  • Recorte: a UI manda `crop` {x,y,w,h} em coordenadas do canvas, e ele
+    SUBSTITUI as regiões — um recorte é uma região de forma livre, e o
+    `BuildCompRegions` já trata retângulo arbitrário (clamp no canvas +
+    arredondamento par). Por isso o FFmpegExport não mudou nada: é o
+    mesmo crop por offset de ponteiro que as regiões de monitor usam.
   • Container: 'mp4' (default) ou 'mkv' — vira o nome do muxer e a extensão
     do arquivo final. A saída é escrita num "<final>.part" (pegadinha #51e).
   • Worker → FFmpegExport.ExportVideo, UM PASSE POR TRECHO:
@@ -1882,6 +1926,63 @@ Corolário pra qualquer estado que só exista no DOM (edição, arrasto em
 curso, seleção de texto): um push do backend pode chegar a qualquer
 momento, e nem todo push nasce de um clique do usuário.
 
+### 57. **Ferramenta dentro de camada com `scale()`: contra-escale TUDO, e `border-width` não obedece**
+
+A moldura de recorte da exportação mora dentro da camada que recebe
+`scale(zoom)` junto com o vídeo — é isso que a mantém grudada na imagem.
+O efeito colateral é que a FERRAMENTA cresce junto: quanto mais o usuário
+aproxima buscando precisão, mais grossa fica a alça, comendo justamente a
+precisão que ele foi buscar. Em 12× uma alça de 18px vira 216px.
+
+A correção é publicar o zoom como variável CSS
+(`crop.style.setProperty('--z', zoom)`) e dividir **toda** medida de
+interface por ela: tamanho e offset das alças, raio, espessura da
+moldura, linhas da grade de terços e o rótulo da medida (esse via
+`transform: scale(calc(1 / var(--z)))`, que é mais simples que reescalar
+fonte e padding um a um).
+
+**`border-width` é a exceção que morde: o Chromium arredonda para no
+mínimo 1px de LAYOUT.** `calc(1px / 12)` continua computando `1px`, que
+depois da escala vira 12px na tela — a moldura some dentro da própria
+borda. Confirmado medindo `offsetWidth - clientWidth` em vários zooms:
+sempre 1. A saída é desenhar o contorno com **`box-shadow`** (`inset 0 0
+0 calc(1px / var(--z))`), que aceita valor fracionário e é pintado com
+anti-aliasing — aí a espessura medida fica 1px na tela em qualquer zoom.
+
+Duas armadilhas irmãs, do mesmo overlay:
+
+- **Alça de borda cobrindo o canto.** As alças `n`/`s` ocupavam o lado
+  inteiro (`left: 0; right: 0`) e eram criadas DEPOIS das de canto, então
+  ganhavam o hit-test em cima delas: arrastar na diagonal virava arrastar
+  na horizontal. Correção dupla — recuar as alças de borda das pontas
+  (`left: var(--hs); right: var(--hs)`) e criar os CANTOS POR ÚLTIMO.
+- **`overflow: hidden` + `border-radius` comem a alça encostada na
+  beirada.** O clipe segue o raio, então o canto arredondado do palco
+  escondia metade da alça. Correção em três partes: raio 0 enquanto o
+  recorte existe (ali o palco é superfície de trabalho, não cartão);
+  **PALCO separado do QUADRO**, com o palco ganhando uma folga (`padding`)
+  em volta do vídeo; e o desenho da alça inteiro do lado de FORA da
+  moldura, caindo nessa folga.
+  Tentar resolver só pondo o desenho pra DENTRO da moldura foi um caminho
+  errado que chegou a ser feito: resolve o corte, mas a alça passa a tapar
+  justamente a quina da imagem que o usuário está enquadrando. A folga é
+  o que permite ter as duas coisas.
+  Corolário: **o que cabe desenhar é decisão de PIXEL DE TELA, não de
+  pixel da origem.** A alça de borda é recuada de uma alça inteira em cada
+  ponta, então numa moldura curta sobra comprimento negativo e o desenho
+  ia parar em cima das alças de canto (um amontoado de quadradinhos num
+  recorte de 32x32). O `_renderCrop` mede a moldura na tela (rect do
+  quadro, que já vem com o zoom) e só cria a alça de borda do eixo que
+  tiver comprimento; os cantos entram sempre, senão um recorte pequeno
+  ficaria sem como ser redimensionado. Pela mesma medida ele decide se a
+  etiqueta da medida cabe ACIMA da moldura ou tem que descer pra dentro —
+  colada no topo, a folga não comporta e o `overflow` a cortava pela
+  metade.
+  Consequência estrutural: a proporção da origem vai no QUADRO, nunca no
+  palco. Com ela no palco, o quadro (já descontada a folga) ficaria com
+  proporção diferente da origem e a conversão tela↔origem pararia de
+  fechar.
+
 ---
 
 ## Caches
@@ -2047,6 +2148,27 @@ msbuild NoOBS.dproj /t:Build /p:config=Release /p:platform=Win64
 ```
 
 Saída: `exe\bin\64bit\NoOBS.exe`.
+
+### Instalador
+
+`make-installer.bat` empacota o que já está em `exe\bin\64bit\` (não compila
+o Delphi — a Community Edition não compila por linha de comando) e devolve
+`NoOBS-<versão>.exe` na raiz:
+
+```bat
+make-installer.bat
+```
+
+A versão sai do `git describe` — mesma fonte do `gen-version.bat`, então o
+nome do arquivo e o `APP_VERSION` compilado no exe não divergem. Build fora
+de uma tag limpa carrega o sufixo no nome (`NoOBS-v0.22.0-beta-dirty.exe`)
+**de propósito**: build de dev não pode parecer release. Pra forçar um nome,
+passe a versão como argumento (`make-installer.bat v0.22.0.0-beta`).
+
+O nome sai certo de primeira, sem renomear depois: o `OutFile` do
+`installer.nsi` é `"${OUTFILE}"` com default `NoOBS-Setup.exe`, e o `.bat`
+passa `/DOUTFILE=...` pro makensis (compilar o `.nsi` na mão continua
+funcionando). Se o makensis falhar, não sobra arquivo com nome de release.
 
 Logs em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (um por dia, mantém 3
 dias). Tail do mais recente em PowerShell:

@@ -71,11 +71,52 @@
 
         <!-- Previa do ponto onde o cursor esta. Serve o MESMO arquivo que
              o player toca (play_recording -> play_url). -->
-        <div class="export-preview-video">
-          <video id="exportVideo" preload="metadata"
-                 onclick="Export.togglePlay()"></video>
+        <!-- O PALCO é o recorte visível (com folga nas beiradas pras alças
+             caberem fora do vídeo) e o QUADRO é o vídeo em si, que recebe
+             o zoom/deslocamento. Separar os dois é o que permite pôr as
+             alças do lado de fora sem que o `overflow: hidden` do palco
+             as corte quando a moldura encosta na beirada. -->
+        <div class="export-preview-video" id="exportStage">
+          <div class="export-frame" id="exportFrame">
+            <video id="exportVideo" preload="metadata"
+                   onclick="Export.onPreviewClick()"></video>
+            <!-- Moldura de recorte. Montada em JS (Export._renderCrop) —
+                 as alças e as faixas de sombra dependem do retângulo atual.
+                 O quadro tem a proporção EXATA da gravação, então o
+                 retângulo em % dele É o retângulo em pixels da origem. -->
+            <div class="export-crop" id="exportCrop"></div>
+          </div>
           <div class="export-preview-msg" id="exportVideoMsg"
                data-i18n="export.previewLoading">Carregando prévia…</div>
+        </div>
+
+        <div class="export-crop-bar" id="exportCropBar">
+          <button class="export-btn export-btn-sm" id="exportCropResetBtn"
+                  onclick="Export.resetCrop()"
+                  data-i18n="export.cropReset">Usar tela inteira</button>
+          <!-- Zoom da prévia: existe pra ENCOSTAR a borda do recorte no
+               lugar certo. Botões além da roda porque o gesto exige Ctrl
+               (ver Export._cropWheel) e ninguém adivinha isso. -->
+          <span class="export-zoom">
+            <button class="export-btn export-btn-sm export-zoom-btn"
+                    onclick="Export.cropZoomBy(1/1.4)"
+                    data-i18n-hint="export.zoomOut" data-hint="Diminuir zoom">&minus;</button>
+            <span class="export-zoom-level" id="exportZoomBadge">100%</span>
+            <button class="export-btn export-btn-sm export-zoom-btn"
+                    onclick="Export.cropZoomBy(1.4)"
+                    data-i18n-hint="export.zoomIn" data-hint="Aumentar zoom">+</button>
+          </span>
+          <button class="export-btn export-btn-sm" id="exportZoomResetBtn"
+                  onclick="Export.resetCropZoom()" disabled
+                  data-i18n="export.zoomReset">100%</button>
+          <span class="export-crop-info" id="exportCropInfo"></span>
+        </div>
+        <!-- Dica em bloco PRÓPRIO, não no espaço da medida: aquele campo
+             tem `text-overflow: ellipsis` numa linha só, e comia o fim do
+             texto — foi assim que o gesto de deslocar ficou escondido. -->
+        <div class="export-hint" id="exportCropHint" data-i18n="export.cropHint">
+          Arraste as bordas da prévia para recortar; arraste o meio para
+          reposicionar.
         </div>
 
         <div class="export-row export-play-bar">
@@ -170,7 +211,9 @@
         <div class="export-preview" id="exportPreview"></div>
         <div class="export-hint" data-i18n="export.regionsHint">
           As regiões escolhidas ficam lado a lado, sem espaço vazio de uma
-          que tenha sido deixada de fora.
+          que tenha sido deixada de fora. Escolher um monitor aqui desfaz
+          o recorte feito na prévia — são dois jeitos de dizer a mesma
+          coisa, e o último gesto vale.
         </div>
       </div>
 
@@ -969,7 +1012,7 @@
       </div>
 
       <!-- Nova versao disponivel. Aparece assim que a checagem responde
-           (startup + a cada 24h), NAO so dentro de Configuracoes — quem
+           (startup + 1x/dia, a partir das 6h), NAO so dentro de Configuracoes — quem
            nunca abre a aba de atualizacoes nunca ficaria sabendo.
            Verde porque e novidade boa, nao problema; os outros banners
            sao ambar por serem avisos de pendencia. -->

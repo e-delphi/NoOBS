@@ -47,7 +47,11 @@
                            emendados um no outro na saida), fps (taxa de
                            quadros final; 0 = a da origem), regions
                            (array de INDICES do layout; vazio = canvas
-                           inteiro), targetHeight (0 = original),
+                           inteiro), crop ({x,y,w,h} em coordenadas do
+                           canvas ORIGINAL — recorte livre desenhado
+                           arrastando as bordas da previa; SUBSTITUI
+                           regions, porque um recorte e uma regiao de
+                           forma livre), targetHeight (0 = original),
                            encoder (id do vocabulario do config 'codec':
                            auto|h264-hw|h264-sw|av1-hw|hevc-hw),
                            crf (0..51, escala do x264: 0 = sem perdas,
@@ -100,7 +104,7 @@ uses
   Winapi.ShlObj,
   Winapi.ActiveX,
   System.SysUtils,
-  System.DateUtils,   // DateTimeToUnix — intervalo de 24h da checagem de versao
+  System.DateUtils,   // DateTimeToUnix — marco diario da checagem de versao
   System.StrUtils,
   System.Types,
   System.JSON,
@@ -152,8 +156,10 @@ const
   AUDIO_REFRESH_DEBOUNCE_MS = 800;
 
   TIMER_AUDIO_METER    = 7005;
-  // Tick de 1 min so pra ver se ja passaram 24h da ultima checagem de
-  // versao. Nao e a frequencia da checagem — e a granularidade dela.
+  // Tick de 1 min so pra ver se ja passou o marco diario das 6h sem que a
+  // checagem de versao tenha acontecido. Nao e a frequencia da checagem — e
+  // a granularidade dela (o app aberto a noite inteira checa as 6h em ponto,
+  // com ate 1 min de atraso).
   // 7011 e nao 7006: o 7006 JA era do TIMER_OBS_WARMUP (declarado mais
   // abaixo). Dois SetTimer com o mesmo id na mesma janela nao coexistem —
   // o segundo substitui o primeiro. Resultado: o warmup nunca disparava e
@@ -3526,7 +3532,13 @@ begin
 end;
 
 // Chamada no startup E a cada tick do TIMER_UPDATE_CHECK (1 min). Dispara
-// a checagem quando passaram 24h da ultima que REALMENTE ocorreu.
+// a checagem uma vez por dia, ancorada as 6h da manha (horario local): a
+// partir dai vale a ultima que REALMENTE ocorreu.
+//
+// Por que 6h e nao "24h desde a ultima": release novo quase nunca sai no
+// meio do dia. Com a janela deslizante, o horario da checagem escorregava
+// pro momento em que o app abriu e podia cair sempre na madrugada ou no
+// meio do expediente. Ancorado, o app pega a novidade logo no comeco do dia.
 //
 // Por que polling de 1 min em vez de so no startup: o app fica dias aberto
 // (bandeja + hibernacao). Checando so no arranque, quem nunca fecha nunca
@@ -3536,9 +3548,10 @@ end;
 // build esta a frente da tag por definicao, avisar seria falso positivo.
 procedure MaybeAutoCheckUpdates;
 const
-  DAY_SECONDS = 24 * 60 * 60;
+  CHECK_HOUR = 6;   // hora local do dia em que a checagem deve acontecer
 var
-  Last, Agora: Int64;
+  Last, Agora, Marco: Int64;
+  MarcoDT: TDateTime;
 begin
   if not GetConfigBool('checkUpdates', True) then Exit;
   if OBSUpdate.IsChecking then Exit;
@@ -3546,9 +3559,22 @@ begin
 
   Last := GetConfigInt('lastUpdateCheck', 0);
   Agora := DateTimeToUnix(Now, False);
+
+  // Marco = o ultimo CHECK_HOUR que JA passou: hoje as 6h se o relogio ja
+  // passou disso, senao as 6h de ontem. Checa quando a ultima checagem e
+  // anterior a esse marco. Isso mantem o intervalo de ~24h e ancora ele na
+  // manha, em vez de deixa-lo escorregar pro horario em que o app abriu.
+  MarcoDT := Date + EncodeTime(CHECK_HOUR, 0, 0, 0);
+  if Now < MarcoDT then MarcoDT := MarcoDT - 1;
+  Marco := DateTimeToUnix(MarcoDT, False);
+
   // Last > Agora: relogio do sistema andou pra tras (fuso, acerto de hora).
   // Trata como "nunca checou" pra nao travar a checagem ate a data alcancar.
-  if (Last > 0) and (Last <= Agora) and ((Agora - Last) < DAY_SECONDS) then Exit;
+  //
+  // Last = 0 (nunca checou) passa direto: instalacao nova checa na hora, sem
+  // esperar a proxima manha. Quem abre o app so a tarde tambem nao fica sem
+  // checar — o marco ja passou, entao a checagem sai na abertura.
+  if (Last > 0) and (Last <= Agora) and (Last >= Marco) then Exit;
 
   Log('Update: iniciando checagem automatica (ultima ha %ds).',
     [Agora - Last]);
@@ -5533,6 +5559,9 @@ var
   SrcPath, EncPref, FinalPath, Ext: string;
   Meta: TRecordingMeta;
   RegionIdx: TArray<Integer>;
+  CropVal: TJSONValue;
+  CropObj: TJSONObject;
+  CropReg: TRecordingRegion;
   Segs, SegObj: TJSONValue;
   TotalSec: Double;
   StartMs, EndMs: Integer;
@@ -5635,6 +5664,40 @@ begin
     end
     else
       Log('Export: layout ausente — exportando o canvas inteiro.');
+  end;
+
+  // Recorte livre: retangulo em coordenadas do canvas ORIGINAL, desenhado
+  // arrastando as bordas da previa. SUBSTITUI a lista de regioes — um
+  // recorte e uma regiao de forma livre, e o BuildCompRegions ja trata
+  // retangulo arbitrario (clamp no canvas + arredondamento pra par). Por
+  // isso nao ha caminho novo no FFmpegExport: e o mesmo crop por offset
+  // de ponteiro que as regioes de monitor usam.
+  //
+  // A UI so manda os dois juntos por engano (la eles sao mutuamente
+  // exclusivos); se acontecer, o recorte ganha — foi o gesto mais direto.
+  CropVal := AObj.GetValue('crop');
+  if CropVal is TJSONObject then
+  begin
+    CropObj := TJSONObject(CropVal);
+    CropReg := Default(TRecordingRegion);
+    CropReg.Kind := 'crop';
+    CropReg.X := GetIntField(CropObj, 'x', 0);
+    CropReg.Y := GetIntField(CropObj, 'y', 0);
+    CropReg.W := GetIntField(CropObj, 'w', 0);
+    CropReg.H := GetIntField(CropObj, 'h', 0);
+    // Degenerado (ou negativo) = sem recorte. O clamp contra o tamanho
+    // real do quadro e do BuildCompRegions, que e quem conhece o canvas
+    // decodificado — aqui so barramos o que nunca poderia valer.
+    if (CropReg.W >= 2) and (CropReg.H >= 2) and
+       (CropReg.X >= 0) and (CropReg.Y >= 0) then
+    begin
+      Opts.Regions := [CropReg];
+      Log('Export: recorte %dx%d em (%d,%d).',
+        [CropReg.W, CropReg.H, CropReg.X, CropReg.Y]);
+    end
+    else
+      Log('Export: recorte invalido (%dx%d em %d,%d) — ignorado.',
+        [CropReg.W, CropReg.H, CropReg.X, CropReg.Y]);
   end;
 
   // Faixas de audio. Regra pedida: a faixa 1 e o MIX de tudo, entao ela

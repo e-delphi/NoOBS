@@ -33,7 +33,9 @@ instalar nem configurar nada — só abrir e gravar.
 
 - **Corta, junta e exporta sem sair do app.** Dividir e unir não
   reencodam — são instantâneos e sem perda. A exportação recorta trechos,
-  escolhe monitores e reduz resolução, com prévia do que está saindo.
+  escolhe monitores e reduz resolução, com prévia do que está saindo. Para
+  enquadrar, é só arrastar as bordas da prévia: o que ficar dentro da
+  moldura é o que vai pro arquivo.
 
 - **Organiza em pastas, sem abrir o Explorer.** Crie pastas na própria
   lista, arraste uma gravação pra dentro ou use recortar e colar. Excluir

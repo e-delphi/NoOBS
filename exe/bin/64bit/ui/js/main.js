@@ -286,6 +286,12 @@ function initCtxMenu() {
   document.addEventListener('scroll', hideCtxMenu, true);
   // Re-fit do canvas composite quando a janela redimensiona.
   window.addEventListener('resize', () => Player._fitCompositeToStage());
+  // O teto de largura da prévia da exportação é derivado da altura da
+  // janela (Export._syncStageAspect) — sem recalcular, redimensionar a
+  // janela deixaria a prévia alta demais ou pequena à toa.
+  window.addEventListener('resize', () => {
+    try { Export._syncStageAspect(); } catch (e) {}
+  });
 }
 
 // Atalhos da biblioteca. So valem com o foco na lista: dentro de um

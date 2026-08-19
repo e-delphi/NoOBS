@@ -109,7 +109,7 @@
     "range": "Segments",
     "rangeLength": "final: {{len}}",
     "regions": "Displays",
-    "regionsHint": "The chosen regions are placed side by side, with no empty gap where one was left out.",
+    "regionsHint": "The chosen regions are placed side by side, with no empty gap where one was left out. Picking a monitor here clears the crop drawn on the preview — they are two ways of saying the same thing, and the last gesture wins.",
     "allRegions": "All",
     "regionN": "Region {{n}}",
     "previewFull": "Whole canvas",
@@ -166,7 +166,11 @@
     "removeCutNone": "No split to remove",
     "fps": "Frames per second",
     "fpsValue": "{{fps}} fps",
-    "fpsHint": "Fewer frames per second make the file smaller and the export faster, at the cost of smoothness. Above 60 fps the size gain is small: neighbouring frames are nearly identical and cost little."
+    "fpsHint": "Fewer frames per second make the file smaller and the export faster, at the cost of smoothness. Above 60 fps the size gain is small: neighbouring frames are nearly identical and cost little.",
+    "cropReset": "Use the whole frame",
+    "cropHint": "Drag the edges of the preview to crop; drag the middle of the frame to reposition. Ctrl + mouse wheel zooms in (or the − and + buttons above). Once zoomed, drag with the middle mouse button — or Shift + left button — to pan and reach the rest of the image.",
+    "cropOf": "Cropped to {{w}}×{{h}}, from {{sw}}×{{sh}} of the source",
+    "zoomReset": "100%"
   },
   "settings": {
     "title": "Settings",
@@ -420,7 +424,7 @@
     "updates": {
       "versionLabel": "Installed version",
       "autoLabel": "Check for updates automatically",
-      "autoHint": "Checks the GitHub releases page at most once a day, in the background. Nothing is downloaded or installed — just a notice when a new version exists.",
+      "autoHint": "Checks the GitHub releases page once a day, from 6 AM onwards, in the background. Nothing is downloaded or installed — just a notice when a new version exists.",
       "checkNow": "Check now",
       "checking": "Checking...",
       "upToDate": "You are on the latest version.",

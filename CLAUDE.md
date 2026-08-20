@@ -1983,6 +1983,53 @@ Duas armadilhas irmãs, do mesmo overlay:
   proporção diferente da origem e a conversão tela↔origem pararia de
   fechar.
 
+### 58. **Instalador não pode procurar o app pelo TÍTULO da janela — ele é configurável**
+
+O `installer.nsi` detectava a instância rodando com
+`FindWindow $0 "" "NoOBS"` — casamento EXATO pelo título. Só que o título
+é uma preferência do usuário (`windowTitle`, campo "Título da janela" nas
+Configurações, default `NoOBS`). Quem renomeou a janela ficava
+**invisível** para o instalador.
+
+O estrago é silencioso e enganoso: sem achar a janela, o aviso "NoOBS está
+em execução. Clique OK para fechar" **não aparece**, a instalação segue em
+frente e só morre lá adiante no `Erro ao abrir arquivo para escrita:
+...\NoOBS.exe` — porque o processo vivo mantém o próprio exe travado. O
+usuário vê um erro de arquivo e não tem como ligar uma coisa à outra.
+
+**Regra, em duas partes — PROCESSO decide *se*, JANELA decide *como*.**
+
+O que trava a instalação é o processo segurando o exe, não a janela dele.
+Então quem responde "há algo rodando?" é o nome do processo
+(`tasklist /FI "IMAGENAME eq NoOBS.exe" | findstr`, lendo o código de
+saída do findstr — a mensagem de "nenhuma tarefa" do tasklist é
+TRADUZIDA, o nome do processo não). É a identidade mais estável que o app
+tem: é a mesma coisa que o instalador vai sobrescrever, então não há como
+sair de sincronia com o fonte.
+
+Mas isso **não substitui** a busca por janela: para fechar com educação
+(deixando libobs/FFmpeg finalizarem a gravação em andamento) é preciso de
+um HWND para o `WM_CLOSE` — com só o nome do processo sobra `taskkill /F`,
+que é tiro na cabeça. Se o processo existe e nenhuma janela casa, o laço
+de WM_CLOSE não faz nada e cai no taskkill, que é a degradação correta.
+
+Para a janela, identifique pela **classe**, que ninguém pode mudar, e
+cubra os DOIS modos (são classes diferentes):
+
+| Classe | Modo | Onde |
+|---|---|---|
+| `TNoOBS` | full | `OBSUI.CLASS_NAME` |
+| `TNoOBSHibernate` | hibernate | `OBSHibernate.CLASS_NAME` |
+| `TNoOBSWindow` | full, nome ANTIGO | ver pegadinha #36 |
+
+O título fica como última tentativa, só por compatibilidade. A função
+`DetectRunningNoOBS` é gerada por macro nas duas variantes (instalador e
+`un.` desinstalador) — o NSIS exige funções separadas para cada um, e
+duplicar o corpo é como as duas versões saem de sincronia.
+
+Nota de método: o `FindWindow` do NSIS trata `""` como NULL, então
+`FindWindow $0 "TNoOBS" ""` é "esta classe, qualquer título".
+
 ---
 
 ## Caches

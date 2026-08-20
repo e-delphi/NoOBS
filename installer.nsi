@@ -58,6 +58,76 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
 ;--------------------------------
+; Existe algum NoOBS.exe vivo?  ($R0 = 1 sim, 0 nao)
+;
+; Esta e a pergunta que de fato importa: o que impede a instalacao e o
+; PROCESSO segurando o exe, nao a janela dele. E o nome do executavel e a
+; identidade mais estavel que o app tem — e a mesma coisa que o
+; instalador vai sobrescrever, entao nao ha como sair de sincronia.
+;
+; NAO substitui a busca por janela: pra fechar com educacao (deixando
+; libobs/FFmpeg finalizarem a gravacao em andamento) e preciso de um HWND
+; pro WM_CLOSE. Aqui so se decide SE ha o que fechar; o COMO continua
+; sendo por janela, com taskkill /F como ultimo recurso.
+;
+; O teste e o codigo de saida do findstr, nao a leitura da saida do
+; tasklist: a mensagem de "nenhuma tarefa" e TRADUZIDA, o nome do
+; processo nao. Se o comando nem rodar ("error"), devolve 0 e a deteccao
+; por janela assume — melhor deixar passar do que travar a instalacao
+; por causa de um diagnostico que falhou.
+;--------------------------------
+; So na versao do instalador — o desinstalador nao pergunta se ha
+; processo (ele fecha tudo de qualquer jeito), e gerar a variante
+; "un." deixaria funcao morta no binario (warning 6010 do makensis).
+Function NoOBSIsRunning
+    StrCpy $R0 0
+    nsExec::Exec '"$SYSDIR\cmd.exe" /c tasklist /FI "IMAGENAME eq NoOBS.exe" /NH | "$SYSDIR\findstr.exe" /I /C:"NoOBS.exe"'
+    Pop $R1
+    ${If} $R1 == 0
+        StrCpy $R0 1
+    ${EndIf}
+FunctionEnd
+
+;--------------------------------
+; Deteccao de instancia rodando.
+;
+; Procura pela CLASSE da janela, nao pelo TITULO. O titulo e
+; CONFIGURAVEL pelo usuario (config 'windowTitle', campo "Titulo da
+; janela" nas Configuracoes), entao quem renomeou a janela ficava
+; INVISIVEL pro instalador: nenhum aviso aparecia, a instalacao seguia
+; em frente e morria no "Erro ao abrir arquivo para escrita" do
+; NoOBS.exe, que o processo vivo mantinha travado. A classe nao e
+; configuravel por ninguem.
+;
+;   TNoOBS           - modo full    (OBSUI.CLASS_NAME)
+;   TNoOBSHibernate  - modo minimo  (OBSHibernate.CLASS_NAME)
+;   TNoOBSWindow     - nome ANTIGO da classe do modo full, pra alcancar
+;                      quem esta vindo de uma versao bem velha
+;
+; O titulo "NoOBS" fica como ultima tentativa, pra cobrir alguma versao
+; cuja classe nao seja nenhuma das de cima.
+;
+; Devolve o HWND em $0 (0 = nada rodando). NAO usa $1 — o laco de
+; fechamento conta com ele.
+;--------------------------------
+!macro DETECT_NOOBS UN
+Function ${UN}DetectRunningNoOBS
+    FindWindow $0 "TNoOBS" ""
+    ${If} $0 == 0
+        FindWindow $0 "TNoOBSHibernate" ""
+    ${EndIf}
+    ${If} $0 == 0
+        FindWindow $0 "TNoOBSWindow" ""
+    ${EndIf}
+    ${If} $0 == 0
+        FindWindow $0 "" "NoOBS"
+    ${EndIf}
+FunctionEnd
+!macroend
+!insertmacro DETECT_NOOBS ""
+!insertmacro DETECT_NOOBS "un."
+
+;--------------------------------
 ; Verificacao de 64-bit + close + force kill se ja estiver rodando
 ;--------------------------------
 Function .onInit
@@ -66,11 +136,17 @@ Function .onInit
         Abort
     ${EndIf}
 
-    ; Checa se ha alguma instancia rodando (modo full OU hibernate — os
-    ; dois usam o titulo "NoOBS"). FindWindow acha tambem janelas
-    ; invisiveis/WS_POPUP, entao pega o hibernate tambem.
-    FindWindow $0 "" "NoOBS"
-    ${If} $0 != 0
+    ; Checa se ha alguma instancia rodando (modo full OU hibernate).
+    ; FindWindow acha tambem janelas invisiveis/WS_POPUP, entao pega o
+    ; hibernate (que e WS_POPUP sem WS_VISIBLE) tambem.
+    ; PROCESSO decide se ha o que fechar; JANELA e so o meio de fechar.
+    ; Um NoOBS.exe vivo sem janela que casasse (foi o caso do titulo
+    ; renomeado) passava batido e a instalacao morria depois, no erro de
+    ; nao conseguir substituir o exe travado.
+    Call NoOBSIsRunning
+    Call DetectRunningNoOBS
+    ${If} $R0 == 1
+    ${OrIf} $0 != 0
         MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION "NoOBS está em execução. Clique OK para fechar e continuar com a instalação." IDOK close IDCANCEL abort
         close:
             ; Fase 1 — graceful: WM_CLOSE em loop pra cada janela "NoOBS"
@@ -82,7 +158,7 @@ Function .onInit
             ; vez de fechar — por isso a Fase 2 sempre roda em seguida.
             StrCpy $1 0
             loop_close:
-                FindWindow $0 "" "NoOBS"
+                Call DetectRunningNoOBS
                 ${If} $0 == 0
                     Goto force_kill
                 ${EndIf}
@@ -283,10 +359,11 @@ FunctionEnd
 Function un.onInit
     ; Mesma estrategia do .onInit (graceful WM_CLOSE em loop + taskkill
     ; defensivo) — mas silenciosa, sem MessageBox. Desinstalar implica
-    ; que o user quer fechar tudo de qualquer jeito.
+    ; que o user quer fechar tudo de qualquer jeito, entao aqui nem se
+    ; pergunta se ha processo: o taskkill do fim roda sempre.
     StrCpy $1 0
     un_loop_close:
-        FindWindow $0 "" "NoOBS"
+        Call un.DetectRunningNoOBS
         ${If} $0 == 0
             Goto un_force_kill
         ${EndIf}

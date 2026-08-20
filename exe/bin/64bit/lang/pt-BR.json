@@ -431,6 +431,10 @@
       "available": "Nova versão disponível: {{version}}.",
       "openPage": "Abrir página do release",
       "failed": "Não foi possível verificar agora. Confira sua conexão e tente novamente."
+    },
+    "muteWhenDeviceMuted": {
+      "label": "Silenciar a faixa quando o microfone estiver mudo no Windows",
+      "hint": "Enquanto o microfone estiver mudo no Windows, a faixa dele sai em silêncio na gravação. Vale para o botão de mudo do fone, o mudo do sistema e os aplicativos de chamada que avisam o Windows ao mutar. O mudo feito só dentro do aplicativo, sem avisar o Windows, não é detectável — nesses casos o microfone continua sendo gravado."
     }
   },
   "devices": {

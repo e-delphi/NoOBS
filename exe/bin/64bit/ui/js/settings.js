@@ -180,6 +180,9 @@ const Settings = {
   currentRecIndicatorOpacity: 90,
   currentPlaySoundOnRecord: false,
   currentStopOnLock: false,
+  // Default TRUE, igual ao backend: microfone mudo no Windows nao
+  // deveria entrar na gravacao.
+  currentMuteWhenDeviceMuted: true,
   currentHibernate: false,
   currentAutoRecordOnMic: false,
   currentAutoRecordMicApps: '',
@@ -224,6 +227,7 @@ const Settings = {
     document.getElementById('settingsRecIndicatorOpacity').value = this.currentRecIndicatorOpacity || 90;
     this._syncRecIndicatorOpacityLabel();
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
+    document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsAutoRecordOnMic').checked = !!this.currentAutoRecordOnMic;
@@ -328,6 +332,7 @@ const Settings = {
       const recIndicatorOpacity = parseInt(document.getElementById('settingsRecIndicatorOpacity').value, 10) || 90;
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
+      const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
       const autoRecordOnMic = document.getElementById('settingsAutoRecordOnMic').checked;
       const autoRecordMicApps = document.getElementById('settingsAutoRecordMicApps').value.trim();
@@ -371,6 +376,8 @@ const Settings = {
         Bridge.send('set_play_sound_on_record', { enabled: playSoundOnRecord });
       if (stopOnLock !== this.currentStopOnLock)
         Bridge.send('set_stop_on_lock', { enabled: stopOnLock });
+      if (muteWhenDeviceMuted !== this.currentMuteWhenDeviceMuted)
+        Bridge.send('set_mute_when_device_muted', { enabled: muteWhenDeviceMuted });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (autoRecordOnMic !== this.currentAutoRecordOnMic)
@@ -406,6 +413,7 @@ const Settings = {
       this.currentRecIndicatorOpacity = recIndicatorOpacity;
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
+      this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
       this.currentHibernate = hibernate;
       this.currentAutoRecordOnMic = autoRecordOnMic;
       this.currentAutoRecordMicApps = autoRecordMicApps;
@@ -473,6 +481,9 @@ const Settings = {
     // stopOnLock: default true. Quando ON, Windows lock event (Win+L etc.)
     // chama HandleRecordStop no backend.
     this.currentStopOnLock = !!data.stopOnLock;
+    // Default TRUE — o `!== false` preserva esse default se a chave
+    // faltar, ao contrario do `!!` usado nos que sao default false.
+    this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
     // hibernate: default true — so faz sentido com closeToTray ON, e gateamos
     // a UI pra forcar isso (ambos vem ON por padrao, entao consistente).
     this.currentHibernate = !!data.hibernate;
@@ -550,6 +561,8 @@ const Settings = {
     if (ps) ps.checked = this.currentPlaySoundOnRecord;
     const sol = document.getElementById('settingsStopOnLock');
     if (sol) sol.checked = this.currentStopOnLock;
+    const mwd = document.getElementById('settingsMuteWhenDeviceMuted');
+    if (mwd) mwd.checked = this.currentMuteWhenDeviceMuted;
     const hb = document.getElementById('settingsHibernate');
     if (hb) hb.checked = this.currentHibernate;
     const arm = document.getElementById('settingsAutoRecordOnMic');

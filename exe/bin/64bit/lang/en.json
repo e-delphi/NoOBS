@@ -431,6 +431,10 @@
       "available": "New version available: {{version}}.",
       "openPage": "Open release page",
       "failed": "Could not check right now. Check your connection and try again."
+    },
+    "muteWhenDeviceMuted": {
+      "label": "Silence the track while the microphone is muted in Windows",
+      "hint": "While the microphone is muted in Windows, its track is recorded as silence. This covers the mute button on your headset, the system mute, and call apps that tell Windows when you mute. A mute done only inside the app, without telling Windows, cannot be detected — in those cases the microphone keeps being recorded."
     }
   },
   "devices": {

@@ -100,7 +100,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
 | `WinPreview`        | **Win32**: `EnumDisplayMonitors` + `BitBlt` pra capturar thumb de cada monitor     |
-| `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device |
+| `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device, e `IAudioEndpointVolume` pro mudo do endpoint (`ReadInputMutes`) |
 | `WinMicWatch`       | **WASAPI**: sessões de captura (`IAudioSessionManager2`) pra detectar mic em uso por outro app → auto-gravar em chamadas |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 | `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
@@ -2030,6 +2030,51 @@ duplicar o corpo é como as duas versões saem de sincronia.
 Nota de método: o `FindWindow` do NSIS trata `""` como NULL, então
 `FindWindow $0 "TNoOBS" ""` é "esta classe, qualquer título".
 
+### 59. **Mudo de app de chamada ≠ mudo do microfone — e só o do ENDPOINT é visível**
+
+Quando o usuário muta no Teams (ou Meet, Zoom, WhatsApp), o app para de
+**enviar** o áudio, mas costuma manter o stream de captura aberto — é o
+que alimenta o aviso "você está falando, mas está no mudo". Para o
+Windows nada mudou: o endpoint continua entregando áudio e a sessão
+continua `Active`. Por isso a checagem de sessão do `WinMicWatch` (que
+existe pra auto-gravação) **não serve** pra saber se o usuário mutou.
+
+O que dá pra ler é o mudo do **endpoint**, via
+`IAudioEndpointVolume::GetMute` no dispositivo de captura
+(`WinAudioMeter.ReadInputMutes`). Isso cobre botão de mudo do fone, mudo
+do sistema e os apps que propagam o mudo pro Windows — e **não** cobre
+mudo que só existe dentro do app. Não há como cobrir esse último de fora
+do processo dele.
+
+Corolário que fecha a outra metade da pergunta: **gravar "só o que o app
+transmitiu" é impossível.** O áudio que o Teams envia sai do pipeline
+interno dele direto pra rede, sem nunca virar um stream de reprodução na
+máquina. O loopback por processo (`AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK`)
+captura o que um processo **reproduz** — no Teams, a voz dos OUTROS.
+
+Três detalhes de implementação que não são óbvios:
+
+- **`Activate` do `IAudioEndpointVolume` vai no `RebuildCache`, não na
+  leitura.** `Activate` é chamada WASAPI bloqueante e o `ReadInputMutes`
+  roda na main thread a cada 100ms — ativar ali seria reintroduzir a
+  pegadinha #30. O `RebuildCache` já roda em worker.
+- **A regra de mudo tem que ser COMBINADA**:
+  `mudo = (desmarcado na tela) OU (endpoint mudo)`. Aplicar só o termo do
+  endpoint faz o desmute reativar uma faixa que o usuário tinha
+  desmarcado a mão. E o termo do endpoint sai da conta quando a opção
+  está desligada, pra desligá-la no meio da gravação DESFAZER o mudo que
+  ela aplicou em vez de deixar a faixa presa em silêncio.
+- **Só chame o libobs quando muda de verdade** — o tick é de 100ms.
+  `MicMuteApplied` guarda o último estado aplicado por fonte; sem ele
+  seriam 10 chamadas por segundo por microfone, sem nenhuma mudança.
+
+Nota de método: não havia `endpointvolume.h` na máquina nem referência na
+fonte do OBS, então a ordem da vtable foi **verificada em runtime** —
+declarada em C# e chamada contra o COM real, conferindo que `GetMute`,
+`GetMasterVolumeLevelScalar` e `GetChannelCount` devolviam valores
+coerentes em slots diferentes. Ordem trocada faria pelo menos um deles
+retornar lixo. Vale o mesmo princípio da #53: medir, não deduzir.
+
 ---
 
 ## Caches
@@ -2086,6 +2131,7 @@ recuperáveis manualmente).
 | `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
+| `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |

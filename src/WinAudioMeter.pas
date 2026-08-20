@@ -35,6 +35,16 @@ type
   end;
   TAudioLevelArray = TArray<TAudioLevel>;
 
+  // Mudo do ENDPOINT de captura, no nivel do Windows — o mesmo que o
+  // botao de mudo do headset e o mudo do sistema mexem. Nao e o mudo
+  // interno de um app: a maioria dos apps de chamada muta so no proprio
+  // pipeline e o endpoint continua entregando audio normalmente.
+  TAudioMute = record
+    DeviceId: string;
+    Muted: Boolean;
+  end;
+  TAudioMuteArray = TArray<TAudioMute>;
+
   // Consultada antes de abrir a sessao de captura de um microfone.
   // Contexto: pra o pico nao ficar sempre 0 num endpoint de captura, o
   // medidor precisa manter uma IAudioClient viva (pegadinha #12) — mas
@@ -66,6 +76,16 @@ procedure ApplyMicOpenPolicy;
 // cache mas ainda estao no MMDeviceEnumerator). Retorna '' se falhar.
 function ResolveDeviceName(const ADeviceId: string): string;
 
+// Le o mudo do endpoint de cada dispositivo de ENTRADA em cache. So
+// entram os que responderam: endpoint sem controle de volume (ou que
+// falhou no Activate) simplesmente nao aparece na lista, e o chamador
+// trata "ausente" como "nao sei", nunca como "nao esta mudo".
+//
+// Barato: le de uma interface JA ativada no RebuildCache (worker
+// thread). Ativar aqui seria chamada WASAPI bloqueante na main thread —
+// exatamente o que a pegadinha #30 proibe.
+function ReadInputMutes: TAudioMuteArray;
+
 implementation
 
 uses
@@ -80,6 +100,7 @@ const
   IID_IMMDeviceEnumerator:  TGUID = '{A95664D2-9614-4F35-A746-DE8DB63617E6}';
   IID_IAudioMeterInformation: TGUID = '{C02216F6-8C67-4B5B-9D00-D008E73E0064}';
   IID_IAudioClient:           TGUID = '{1CB9AD4C-DBFA-4C32-B178-C2F568A703B2}';
+  IID_IAudioEndpointVolume:   TGUID = '{5CDF2C82-841E-4546-9722-0CF74078229A}';
 
   eRender   = 0;
   eCapture  = 1;
@@ -166,6 +187,40 @@ type
     function GetState(out pdwState: DWORD): HRESULT; stdcall;
   end;
 
+  // IAudioEndpointVolume — controle de volume/mudo do ENDPOINT.
+  //
+  // A ordem da vtable foi VERIFICADA em runtime contra o COM real (nao
+  // ha endpointvolume.h nesta maquina): declarada exatamente assim,
+  // GetMute devolveu S_OK, GetMasterVolumeLevelScalar devolveu 1,000 e
+  // GetChannelCount devolveu 1 num mic mono — tres slots diferentes com
+  // valores coerentes. Ordem trocada faria pelo menos um deles retornar
+  // lixo ou erro. Declarada INTEIRA de proposito: usar so parte dela
+  // convida alguem a "completar" na ordem errada depois.
+  IAudioEndpointVolume = interface(IUnknown)
+    ['{5CDF2C82-841E-4546-9722-0CF74078229A}']
+    function RegisterControlChangeNotify(pNotify: IUnknown): HRESULT; stdcall;
+    function UnregisterControlChangeNotify(pNotify: IUnknown): HRESULT; stdcall;
+    function GetChannelCount(out pnChannelCount: Cardinal): HRESULT; stdcall;
+    function SetMasterVolumeLevel(fLevelDB: Single; pguidEventContext: PGUID): HRESULT; stdcall;
+    function SetMasterVolumeLevelScalar(fLevel: Single; pguidEventContext: PGUID): HRESULT; stdcall;
+    function GetMasterVolumeLevel(out pfLevelDB: Single): HRESULT; stdcall;
+    function GetMasterVolumeLevelScalar(out pfLevel: Single): HRESULT; stdcall;
+    function SetChannelVolumeLevel(nChannel: Cardinal; fLevelDB: Single;
+      pguidEventContext: PGUID): HRESULT; stdcall;
+    function SetChannelVolumeLevelScalar(nChannel: Cardinal; fLevel: Single;
+      pguidEventContext: PGUID): HRESULT; stdcall;
+    function GetChannelVolumeLevel(nChannel: Cardinal; out pfLevelDB: Single): HRESULT; stdcall;
+    function GetChannelVolumeLevelScalar(nChannel: Cardinal; out pfLevel: Single): HRESULT; stdcall;
+    function SetMute(bMute: LongBool; pguidEventContext: PGUID): HRESULT; stdcall;
+    function GetMute(out pbMute: LongBool): HRESULT; stdcall;
+    function GetVolumeStepInfo(out pnStep, pnStepCount: Cardinal): HRESULT; stdcall;
+    function VolumeStepUp(pguidEventContext: PGUID): HRESULT; stdcall;
+    function VolumeStepDown(pguidEventContext: PGUID): HRESULT; stdcall;
+    function QueryHardwareSupport(out pdwHardwareSupportMask: Cardinal): HRESULT; stdcall;
+    function GetVolumeRange(out pflVolumeMindB, pflVolumeMaxdB,
+      pflVolumeIncrementdB: Single): HRESULT; stdcall;
+  end;
+
   IMMDeviceCollection = interface(IUnknown)
     ['{0BD7A1BE-7A1A-44DB-8397-CC5392387B5E}']
     function GetCount(out pcDevices: Cardinal): HRESULT; stdcall;
@@ -194,6 +249,11 @@ type
     // de captura). Speakers nao precisam — o Windows sempre tem
     // sessao de render ativa pro mix do sistema.
     Client: IAudioClient;
+    // Controle de mudo do endpoint. Ativado no RebuildCache (worker
+    // thread) de proposito: Activate e chamada WASAPI bloqueante, e o
+    // ReadInputMutes roda na main thread a cada 100ms (pegadinha #30).
+    // nil = endpoint sem controle de volume ou Activate falhou.
+    EndpointVol: IAudioEndpointVolume;
   end;
 
 var
@@ -311,6 +371,7 @@ begin
         try Cache[i].Client := nil; except end;
       end;
       try Cache[i].Meter := nil; except end;
+      try Cache[i].EndpointVol := nil; except end;
     end;
     SetLength(Cache, 0);
     try Enumerator := nil; except end;
@@ -395,6 +456,7 @@ procedure RebuildCache;
 var
   Coll: IMMDeviceCollection;
   Dev, DefDev: IMMDevice;
+  EndpointVol: IAudioEndpointVolume;
   Cnt, i: Cardinal;
   Entry: TMeterEntry;
   DefId, DevId: string;
@@ -491,6 +553,26 @@ begin
       end;
       Entry.Dev := Dev;
       Entry.Client := nil;
+
+      // Mudo do endpoint — so pra ENTRADA, que e onde a pergunta faz
+      // sentido ("o microfone esta mudo no Windows?"). Falhar aqui nao e
+      // fatal: sem a interface o device apenas nao entra no
+      // ReadInputMutes, e quem consulta trata isso como "nao sei".
+      Entry.EndpointVol := nil;
+      if Kinds[k] = adkInput then
+      begin
+        EndpointVol := nil;
+        try
+          if Succeeded(Dev.Activate(IID_IAudioEndpointVolume,
+            CLSCTX_INPROC_SERVER, nil, EndpointVol)) then
+            Entry.EndpointVol := EndpointVol
+          else
+            Log('WinAudioMeter: sem controle de mudo em "%s"', [Entry.Info.Name]);
+        except
+          Entry.EndpointVol := nil;
+          Log('WinAudioMeter: Activate(EndpointVolume) AV em "%s"', [Entry.Info.Name]);
+        end;
+      end;
       // Pra inputs: ativa um IAudioClient em modo shared so pra manter
       // a sessao de captura viva. Sem isso o meter da 0 sempre.
       // try/except defensivo — device pode estar transicionando estado
@@ -583,6 +665,7 @@ begin
         try Cache[i].Client := nil; except end;
       end;
       try Cache[i].Meter := nil; except end;
+      try Cache[i].EndpointVol := nil; except end;
     end;
     SetLength(Cache, 0);
     // RebuildCache eh lazy via EnumerateAudioDevices — proxima chamada
@@ -696,6 +779,48 @@ begin
     CacheLock.Leave;
   end;
 end;
+
+function ReadInputMutes: TAudioMuteArray;
+// Ver comentario na interface. So le de interfaces JA ativadas — nenhuma
+// chamada que possa bloquear, porque isto roda na main thread junto com
+// o ReadPeakLevels (TIMER_AUDIO_METER, 100ms).
+var
+  i, n: Integer;
+  Muted: LongBool;
+begin
+  SetLength(Result, 0);
+  if CacheLock = nil then InitAudio;
+  CacheLock.Enter;
+  try
+    if Length(Cache) = 0 then Exit;
+    n := 0;
+    SetLength(Result, Length(Cache));
+    for i := 0 to High(Cache) do
+    begin
+      if Cache[i].Info.Kind <> adkInput then Continue;
+      if Cache[i].EndpointVol = nil then Continue;
+      Muted := False;
+      try
+        if Failed(Cache[i].EndpointVol.GetMute(Muted)) then Continue;
+      except
+        // Device em transicao (BT desconectando, USB removido): sai de
+        // fora da lista em vez de derrubar o tick inteiro.
+        Continue;
+      end;
+      Result[n].DeviceId := Cache[i].Info.DeviceId;
+      // LongBool (o BOOL do Win32) -> Boolean por TESTE, nao por
+      // typecast: driver pode devolver $FFFFFFFF em vez de 1, e um cast
+      // direto entre tipos de tamanhos diferentes copiaria o byte baixo.
+      Result[n].Muted := False;
+      if Muted then Result[n].Muted := True;
+      Inc(n);
+    end;
+    SetLength(Result, n);
+  finally
+    CacheLock.Leave;
+  end;
+end;
+
 
 initialization
 

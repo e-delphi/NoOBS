@@ -431,6 +431,10 @@
       "available": "Nueva versión disponible: {{version}}.",
       "openPage": "Abrir página del release",
       "failed": "No se pudo verificar ahora. Revisa tu conexión e inténtalo de nuevo."
+    },
+    "muteWhenDeviceMuted": {
+      "label": "Silenciar la pista cuando el micrófono esté silenciado en Windows",
+      "hint": "Mientras el micrófono esté silenciado en Windows, su pista se graba en silencio. Sirve para el botón de silencio de los auriculares, el silencio del sistema y las aplicaciones de llamadas que avisan a Windows al silenciar. El silencio hecho solo dentro de la aplicación, sin avisar a Windows, no se puede detectar: en esos casos el micrófono se sigue grabando."
     }
   },
   "devices": {

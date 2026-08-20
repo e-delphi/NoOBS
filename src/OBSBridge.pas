@@ -306,6 +306,10 @@ var
 
   RecordDir: string = '';
 
+  // Ultimo mudo APLICADO por fonte de microfone. Existe pra o tick de
+  // 100ms nao ficar chamando o libobs sem mudanca nenhuma.
+  MicMuteApplied: TDictionary<string, Boolean> = nil;
+
   // Pasta que a lista de gravacoes esta mostrando. '' = raiz (RecordDir).
   // Sempre um caminho DENTRO de RecordDir — CurrentBrowseDir revalida a
   // cada leitura e volta pra raiz sozinho se a pasta sumiu por fora.
@@ -2408,6 +2412,66 @@ begin
     end);
 end;
 
+procedure SyncMicMuteFromEndpoints;
+// Espelha na gravacao o mudo do ENDPOINT do microfone no Windows — o
+// mesmo que o botao do headset, o mudo do sistema e os apps de chamada
+// (Teams e afins) acionam quando o usuario muta.
+//
+// So faz sentido gravando: fora disso nao ha faixa pra mutar.
+//
+// A regra combina as DUAS razoes de uma faixa estar muda:
+//     mudo efetivo = (desmarcado na tela) OU (endpoint mudo)
+// Sem combinar, desmutar pelo endpoint reativaria uma faixa que o
+// usuario tinha desmarcado a mao. E o termo do endpoint sai da conta
+// quando a opcao esta desligada — assim desligar a opcao no meio da
+// gravacao DESFAZ o mudo que ela tinha aplicado, em vez de deixar a
+// faixa presa em silencio.
+var
+  Mutes: TAudioMuteArray;
+  Devs: TAudioDeviceInfoArray;
+  i, j: Integer;
+  SrcId, DevName: string;
+  UseEndpoint, Eff, Prev: Boolean;
+begin
+  if not RecordingActive then Exit;
+  if Engine = nil then Exit;
+  if MicMuteApplied = nil then Exit;
+
+  Mutes := ReadInputMutes;
+  if Length(Mutes) = 0 then Exit;
+  Devs := EnumerateAudioDevices;
+  UseEndpoint := GetConfigBool('muteWhenDeviceMuted', True);
+
+  for i := 0 to High(Mutes) do
+  begin
+    DevName := '';
+    for j := 0 to High(Devs) do
+      if (Devs[j].Kind = adkInput) and
+         SameText(Devs[j].DeviceId, Mutes[i].DeviceId) then
+      begin
+        DevName := Devs[j].Name;
+        Break;
+      end;
+    if DevName = '' then Continue;
+
+    SrcId := MicIdFromName(DevName);
+    Eff := (not OBSConfig.GetSourceActive('mics', DevName, True)) or
+           (UseEndpoint and Mutes[i].Muted);
+
+    // So chama o libobs quando MUDA: este tick roda 10x por segundo.
+    if MicMuteApplied.TryGetValue(SrcId, Prev) and (Prev = Eff) then Continue;
+    MicMuteApplied.AddOrSetValue(SrcId, Eff);
+    try
+      Engine.SetSourceMuted(SrcId, Eff);
+      Log('MicMute: "%s" -> %s (endpoint=%s)',
+        [DevName, BoolToStr(Eff, True), BoolToStr(Mutes[i].Muted, True)]);
+    except
+      on E: Exception do
+        Log('MicMute: falha em "%s": %s', [DevName, E.Message]);
+    end;
+  end;
+end;
+
 procedure PushAudioMetersFromWin;
 // Le peak por device via WASAPI IAudioMeterInformation. Substitui o
 // evento InputVolumeMeters do OBS — funciona sem OBS rodando.
@@ -2640,6 +2704,8 @@ begin
   end;
   DoInitStarted := True;
   Log('DoInit: inicio');
+  if MicMuteApplied = nil then
+    MicMuteApplied := TDictionary<string, Boolean>.Create;
 
   // Marca que a UI JS esta viva — daqui pra frente, push de
   // 'show_notification' pra UI funciona. Antes disso usa NIF_INFO
@@ -2842,6 +2908,11 @@ begin
 
   if RecordingActive and IsAudio and (Engine <> nil) then
     try Engine.SetSourceMuted(AId, not AEnabled); except end;
+    // Reaplica a regra combinada na hora. Sem isto, re-habilitar um mic
+    // cujo ENDPOINT esta mudo o deixaria audivel ate o proximo tick de
+    // 100ms — um respingo de audio que deveria estar mudo.
+    if MicMuteApplied <> nil then MicMuteApplied.Remove(AId);
+    try SyncMicMuteFromEndpoints; except end;
 
   // Audio toggle altera o agrupamento (default + total enabled mudam a
   // atribuicao de tracks). Empurra refresh silencioso pra UI atualizar
@@ -3159,6 +3230,10 @@ begin
     // PushMonitorThumbs pra manter os slots de preview fixos durante
     // a gravacao mesmo se o user desplugar/replugar monitor.
     RecordingMonitorsSnapshot := WinPreview.EnumerateMonitors;
+    // Sessao nova = fontes novas. Sem zerar, o estado do mudo da
+    // gravacao ANTERIOR faria o primeiro tick achar que nao mudou nada
+    // e a faixa comecaria com o mudo errado.
+    if MicMuteApplied <> nil then MicMuteApplied.Clear;
     SetTimer(MainWindowHandle, TIMER_RECORDING_TICK, RECORDING_TICK_MS, nil);
     // Bolinha vermelha no icone da bandeja e da janela (taskbar) —
     // sinalizacao visual de "gravando" mesmo com a janela escondida.
@@ -4154,6 +4229,8 @@ begin
   Obj.AddPair('recordDir', RecordDir);
   // Titulo da janela (default 'NoOBS') e modelo do nome do arquivo de saida.
   Obj.AddPair('windowTitle', GetConfigStr('windowTitle', 'NoOBS'));
+  Obj.AddPair('muteWhenDeviceMuted',
+    TJSONBool.Create(GetConfigBool('muteWhenDeviceMuted', True)));
   Obj.AddPair('filenamePattern',
     GetConfigStr('filenamePattern', DEFAULT_FILENAME_PATTERN));
   Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
@@ -4434,6 +4511,16 @@ begin
   // Slider ao vivo: aplica na janela existente sem recriar.
   if WinRecIndicator.IsShowing then
     try WinRecIndicator.SetOpacity(AOpacity); except end;
+end;
+
+procedure HandleSetMuteWhenDeviceMuted(AEnable: Boolean);
+begin
+  SetConfigBool('muteWhenDeviceMuted', AEnable);
+  Log('MuteWhenDeviceMuted: %s', [BoolToStr(AEnable, True)]);
+  // Aplica ja: ligar/desligar no meio de uma gravacao tem que valer
+  // agora, nao no proximo mudo do microfone.
+  if MicMuteApplied <> nil then MicMuteApplied.Clear;
+  try SyncMicMuteFromEndpoints; except end;
 end;
 
 procedure HandleSetPlaySoundOnRecord(AEnable: Boolean);
@@ -5974,6 +6061,8 @@ begin
       HandleSetRecIndicatorCorner(GetStrField(Obj, 'corner'))
     else if MsgType = 'set_rec_indicator_opacity' then
       HandleSetRecIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
+    else if MsgType = 'set_mute_when_device_muted' then
+      HandleSetMuteWhenDeviceMuted(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_play_sound_on_record' then
       HandleSetPlaySoundOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_stop_on_lock' then
@@ -6271,6 +6360,9 @@ begin
     // so gera reflow inutil + concorre por CPU com o video.
     if not PlayerOpen then
       PushAudioMetersFromWin;
+    // Independe do player estar aberto: e a GRAVACAO que precisa
+    // acompanhar o mudo do microfone, nao a tela.
+    try SyncMicMuteFromEndpoints; except end;
   end
   else if ATimerId = TIMER_OBS_WARMUP then
   begin
@@ -6451,6 +6543,8 @@ begin
     FreeAndNil(Engine);
   end;
   Log('Shutdown: Engine ok');
+
+  if MicMuteApplied <> nil then FreeAndNil(MicMuteApplied);
 
   Initialized := False;
   DoInitStarted := False;

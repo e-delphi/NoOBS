@@ -699,6 +699,21 @@
       <hr class="settings-divider" data-panel="behavior">
       <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
+          <input type="checkbox" id="settingsMuteWhenDeviceMuted">
+          <span data-i18n="settings.muteWhenDeviceMuted.label">Silenciar a faixa quando o microfone estiver mudo no Windows</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.muteWhenDeviceMuted.hint">
+          Enquanto o microfone estiver mudo no Windows, a faixa dele sai
+          em silêncio na gravação. Vale para o botão de mudo do fone, o
+          mudo do sistema e os aplicativos de chamada que avisam o
+          Windows ao mutar. O mudo feito só dentro do aplicativo, sem
+          avisar o Windows, não é detectável — nesses casos o microfone
+          continua sendo gravado.
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="behavior">
+      <div class="settings-field" data-panel="behavior">
+        <label class="settings-check-row">
           <input type="checkbox" id="settingsStopOnLock">
           <span data-i18n="settings.stopOnLock.label">Parar a gravação ao bloquear o computador</span>
         </label>

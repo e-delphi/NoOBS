@@ -214,6 +214,11 @@ const Bridge = {
     // existe no DOM e pode receber o cursor pra renomear.
     folder_created(data) { RecFolders.onCreated(data && data.id); },
     settings(data) { Settings.applySettings(data); },
+    transcribe_state(data)   { Transcribe.applyState(data); },
+    transcribe_pending(data) { Transcribe.applyPending(data); },
+    transcribe_health(data)  { Transcribe.onHealth(data); },
+    transcript(data)         { Player.applyTranscript(data); },
+    transcript_search(data)  { onTranscriptSearchResult(data); },
     update_result(data) { Updates.applyResult(data); },
     record_dir_picked(data) { Settings.setPickedPath(data.path); },
     monitor_thumbs(data) { updateMonitorThumbs(data.items); },
@@ -317,7 +322,9 @@ const Bridge = {
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
     export_progress(data) { Export.onProgress(data && data.pct); },
     export_done(data) { Export.onDone(data); },
-    recording_state(data) { applyRecordingState(data.active, data.elapsed); },
+    recording_state(data) {
+      applyRecordingState(data.active, data.elapsed, data.sizeText);
+    },
     // O libobs ainda esta fechando o arquivo da gravacao anterior. Desabilita
     // o botao: iniciar agora travaria a main thread no release do output.
     recording_finalizing(data) { applyFinalizingState(!!data.active); },

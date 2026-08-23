@@ -350,6 +350,9 @@
       <button type="button" class="settings-tab" data-tab="behavior"
               onclick="Settings.showTab('behavior')"
               data-i18n="settings.tabs.behavior">Comportamento</button>
+      <button type="button" class="settings-tab" data-tab="transcribe"
+              onclick="Settings.showTab('transcribe')"
+              data-i18n="settings.tabs.transcribe">Transcrição</button>
       <button type="button" class="settings-tab" data-tab="updates"
               onclick="Settings.showTab('updates')"
               data-i18n="settings.tabs.updates">Atualizações</button>
@@ -633,18 +636,6 @@
           é visível na própria janela.
         </div>
       </div>
-      <div class="settings-field" data-panel="behavior">
-        <label class="settings-check-row">
-          <input type="checkbox" id="settingsScrollLockIndicator">
-          <span data-i18n="settings.scrollLock.label">Piscar LED de Scroll Lock durante gravação</span>
-        </label>
-        <div class="settings-hint" data-i18n="settings.scrollLock.hint">
-          Pisca o LED de Scroll Lock do teclado (1Hz) enquanto a
-          gravação está ativa — indicador discreto e sempre visível,
-          útil quando o app está na bandeja. Apaga automaticamente ao
-          parar a gravação.
-        </div>
-      </div>
       <hr class="settings-divider" data-panel="behavior">
       <div class="settings-field" data-panel="behavior">
         <label class="settings-check-row">
@@ -797,6 +788,48 @@
           <div id="autoDevicesList"></div>
         </div>
       </div>
+      <!-- ===== Transcricao ===== -->
+      <div class="settings-field" data-panel="transcribe">
+        <label data-i18n="settings.transcribe.host">Servidor de transcrição</label>
+        <div class="settings-input-row">
+          <input type="text" class="settings-input" id="settingsTranscribeHost"
+                 placeholder="http://localhost:8000" spellcheck="false">
+          <button class="settings-btn" id="settingsTranscribeTestBtn"
+                  onclick="Transcribe.test()"
+                  data-i18n="settings.transcribe.test">Testar</button>
+        </div>
+        <div class="settings-hint" id="settingsTranscribeStatus"
+             data-i18n="settings.transcribe.hostHint">
+          Endereço e porta do container da Transcritor API. A rota é fixa
+          (<code>/transcribe</code>) — só o host é configurável.
+        </div>
+      </div>
+
+      <hr class="settings-divider" data-panel="transcribe">
+      <div class="settings-field" data-panel="transcribe">
+        <label data-i18n="settings.transcribe.queue">Fila</label>
+        <div class="settings-input-row">
+          <button class="settings-btn" id="settingsTranscribePendingBtn"
+                  onclick="Transcribe.transcribePending()"
+                  data-i18n="settings.transcribe.pending">Transcrever pendentes</button>
+          <button class="settings-btn" id="settingsTranscribeCancelBtn"
+                  onclick="Transcribe.cancel()" disabled
+                  data-i18n="common.cancel">Cancelar</button>
+        </div>
+        <!-- Barra de ESTIMATIVA, nao de progresso real: a API nao tem
+             rota de progresso (o POST /transcribe so responde no fim),
+             entao o preenchimento vem de decorrido/estimado. -->
+        <div class="transcribe-progress" id="transcribeProgress" hidden>
+          <div class="transcribe-bar"><div class="transcribe-fill" id="transcribeFill"></div></div>
+          <div class="transcribe-line" id="transcribeLine"></div>
+        </div>
+        <div class="settings-hint" id="transcribeHint" data-i18n="settings.transcribe.queueHint">
+          Uma transcrição por vez — o próprio container serializa as
+          requisições, então enfileirar mais não adiantaria. O tempo
+          mostrado é uma estimativa: a API só responde no fim.
+        </div>
+      </div>
+
       <div class="settings-field" data-panel="updates">
         <label data-i18n="settings.updates.versionLabel">Versão instalada</label>
         <div class="settings-hint" id="settingsAppVersion">—</div>
@@ -952,6 +985,21 @@
           </div>
         </div>
       </aside>
+      <!-- Painel de transcricao. Irmao do painel de info e no mesmo lugar
+           (lado direito do palco); so um dos dois fica aberto por vez. -->
+      <aside class="player-tr-panel" id="playerTrPanel" aria-hidden="true">
+        <div class="player-info-header">
+          <span data-i18n="player.transcript">Transcrição</span>
+          <button class="player-info-close" id="playerTrClose"
+                  data-i18n-hint="player.close" data-hint="Fechar">×</button>
+        </div>
+        <div class="player-tr-search">
+          <input type="text" id="playerTrSearch" class="search"
+                 data-i18n-placeholder="player.transcriptSearch"
+                 placeholder="Buscar na transcrição...">
+        </div>
+        <div class="player-tr-body" id="playerTrBody"></div>
+      </aside>
     </div>
     <div class="player-controls">
       <button class="player-btn" id="playerPlay" data-i18n-hint="player.playPause" data-hint="Play/Pause (Espaço)">
@@ -1000,6 +1048,13 @@
           <div class="player-speed-option" data-speed="8">8×</div>
         </div>
       </div>
+      <button class="player-btn player-tr-btn" id="playerTr"
+              data-i18n-hint="player.transcript" data-hint="Transcrição">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>
+        </svg>
+      </button>
       <button class="player-btn player-info-btn" id="playerInfo" data-i18n-hint="player.videoInfo" data-hint="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
       </button>
@@ -1075,6 +1130,11 @@
           <div class="rec-timer">
             <span id="recTimerMain">00:00:00</span><span class="rec-timer-ms" id="recTimerMs">.00</span>
           </div>
+          <!-- Tamanho ja gravado. Vazio fora da gravacao (e no primeiro
+               segundo, ate o muxer escrever algo), e a linha some junto —
+               ver .rec-size:empty no CSS. -->
+          <div class="rec-size" id="recSize"
+               data-i18n-hint="record.sizeHint" data-hint="Tamanho já gravado"></div>
 
           <button class="record-btn" id="recordBtn" onclick="toggleRecord()"
                   data-i18n-aria="record.ariaLabel" aria-label="Gravar">
@@ -1222,6 +1282,7 @@
 <script src="js/settings.js"></script>
 <script src="js/player.js"></script>
 <script src="js/export.js"></script>
+<script src="js/transcribe.js"></script>
 <script src="js/main.js"></script>
 
 </body>

@@ -241,6 +241,18 @@ function buildRecBadges(item) {
       cls: ''
     });
   }
+  // Selo de transcricao: so icone, sem texto — e informacao de estado,
+  // nao um numero pra ler. So aparece quando JA foi transcrita; a
+  // ausencia do selo e o que diz "ainda nao".
+  const tr = item.transcript;
+  if (tr === 'ok' || tr === 'empty') {
+    parts.push({
+      icon: true,
+      cls: 'tr' + (tr === 'empty' ? ' empty' : ''),
+      hint: tr === 'empty' ? T('recordings.badge.transcriptEmpty')
+                           : T('recordings.badge.transcript')
+    });
+  }
   if (!parts.length) return null;
 
   const wrap = document.createElement('div');
@@ -248,7 +260,14 @@ function buildRecBadges(item) {
   parts.forEach(p => {
     const b = document.createElement('span');
     b.className = 'rec-badge' + (p.cls ? ' ' + p.cls : '');
-    b.textContent = p.text;
+    if (p.icon) {
+      b.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="2.4" stroke-linecap="round">' +
+        '<path d="M4 7h16M4 12h16M4 17h9"/></svg>';
+    } else {
+      b.textContent = p.text;
+    }
     b.dataset.hint = p.hint;
     wrap.appendChild(b);
   });

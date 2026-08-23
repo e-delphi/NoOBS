@@ -191,9 +191,9 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\OBSRtwq.pas"/>
         <DCCReference Include="src\OBSScene.pas"/>
         <DCCReference Include="src\OBSRecordIcon.pas"/>
-        <DCCReference Include="src\OBSScrollLock.pas"/>
         <DCCReference Include="src\OBSSingleInstance.pas"/>
         <DCCReference Include="src\OBSStartupCheck.pas"/>
+        <DCCReference Include="src\OBSTranscribe.pas"/>
         <DCCReference Include="src\OBSTray.pas"/>
         <DCCReference Include="src\OBSUI.pas"/>
         <DCCReference Include="src\WinAudioMeter.pas"/>

@@ -40,7 +40,8 @@
     "started": "Grabación iniciada.",
     "finished": "Grabación finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilita al menos un dispositivo (monitor, cámara web, micrófono o altavoz) para iniciar la grabación.",
-    "finalizing": "Finalizando grabación..."
+    "finalizing": "Finalizando grabación...",
+    "sizeHint": "Tamaño ya grabado"
   },
   "recordings": {
     "title": "Grabaciones",
@@ -79,7 +80,9 @@
       "fpsSuffix": "fps",
       "fps": "{{fps}} cuadros por segundo",
       "qualityShort": "Q{{level}}",
-      "quality": "Nivel de calidad {{level}} de 10"
+      "quality": "Nivel de calidad {{level}} de 10",
+      "transcript": "Transcrita",
+      "transcriptEmpty": "Transcrita — no se detectó ninguna voz"
     },
     "foldersGroup": "Carpetas",
     "newFolder": "Nueva carpeta",
@@ -96,7 +99,8 @@
     "confirmDeleteFolderTitle": "Eliminar carpeta",
     "confirmDeleteFolderEmpty": "¿Mover la carpeta \"{{name}}\" a la Papelera de reciclaje de Windows?",
     "confirmDeleteFolder_one": "La carpeta \"{{name}}\" tiene 1 grabación dentro. ¿Mover la carpeta y todo su contenido a la Papelera de reciclaje de Windows?",
-    "confirmDeleteFolder_other": "La carpeta \"{{name}}\" tiene {{count}} grabaciones dentro. ¿Mover la carpeta y todo su contenido a la Papelera de reciclaje de Windows?"
+    "confirmDeleteFolder_other": "La carpeta \"{{name}}\" tiene {{count}} grabaciones dentro. ¿Mover la carpeta y todo su contenido a la Papelera de reciclaje de Windows?",
+    "transcribe": "Transcribir"
   },
   "export": {
     "menuItem": "Exportar…",
@@ -182,7 +186,8 @@
       "window": "Ventana y bandeja",
       "behavior": "Comportamiento",
       "about": "Acerca de",
-      "updates": "Actualizaciones"
+      "updates": "Actualizaciones",
+      "transcribe": "Transcripción"
     },
     "reset": {
       "label": "Restaurar valores predeterminados",
@@ -376,10 +381,6 @@
       "label": "Notificar en Windows al iniciar/detener la grabación",
       "hint": "Muestra una notificación de Windows cuando comienza o termina una grabación. Solo tiene sentido cuando la ventana se minimiza automáticamente — de lo contrario el estado ya es visible en la propia ventana."
     },
-    "scrollLock": {
-      "label": "Parpadear LED de Scroll Lock durante la grabación",
-      "hint": "Parpadea el LED de Scroll Lock del teclado (1Hz) mientras la grabación está activa — indicador discreto y siempre visible, útil cuando la app está en la bandeja. Se apaga automáticamente al detener."
-    },
     "recIndicator": {
       "label": "Mostrar un indicador de grabación en pantalla",
       "hint": "Muestra un punto rojo con el tiempo de grabación en una esquina del monitor principal. El indicador aparece para ti, pero no entra en la grabación (se excluye de la captura). Requiere Windows 10 2004+.",
@@ -435,6 +436,25 @@
     "muteWhenDeviceMuted": {
       "label": "Silenciar la pista cuando el micrófono esté silenciado en Windows",
       "hint": "Mientras el micrófono esté silenciado en Windows, su pista se graba en silencio. Sirve para el botón de silencio de los auriculares, el silencio del sistema y las aplicaciones de llamadas que avisan a Windows al silenciar. El silencio hecho solo dentro de la aplicación, sin avisar a Windows, no se puede detectar: en esos casos el micrófono se sigue grabando."
+    },
+    "transcribe": {
+      "host": "Servidor de transcripción",
+      "hostHint": "Dirección y puerto del contenedor de Transcritor API. La ruta es fija (/transcribe): solo el host es configurable.",
+      "test": "Probar",
+      "testing": "Probando…",
+      "ok": "El servidor respondió. Listo para transcribir.",
+      "fail": "No se pudo contactar el servidor: {{error}}",
+      "queue": "Cola",
+      "pending": "Transcribir pendientes",
+      "pendingN": "Transcribir pendientes ({{count}})",
+      "pendingNone": "Nada pendiente",
+      "queueHint": "Una transcripción a la vez: el propio contenedor serializa las solicitudes, así que encolar más no ayudaría. El tiempo mostrado es una estimación: la API solo responde al terminar.",
+      "progress": "{{pos}} de {{total}} · {{name}}",
+      "eta": "{{elapsed}} de ~{{estimate}}",
+      "elapsed": "{{elapsed}} transcurrido",
+      "doneAll": "{{total}} transcripción(es) completada(s).",
+      "doneWithFailures": "{{done}} de {{total}} completada(s), {{failed}} con error.",
+      "failedN": "{{failed}} con error"
     }
   },
   "devices": {
@@ -521,7 +541,15 @@
       "channelsN": "{{count}} canales",
       "sampleRate": "Frecuencia de muestreo",
       "trackVolume": "Volumen de la pista (0–200%)"
-    }
+    },
+    "transcript": "Transcripción",
+    "transcriptSearch": "Buscar en la transcripción...",
+    "transcriptLoading": "Cargando transcripción…",
+    "transcriptNone": "Esta grabación aún no se ha transcrito. Usa \"Transcribir\" en el menú contextual de la lista.",
+    "transcriptNoMatch": "No se encontró ningún fragmento.",
+    "speakerN": "Hablante {{n}}",
+    "speakerUnknown": "Hablante",
+    "transcriptNoSpeech": "Esta grabación fue transcrita, pero no se detectó ninguna voz en el audio."
   },
   "toast": {
     "saved": "Configuración guardada",
@@ -554,7 +582,8 @@
     "exportCanceledMsg": "El archivo parcial se descartó.",
     "cutTitle": "Cortado",
     "cutOne": "1 elemento listo para pegar en otra carpeta.",
-    "cutN": "{{count}} elementos listos para pegar en otra carpeta."
+    "cutN": "{{count}} elementos listos para pegar en otra carpeta.",
+    "transcribeQueued": "Transcripción en cola"
   },
   "error": {
     "loadVideo": "Error al cargar el video.",

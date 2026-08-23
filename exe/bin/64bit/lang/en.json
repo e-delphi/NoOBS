@@ -40,7 +40,8 @@
     "started": "Recording started.",
     "finished": "Recording finished ({{min}}m {{sec}}s).",
     "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording.",
-    "finalizing": "Finishing recording..."
+    "finalizing": "Finishing recording...",
+    "sizeHint": "Recorded so far"
   },
   "recordings": {
     "title": "Recordings",
@@ -79,7 +80,9 @@
       "fpsSuffix": "fps",
       "fps": "{{fps}} frames per second",
       "qualityShort": "Q{{level}}",
-      "quality": "Quality level {{level}} of 10"
+      "quality": "Quality level {{level}} of 10",
+      "transcript": "Transcribed",
+      "transcriptEmpty": "Transcribed — no speech detected"
     },
     "foldersGroup": "Folders",
     "newFolder": "New folder",
@@ -96,7 +99,8 @@
     "confirmDeleteFolderTitle": "Delete folder",
     "confirmDeleteFolderEmpty": "Move the folder \"{{name}}\" to the Windows Recycle Bin?",
     "confirmDeleteFolder_one": "The folder \"{{name}}\" has 1 recording inside. Move the folder and everything in it to the Windows Recycle Bin?",
-    "confirmDeleteFolder_other": "The folder \"{{name}}\" has {{count}} recordings inside. Move the folder and everything in it to the Windows Recycle Bin?"
+    "confirmDeleteFolder_other": "The folder \"{{name}}\" has {{count}} recordings inside. Move the folder and everything in it to the Windows Recycle Bin?",
+    "transcribe": "Transcribe"
   },
   "export": {
     "menuItem": "Export…",
@@ -182,7 +186,8 @@
       "window": "Window & tray",
       "behavior": "Behavior",
       "about": "About",
-      "updates": "Updates"
+      "updates": "Updates",
+      "transcribe": "Transcription"
     },
     "reset": {
       "label": "Restore defaults",
@@ -376,10 +381,6 @@
       "label": "Show Windows notification on record start/stop",
       "hint": "Shows a Windows notification when a recording starts or finishes. Only useful when the window is automatically minimized — otherwise the recording state is already visible in the window."
     },
-    "scrollLock": {
-      "label": "Blink Scroll Lock LED while recording",
-      "hint": "Blinks the keyboard's Scroll Lock LED (1Hz) while a recording is active — discreet, always-visible indicator, useful when the app is in the tray. Turns off automatically when stopped."
-    },
     "recIndicator": {
       "label": "Show a recording indicator on screen",
       "hint": "Shows a red dot with the elapsed recording time in a corner of the primary monitor. You see the indicator, but it doesn't appear in the recording (it's excluded from capture). Requires Windows 10 2004+.",
@@ -435,6 +436,25 @@
     "muteWhenDeviceMuted": {
       "label": "Silence the track while the microphone is muted in Windows",
       "hint": "While the microphone is muted in Windows, its track is recorded as silence. This covers the mute button on your headset, the system mute, and call apps that tell Windows when you mute. A mute done only inside the app, without telling Windows, cannot be detected — in those cases the microphone keeps being recorded."
+    },
+    "transcribe": {
+      "host": "Transcription server",
+      "hostHint": "Address and port of the Transcritor API container. The route is fixed (/transcribe) — only the host is configurable.",
+      "test": "Test",
+      "testing": "Testing…",
+      "ok": "Server responded. Ready to transcribe.",
+      "fail": "Could not reach the server: {{error}}",
+      "queue": "Queue",
+      "pending": "Transcribe pending",
+      "pendingN": "Transcribe pending ({{count}})",
+      "pendingNone": "Nothing pending",
+      "queueHint": "One transcription at a time — the container itself serializes requests, so queuing more would not help. The time shown is an estimate: the API only answers when it finishes.",
+      "progress": "{{pos}} of {{total}} · {{name}}",
+      "eta": "{{elapsed}} of ~{{estimate}}",
+      "elapsed": "{{elapsed}} elapsed",
+      "doneAll": "{{total}} transcription(s) finished.",
+      "doneWithFailures": "{{done}} of {{total}} finished, {{failed}} failed.",
+      "failedN": "{{failed}} failed"
     }
   },
   "devices": {
@@ -521,7 +541,15 @@
       "channelsN": "{{count}} channels",
       "sampleRate": "Sample rate",
       "trackVolume": "Track volume (0–200%)"
-    }
+    },
+    "transcript": "Transcript",
+    "transcriptSearch": "Search the transcript...",
+    "transcriptLoading": "Loading transcript…",
+    "transcriptNone": "This recording has not been transcribed yet. Use \"Transcribe\" in the list context menu.",
+    "transcriptNoMatch": "No passage found.",
+    "speakerN": "Speaker {{n}}",
+    "speakerUnknown": "Speaker",
+    "transcriptNoSpeech": "This recording was transcribed, but no speech was detected in the audio."
   },
   "toast": {
     "saved": "Settings saved",
@@ -554,7 +582,8 @@
     "exportCanceledMsg": "The partial file was discarded.",
     "cutTitle": "Cut",
     "cutOne": "1 item ready to paste into another folder.",
-    "cutN": "{{count}} items ready to paste into another folder."
+    "cutN": "{{count}} items ready to paste into another folder.",
+    "transcribeQueued": "Transcription queued"
   },
   "error": {
     "loadVideo": "Error loading video.",

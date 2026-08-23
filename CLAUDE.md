@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (12 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (13 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -96,6 +96,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
+| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO da faixa de mistura; grava a resposta no cache |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
@@ -109,7 +110,7 @@ A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
 recordings, player, export, settings, widgets) e `js/` (12 módulos: i18n,
 bridge, displays, recordings, folders, record, widgets, hotkey, settings,
-player, export, main), além
+player, export, transcribe, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -189,7 +190,13 @@ User clica "Iniciar Gravação" (ou hotkey Ctrl+Shift+F9):
     - SelectVideoEncoder: lê config codec, dispatch AV1/HEVC/H264/SW
     - Cria output ffmpeg_muxer (MKV) + obs_output_start
     - Conecta o sinal "stop" do output (Engine.ConnectStopSignal)
-  • PushRecordingState
+  • PushRecordingState (o tique de 1s leva junto o tamanho ja gravado,
+    lido do MKV em curso por GetGrowingFileSize — CreateFileW com
+    compartilhamento total, porque o muxer esta escrevendo no arquivo).
+    O texto sai do FormatBytesLive, NAO do FormatBytesShort dos cards:
+    aqui o numero e atualizado a cada segundo e precisa se mexer, entao
+    a resolucao e de ~1 KB e vai afrouxando conforme cresce
+    (812 KB | 45,123 MB | 456,78 MB | 1,234 GB | 12,34 GB)
 
 User clica "Parar Gravação" (assíncrono — pegadinha #41):
   • HandleRecordStop:
@@ -2075,6 +2082,64 @@ declarada em C# e chamada contra o COM real, conferindo que `GetMute`,
 coerentes em slots diferentes. Ordem trocada faria pelo menos um deles
 retornar lixo. Vale o mesmo princípio da #53: medir, não deduzir.
 
+### 60. **Transcrição: os quatro limites que decidiram o desenho**
+
+A integração com a Transcritor API não tem escolha estética nenhuma —
+cada peça saiu de um limite concreto:
+
+**a) A API não tem rota de progresso.** `POST /transcribe` é uma
+requisição única que só responde no fim, e o README não expõe nada de
+streaming. Então "progresso" é: posição na fila + tempo decorrido +
+**estimativa** derivada do ~1,5× tempo real que o próprio README mede
+(`ESTIMATE_FACTOR`). A barra trava em **97%** de propósito: passar de 100%
+seria mentira e cravar 100% antes de terminar faz parecer travado. O
+texto diz "~" para não vender medição onde há previsão.
+
+**b) Não dá pra mandar o vídeo.** `MAX_UPLOAD_MB` é 512 por padrão e uma
+gravação 4K de poucos minutos passa disso. Vai só a **faixa de mistura**
+(stream 0, que já tem todos os microfones e o som do sistema), extraída
+em m4a pelo `ExtractAudioTracks` — 1 hora dá ~70 MB. O m4a é apagado
+depois do POST: é veículo de upload, não cache.
+
+**c) Uma por vez não é escolha nossa.** O próprio container serializa as
+requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
+a fila do outro lado. Uma thread, uma fila — e o `CancelAll` **não aborta
+o item em voo**: a API não tem cancelamento, e jogar fora trabalho que o
+servidor já fez seria pior que gravá-lo.
+
+**d) A busca é do BACKEND.** A resposta traz timestamps por palavra e dá
+megabytes por gravação. Filtrar no JS exigiria atravessar tudo isso pelo
+`postMessage` a cada tecla. Então:
+
+- `<hash>.transcript.json` — resposta inteira, lida só ao abrir o painel
+  do player (e ainda assim o backend manda **só os turnos**, nunca os
+  segmentos com palavras).
+- `<hash>.txt` — texto puro, é o que a busca varre.
+- `search_transcripts` devolve só os ids que casam; o JS une isso ao
+  filtro por nome que já existia.
+
+Corolário do cache: os dois arquivos são prefixados pelo `<hash>` do path,
+então o GC e o `RenameCacheEntries` já os cobrem de graça (pegadinha #55)
+— por isso o `HashName` do `OBSPlayer` foi exportado, em vez de o
+`OBSTranscribe` recalcular o hash por conta e sair de sincronia.
+
+**e) "Sem fala" não é "não transcrita".** Uma gravação de tela sem
+ninguém falando é transcrita com sucesso e volta com **zero turnos** —
+idêntica, do lado do JS, a uma que nunca passou pela API. Tratar as duas
+igual fazia o player dizer "ainda não foi transcrita" e mandar o usuário
+transcrever de novo pra receber o mesmo nada. Por isso são dois sinais
+independentes: `transcribed` (o arquivo existe) e `has` (tem turnos).
+
+Na lista, o mesmo três-estados sai do `TranscriptState`, que decide só
+com **stat**: sem `<hash>.transcript.json` → `''`; com ele e `<hash>.txt`
+de tamanho > 0 → `'ok'`; senão → `'empty'`. Ler o `.txt` só pra saber se
+está vazio seria I/O por item a cada listagem da biblioteca.
+
+Um detalhe de UI que não é óbvio: o backend só reempurra o estado da fila
+quando algo **muda** (item começa, termina, falha). Quem faz o decorrido
+andar de segundo em segundo é um `setInterval` no `Transcribe` — 40
+minutos de push por segundo seriam ruído puro no canal.
+
 ---
 
 ## Caches
@@ -2087,6 +2152,8 @@ retornar lixo. Vale o mesmo princípio da #53: medir, não deduzir.
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.jpg` | Thumbnail (gerado via libav decode+sws+mjpeg) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.mp4` | MP4 remuxado (libavformat `-c copy` equivalente) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>_aN.m4a` | Audio track isolada N, **N≥1** (libavformat extract) |
+| `%LOCALAPPDATA%\NoOBS\cache\<hash>.transcript.json` | Resposta inteira da Transcritor API (turnos, segmentos, palavras) |
+| `%LOCALAPPDATA%\NoOBS\cache\<hash>.txt` | Só o texto puro da transcrição — é o que a BUSCA lê |
 
 `<hash>` = primeiros 10 bytes hex do SHA1 do path original.
 
@@ -2131,6 +2198,8 @@ recuperáveis manualmente).
 | `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
+| `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). A ROTA é fixa (`/transcribe`) — só o host é configurável |
+| `transcribeLanguage`             | código ISO passado à API (`pt`, `en`…). Vazio = detecção automática. Só existe como chave do JSON, sem controle na UI |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |

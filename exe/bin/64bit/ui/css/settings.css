@@ -902,3 +902,31 @@
     color: var(--success);
     font-weight: 600;
   }
+
+  /* ===== Progresso da transcrição (aba Transcrição) =====
+     A barra é ESTIMATIVA, não medição: a API não tem rota de progresso,
+     o POST /transcribe só responde no fim. O preenchimento sai de
+     decorrido/estimado e trava em 97% — ver Transcribe.render(). */
+  .transcribe-progress {
+    margin-top: 10px;
+  }
+  .transcribe-progress[hidden] { display: none; }
+  .transcribe-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+  .transcribe-fill {
+    height: 100%;
+    width: 0;
+    background: var(--success);
+    border-radius: 3px;
+    transition: width 400ms linear;
+  }
+  .transcribe-line {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }

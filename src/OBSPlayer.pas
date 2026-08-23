@@ -100,6 +100,13 @@ function GetAudioTrackUrls(const APath: string;
 // pelo HTTP local (MakeUrl), nao por virtual host.
 function CacheRootDir: string;
 
+// Hash curto do path — e a CHAVE de tudo que e cacheado por gravacao
+// (<hash>.jpg/.dur/.json/.mp4/_aN.m4a). Exportado pra que quem precise
+// gravar mais um arquivo por gravacao (ex.: a transcricao) use a MESMA
+// chave, em vez de recalcular por conta e sair de sincronia com o GC e
+// com o RenameCacheEntries (pegadinha #55).
+function HashName(const APath: string): string;
+
 implementation
 
 uses

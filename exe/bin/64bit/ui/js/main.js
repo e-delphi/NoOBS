@@ -21,7 +21,12 @@ function stopRecordingAnimation() {
 // NAO dispare playStop.
 let _lastRecordingActive = null;
 
-function applyRecordingState(active, elapsedSec) {
+// Ultimo tamanho recebido. O push de 1s traz o valor; as chamadas que
+// so re-renderizam o estado (troca de idioma, restaurar da bandeja) nao
+// trazem — sem guardar, a linha piscaria vazia ate o proximo tique.
+let _lastRecordingSizeText = '';
+
+function applyRecordingState(active, elapsedSec, sizeText) {
   const btn = document.getElementById('recordBtn');
   const label = document.getElementById('recordLabel');
   const card = document.getElementById('recCard');
@@ -38,6 +43,11 @@ function applyRecordingState(active, elapsedSec) {
     RecordingSounds.playStart();
   }
   _lastRecordingActive = active;
+
+  if (typeof sizeText === 'string') _lastRecordingSizeText = sizeText;
+  const sizeEl = document.getElementById('recSize');
+  if (sizeEl) sizeEl.textContent = active ? _lastRecordingSizeText : '';
+  if (!active) _lastRecordingSizeText = '';
 
   if (active) {
     btn.classList.add('recording');
@@ -83,8 +93,40 @@ function updateRecordButtonAvailability() {
 // =====================================================================
 // Busca
 // =====================================================================
+// Ids cujo TEXTO da transcricao casa com a busca atual. Vem do backend
+// (search_transcripts): as transcricoes ficam no cache e podem ter
+// megabytes cada — mandar tudo pro JS pra filtrar aqui nao escalaria.
+let _transcriptHits = new Set();
+let _transcriptQuery = '';
+let _transcriptTimer = null;
+
+function onTranscriptSearchResult(data) {
+  if (!data) return;
+  // Resposta atrasada de uma busca que o usuario ja abandonou: ignora,
+  // senao a lista mostraria o resultado de um texto que nao esta mais
+  // no campo.
+  const q = (data.query || '').toLowerCase().trim();
+  if (q !== _transcriptQuery) return;
+  _transcriptHits = new Set(data.ids || []);
+  onSearch();
+}
+
 function onSearch() {
   const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  if (q !== _transcriptQuery) {
+    _transcriptQuery = q;
+    _transcriptHits = new Set();
+    // Debounce: cada tecla dispararia uma varredura de disco por
+    // gravacao. 300ms cobre a digitacao sem parecer lento.
+    if (_transcriptTimer) clearTimeout(_transcriptTimer);
+    if (q === '') {
+      Bridge.send('search_transcripts', { query: '' });
+    } else {
+      _transcriptTimer = setTimeout(() => {
+        Bridge.send('search_transcripts', { query: q });
+      }, 300);
+    }
+  }
   // Pastas entram no filtro junto com os cards: buscar sem elas deixaria
   // uma linha de pastas irrelevantes acima do unico resultado. O card de
   // "voltar" tambem some — durante a busca a navegacao nao e o assunto.
@@ -93,7 +135,10 @@ function onSearch() {
   cards.forEach(card => {
     const isUp = card.classList.contains('up');
     const text = card.textContent.toLowerCase();
-    const match = (q === '') ? true : (!isUp && text.includes(q));
+    // Casa pelo texto do card OU pelo conteudo da transcricao.
+    const match = (q === '')
+      ? true
+      : (!isUp && (text.includes(q) || _transcriptHits.has(card.dataset.id)));
     card.style.display = match ? '' : 'none';
     if (match) visible++;
   });
@@ -190,6 +235,13 @@ function ctxMenuItems(ctx) {
     items.push({
       label: bulk ? T('recordings.cutN', { count: ids.length }) : T('recordings.cut'),
       run: () => RecFolders.cut(ids)
+    });
+    // Transcrever opera sempre na gravacao CLICADA, mesmo em lote: pra
+    // transcrever varias existe o botao das Configuracoes, que enfileira
+    // as pendentes da biblioteca inteira.
+    items.push({
+      label: T('recordings.transcribe'),
+      run: () => Transcribe.transcribeOne(ctx.id)
     });
     items.push({ sep: true });
     items.push({

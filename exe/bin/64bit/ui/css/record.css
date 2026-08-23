@@ -94,12 +94,31 @@
     line-height: 1;
     font-variant-numeric: tabular-nums;
     color: var(--text);
-    margin: 4px 0 14px;
+    /* Margem de baixo reduzida (era 14px): a linha do tamanho abaixo
+       devolve o respiro, entao o cartao quase nao muda de altura. */
+    margin: 4px 0 4px;
   }
   .rec-timer-ms {
     font-size: 22px;
     color: var(--text-3);
     margin-left: 1px;
+  }
+  /* Tamanho ja gravado, logo abaixo do cronometro. Discreto de proposito:
+     e informacao de apoio; o numero que manda no cartao e o tempo.
+     ALTURA FIXA, e some vazio em vez de `display: none`: reservar a linha
+     desde sempre evita o botao de gravar pular pra baixo no instante em
+     que a gravacao comeca. */
+  .rec-size {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-3);
+    height: 13px;
+    line-height: 13px;
+    margin: 0 0 9px;
   }
   .record-card.recording .rec-timer { color: var(--text); }
 

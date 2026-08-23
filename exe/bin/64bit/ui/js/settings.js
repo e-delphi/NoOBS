@@ -174,7 +174,6 @@ const Settings = {
   currentCloseToTray: false,
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
-  currentScrollLockIndicator: false,
   currentRecIndicator: false,
   currentRecIndicatorCorner: 'top-right',
   currentRecIndicatorOpacity: 90,
@@ -183,6 +182,7 @@ const Settings = {
   // Default TRUE, igual ao backend: microfone mudo no Windows nao
   // deveria entrar na gravacao.
   currentMuteWhenDeviceMuted: true,
+  currentTranscribeHost: 'http://localhost:8000',
   currentHibernate: false,
   currentAutoRecordOnMic: false,
   currentAutoRecordMicApps: '',
@@ -221,13 +221,13 @@ const Settings = {
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
     document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
-    document.getElementById('settingsScrollLockIndicator').checked = !!this.currentScrollLockIndicator;
     document.getElementById('settingsRecIndicator').checked = !!this.currentRecIndicator;
     document.getElementById('settingsRecIndicatorCorner').value = this.currentRecIndicatorCorner || 'top-right';
     document.getElementById('settingsRecIndicatorOpacity').value = this.currentRecIndicatorOpacity || 90;
     this._syncRecIndicatorOpacityLabel();
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
+    document.getElementById('settingsTranscribeHost').value = this.currentTranscribeHost || '';
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsAutoRecordOnMic').checked = !!this.currentAutoRecordOnMic;
@@ -326,13 +326,13 @@ const Settings = {
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
-      const scrollLockIndicator = document.getElementById('settingsScrollLockIndicator').checked;
       const recIndicator = document.getElementById('settingsRecIndicator').checked;
       const recIndicatorCorner = document.getElementById('settingsRecIndicatorCorner').value;
       const recIndicatorOpacity = parseInt(document.getElementById('settingsRecIndicatorOpacity').value, 10) || 90;
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
+      const transcribeHost = document.getElementById('settingsTranscribeHost').value.trim();
       const hibernate = document.getElementById('settingsHibernate').checked;
       const autoRecordOnMic = document.getElementById('settingsAutoRecordOnMic').checked;
       const autoRecordMicApps = document.getElementById('settingsAutoRecordMicApps').value.trim();
@@ -364,8 +364,6 @@ const Settings = {
         Bridge.send('set_minimize_on_record', { enabled: minimizeOnRecord });
       if (notifyOnRecord !== this.currentNotifyOnRecord)
         Bridge.send('set_notify_on_record', { enabled: notifyOnRecord });
-      if (scrollLockIndicator !== this.currentScrollLockIndicator)
-        Bridge.send('set_scroll_lock_indicator', { enabled: scrollLockIndicator });
       if (recIndicator !== this.currentRecIndicator)
         Bridge.send('set_rec_indicator', { enabled: recIndicator });
       if (recIndicatorCorner !== this.currentRecIndicatorCorner)
@@ -378,6 +376,8 @@ const Settings = {
         Bridge.send('set_stop_on_lock', { enabled: stopOnLock });
       if (muteWhenDeviceMuted !== this.currentMuteWhenDeviceMuted)
         Bridge.send('set_mute_when_device_muted', { enabled: muteWhenDeviceMuted });
+      if (transcribeHost !== this.currentTranscribeHost)
+        Bridge.send('set_transcribe_host', { host: transcribeHost });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (autoRecordOnMic !== this.currentAutoRecordOnMic)
@@ -407,13 +407,13 @@ const Settings = {
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
-      this.currentScrollLockIndicator = scrollLockIndicator;
       this.currentRecIndicator = recIndicator;
       this.currentRecIndicatorCorner = recIndicatorCorner;
       this.currentRecIndicatorOpacity = recIndicatorOpacity;
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
       this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
+      this.currentTranscribeHost = transcribeHost;
       this.currentHibernate = hibernate;
       this.currentAutoRecordOnMic = autoRecordOnMic;
       this.currentAutoRecordMicApps = autoRecordMicApps;
@@ -470,7 +470,6 @@ const Settings = {
     this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
-    this.currentScrollLockIndicator = !!data.scrollLockIndicator;
     this.currentRecIndicator = !!data.recIndicator;
     this.currentRecIndicatorCorner = data.recIndicatorCorner || 'top-right';
     this.currentRecIndicatorOpacity =
@@ -484,6 +483,7 @@ const Settings = {
     // Default TRUE — o `!== false` preserva esse default se a chave
     // faltar, ao contrario do `!!` usado nos que sao default false.
     this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
+    this.currentTranscribeHost = data.transcribeHost || 'http://localhost:8000';
     // hibernate: default true — so faz sentido com closeToTray ON, e gateamos
     // a UI pra forcar isso (ambos vem ON por padrao, entao consistente).
     this.currentHibernate = !!data.hibernate;
@@ -548,8 +548,6 @@ const Settings = {
     if (mr) mr.checked = this.currentMinimizeOnRecord;
     const nr = document.getElementById('settingsNotifyOnRecord');
     if (nr) nr.checked = this.currentNotifyOnRecord;
-    const sl = document.getElementById('settingsScrollLockIndicator');
-    if (sl) sl.checked = this.currentScrollLockIndicator;
     const ri = document.getElementById('settingsRecIndicator');
     if (ri) ri.checked = this.currentRecIndicator;
     const ric = document.getElementById('settingsRecIndicatorCorner');
@@ -947,6 +945,10 @@ const Settings = {
     // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
     // hot-plug que ocorreu enquanto o usuario estava em outra aba).
     if (name === 'behavior') this._syncAutoRecordDevicesVisibility();
+    // Fila e contagem de pendentes sao estado do backend: pede na hora de
+    // entrar na aba, em vez de manter a UI assinada num push que ela
+    // quase nunca esta olhando.
+    if (name === 'transcribe') Bridge.send('get_transcribe_state', {});
   },
   _syncAutoRecordExceptVisibility() {
     const apps = document.getElementById('settingsAutoRecordMicApps');
@@ -1010,12 +1012,11 @@ const Settings = {
         this._loadHotkeyIntoUi('Pause/Break');
         // Defaults novos: iniciar com Windows, minimizar p/ bandeja, minimizar
         // ao gravar, som de inicio/fim, parar ao bloquear e hibernar vem LIGADOS.
-        // notifyOnRecord e scrollLockIndicator seguem desligados (opt-in).
+        // notifyOnRecord segue desligado (opt-in).
         document.getElementById('settingsAutostart').checked = true;
         document.getElementById('settingsCloseToTray').checked = true;
         document.getElementById('settingsMinimizeOnRecord').checked = true;
         document.getElementById('settingsNotifyOnRecord').checked = false;
-        document.getElementById('settingsScrollLockIndicator').checked = false;
         document.getElementById('settingsRecIndicator').checked = false;
         document.getElementById('settingsRecIndicatorCorner').value = 'top-right';
         document.getElementById('settingsRecIndicatorOpacity').value = 90;

@@ -65,6 +65,14 @@
                            (indice da faixa de mix, pra regra de exclusao),
                            mixAudio (Boolean)
     cancel_export        : — (aborta a exportacao em andamento)
+    set_transcribe_host  : host (base do servidor; a ROTA e fixa)
+    test_transcribe_host : host — GET /health, responde transcribe_health
+    transcribe_recording : id (filepath) — enfileira uma
+    transcribe_pending   : — enfileira TODAS as ainda nao transcritas
+    cancel_transcribe    : — limpa a fila (o item em voo termina)
+    get_transcribe_state : — pede transcribe_state + transcribe_pending
+    request_transcript   : id (filepath) — responde `transcript`
+    search_transcripts   : query — responde `transcript_search`
 
   Mensagens Delphi -> JS (campo "type"):
     init                 : monitors, mics, speakers, recordings + os
@@ -76,7 +84,9 @@
     folder_created       : id (pasta recem-criada; a UI abre a edicao do
                            nome nela — chega DEPOIS do recordings_loaded
                            pra o card ja existir no DOM)
-    recording_state      : active, elapsed
+    recording_state      : active, elapsed, sizeBytes + sizeText (tamanho
+                           ja gravado do MKV em curso; ausentes enquanto o
+                           muxer nao escreveu nada)
     recording_added      : item
     encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, av1Sw, vendor,
                            vendorLogo, exportEncoders[] ({id,name,hardware}
@@ -84,6 +94,18 @@
                            exportacao, ja filtrados por existencia)
     export_progress      : pct (0..100)
     export_done          : ok, canceled, path
+    transcribe_state     : running, queue, total, done, failed, current,
+                           elapsed, estimate, lastError. O "progresso" e
+                           posicao + decorrido + ESTIMATIVA: a API so
+                           responde no fim (pegadinha #60)
+    transcribe_pending   : count (quantas ainda nao foram transcritas)
+    transcribe_health    : ok, error
+    transcript           : id, transcribed (o arquivo existe), has (tem
+                           turnos), turns[] ({speaker,start,end,text}).
+                           Os dois booleanos sao INDEPENDENTES: gravacao
+                           sem ninguem falando volta transcribed=True e
+                           has=False
+    transcript_search    : query, ids[] (gravacoes cujo TEXTO casa)
     error                : message
 *)
 unit OBSBridge;
@@ -139,7 +161,7 @@ uses
   OBSHotkey,
   OBSAutostart,
   OBSTray,
-  OBSScrollLock,
+  OBSTranscribe,
   WinPreview,
   WinAudioMeter,
   WinRecIndicator,
@@ -181,11 +203,6 @@ const
   // (restore, record start). 1 minuto e suficiente pra evitar
   // re-spawn durante uso ativo via tray.
   TIMER_HIBERNATE_IDLE      = 7008;
-  // Pisca o LED de Scroll Lock como indicador de gravacao em curso.
-  // 1s aceso / 1s apagado = blink visivel sem ser irritante. Ativado
-  // pela config 'scrollLockIndicator' (default false).
-  TIMER_SCROLL_LOCK_BLINK     = 7009;
-  SCROLL_LOCK_BLINK_INTERVAL_MS = 1000;
   HIBERNATE_IDLE_DELAY_MS   = 60_000;
   OBS_WARMUP_DELAY_MS   = 1500;  // tempo pra UI renderizar antes do init
   // Fallback do stop assincrono: se o sinal "stop" do output nunca
@@ -994,7 +1011,7 @@ var
   CachedDur: Integer;
   CachedThumb: string;
   CachedMeta: TRecordingMeta;
-  Dir: string;
+  Dir, TrState: string;
 begin
   Result := TJSONArray.Create;
   // Lista a pasta NAVEGADA, nao a raiz: a biblioteca e navegavel por
@@ -1039,6 +1056,10 @@ begin
     if CachedThumb <> '' then
       Item.AddPair('thumb', CachedThumb);
     AddRecordingBadges(Item, CachedMeta);
+    // So aparece quando JA foi transcrita — gravacao sem transcricao nao
+    // ganha selo nenhum, mesma regra dos selos de codec/fps.
+    TrState := OBSTranscribe.TranscriptState(FilePath);
+    if TrState <> '' then Item.AddPair('transcript', TrState);
 
     Result.AddElement(Item);
   end;
@@ -1175,10 +1196,92 @@ begin
   PostOwned(Obj);
 end;
 
+function FormatBytesLive(ABytes: Int64): string;
+// Tamanho da gravacao EM CURSO, atualizado a cada segundo.
+//
+// Diferente do FormatBytesShort (usado nos cards da biblioteca, onde o
+// numero e estatico e compacto e melhor): aqui ele precisa SE MEXER,
+// senao parece travado. Gravacao de tela parada cresce dezenas de KB por
+// segundo — em "45 MB" isso so muda o visor a cada ~20 segundos.
+//
+// Entao a resolucao e de ~1 KB, e vai AFROUXANDO conforme o numero
+// cresce, pra a linha nao virar um numerao. As faixas foram escolhidas
+// pra caber sempre em ate 9 caracteres:
+//
+//   512 B | 812 KB | 45,123 MB | 456,78 MB | 1,234 GB | 12,34 GB
+//
+// A partir de 1 GB os 3 decimais ja valem 1 MB de resolucao — nessa
+// altura mostrar KB nao ajudaria mais ninguem.
+const
+  KB = Int64(1024);
+  MB = KB * 1024;
+  GB = MB * 1024;
+var
+  V: Double;
+begin
+  if ABytes >= GB then
+  begin
+    V := ABytes / GB;
+    if V < 10 then Result := Format('%.3f GB', [V])
+              else Result := Format('%.2f GB', [V]);
+  end
+  else if ABytes >= MB then
+  begin
+    V := ABytes / MB;
+    if V < 100 then Result := Format('%.3f MB', [V])
+               else Result := Format('%.2f MB', [V]);
+  end
+  else if ABytes >= KB then
+    Result := Format('%d KB', [ABytes div KB])
+  else
+    Result := Format('%d B', [ABytes]);
+end;
+
+function GetGrowingFileSize(const APath: string): Int64;
+// Tamanho de um arquivo que OUTRO processo esta escrevendo agora — o MKV
+// da gravacao em curso (quem escreve e o processo do ffmpeg_muxer).
+//
+// Nao usa TFile.GetSize: ele abre sem compartilhamento de escrita e
+// falharia com sharing violation enquanto o muxer segura o arquivo.
+// Aqui o CreateFileW pede TODOS os modos de compartilhamento e le o
+// tamanho pelo HANDLE, que e o valor corrente.
+//
+// O fallback (GetFileAttributesEx) nao abre o arquivo, mas le a entrada
+// de diretorio — que o NTFS atualiza com atraso pra arquivo em escrita.
+// Serve de rede de seguranca, nunca de caminho principal: um numero
+// velho e melhor que nenhum, e ele se corrige no tique seguinte.
+var
+  H: THandle;
+  Size: Int64;
+  Attr: TWin32FileAttributeData;
+begin
+  Result := 0;
+  if APath = '' then Exit;
+  H := CreateFileW(PWideChar(APath), GENERIC_READ,
+    FILE_SHARE_READ or FILE_SHARE_WRITE or FILE_SHARE_DELETE,
+    nil, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+  if H <> INVALID_HANDLE_VALUE then
+  try
+    Size := 0;
+    if GetFileSizeEx(H, Size) then
+    begin
+      Result := Size;
+      Exit;
+    end;
+  finally
+    CloseHandle(H);
+  end;
+
+  FillChar(Attr, SizeOf(Attr), 0);
+  if GetFileAttributesEx(PChar(APath), GetFileExInfoStandard, @Attr) then
+    Result := (Int64(Attr.nFileSizeHigh) shl 32) or Int64(Attr.nFileSizeLow);
+end;
+
 procedure PushRecordingState;
 var
   Obj: TJSONObject;
   Elapsed: Integer;
+  Bytes: Int64;
 begin
   Elapsed := 0;
   if RecordingActive then
@@ -1188,6 +1291,18 @@ begin
   Obj.AddPair('type', 'recording_state');
   Obj.AddPair('active', TJSONBool.Create(RecordingActive));
   Obj.AddPair('elapsed', TJSONNumber.Create(Elapsed));
+  // Tamanho ja gravado. Vai junto do tique de 1s (TIMER_RECORDING_TICK),
+  // que e quem chama isto durante a gravacao. Zero enquanto o muxer nao
+  // escreveu nada — a UI simplesmente nao mostra nada nesse caso.
+  if RecordingActive and (LastRecordingPath <> '') then
+  begin
+    Bytes := GetGrowingFileSize(LastRecordingPath);
+    if Bytes > 0 then
+    begin
+      Obj.AddPair('sizeBytes', TJSONNumber.Create(Bytes));
+      Obj.AddPair('sizeText', FormatBytesLive(Bytes));
+    end;
+  end;
   PostOwned(Obj);
 end;
 
@@ -1252,6 +1367,8 @@ begin
   // deste push), entao os selos ja estao no <hash>.json.
   GetCachedMeta(AFilePath, AddedDur, AddedThumb, AddedMeta);
   AddRecordingBadges(Item, AddedMeta);
+  if OBSTranscribe.TranscriptState(AFilePath) <> '' then
+    Item.AddPair('transcript', OBSTranscribe.TranscriptState(AFilePath));
 
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recording_added');
@@ -1629,6 +1746,9 @@ procedure PushMonitorThumbs; forward;
 // PushSettings pra que o UI tenha as configs desde o boot (sem isso,
 // settings so chegavam quando o user abria o modal de Configuracoes).
 procedure PushSettings; forward;
+// Definida junto do resto da transcricao (~5200), mas o DoInit registra
+// o callback bem antes.
+procedure OnTranscribeChanged; forward;
 
 // ----------------------------------------------------------------------
 // TThumbTimerThread
@@ -2836,6 +2956,10 @@ begin
   // adiciona/exclui arquivo via Explorer ou outro app.
   try OBSRecordWatch.Start(RecordDir, OnRecordDirChanged); except end;
 
+  // Fila de transcricao: so registra o callback. A thread sobe sozinha
+  // no primeiro Enqueue — sem transcricao pedida, nada roda.
+  try OBSTranscribe.SetOnChanged(OnTranscribeChanged); except end;
+
   // Auto-gravacao ao detectar uso do microfone por outro app (chamadas de
   // Teams/WhatsApp/etc.). Monitor WASAPI em thread propria; o callback
   // marshalla pra main. So sobe se ligado no config.
@@ -3263,19 +3387,6 @@ begin
     // Notificacao na bandeja (so dispara se o tray esta visivel).
     MaybeNotifyRecord('NoOBS', OBSLang.T('record.started'));
 
-    // Indicador via LED Scroll Lock — opcional, default off. Pisca a
-    // 1Hz enquanto a gravacao ativa. Util quando o app esta na bandeja
-    // e o user nao tem feedback visual da UI. Apagamos sempre ao parar
-    // (em HandleRecordStop), independente do estado em que estava no
-    // momento que ligamos.
-    if GetConfigBool('scrollLockIndicator', False) then
-    begin
-      Log('HandleRecordStart: ativando blink do Scroll Lock.');
-      OBSScrollLock.SetScrollLockState(True);  // comeca aceso
-      SetTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK,
-        SCROLL_LOCK_BLINK_INTERVAL_MS, nil);
-    end;
-
     // Indicador NA TELA (opcional, default off) — bolinha + tempo, no canto
     // escolhido do monitor principal, EXCLUIDO da propria gravacao via
     // WDA_EXCLUDEFROMCAPTURE (WinRecIndicator). Escondido sempre em
@@ -3392,12 +3503,6 @@ begin
   end;
 
   KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
-
-  // Para o blink do Scroll Lock e garante LED apagado, independente
-  // do estado em que estava nesse instante do ciclo de piscar.
-  KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
-  if GetConfigBool('scrollLockIndicator', False) then
-    OBSScrollLock.SetScrollLockState(False);
 
   // Esconde o indicador de tela (idempotente — no-op se nao estava visivel,
   // ex.: config off ou Windows sem suporte a exclusao de captura).
@@ -4229,6 +4334,7 @@ begin
   Obj.AddPair('recordDir', RecordDir);
   // Titulo da janela (default 'NoOBS') e modelo do nome do arquivo de saida.
   Obj.AddPair('windowTitle', GetConfigStr('windowTitle', 'NoOBS'));
+  Obj.AddPair('transcribeHost', OBSTranscribe.HostBase);
   Obj.AddPair('muteWhenDeviceMuted',
     TJSONBool.Create(GetConfigBool('muteWhenDeviceMuted', True)));
   Obj.AddPair('filenamePattern',
@@ -4242,8 +4348,6 @@ begin
     TJSONBool.Create(GetConfigBool('minimizeOnRecord', True)));
   Obj.AddPair('notifyOnRecord',
     TJSONBool.Create(GetConfigBool('notifyOnRecord', False)));
-  Obj.AddPair('scrollLockIndicator',
-    TJSONBool.Create(GetConfigBool('scrollLockIndicator', False)));
   Obj.AddPair('recIndicator',
     TJSONBool.Create(GetConfigBool('recIndicator', False)));
   Obj.AddPair('recIndicatorCorner',
@@ -4460,26 +4564,6 @@ begin
        (not IsWindowVisible(MainWindowHandle) or
         IsIconic(MainWindowHandle)) then
       OnWindowHiddenForHibernate;
-  end;
-end;
-
-procedure HandleSetScrollLockIndicator(AEnable: Boolean);
-begin
-  SetConfigBool('scrollLockIndicator', AEnable);
-  Log('ScrollLockIndicator: %s', [BoolToStr(AEnable, True)]);
-  // Se gravando agora, aplica/remove o blink imediatamente em vez
-  // de esperar a proxima gravacao.
-  if not RecordingActive then Exit;
-  if AEnable then
-  begin
-    OBSScrollLock.SetScrollLockState(True);
-    SetTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK,
-      SCROLL_LOCK_BLINK_INTERVAL_MS, nil);
-  end
-  else
-  begin
-    KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
-    OBSScrollLock.SetScrollLockState(False);
   end;
 end;
 
@@ -4765,6 +4849,9 @@ begin
           try
             GarbageCollectCache(ListRecordingsRecursive(RecordDir));
           except end;
+          // A transcricao e por gravacao: sem ela, ficaria orfa no cache
+          // e ainda apareceria na busca por texto.
+          try OBSTranscribe.DeleteTranscript(PathCopy); except end;
 
           Obj := TJSONObject.Create;
           Obj.AddPair('type', 'recording_removed');
@@ -5109,6 +5196,285 @@ begin
     Log('HandleMoveItems: %d item(ns) movido(s) para "%s".', [Moved, Target]);
     PushRecordings;
   end;
+end;
+
+// =====================================================================
+// Transcricao (Transcritor API)
+// =====================================================================
+
+procedure PushTranscribeState;
+// Estado da fila pra aba de Transcricao. O "progresso" e posicao na fila
+// + decorrido + ESTIMATIVA: a API nao tem rota de progresso, o POST
+// /transcribe so responde no fim (ver cabecalho do OBSTranscribe).
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'transcribe_state');
+  Obj.AddPair('running',  TJSONBool.Create(OBSTranscribe.IsRunning));
+  Obj.AddPair('queue',    TJSONNumber.Create(OBSTranscribe.QueueLength));
+  Obj.AddPair('total',    TJSONNumber.Create(OBSTranscribe.BatchTotal));
+  Obj.AddPair('done',     TJSONNumber.Create(OBSTranscribe.DoneCount));
+  Obj.AddPair('failed',   TJSONNumber.Create(OBSTranscribe.FailedCount));
+  Obj.AddPair('current',  OBSTranscribe.CurrentName);
+  Obj.AddPair('elapsed',  TJSONNumber.Create(OBSTranscribe.CurrentElapsedSec));
+  Obj.AddPair('estimate', TJSONNumber.Create(OBSTranscribe.CurrentEstimateSec));
+  Obj.AddPair('lastError', OBSTranscribe.LastError);
+  PostOwned(Obj);
+end;
+
+function TranscribablePaths: TArray<string>;
+// Gravacoes da arvore INTEIRA que ainda nao tem transcricao. Recursivo
+// de proposito: o botao "transcrever pendentes" fala da biblioteca, nao
+// da pasta que por acaso esta aberta.
+var
+  Files: TStringDynArray;
+  i, n: Integer;
+begin
+  SetLength(Result, 0);
+  Files := ListRecordingsRecursive(RecordDir);
+  SetLength(Result, Length(Files));
+  n := 0;
+  for i := 0 to High(Files) do
+  begin
+    if OBSTranscribe.HasTranscript(Files[i]) then Continue;
+    Result[n] := Files[i];
+    Inc(n);
+  end;
+  SetLength(Result, n);
+end;
+
+procedure PushTranscribePending;
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'transcribe_pending');
+  Obj.AddPair('count', TJSONNumber.Create(Length(TranscribablePaths)));
+  PostOwned(Obj);
+end;
+
+var
+  // Ultimo estado de "rodando" visto pelo callback, pra detectar a BORDA
+  // de fim de lote.
+  LastTranscribeRunning: Boolean = False;
+
+procedure OnTranscribeChanged;
+// Callback do OBSTranscribe — ja chega na main thread.
+begin
+  if IsShuttingDown then Exit;
+  PushTranscribeState;
+  // Lote terminou: re-lista pra os selos de "transcrita" aparecerem nos
+  // cards. So na BORDA — re-listar a cada item concluido faria uma
+  // biblioteca grande piscar dezenas de vezes durante um lote.
+  if LastTranscribeRunning and not OBSTranscribe.IsRunning then
+  begin
+    PushRecordings;
+    PushTranscribePending;
+  end;
+  LastTranscribeRunning := OBSTranscribe.IsRunning;
+end;
+
+procedure HandleSetTranscribeHost(const AHost: string);
+var
+  H: string;
+begin
+  H := Trim(AHost);
+  while (H <> '') and (H[Length(H)] = '/') do Delete(H, Length(H), 1);
+  SetConfigStr('transcribeHost', H);
+  Log('TranscribeHost: "%s"', [H]);
+end;
+
+procedure HandleTestTranscribeHost(const AHost: string);
+// GET /health em worker: o servidor pode estar carregando os modelos
+// (37s no README) e travar a UI pelo tempo do timeout.
+var
+  HostCopy: string;
+begin
+  HostCopy := Trim(AHost);
+  if HostCopy = '' then HostCopy := OBSTranscribe.HostBase;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Err: string;
+    begin
+      Err := OBSTranscribe.CheckHealth(HostCopy);
+      TThread.Queue(nil,
+        procedure
+        var
+          Obj: TJSONObject;
+        begin
+          if IsShuttingDown then Exit;
+          Obj := TJSONObject.Create;
+          Obj.AddPair('type', 'transcribe_health');
+          Obj.AddPair('ok', TJSONBool.Create(Err = ''));
+          Obj.AddPair('error', Err);
+          PostOwned(Obj);
+        end);
+    end).Start;
+end;
+
+procedure HandleTranscribeRecording(const APath: string);
+begin
+  if not IsPathInRecordDir(APath) then Exit;
+  if not TFile.Exists(APath) then Exit;
+  OBSTranscribe.Enqueue(APath);
+end;
+
+procedure HandleTranscribePending;
+begin
+  OBSTranscribe.EnqueueMany(TranscribablePaths);
+end;
+
+procedure HandleCancelTranscribe;
+begin
+  OBSTranscribe.CancelAll;
+end;
+
+procedure HandleRequestTranscript(const APath: string);
+// Manda pro player SO os TURNOS (falante, inicio, fim, texto). A
+// resposta da API traz tambem segmentos com timestamp por PALAVRA — sao
+// megabytes que o painel nao usa, e atravessar isso pelo postMessage a
+// cada abertura de video seria desperdicio puro.
+var
+  PathCopy: string;
+begin
+  if not IsPathInRecordDir(APath) then Exit;
+  PathCopy := APath;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Body: string;
+      Root, TurnsOut: TJSONValue;
+      Obj, T, Item: TJSONObject;
+      Arr, Out_: TJSONArray;
+      i: Integer;
+      Spk, Txt: string;
+      St, En: Double;
+    begin
+      Body := '';
+      try
+        if TFile.Exists(OBSTranscribe.TranscriptPath(PathCopy)) then
+          Body := TFile.ReadAllText(OBSTranscribe.TranscriptPath(PathCopy),
+            TEncoding.UTF8);
+      except end;
+
+      Out_ := TJSONArray.Create;
+      if Body <> '' then
+      begin
+        Root := TJSONObject.ParseJSONValue(Body);
+        try
+          if Root is TJSONObject then
+          begin
+            Obj := TJSONObject(Root);
+            TurnsOut := Obj.GetValue('turns');
+            if TurnsOut is TJSONArray then
+            begin
+              Arr := TJSONArray(TurnsOut);
+              for i := 0 to Arr.Count - 1 do
+              begin
+                if not (Arr.Items[i] is TJSONObject) then Continue;
+                T := TJSONObject(Arr.Items[i]);
+                Spk := ''; Txt := ''; St := 0; En := 0;
+                T.TryGetValue<string>('speaker', Spk);
+                T.TryGetValue<string>('text', Txt);
+                T.TryGetValue<Double>('start', St);
+                T.TryGetValue<Double>('end', En);
+                if Trim(Txt) = '' then Continue;
+                Item := TJSONObject.Create;
+                Item.AddPair('speaker', Spk);
+                Item.AddPair('start', TJSONNumber.Create(St));
+                Item.AddPair('end', TJSONNumber.Create(En));
+                Item.AddPair('text', Trim(Txt));
+                Out_.AddElement(Item);
+              end;
+            end;
+          end;
+        finally
+          if Root <> nil then Root.Free;
+        end;
+      end;
+
+      TThread.Queue(nil,
+        procedure
+        var
+          Msg: TJSONObject;
+        begin
+          if IsShuttingDown then
+          begin
+            Out_.Free;
+            Exit;
+          end;
+          Msg := TJSONObject.Create;
+          Msg.AddPair('type', 'transcript');
+          Msg.AddPair('id', PathCopy);
+          // `transcribed` = o arquivo existe. `has` = tem turnos. Os dois
+          // sao independentes: uma gravacao sem NINGUEM falando volta
+          // transcribed=True e has=False, e o painel precisa dizer
+          // "nenhuma fala", nao "ainda nao foi transcrita".
+          Msg.AddPair('transcribed',
+            TJSONBool.Create(OBSTranscribe.HasTranscript(PathCopy)));
+          Msg.AddPair('has', TJSONBool.Create(Out_.Count > 0));
+          Msg.AddPair('turns', Out_);   // Msg assume a posse
+          PostOwned(Msg);
+        end);
+    end).Start;
+end;
+
+procedure HandleSearchTranscripts(const AQuery: string);
+// Varre os .txt (texto puro) das gravacoes da pasta NAVEGADA e devolve
+// os ids que casam. Roda em worker: sao leituras de disco, uma por
+// gravacao.
+//
+// A busca e do BACKEND de proposito. Mandar as transcricoes inteiras pro
+// JS pra filtrar la seriam megabytes por gravacao atravessando o
+// postMessage a cada tecla.
+var
+  Q, Dir: string;
+begin
+  Q := Trim(AQuery);
+  Dir := CurrentBrowseDir;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Files: TStringDynArray;
+      i: Integer;
+      Txt, TxtPath: string;
+      Hits: TJSONArray;
+    begin
+      Hits := TJSONArray.Create;
+      if Q <> '' then
+      begin
+        Files := ListRecordings(Dir);
+        for i := 0 to High(Files) do
+        begin
+          if IsShuttingDown then Break;
+          TxtPath := OBSTranscribe.TranscriptTextPath(Files[i]);
+          if not TFile.Exists(TxtPath) then Continue;
+          Txt := '';
+          try Txt := TFile.ReadAllText(TxtPath, TEncoding.UTF8); except end;
+          if Txt = '' then Continue;
+          if ContainsText(Txt, Q) then
+            Hits.Add(Files[i]);
+        end;
+      end;
+      TThread.Queue(nil,
+        procedure
+        var
+          Msg: TJSONObject;
+        begin
+          if IsShuttingDown then
+          begin
+            Hits.Free;
+            Exit;
+          end;
+          Msg := TJSONObject.Create;
+          Msg.AddPair('type', 'transcript_search');
+          Msg.AddPair('query', Q);
+          Msg.AddPair('ids', Hits);   // Msg assume a posse
+          PostOwned(Msg);
+        end);
+    end).Start;
 end;
 
 function MakeSplitPath(const AOrig: string; APart: Integer): string;
@@ -6005,6 +6371,25 @@ begin
       HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'set_transcribe_host' then
+      HandleSetTranscribeHost(GetStrField(Obj, 'host'))
+    else if MsgType = 'test_transcribe_host' then
+      HandleTestTranscribeHost(GetStrField(Obj, 'host'))
+    else if MsgType = 'transcribe_recording' then
+      HandleTranscribeRecording(GetStrField(Obj, 'id'))
+    else if MsgType = 'transcribe_pending' then
+      HandleTranscribePending
+    else if MsgType = 'cancel_transcribe' then
+      HandleCancelTranscribe
+    else if MsgType = 'get_transcribe_state' then
+    begin
+      PushTranscribeState;
+      PushTranscribePending;
+    end
+    else if MsgType = 'request_transcript' then
+      HandleRequestTranscript(GetStrField(Obj, 'id'))
+    else if MsgType = 'search_transcripts' then
+      HandleSearchTranscripts(GetStrField(Obj, 'query'))
     else if MsgType = 'open_folder' then
       HandleOpenFolder(GetStrField(Obj, 'id'))
     else if MsgType = 'create_folder' then
@@ -6053,8 +6438,6 @@ begin
       HandleSetMinimizeOnRecord(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_notify_on_record' then
       HandleSetNotifyOnRecord(GetBoolField(Obj, 'enabled'))
-    else if MsgType = 'set_scroll_lock_indicator' then
-      HandleSetScrollLockIndicator(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_rec_indicator' then
       HandleSetRecIndicator(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_rec_indicator_corner' then
@@ -6427,19 +6810,6 @@ begin
     Log('TIMER_HIBERNATE_IDLE: respawning como /hibernate.');
     OBSUI.SpawnHibernateAndExit;
   end
-  else if ATimerId = TIMER_SCROLL_LOCK_BLINK then
-  begin
-    // Pisca o LED enquanto gravando. Se nao esta gravando mais (race
-    // com HandleRecordStop), apaga e desarma. Sem log no toggle pra
-    // nao poluir — 1 entry por segundo seria muito.
-    if not RecordingActive then
-    begin
-      KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
-      OBSScrollLock.SetScrollLockState(False);
-      Exit;
-    end;
-    OBSScrollLock.ToggleScrollLock;
-  end
   else if ATimerId = TIMER_STOP_TIMEOUT then
   begin
     // O sinal "stop" do output nunca chegou no prazo. One-shot — desarma
@@ -6491,11 +6861,8 @@ begin
     KillTimer(MainWindowHandle, TIMER_UPDATE_CHECK);
     KillTimer(MainWindowHandle, TIMER_OBS_WARMUP);
     KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
-    KillTimer(MainWindowHandle, TIMER_SCROLL_LOCK_BLINK);
     KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
   end;
-  // Garante que o LED nao fique aceso se o app crashar/fechar mid-blink.
-  try OBSScrollLock.SetScrollLockState(False); except end;
   // Idem pro overlay de gravacao — some junto com o app.
   try WinRecIndicator.HideIndicator; except end;
   Log('Shutdown: timers off');
@@ -6544,6 +6911,7 @@ begin
   end;
   Log('Shutdown: Engine ok');
 
+  try OBSTranscribe.Shutdown; except end;
   if MicMuteApplied <> nil then FreeAndNil(MicMuteApplied);
 
   Initialized := False;

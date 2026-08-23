@@ -35,6 +35,12 @@ const Player = {
     document.getElementById('playerPlay').onclick = () => Player.togglePlay();
     document.getElementById('playerMute').onclick = () => Player.toggleMute();
     document.getElementById('playerInfo').onclick = () => Player.toggleInfoPanel();
+    const trBtn = document.getElementById('playerTr');
+    if (trBtn) trBtn.onclick = () => Player.toggleTranscript();
+    const trClose = document.getElementById('playerTrClose');
+    if (trClose) trClose.onclick = () => Player.toggleTranscript();
+    const trSearch = document.getElementById('playerTrSearch');
+    if (trSearch) trSearch.addEventListener('input', () => Player.renderTranscript());
     document.getElementById('playerInfoClose').onclick = () => Player.closeInfoPanel();
     document.getElementById('playerFs').onclick = () => Player.toggleFullscreen();
 
@@ -544,6 +550,18 @@ const Player = {
     this.selectedRegions = new Set();
     this.currentLayout = null;
     this.infoLoaded = null;
+    // Transcricao e do video que estava aberto. Sem zerar, reabrir outro
+    // mostraria os turnos do anterior ate a resposta nova chegar —
+    // mesma armadilha da pegadinha #37.
+    this.transcriptTurns = null;
+    this.transcribed = false;
+    this._trActive = -1;
+    const trPanel = document.getElementById('playerTrPanel');
+    if (trPanel) { trPanel.classList.remove('open'); trPanel.setAttribute('aria-hidden', 'true'); }
+    const trBtn2 = document.getElementById('playerTr');
+    if (trBtn2) trBtn2.classList.remove('active');
+    const trS = document.getElementById('playerTrSearch');
+    if (trS) trS.value = '';
     // Reseta velocidade pra 1x — novo video comeca em ritmo normal
     // mesmo se o ultimo ficou em 2x ou 0.5x.
     this.setPlaybackSpeed(1);
@@ -1037,7 +1055,180 @@ const Player = {
     else
       ic.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/>';
   },
+
+  // ---- transcrição ----------------------------------------------------
+  //
+  // Painel de TURNOS (falante + intervalo + texto). Clicar num turno pula
+  // pro ponto; o turno em reprodução fica destacado e o painel acompanha.
+  // O backend manda só os turnos — a resposta da API traz também
+  // timestamps por palavra, que são megabytes que este painel não usa.
+
+  transcriptTurns: null,   // null = ainda não pedimos; [] = sem turnos
+  transcribed: false,      // o arquivo de transcrição existe?
+  _trActive: -1,
+
+  seekTo(sec) {
+    const v = document.getElementById('playerVideo');
+    if (!v || !isFinite(sec)) return;
+    v.currentTime = Math.max(0, sec);
+    this._syncTranscriptActive(true);
+  },
+
+  toggleTranscript() {
+    const panel = document.getElementById('playerTrPanel');
+    if (!panel) return;
+    const opening = !panel.classList.contains('open');
+    if (opening) {
+      // Um painel por vez: os dois ocupam o mesmo lado do palco.
+      const info = document.getElementById('playerInfoPanel');
+      if (info) { info.classList.remove('open'); info.setAttribute('aria-hidden', 'true'); }
+    }
+    panel.classList.toggle('open', opening);
+    panel.setAttribute('aria-hidden', opening ? 'true' : 'false');
+    const btn = document.getElementById('playerTr');
+    if (btn) btn.classList.toggle('active', opening);
+    if (opening && this.transcriptTurns === null && this.currentId)
+      Bridge.send('request_transcript', { id: this.currentId });
+  },
+
+  applyTranscript(data) {
+    if (!data || data.id !== this.currentId) return;
+    // Guardado separado dos turnos: uma gravacao SEM NINGUEM FALANDO
+    // volta transcribed=true com zero turnos, e dizer "ainda nao foi
+    // transcrita" ali seria falso — e mandaria o usuario transcrever de
+    // novo pra receber o mesmo nada.
+    this.transcribed = !!data.transcribed;
+    this.transcriptTurns = Array.isArray(data.turns) ? data.turns : [];
+    this._trActive = -1;
+    this.renderTranscript();
+  },
+
+  _trSpeakerLabel(spk) {
+    // "SPEAKER_00" não diz nada pra quem assiste. Vira "Falante 1".
+    const m = /^SPEAKER[_-]?(\d+)$/i.exec(spk || '');
+    if (m) return T('player.speakerN', { n: parseInt(m[1], 10) + 1 });
+    return spk || T('player.speakerUnknown');
+  },
+
+  renderTranscript() {
+    const body = document.getElementById('playerTrBody');
+    if (!body) return;
+    body.innerHTML = '';
+    const turns = this.transcriptTurns;
+
+    if (turns === null) {
+      const d = document.createElement('div');
+      d.className = 'player-tr-empty';
+      d.textContent = T('player.transcriptLoading');
+      body.appendChild(d);
+      return;
+    }
+    if (turns.length === 0) {
+      const d = document.createElement('div');
+      d.className = 'player-tr-empty';
+      d.textContent = this.transcribed
+        ? T('player.transcriptNoSpeech')
+        : T('player.transcriptNone');
+      body.appendChild(d);
+      return;
+    }
+
+    const q = (document.getElementById('playerTrSearch')?.value || '')
+      .toLowerCase().trim();
+    let shown = 0;
+    turns.forEach((t, i) => {
+      const txt = t.text || '';
+      if (q && txt.toLowerCase().indexOf(q) < 0) return;
+      shown++;
+      const el = document.createElement('div');
+      el.className = 'player-tr-turn';
+      el.dataset.idx = String(i);
+      el.onclick = () => this.seekTo(t.start || 0);
+
+      const head = document.createElement('div');
+      head.className = 'player-tr-head';
+      const spk = document.createElement('span');
+      spk.className = 'player-tr-spk';
+      spk.textContent = this._trSpeakerLabel(t.speaker);
+      // Cor estável por falante: a mesma pessoa mantém a cor ao longo do
+      // vídeo, que é o que deixa a leitura rápida.
+      spk.dataset.spk = String(this._trSpeakerIndex(t.speaker) % 6);
+      const tm = document.createElement('span');
+      tm.className = 'player-tr-time';
+      tm.textContent = formatDuration(Math.floor(t.start || 0)) || '00:00';
+      head.appendChild(spk);
+      head.appendChild(tm);
+
+      const p = document.createElement('div');
+      p.className = 'player-tr-text';
+      if (q) p.innerHTML = this._trHighlight(txt, q);
+      else p.textContent = txt;
+
+      el.appendChild(head);
+      el.appendChild(p);
+      body.appendChild(el);
+    });
+
+    if (shown === 0) {
+      const d = document.createElement('div');
+      d.className = 'player-tr-empty';
+      d.textContent = T('player.transcriptNoMatch');
+      body.appendChild(d);
+    }
+    this._syncTranscriptActive(true);
+  },
+
+  _trSpeakerIndex(spk) {
+    const m = /^SPEAKER[_-]?(\d+)$/i.exec(spk || '');
+    if (m) return parseInt(m[1], 10);
+    // Falante com nome fora do padrão: índice estável derivado do texto,
+    // pra a cor não trocar entre um render e outro.
+    let h = 0;
+    for (let i = 0; i < (spk || '').length; i++) h = (h * 31 + spk.charCodeAt(i)) | 0;
+    return Math.abs(h);
+  },
+
+  _trHighlight(text, q) {
+    const low = text.toLowerCase();
+    let out = '', from = 0, at;
+    while ((at = low.indexOf(q, from)) >= 0) {
+      out += escapeHtml(text.slice(from, at)) +
+             '<mark>' + escapeHtml(text.slice(at, at + q.length)) + '</mark>';
+      from = at + q.length;
+    }
+    return out + escapeHtml(text.slice(from));
+  },
+
+  // Destaca o turno em reprodução. Chamado do timeupdate do <video>.
+  _syncTranscriptActive(force) {
+    const turns = this.transcriptTurns;
+    if (!turns || turns.length === 0) return;
+    const v = document.getElementById('playerVideo');
+    if (!v) return;
+    const t = v.currentTime || 0;
+    let idx = -1;
+    for (let i = 0; i < turns.length; i++) {
+      if (t >= (turns[i].start || 0) && t < (turns[i].end || 0)) { idx = i; break; }
+    }
+    if (idx === this._trActive && !force) return;
+    this._trActive = idx;
+    const body = document.getElementById('playerTrBody');
+    if (!body) return;
+    body.querySelectorAll('.player-tr-turn.active')
+        .forEach(e => e.classList.remove('active'));
+    if (idx < 0) return;
+    const el = body.querySelector('.player-tr-turn[data-idx="' + idx + '"]');
+    if (!el) return;   // filtrado pela busca
+    el.classList.add('active');
+    // Só acompanha se o painel está aberto: rolar um painel escondido é
+    // trabalho jogado fora.
+    const panel = document.getElementById('playerTrPanel');
+    if (panel && panel.classList.contains('open'))
+      el.scrollIntoView({ block: 'nearest' });
+  },
+
   onTimeUpdate() {
+    this._syncTranscriptActive(false);
     const v = document.getElementById('playerVideo');
     const seek = document.getElementById('playerSeek');
     const tm = document.getElementById('playerTime');

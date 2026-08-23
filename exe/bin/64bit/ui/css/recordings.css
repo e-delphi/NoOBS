@@ -336,6 +336,28 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.2px;
   }
+  /* Selo de transcricao: so o icone. Sutil de proposito — e um estado,
+     nao um dado pra ler.
+     NAO usa inline-flex: assim a altura da caixa viria do SVG (9px) e o
+     selo ficava mais BAIXO que os de texto, cuja caixa sai do
+     `line-height: 13px`. Mantendo o SVG como conteudo de LINHA, os dois
+     compartilham a mesma metrica e as caixas casam. O padding tambem
+     iguala o dos outros (4px), senao ele fica mais estreito. */
+  .rec-badge.tr {
+    padding: 0 4px;
+  }
+  .rec-badge.tr svg {
+    width: 10px;
+    height: 10px;
+    vertical-align: middle;
+  }
+  /* Transcrita, mas sem fala nenhuma: o selo continua ali (dizer que foi
+     transcrita e o ponto), so mais apagado. */
+  .rec-badge.tr.empty {
+    opacity: 0.45;
+    border-style: dashed;
+  }
+
   /* Codec por hardware x software: so o software ganha destaque, porque
      e o que tem custo de CPU e o usuario precisa reconhecer de relance. */
   .rec-badge.sw {

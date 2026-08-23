@@ -40,7 +40,8 @@
     "started": "Gravação iniciada.",
     "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.",
-    "finalizing": "Finalizando gravação..."
+    "finalizing": "Finalizando gravação...",
+    "sizeHint": "Tamanho já gravado"
   },
   "recordings": {
     "title": "Gravações",
@@ -79,7 +80,9 @@
       "fpsSuffix": "fps",
       "fps": "{{fps}} quadros por segundo",
       "qualityShort": "Q{{level}}",
-      "quality": "Nível de qualidade {{level}} de 10"
+      "quality": "Nível de qualidade {{level}} de 10",
+      "transcript": "Transcrita",
+      "transcriptEmpty": "Transcrita — nenhuma fala detectada"
     },
     "foldersGroup": "Pastas",
     "newFolder": "Nova pasta",
@@ -96,7 +99,8 @@
     "confirmDeleteFolderTitle": "Excluir pasta",
     "confirmDeleteFolderEmpty": "Mover a pasta \"{{name}}\" para a Lixeira do Windows?",
     "confirmDeleteFolder_one": "A pasta \"{{name}}\" tem 1 gravação dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?",
-    "confirmDeleteFolder_other": "A pasta \"{{name}}\" tem {{count}} gravações dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?"
+    "confirmDeleteFolder_other": "A pasta \"{{name}}\" tem {{count}} gravações dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?",
+    "transcribe": "Transcrever"
   },
   "export": {
     "menuItem": "Exportar…",
@@ -182,7 +186,8 @@
       "window": "Janela e bandeja",
       "behavior": "Comportamento",
       "about": "Sobre",
-      "updates": "Atualizações"
+      "updates": "Atualizações",
+      "transcribe": "Transcrição"
     },
     "reset": {
       "label": "Restaurar padrões",
@@ -376,10 +381,6 @@
       "label": "Notificar no Windows ao iniciar/parar gravação",
       "hint": "Mostra uma notificação do Windows quando começa ou termina uma gravação. Só faz sentido quando a janela é minimizada automaticamente — caso contrário o estado da gravação já é visível na própria janela."
     },
-    "scrollLock": {
-      "label": "Piscar LED de Scroll Lock durante gravação",
-      "hint": "Pisca o LED de Scroll Lock do teclado (1Hz) enquanto a gravação está ativa — indicador discreto e sempre visível, útil quando o app está na bandeja. Apaga automaticamente ao parar."
-    },
     "recIndicator": {
       "label": "Mostrar indicador de gravação na tela",
       "hint": "Mostra uma bolinha vermelha com o tempo de gravação no canto do monitor principal. O indicador aparece pra você, mas não entra na gravação (é excluído da captura). Requer Windows 10 2004+.",
@@ -435,6 +436,25 @@
     "muteWhenDeviceMuted": {
       "label": "Silenciar a faixa quando o microfone estiver mudo no Windows",
       "hint": "Enquanto o microfone estiver mudo no Windows, a faixa dele sai em silêncio na gravação. Vale para o botão de mudo do fone, o mudo do sistema e os aplicativos de chamada que avisam o Windows ao mutar. O mudo feito só dentro do aplicativo, sem avisar o Windows, não é detectável — nesses casos o microfone continua sendo gravado."
+    },
+    "transcribe": {
+      "host": "Servidor de transcrição",
+      "hostHint": "Endereço e porta do container da Transcritor API. A rota é fixa (/transcribe) — só o host é configurável.",
+      "test": "Testar",
+      "testing": "Testando…",
+      "ok": "Servidor respondeu. Pronto para transcrever.",
+      "fail": "Não foi possível falar com o servidor: {{error}}",
+      "queue": "Fila",
+      "pending": "Transcrever pendentes",
+      "pendingN": "Transcrever pendentes ({{count}})",
+      "pendingNone": "Nada pendente",
+      "queueHint": "Uma transcrição por vez — o próprio container serializa as requisições, então enfileirar mais não adiantaria. O tempo mostrado é uma estimativa: a API só responde no fim.",
+      "progress": "{{pos}} de {{total}} · {{name}}",
+      "eta": "{{elapsed}} de ~{{estimate}}",
+      "elapsed": "{{elapsed}} decorrido",
+      "doneAll": "{{total}} transcrição(ões) concluída(s).",
+      "doneWithFailures": "{{done}} de {{total}} concluída(s), {{failed}} com falha.",
+      "failedN": "{{failed}} com falha"
     }
   },
   "devices": {
@@ -521,7 +541,15 @@
       "channelsN": "{{count}} canais",
       "sampleRate": "Sample rate",
       "trackVolume": "Volume da faixa (0–200%)"
-    }
+    },
+    "transcript": "Transcrição",
+    "transcriptSearch": "Buscar na transcrição...",
+    "transcriptLoading": "Carregando transcrição…",
+    "transcriptNone": "Esta gravação ainda não foi transcrita. Use \"Transcrever\" no menu de contexto da lista.",
+    "transcriptNoMatch": "Nenhum trecho encontrado.",
+    "speakerN": "Falante {{n}}",
+    "speakerUnknown": "Falante",
+    "transcriptNoSpeech": "Esta gravação foi transcrita, mas nenhuma fala foi detectada no áudio."
   },
   "toast": {
     "saved": "Configurações salvas",
@@ -554,7 +582,8 @@
     "exportCanceledMsg": "O arquivo parcial foi descartado.",
     "cutTitle": "Recortado",
     "cutOne": "1 item pronto pra colar em outra pasta.",
-    "cutN": "{{count}} itens prontos pra colar em outra pasta."
+    "cutN": "{{count}} itens prontos pra colar em outra pasta.",
+    "transcribeQueued": "Transcrição na fila"
   },
   "error": {
     "loadVideo": "Erro ao carregar vídeo.",

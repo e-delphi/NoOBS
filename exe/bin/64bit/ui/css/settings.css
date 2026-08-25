@@ -904,9 +904,9 @@
   }
 
   /* ===== Progresso da transcrição (aba Transcrição) =====
-     A barra é ESTIMATIVA, não medição: a API não tem rota de progresso,
-     o POST /transcribe só responde no fim. O preenchimento sai de
-     decorrido/estimado e trava em 97% — ver Transcribe.render(). */
+     A barra é MEDIÇÃO, não estimativa: o percentual vem do GET
+     /jobs/{id} e mede o trecho de áudio já coberto pelos segmentos.
+     Chega a 100% sem mentir, e anda aos saltos (janelas de 30s). */
   .transcribe-progress {
     margin-top: 10px;
   }
@@ -930,3 +930,15 @@
     color: var(--text-3);
     font-variant-numeric: tabular-nums;
   }
+
+  /* MOTIVO da falha. Cor de perigo porque é a única coisa nesta aba
+     que exige ação do usuário; `word-break` porque a mensagem vem do
+     servidor e pode ser um JSON de validação sem espaços. */
+  .transcribe-error {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--danger-2);
+    overflow-wrap: anywhere;
+  }
+  .transcribe-error[hidden] { display: none; }

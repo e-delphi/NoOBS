@@ -448,13 +448,24 @@
       "pending": "Transcrever pendentes",
       "pendingN": "Transcrever pendentes ({{count}})",
       "pendingNone": "Nada pendente",
-      "queueHint": "Uma transcrição por vez — o próprio container serializa as requisições, então enfileirar mais não adiantaria. O tempo mostrado é uma estimativa: a API só responde no fim.",
+      "queueHint": "Uma transcrição por vez — o próprio container serializa as requisições, então enfileirar mais não adiantaria. O percentual vem da API e é real: mede o trecho de áudio já transcrito, e avança aos saltos porque o processamento é feito em janelas de 30 segundos.",
       "progress": "{{pos}} de {{total}} · {{name}}",
-      "eta": "{{elapsed}} de ~{{estimate}}",
       "elapsed": "{{elapsed}} decorrido",
       "doneAll": "{{total}} transcrição(ões) concluída(s).",
       "doneWithFailures": "{{done}} de {{total}} concluída(s), {{failed}} com falha.",
-      "failedN": "{{failed}} com falha"
+      "failedN": "{{failed}} com falha",
+      "error": "Motivo da falha: {{error}}",
+      "errorNamed": "Falha em \"{{name}}\": {{error}}",
+      "remaining": "faltam ~{{eta}}",
+      "stage": {
+        "extracting": "extraindo o áudio",
+        "uploading": "enviando",
+        "queued": "na fila do servidor",
+        "decoding": "decodificando",
+        "transcribing": "transcrevendo",
+        "diarizing": "separando falantes",
+        "done": "concluído"
+      }
     }
   },
   "devices": {
@@ -549,7 +560,8 @@
     "transcriptNoMatch": "Nenhum trecho encontrado.",
     "speakerN": "Falante {{n}}",
     "speakerUnknown": "Falante",
-    "transcriptNoSpeech": "Esta gravação foi transcrita, mas nenhuma fala foi detectada no áudio."
+    "transcriptNoSpeech": "Esta gravação foi transcrita, mas nenhuma fala foi detectada no áudio.",
+    "renameSpeaker": "Clique para dar um nome a este falante"
   },
   "toast": {
     "saved": "Configurações salvas",
@@ -583,9 +595,26 @@
     "cutTitle": "Recortado",
     "cutOne": "1 item pronto pra colar em outra pasta.",
     "cutN": "{{count}} itens prontos pra colar em outra pasta.",
+    "transcribeFailed": "Falha ao transcrever \"{{name}}\"",
     "transcribeQueued": "Transcrição na fila"
   },
   "error": {
+    "transcribe": {
+      "emptyHost": "O endereço do servidor de transcrição está vazio. Preencha-o em Configurações → Transcrição.",
+      "noResponse": "O servidor de transcrição não respondeu. Verifique se o container está no ar e se o endereço está certo.",
+      "jobsNotJson": "O servidor respondeu algo que não é JSON ao enfileirar o trabalho. O endereço aponta mesmo para a Transcritor API?",
+      "noJobId": "O servidor aceitou o áudio mas não devolveu um identificador de trabalho.",
+      "jobGone": "O trabalho sumiu do servidor antes de terminar (pode ter expirado ou o container ter reiniciado).",
+      "statusNotJson": "O servidor respondeu algo que não é JSON ao ser consultado sobre o andamento.",
+      "fileMissing": "A gravação não existe mais no disco.",
+      "extractFailed": "Não foi possível extrair o áudio da gravação. Ela pode estar corrompida ou não ter faixa de áudio.",
+      "extractMissing": "O áudio foi extraído mas o arquivo não foi encontrado. Verifique o espaço livre em disco.",
+      "shuttingDown": "A transcrição foi interrompida porque o aplicativo está fechando.",
+      "emptyResult": "O servidor deu o trabalho por concluído mas não devolveu o resultado.",
+      "resultNotJson": "O resultado devolvido pelo servidor não é JSON.",
+      "writeFailed": "Falha ao gravar a transcrição no disco: {{error}}",
+      "serverSilent": "o servidor não disse o motivo"
+    },
     "loadVideo": "Erro ao carregar vídeo.",
     "unsupportedCodec": "Codec não suportado, convertendo...",
     "recordStartFailed": "Falha ao iniciar gravação: {{error}}",

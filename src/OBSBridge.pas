@@ -72,6 +72,8 @@
     cancel_transcribe    : — limpa a fila (o item em voo termina)
     get_transcribe_state : — pede transcribe_state + transcribe_pending
     request_transcript   : id (filepath) — responde `transcript`
+    set_speaker_name     : id (filepath), speaker (ex.: 'SPEAKER_00'),
+                           name (vazio = volta pro rotulo padrao)
     search_transcripts   : query — responde `transcript_search`
 
   Mensagens Delphi -> JS (campo "type"):
@@ -95,13 +97,15 @@
     export_progress      : pct (0..100)
     export_done          : ok, canceled, path
     transcribe_state     : running, queue, total, done, failed, current,
-                           elapsed, estimate, lastError. O "progresso" e
-                           posicao + decorrido + ESTIMATIVA: a API so
-                           responde no fim (pegadinha #60)
+                           elapsed, progress (0..1 REAL, -1 = sem numero),
+                           eta (segundos, -1 = a API ainda nao arrisca),
+                           stage, lastError, lastErrorName (pegadinha #60)
     transcribe_pending   : count (quantas ainda nao foram transcritas)
     transcribe_health    : ok, error
     transcript           : id, transcribed (o arquivo existe), has (tem
-                           turnos), turns[] ({speaker,start,end,text}).
+                           turnos), turns[] ({speaker,start,end,text}),
+                           speakers ({'SPEAKER_00':'Eduardo'} — nomes
+                           dados pelo usuario, no <hash>.json).
                            Os dois booleanos sao INDEPENDENTES: gravacao
                            sem ninguem falando volta transcribed=True e
                            has=False
@@ -2598,31 +2602,48 @@ procedure PushAudioMetersFromWin;
 var
   Levels: TAudioLevelArray;
   Devs: TAudioDeviceInfoArray;
-  i, j: Integer;
+  Mutes: TAudioMuteArray;
+  i, j, k: Integer;
   Arr: TJSONArray;
   Item, Obj: TJSONObject;
   Id, DeviceName: string;
+  IsInput, Muted: Boolean;
 begin
   InitAudio;
   Levels := ReadPeakLevels;
   if Length(Levels) = 0 then Exit;
   Devs := EnumerateAudioDevices;
+  // Mudo do ENDPOINT, pra UI pintar a barra do microfone de vermelho. O
+  // medidor continua lendo o sinal normalmente num endpoint mudo — a cor
+  // e a unica coisa que muda.
+  Mutes := ReadInputMutes;
 
   Arr := TJSONArray.Create;
   for i := 0 to High(Levels) do
   begin
     DeviceName := '';
+    IsInput := False;
     for j := 0 to High(Devs) do
       if SameText(Devs[j].DeviceId, Levels[i].DeviceId) then
       begin
         DeviceName := Devs[j].Name;
-        if Devs[j].Kind = adkInput then
+        IsInput := Devs[j].Kind = adkInput;
+        if IsInput then
           Id := MicIdFromName(DeviceName)
         else
           Id := OutIdFromName(DeviceName);
         Break;
       end;
     if DeviceName = '' then Continue;
+
+    Muted := False;
+    if IsInput then
+      for k := 0 to High(Mutes) do
+        if SameText(Mutes[k].DeviceId, Levels[i].DeviceId) then
+        begin
+          Muted := Mutes[k].Muted;
+          Break;
+        end;
     Item := TJSONObject.Create;
     Item.AddPair('id', Id);
     // level = peak total (compatibilidade — meter atual usa esse).
@@ -2631,6 +2652,8 @@ begin
     Item.AddPair('left',  TJSONNumber.Create(Levels[i].PeakLeft));
     Item.AddPair('right', TJSONNumber.Create(Levels[i].PeakRight));
     Item.AddPair('channels', TJSONNumber.Create(Levels[i].Channels));
+    // So pra entrada: a pergunta "esta mudo?" nao faz sentido pra saida.
+    if IsInput then Item.AddPair('muted', TJSONBool.Create(Muted));
     Arr.AddElement(Item);
   end;
 
@@ -5202,10 +5225,14 @@ end;
 // Transcricao (Transcritor API)
 // =====================================================================
 
+const
+  // Chave do sub-objeto de nomes de falante no <hash>.json.
+  SPEAKERS_META_KEY = 'speakers';
+
 procedure PushTranscribeState;
-// Estado da fila pra aba de Transcricao. O "progresso" e posicao na fila
-// + decorrido + ESTIMATIVA: a API nao tem rota de progresso, o POST
-// /transcribe so responde no fim (ver cabecalho do OBSTranscribe).
+// Estado da fila pra aba de Transcricao. O progresso e REAL: a API tem
+// jobs (POST /jobs + GET /jobs/{id}) e reporta o trecho de audio ja
+// coberto. Nada de barra estimada aqui (ver cabecalho do OBSTranscribe).
 var
   Obj: TJSONObject;
 begin
@@ -5218,8 +5245,16 @@ begin
   Obj.AddPair('failed',   TJSONNumber.Create(OBSTranscribe.FailedCount));
   Obj.AddPair('current',  OBSTranscribe.CurrentName);
   Obj.AddPair('elapsed',  TJSONNumber.Create(OBSTranscribe.CurrentElapsedSec));
-  Obj.AddPair('estimate', TJSONNumber.Create(OBSTranscribe.CurrentEstimateSec));
+  // Progresso REAL da API (0..1) — medido pelo trecho de audio ja
+  // coberto pelos segmentos, nao estimado por nos. -1 = ainda sem numero.
+  Obj.AddPair('progress', TJSONNumber.Create(OBSTranscribe.CurrentProgress));
+  // Segundos restantes segundo a API; -1 enquanto ela nao arrisca (so
+  // aparece a partir de ~10% de progresso).
+  Obj.AddPair('eta',      TJSONNumber.Create(OBSTranscribe.CurrentEtaSec));
+  Obj.AddPair('stage',    OBSTranscribe.CurrentStage);
   Obj.AddPair('lastError', OBSTranscribe.LastError);
+  // Sem o NOME, "1 com falha" num lote de 7 nao diz QUAL gravacao foi.
+  Obj.AddPair('lastErrorName', OBSTranscribe.LastErrorName);
   PostOwned(Obj);
 end;
 
@@ -5331,6 +5366,64 @@ begin
   OBSTranscribe.CancelAll;
 end;
 
+function LoadSpeakerNames(const APath: string): TJSONObject;
+// Mapa {"SPEAKER_00": "Eduardo"} da gravacao. Sempre devolve objeto (o
+// chamador libera); vazio quando ninguem nomeou ninguem ainda.
+//
+// Mora no <hash>.json (meta), NAO no <hash>.transcript.json: os nomes sao
+// do usuario e devem sobreviver a uma retranscricao, que reescreve o
+// arquivo da transcricao inteiro.
+var
+  Txt: string;
+  Root: TJSONValue;
+begin
+  Result := nil;
+  Txt := '';
+  try Txt := OBSPlayer.LoadMetaSubObjectJson(APath, SPEAKERS_META_KEY); except end;
+  if Trim(Txt) <> '' then
+  begin
+    Root := TJSONObject.ParseJSONValue(Txt);
+    if Root is TJSONObject then
+      Result := TJSONObject(Root)
+    else if Root <> nil then
+      Root.Free;
+  end;
+  if Result = nil then Result := TJSONObject.Create;
+end;
+
+procedure HandleSetSpeakerName(const APath, ASpeaker, AName: string);
+// Renomeia UM falante da gravacao. Nome vazio = volta pro rotulo padrao
+// ("Falante 1"), que e como o usuario desfaz.
+var
+  Obj: TJSONObject;
+  Pair: TJSONPair;
+  Nm: string;
+begin
+  if not IsPathInRecordDir(APath) then Exit;
+  if Trim(ASpeaker) = '' then Exit;
+  Nm := Trim(AName);
+  // Mesmo limite do rename de gravacao: nome de tela, nao um texto.
+  if Length(Nm) > 60 then Nm := Copy(Nm, 1, 60);
+
+  Obj := LoadSpeakerNames(APath);
+  try
+    // RemovePair devolve o par pra QUEM CHAMOU liberar; ignorar isso
+    // vazaria um TJSONPair por renomeacao.
+    Pair := Obj.RemovePair(ASpeaker);
+    if Pair <> nil then Pair.Free;
+    if Nm <> '' then Obj.AddPair(ASpeaker, Nm);
+    try
+      OBSPlayer.SaveMetaSubObjectJson(APath, SPEAKERS_META_KEY, Obj.ToJSON);
+      Log('Falante "%s" de "%s" -> "%s"', [ASpeaker, ExtractFileName(APath), Nm]);
+    except
+      on E: Exception do
+        Log('SetSpeakerName: falha ao gravar: %s', [E.Message]);
+    end;
+  finally
+    Obj.Free;
+  end;
+end;
+
 procedure HandleRequestTranscript(const APath: string);
 // Manda pro player SO os TURNOS (falante, inicio, fim, texto). A
 // resposta da API traz tambem segmentos com timestamp por PALAVRA — sao
@@ -5346,7 +5439,7 @@ begin
     var
       Body: string;
       Root, TurnsOut: TJSONValue;
-      Obj, T, Item: TJSONObject;
+      Obj, T, Item, Names: TJSONObject;
       Arr, Out_: TJSONArray;
       i: Integer;
       Spk, Txt: string;
@@ -5358,6 +5451,10 @@ begin
           Body := TFile.ReadAllText(OBSTranscribe.TranscriptPath(PathCopy),
             TEncoding.UTF8);
       except end;
+
+      // Nomes de falante escolhidos pelo usuario. Vao junto pra o painel
+      // nao precisar de um segundo round-trip so pra rotular.
+      Names := LoadSpeakerNames(PathCopy);
 
       Out_ := TJSONArray.Create;
       if Body <> '' then
@@ -5403,6 +5500,7 @@ begin
           if IsShuttingDown then
           begin
             Out_.Free;
+            Names.Free;
             Exit;
           end;
           Msg := TJSONObject.Create;
@@ -5415,7 +5513,8 @@ begin
           Msg.AddPair('transcribed',
             TJSONBool.Create(OBSTranscribe.HasTranscript(PathCopy)));
           Msg.AddPair('has', TJSONBool.Create(Out_.Count > 0));
-          Msg.AddPair('turns', Out_);   // Msg assume a posse
+          Msg.AddPair('turns', Out_);      // Msg assume a posse
+          Msg.AddPair('speakers', Names);  // idem
           PostOwned(Msg);
         end);
     end).Start;
@@ -6388,6 +6487,9 @@ begin
     end
     else if MsgType = 'request_transcript' then
       HandleRequestTranscript(GetStrField(Obj, 'id'))
+    else if MsgType = 'set_speaker_name' then
+      HandleSetSpeakerName(GetStrField(Obj, 'id'), GetStrField(Obj, 'speaker'),
+        GetStrField(Obj, 'name'))
     else if MsgType = 'search_transcripts' then
       HandleSearchTranscripts(GetStrField(Obj, 'query'))
     else if MsgType = 'open_folder' then
@@ -6796,6 +6898,23 @@ begin
     if RecordingActive then
     begin
       Log('TIMER_HIBERNATE_IDLE: gravando, hibernacao adiada.');
+      Exit;
+    end;
+    // Transcricao em curso: hibernar mata o processo que ACOMPANHA o
+    // job. O servidor terminaria o trabalho e nos jogariamos o resultado
+    // fora — o job ainda expiraria sozinho pelo JOB_TTL_SECONDS da API,
+    // e a gravacao continuaria sem transcricao. QueueLength ja inclui o
+    // item em curso.
+    //
+    // RE-ARMA em vez de desistir: assim que a fila esvaziar, a proxima
+    // verificacao hiberna normalmente. Desarmar aqui deixaria o app em
+    // modo full pelo resto da sessao.
+    if OBSTranscribe.QueueLength > 0 then
+    begin
+      Log('TIMER_HIBERNATE_IDLE: transcrevendo (%d na fila), hibernacao adiada.',
+        [OBSTranscribe.QueueLength]);
+      SetTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE,
+        HIBERNATE_IDLE_DELAY_MS, nil);
       Exit;
     end;
     if OBSUI.MainWindowHandle <> 0 then

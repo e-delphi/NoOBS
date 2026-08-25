@@ -2074,6 +2074,14 @@ Três detalhes de implementação que não são óbvios:
 - **Só chame o libobs quando muda de verdade** — o tick é de 100ms.
   `MicMuteApplied` guarda o último estado aplicado por fonte; sem ele
   seriam 10 chamadas por segundo por microfone, sem nenhuma mudança.
+- **O MEDIDOR continua lendo o sinal num endpoint mudo.** Isso não é
+  óbvio (dá pra supor que o mute zera o pico), e é o que torna o aviso
+  visual útil: a barra do microfone se mexe enquanto você fala, mas fica
+  **vermelha** — você vê que está falando e que nada disso está saindo. O
+  `audio_meters` leva `muted` só nas ENTRADAS, e o CSS troca o gradiente
+  verde/âmbar/vermelho por vermelho CHAPADO: o gradiente fala de NÍVEL, e
+  aqui a cor precisa falar de ESTADO (um gradiente vermelho seria lido
+  como pico).
 
 Nota de método: não havia `endpointvolume.h` na máquina nem referência na
 fonte do OBS, então a ordem da vtable foi **verificada em runtime** —
@@ -2087,25 +2095,57 @@ retornar lixo. Vale o mesmo princípio da #53: medir, não deduzir.
 A integração com a Transcritor API não tem escolha estética nenhuma —
 cada peça saiu de um limite concreto:
 
-**a) A API não tem rota de progresso.** `POST /transcribe` é uma
-requisição única que só responde no fim, e o README não expõe nada de
-streaming. Então "progresso" é: posição na fila + tempo decorrido +
-**estimativa** derivada do ~1,5× tempo real que o próprio README mede
-(`ESTIMATE_FACTOR`). A barra trava em **97%** de propósito: passar de 100%
-seria mentira e cravar 100% antes de terminar faz parecer travado. O
-texto diz "~" para não vender medição onde há previsão.
+**a) O modelo é ASSÍNCRONO, com progresso REAL.** `POST /jobs` devolve um
+`job_id` na hora (HTTP 202) e `GET /jobs/{id}` dá `status`, `stage`,
+`progress` (0..1), `eta_seconds` e — quando termina — o campo `result`,
+que é exatamente o JSON que o antigo `/transcribe` devolvia. O percentual
+mede o trecho de áudio já coberto pelos segmentos; não inventamos nada.
+
+Quatro consequências que moldam a UI:
+
+- **A barra pode chegar a 100% sem mentir.** Não há teto artificial.
+- **O progresso anda AOS SALTOS** — o Whisper processa em janelas de 30 s.
+  Por isso o `SetStage` só notifica quando algo MUDA de fato: a maioria
+  dos tiques de 1 s repete o valor anterior.
+- **O `eta_seconds` só existe a partir de ~10%**, onde extrapolar passa a
+  fazer sentido. Antes disso mostramos o decorrido. E o ETA só aparece
+  quando é **maior que zero**: "faltam ~0:00" é o que a API devolve no
+  instante em que termina, e não informa nada.
+- **O `eta_seconds` da API SOBE entre os saltos — o "faltam" da tela só
+  pode descer.** A API extrapola o ETA a partir do progresso; com o
+  progresso PARADO entre duas janelas de 30 s e o decorrido crescendo, a
+  conta dela aumenta, e o usuário via "faltam 2:10" virar "faltam 2:40".
+  `Transcribe._syncEta` adota o número do servidor só quando ele ENCURTA
+  o que está na tela; entre pushes, o tique de 1 s (o mesmo que move o
+  decorrido) desconta um segundo. Chegando a zero, o render cai no
+  decorrido — o mesmo que já fazia antes de existir ETA. Não reintroduza
+  o `eta` cru no render: ele é a entrada do `_syncEta`, não a saída.
+
+Não usamos o `stage_label` que a API manda pronto — ele vem só em
+português, e a UI tem três idiomas. Traduzimos a partir do código
+(`transcribing`, `diarizing`, …).
+
+> Histórico: a versão anterior da API era um `POST /transcribe` que só
+> respondia no fim, e havia aqui uma barra **estimada** pelo ~1,5× tempo
+> real, travada em 97%. Se algum dia o código voltar a estimar, é sinal
+> de regressão — o número real existe.
 
 **b) Não dá pra mandar o vídeo.** `MAX_UPLOAD_MB` é 512 por padrão e uma
 gravação 4K de poucos minutos passa disso. Vai só a **faixa de mistura**
 (stream 0, que já tem todos os microfones e o som do sistema), extraída
 em m4a pelo `ExtractAudioTracks` — 1 hora dá ~70 MB. O m4a é apagado
-depois do POST: é veículo de upload, não cache.
+depois do envio: é veículo de upload, não cache.
 
 **c) Uma por vez não é escolha nossa.** O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
-a fila do outro lado. Uma thread, uma fila — e o `CancelAll` **não aborta
-o item em voo**: a API não tem cancelamento, e jogar fora trabalho que o
-servidor já fez seria pior que gravá-lo.
+a fila do outro lado. Uma thread, uma fila.
+
+O `CancelAll` **aborta até o item em voo**, via `DELETE /jobs/{id}`: a
+worker vê a flag na consulta seguinte (no máximo 1 s), manda o DELETE e
+desiste. O item cancelado não conta como concluído nem como falha — sai
+por uma sentinela (`CANCELED_MARK`) que o `Execute` reconhece, em vez de
+virar mensagem de erro na tela. Cancelar é melhor-esforço: se o DELETE
+não chegar, o job termina sozinho e expira pelo `JOB_TTL_SECONDS`.
 
 **d) A busca é do BACKEND.** A resposta traz timestamps por palavra e dá
 megabytes por gravação. Filtrar no JS exigiria atravessar tudo isso pelo
@@ -2118,10 +2158,52 @@ megabytes por gravação. Filtrar no JS exigiria atravessar tudo isso pelo
 - `search_transcripts` devolve só os ids que casam; o JS une isso ao
   filtro por nome que já existia.
 
+**g) Transcrevendo, o app NÃO hiberna.** O job roda no servidor, mas quem
+o acompanha é o processo full: hibernar mata a thread que consulta
+`GET /jobs/{id}`, o servidor termina o trabalho e o resultado é jogado
+fora (o job ainda expira sozinho pelo `JOB_TTL_SECONDS`). O
+`TIMER_HIBERNATE_IDLE` checa `OBSTranscribe.QueueLength > 0` — que já
+inclui o item em curso — e **re-arma** em vez de desistir, senão o app
+ficaria em modo full pelo resto da sessão.
+
+> Assimetria conhecida: o ramo de `RecordingActive` logo acima **não**
+> re-arma. Gravar com a janela escondida deixa o app sem hibernar até a
+> janela ser escondida de novo. É pré-existente e não foi mexido aqui.
+
+**f) Nome de falante é do USUÁRIO, e mora noutro arquivo.** A API devolve
+`SPEAKER_00`, que não diz nada para quem assiste — no painel do player dá
+pra clicar no rótulo e batizar cada um. Esses nomes vão para o
+sub-objeto `speakers` do **`<hash>.json`** (via
+`LoadMetaSubObjectJson`/`SaveMetaSubObjectJson`, que fazem merge), NÃO
+para o `<hash>.transcript.json`: retranscrever reescreve o arquivo da
+transcrição inteiro, e levaria os nomes junto.
+
+Renomear é por FALANTE, não por turno: todos os turnos daquela pessoa
+mudam de uma vez. E clicar no rótulo edita em vez de pular no vídeo —
+o `stopPropagation` no `onclick` do nome é o que separa os dois gestos
+dentro do mesmo turno clicável.
+
 Corolário do cache: os dois arquivos são prefixados pelo `<hash>` do path,
 então o GC e o `RenameCacheEntries` já os cobrem de graça (pegadinha #55)
 — por isso o `HashName` do `OBSPlayer` foi exportado, em vez de o
 `OBSTranscribe` recalcular o hash por conta e sair de sincronia.
+
+**h) O MOTIVO da falha tem que chegar na tela — e o corpo da resposta
+HTTP é onde ele mora.** "1 com falha" sem o porquê não dá o que fazer, e
+o `lastError` já viajava no push sem nunca ser desenhado. Três peças:
+`HttpErrText` (OBSTranscribe) tira o `detail` do corpo — a Transcritor API
+é FastAPI, então erro é `{"detail": ...}`, **string** nos de negócio e
+**array** nos de validação (422) — em vez de largar um `HTTP 422` pelado;
+`lastErrorName` diz QUAL gravação falhou (num lote de 7 a mensagem sozinha
+não identifica o item); e o `Transcribe.applyState` solta um **toast** na
+BORDA do contador de falhas, porque a transcrição é disparada pelo menu da
+gravação e ninguém fica olhando a aba de Configurações — sem ele a falha
+só existia numa linha fora da tela.
+
+Corolário: como essas mensagens agora são LIDAS, elas passaram a sair do
+`error.transcribe.*` do `lang\*.json`, como o resto do app. O que vem do
+servidor ou do SO (detail do HTTP, `E.Message`) segue cru — não há como
+traduzir texto de fora.
 
 **e) "Sem fala" não é "não transcrita".** Uma gravação de tela sem
 ninguém falando é transcrita com sucesso e volta com **zero turnos** —

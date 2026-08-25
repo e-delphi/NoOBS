@@ -370,6 +370,17 @@
       var(--danger-2) 95%,
       var(--danger-2) 100%);
   }
+  /* Microfone mudo no Windows — mudo do sistema, botao do fone, ou app
+     de chamada que propaga o mudo (Teams e afins). A barra continua
+     respondendo ao som: o medidor le o sinal normalmente num endpoint
+     mudo, e e justamente por isso que o aviso e util (voce ve que esta
+     falando e que nada disso esta saindo).
+     Cor CHAPADA de proposito: o gradiente verde/ambar/vermelho fala de
+     NIVEL, e aqui a cor precisa falar de ESTADO. Um gradiente vermelho
+     seria lido como pico. */
+  .source-meter.muted .source-meter-track {
+    background: var(--danger);
+  }
   .source-meter-track[data-ch="l"] { top: 0; }
   .source-meter-track[data-ch="r"] { bottom: 0; }
   .source-meter-fill {

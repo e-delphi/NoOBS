@@ -90,6 +90,9 @@ const Bridge = {
       // Re-render do meta (X arquivos · Y usados · Z livres) — buildRecMetaHtml
       // usa T() pluralizado. recalcRecMetaFromDom le do DOM atual.
       try { recalcRecMetaFromDom(); } catch (e) {}
+      // Etapa da transcrição é traduzida em tempo de render (o código
+      // vem da API em inglês), então precisa repintar na troca de idioma.
+      try { Transcribe.render(); } catch (e) {}
       // Caminho da pasta: "Gravações" (raiz) e "Voltar" sao traduzidos e
       // ficam fora do walk do apply() — o breadcrumb e montado em JS.
       try { RecFolders.renderPath(); } catch (e) {}

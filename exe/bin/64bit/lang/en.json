@@ -448,13 +448,24 @@
       "pending": "Transcribe pending",
       "pendingN": "Transcribe pending ({{count}})",
       "pendingNone": "Nothing pending",
-      "queueHint": "One transcription at a time — the container itself serializes requests, so queuing more would not help. The time shown is an estimate: the API only answers when it finishes.",
+      "queueHint": "One transcription at a time — the container itself serializes requests, so queuing more would not help. The percentage comes from the API and is real: it measures how much audio has been transcribed, and it advances in jumps because processing happens in 30-second windows.",
       "progress": "{{pos}} of {{total}} · {{name}}",
-      "eta": "{{elapsed}} of ~{{estimate}}",
       "elapsed": "{{elapsed}} elapsed",
       "doneAll": "{{total}} transcription(s) finished.",
       "doneWithFailures": "{{done}} of {{total}} finished, {{failed}} failed.",
-      "failedN": "{{failed}} failed"
+      "failedN": "{{failed}} failed",
+      "error": "Failure reason: {{error}}",
+      "errorNamed": "\"{{name}}\" failed: {{error}}",
+      "remaining": "~{{eta}} left",
+      "stage": {
+        "extracting": "extracting audio",
+        "uploading": "uploading",
+        "queued": "queued on the server",
+        "decoding": "decoding",
+        "transcribing": "transcribing",
+        "diarizing": "separating speakers",
+        "done": "done"
+      }
     }
   },
   "devices": {
@@ -549,7 +560,8 @@
     "transcriptNoMatch": "No passage found.",
     "speakerN": "Speaker {{n}}",
     "speakerUnknown": "Speaker",
-    "transcriptNoSpeech": "This recording was transcribed, but no speech was detected in the audio."
+    "transcriptNoSpeech": "This recording was transcribed, but no speech was detected in the audio.",
+    "renameSpeaker": "Click to name this speaker"
   },
   "toast": {
     "saved": "Settings saved",
@@ -583,9 +595,26 @@
     "cutTitle": "Cut",
     "cutOne": "1 item ready to paste into another folder.",
     "cutN": "{{count}} items ready to paste into another folder.",
+    "transcribeFailed": "Could not transcribe \"{{name}}\"",
     "transcribeQueued": "Transcription queued"
   },
   "error": {
+    "transcribe": {
+      "emptyHost": "The transcription server address is empty. Fill it in under Settings → Transcription.",
+      "noResponse": "The transcription server did not respond. Check that the container is running and the address is correct.",
+      "jobsNotJson": "The server replied with something that is not JSON when queuing the job. Does the address really point to the Transcritor API?",
+      "noJobId": "The server accepted the audio but did not return a job id.",
+      "jobGone": "The job disappeared from the server before finishing (it may have expired, or the container restarted).",
+      "statusNotJson": "The server replied with something that is not JSON when asked about progress.",
+      "fileMissing": "The recording no longer exists on disk.",
+      "extractFailed": "Could not extract the audio from the recording. It may be corrupted or have no audio track.",
+      "extractMissing": "The audio was extracted but the file was not found. Check the free disk space.",
+      "shuttingDown": "Transcription was interrupted because the app is closing.",
+      "emptyResult": "The server reported the job as finished but returned no result.",
+      "resultNotJson": "The result returned by the server is not JSON.",
+      "writeFailed": "Could not write the transcription to disk: {{error}}",
+      "serverSilent": "the server did not say why"
+    },
     "loadVideo": "Error loading video.",
     "unsupportedCodec": "Unsupported codec, converting...",
     "recordStartFailed": "Failed to start recording: {{error}}",

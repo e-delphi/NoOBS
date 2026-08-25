@@ -448,13 +448,24 @@
       "pending": "Transcribir pendientes",
       "pendingN": "Transcribir pendientes ({{count}})",
       "pendingNone": "Nada pendiente",
-      "queueHint": "Una transcripción a la vez: el propio contenedor serializa las solicitudes, así que encolar más no ayudaría. El tiempo mostrado es una estimación: la API solo responde al terminar.",
+      "queueHint": "Una transcripción a la vez: el propio contenedor serializa las solicitudes, así que encolar más no ayudaría. El porcentaje viene de la API y es real: mide cuánto audio ya se transcribió, y avanza a saltos porque el procesamiento se hace en ventanas de 30 segundos.",
       "progress": "{{pos}} de {{total}} · {{name}}",
-      "eta": "{{elapsed}} de ~{{estimate}}",
       "elapsed": "{{elapsed}} transcurrido",
       "doneAll": "{{total}} transcripción(es) completada(s).",
       "doneWithFailures": "{{done}} de {{total}} completada(s), {{failed}} con error.",
-      "failedN": "{{failed}} con error"
+      "failedN": "{{failed}} con error",
+      "error": "Motivo del error: {{error}}",
+      "errorNamed": "Error en \"{{name}}\": {{error}}",
+      "remaining": "faltan ~{{eta}}",
+      "stage": {
+        "extracting": "extrayendo el audio",
+        "uploading": "enviando",
+        "queued": "en cola en el servidor",
+        "decoding": "decodificando",
+        "transcribing": "transcribiendo",
+        "diarizing": "separando hablantes",
+        "done": "completado"
+      }
     }
   },
   "devices": {
@@ -549,7 +560,8 @@
     "transcriptNoMatch": "No se encontró ningún fragmento.",
     "speakerN": "Hablante {{n}}",
     "speakerUnknown": "Hablante",
-    "transcriptNoSpeech": "Esta grabación fue transcrita, pero no se detectó ninguna voz en el audio."
+    "transcriptNoSpeech": "Esta grabación fue transcrita, pero no se detectó ninguna voz en el audio.",
+    "renameSpeaker": "Haz clic para nombrar a este hablante"
   },
   "toast": {
     "saved": "Configuración guardada",
@@ -583,9 +595,26 @@
     "cutTitle": "Cortado",
     "cutOne": "1 elemento listo para pegar en otra carpeta.",
     "cutN": "{{count}} elementos listos para pegar en otra carpeta.",
+    "transcribeFailed": "No se pudo transcribir \"{{name}}\"",
     "transcribeQueued": "Transcripción en cola"
   },
   "error": {
+    "transcribe": {
+      "emptyHost": "La dirección del servidor de transcripción está vacía. Complétala en Configuración → Transcripción.",
+      "noResponse": "El servidor de transcripción no respondió. Verifica que el contenedor esté activo y que la dirección sea correcta.",
+      "jobsNotJson": "El servidor respondió algo que no es JSON al encolar el trabajo. ¿La dirección apunta realmente a Transcritor API?",
+      "noJobId": "El servidor aceptó el audio pero no devolvió un identificador de trabajo.",
+      "jobGone": "El trabajo desapareció del servidor antes de terminar (pudo expirar o el contenedor se reinició).",
+      "statusNotJson": "El servidor respondió algo que no es JSON al consultarle el avance.",
+      "fileMissing": "La grabación ya no existe en el disco.",
+      "extractFailed": "No se pudo extraer el audio de la grabación. Puede estar dañada o no tener pista de audio.",
+      "extractMissing": "El audio se extrajo pero no se encontró el archivo. Verifica el espacio libre en disco.",
+      "shuttingDown": "La transcripción se interrumpió porque la aplicación se está cerrando.",
+      "emptyResult": "El servidor dio el trabajo por terminado pero no devolvió el resultado.",
+      "resultNotJson": "El resultado devuelto por el servidor no es JSON.",
+      "writeFailed": "No se pudo guardar la transcripción en el disco: {{error}}",
+      "serverSilent": "el servidor no dijo el motivo"
+    },
     "loadVideo": "Error al cargar el video.",
     "unsupportedCodec": "Códec no soportado, convirtiendo...",
     "recordStartFailed": "Error al iniciar grabación: {{error}}",

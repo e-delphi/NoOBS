@@ -555,6 +555,7 @@ const Player = {
     // mesma armadilha da pegadinha #37.
     this.transcriptTurns = null;
     this.transcribed = false;
+    this.speakerNames = null;
     this._trActive = -1;
     const trPanel = document.getElementById('playerTrPanel');
     if (trPanel) { trPanel.classList.remove('open'); trPanel.setAttribute('aria-hidden', 'true'); }
@@ -1065,6 +1066,7 @@ const Player = {
 
   transcriptTurns: null,   // null = ainda não pedimos; [] = sem turnos
   transcribed: false,      // o arquivo de transcrição existe?
+  speakerNames: null,      // {'SPEAKER_00': 'Eduardo'} — dado pelo usuário
   _trActive: -1,
 
   seekTo(sec) {
@@ -1098,16 +1100,65 @@ const Player = {
     // transcrita" ali seria falso — e mandaria o usuario transcrever de
     // novo pra receber o mesmo nada.
     this.transcribed = !!data.transcribed;
+    this.speakerNames = (data.speakers && typeof data.speakers === 'object')
+      ? data.speakers : {};
     this.transcriptTurns = Array.isArray(data.turns) ? data.turns : [];
     this._trActive = -1;
     this.renderTranscript();
   },
 
+  // Nome amigável de um falante. O usuário pode batizar cada um clicando
+  // no rótulo; o que ele escolheu vence o "Falante N" derivado do código
+  // que a API devolve.
   _trSpeakerLabel(spk) {
+    const dado = this.speakerNames && this.speakerNames[spk];
+    if (dado) return dado;
     // "SPEAKER_00" não diz nada pra quem assiste. Vira "Falante 1".
     const m = /^SPEAKER[_-]?(\d+)$/i.exec(spk || '');
     if (m) return T('player.speakerN', { n: parseInt(m[1], 10) + 1 });
     return spk || T('player.speakerUnknown');
+  },
+
+  // Edição no próprio rótulo, igual ao rename de pasta e de gravação.
+  // Renomeia o FALANTE, não o turno: todos os turnos daquela pessoa
+  // mudam de uma vez, que é o ponto de dar nome a ela.
+  beginRenameSpeaker(el, spk) {
+    if (!el || el.classList.contains('editing')) return;
+    const original = el.textContent;
+    el.classList.add('editing');
+    el.contentEditable = 'true';
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const finish = (commit) => {
+      el.removeEventListener('blur', onBlur);
+      el.removeEventListener('keydown', onKey);
+      el.contentEditable = 'false';
+      el.classList.remove('editing');
+      if (!commit) { el.textContent = original; return; }
+      const nome = el.textContent.replace(/[\r\n]+/g, ' ').trim().slice(0, 60);
+      if (nome === original) { el.textContent = original; return; }
+      this.speakerNames = this.speakerNames || {};
+      if (nome === '') delete this.speakerNames[spk];
+      else this.speakerNames[spk] = nome;
+      Bridge.send('set_speaker_name', { id: this.currentId, speaker: spk, name: nome });
+      // Re-render pra os OUTROS turnos do mesmo falante acompanharem.
+      // Fora do handler de blur: aqui o elemento ainda está despachando
+      // o evento, e o render o remove.
+      setTimeout(() => this.renderTranscript(), 0);
+    };
+    const onBlur = () => finish(true);
+    const onKey = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+    };
+    el.addEventListener('blur', onBlur);
+    el.addEventListener('keydown', onKey);
   },
 
   renderTranscript() {
@@ -1153,6 +1204,13 @@ const Player = {
       // Cor estável por falante: a mesma pessoa mantém a cor ao longo do
       // vídeo, que é o que deixa a leitura rápida.
       spk.dataset.spk = String(this._trSpeakerIndex(t.speaker) % 6);
+      // Clicar no NOME edita; clicar no resto do turno pula pro ponto.
+      // O stopPropagation é o que separa os dois gestos.
+      spk.dataset.hint = T('player.renameSpeaker');
+      spk.onclick = (ev) => {
+        ev.stopPropagation();
+        this.beginRenameSpeaker(spk, t.speaker);
+      };
       const tm = document.createElement('span');
       tm.className = 'player-tr-time';
       tm.textContent = formatDuration(Math.floor(t.start || 0)) || '00:00';

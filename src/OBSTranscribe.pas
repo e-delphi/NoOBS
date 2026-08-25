@@ -9,15 +9,16 @@
      uma gravacao 4K passa disso facil. A faixa de MISTURA (stream 0, que
      ja tem tudo) sai em m4a pelo ExtractAudioTracks: 1 hora da ~70 MB.
 
-  2. NAO HA ROTA DE PROGRESSO. O POST /transcribe so responde no fim.
-     Entao "progresso" aqui e posicao na fila + tempo decorrido + uma
-     ESTIMATIVA derivada do ~1,5x tempo real que o README da API mede. A
-     UI mostra isso como estimativa declarada; fingir porcentagem exata
-     seria mentir.
+  2. MODELO ASSINCRONO, COM PROGRESSO REAL. POST /jobs devolve um id na
+     hora; GET /jobs/{id} da estagio, percentual e ETA, e o `result`
+     quando termina. O percentual mede o trecho de audio ja coberto pelos
+     segmentos — nao ha estimativa nossa. Avanca aos saltos (janelas de
+     30s do Whisper), e o ETA so existe a partir de ~10%.
 
   3. UMA POR VEZ. O proprio container serializa as requisicoes (os
      modelos nao sao thread-safe), entao paralelizar aqui so encheria a
-     fila do outro lado. Uma thread, uma fila.
+     fila do outro lado. Uma thread, uma fila — e o cancelamento aborta
+     ate o item em voo, via DELETE /jobs/{id}.
 
   O resultado vai pra dois arquivos no cache:
     <hash>.transcript.json  resposta inteira (turnos, segmentos, palavras)
@@ -55,10 +56,21 @@ function IsRunning: Boolean;
 function QueueLength: Integer;        // inclui o item em curso
 function CurrentName: string;
 function CurrentElapsedSec: Integer;
-function CurrentEstimateSec: Integer; // 0 = desconhecido
+// Progresso REAL vindo da API (0..1), medido pelo trecho de audio ja
+// coberto pelos segmentos — nao e barra estimada. -1 = ainda nao ha
+// numero (extraindo audio, subindo, ou job na fila do servidor).
+function CurrentProgress: Double;
+// Segundos restantes segundo a API. -1 = ela ainda nao arrisca (so
+// aparece a partir de ~10% de progresso).
+function CurrentEtaSec: Integer;
+// Etapa em curso: 'extracting' | 'uploading' | 'queued' | 'decoding' |
+// 'transcribing' | 'diarizing' | 'done'. Vazio = parado.
+function CurrentStage: string;
 function DoneCount: Integer;
 function FailedCount: Integer;
 function LastError: string;
+// Nome (sem extensao) da gravacao a que o LastError se refere.
+function LastErrorName: string;
 // Total planejado do lote atual (pra "3 de 7"). Zera quando a fila esvazia.
 function BatchTotal: Integer;
 
@@ -102,30 +114,34 @@ uses
   System.Net.URLClient,
   System.Net.Mime,
   System.Generics.Collections,
-  System.Math,
-  NoOBSTypes,
   OBSLog,
+  OBSLang,
   OBSConfig,
   OBSPlayer,
   FFmpegOps;
 
 const
-  // Rota FIXA de proposito: o usuario informa host e porta, nao o caminho.
-  TRANSCRIBE_PATH = '/transcribe';
-  HEALTH_PATH     = '/health';
+  // Rotas FIXAS de proposito: o usuario informa host e porta, nao o
+  // caminho. O modelo e ASSINCRONO — POST /jobs devolve um id na hora e o
+  // andamento sai de GET /jobs/{id}.
+  JOBS_PATH   = '/jobs';
+  HEALTH_PATH = '/health';
 
   DEFAULT_HOST = 'http://localhost:8000';
 
-  // O README da API mede ~1,5x mais rapido que o tempo real com large-v3.
-  // Usamos o inverso disso como estimativa, com uma folga: preferimos a
-  // barra chegar no fim e esperar um pouco a passar do fim e ficar presa.
-  ESTIMATE_FACTOR = 0.80;
-
   HEALTH_TIMEOUT_MS = 4000;
-  // Conexao e rapida; a RESPOSTA e que demora (minutos a horas). O
-  // ResponseTimeout e calculado por item a partir da duracao.
   CONNECT_TIMEOUT_MS = 5000;
-  MIN_RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;    // 10 min de piso
+  // O POST /jobs so espera o UPLOAD (a API responde ao enfileirar), mas
+  // uma gravacao longa vira dezenas de MB — dai a folga.
+  SUBMIT_TIMEOUT_MS = 5 * 60 * 1000;
+  POLL_TIMEOUT_MS   = 10000;
+  // Consulta barata e local. O progresso anda aos saltos (o Whisper
+  // processa em janelas de 30s), entao 1s ja mostra cada degrau.
+  POLL_INTERVAL_MS  = 1000;
+
+  // Sentinela de "cancelado pelo usuario". Nao e erro: nao entra na
+  // contagem de falhas nem vira mensagem na tela.
+  CANCELED_MARK = #1'canceled';
 
 type
   TTranscribeThread = class(TThread)
@@ -146,11 +162,17 @@ var
   GCurrentName: string = '';
   GCurrentPath: string = '';
   GCurrentStartTick: Cardinal = 0;
-  GCurrentEstimate: Integer = 0;
+  GStage: string = '';
+  GProgress: Double = -1;      // -1 = ainda sem numero
+  GEta: Integer = -1;          // -1 = a API ainda nao arrisca
+  GCancelCurrent: Boolean = False;
   GDone: Integer = 0;
   GFailed: Integer = 0;
   GBatchTotal: Integer = 0;
   GLastError: string = '';
+  // Nome da gravacao que falhou. Sem ele, "1 com falha" num lote de 7
+  // nao diz QUAL — e a mensagem sozinha raramente identifica o item.
+  GLastErrorName: string = '';
 
 function HostBase: string;
 begin
@@ -252,9 +274,58 @@ begin
   Result := Integer((GetTickCount - GCurrentStartTick) div 1000);
 end;
 
-function CurrentEstimateSec: Integer;
+function CurrentProgress: Double;
 begin
-  Result := GCurrentEstimate;
+  Result := GProgress;
+end;
+
+function CurrentEtaSec: Integer;
+begin
+  Result := GEta;
+end;
+
+function CurrentStage: string;
+begin
+  if GLock = nil then Exit('');
+  GLock.Enter;
+  try Result := GStage; finally GLock.Leave; end;
+end;
+
+function CancelRequested: Boolean;
+begin
+  Result := GCancelCurrent;
+end;
+
+function ShuttingDown: Boolean;
+// O ProcessOne roda na worker mas NAO e metodo dela, entao nao enxerga o
+// Terminated. O sinal de fechamento que vale aqui e o StopEvent (manual
+// reset, ligado pelo Stop) — o mesmo que tira a espera do laco de polling.
+begin
+  Result := (StopEvent <> 0) and
+    (WaitForSingleObject(StopEvent, 0) = WAIT_OBJECT_0);
+end;
+
+procedure SetStage(const AStage: string; AProgress: Double; AEta: Integer);
+// Publica a etapa/progresso e avisa a UI. Chamado da worker a cada
+// consulta ao servidor.
+var
+  Mudou: Boolean;
+begin
+  if GLock = nil then Exit;
+  GLock.Enter;
+  try
+    Mudou := (GStage <> AStage) or (Abs(GProgress - AProgress) > 0.0005) or
+             (GEta <> AEta);
+    GStage := AStage;
+    GProgress := AProgress;
+    GEta := AEta;
+  finally
+    GLock.Leave;
+  end;
+  // So notifica quando algo mudou de fato: o progresso anda aos saltos
+  // (janelas de 30s do Whisper), entao a maioria dos tiques e igual ao
+  // anterior e empurrar tudo seria ruido no canal.
+  if Mudou then NotifyChanged;
 end;
 
 function DoneCount: Integer;   begin Result := GDone;   end;
@@ -268,6 +339,51 @@ begin
   try Result := GLastError; finally GLock.Leave; end;
 end;
 
+function LastErrorName: string;
+begin
+  if GLock = nil then Exit('');
+  GLock.Enter;
+  try Result := GLastErrorName; finally GLock.Leave; end;
+end;
+
+function HttpErrText(const AResp: IHTTPResponse): string;
+// "HTTP 422" sozinho nao diz NADA — quem sabe o motivo e o CORPO da
+// resposta, e ele estava sendo jogado fora. A Transcritor API e FastAPI,
+// entao erro sai como {"detail": ...}: string nos erros de negocio e
+// ARRAY nos de validacao (422). Pega o detail quando da, senao o corpo
+// cru. Trunca e tira quebras de linha porque isto vira UMA linha na tela.
+const
+  MAX_LEN = 300;
+var
+  Body, Detail: string;
+  Json, Val: TJSONValue;
+begin
+  Result := Format('HTTP %d', [AResp.StatusCode]);
+  if Trim(AResp.StatusText) <> '' then
+    Result := Result + ' ' + Trim(AResp.StatusText);
+  Body := '';
+  try Body := Trim(AResp.ContentAsString(TEncoding.UTF8)); except end;
+  if Body = '' then Exit;
+  Detail := Body;
+  Json := TJSONObject.ParseJSONValue(Body);
+  if Json <> nil then
+  try
+    if Json is TJSONObject then
+    begin
+      Val := TJSONObject(Json).GetValue('detail');
+      if Val is TJSONString then Detail := TJSONString(Val).Value
+      else if Val <> nil then Detail := Val.ToJSON;
+    end;
+  finally
+    Json.Free;
+  end;
+  Detail := Trim(StringReplace(StringReplace(Detail, #13, ' ', [rfReplaceAll]),
+    #10, ' ', [rfReplaceAll]));
+  if Detail = '' then Exit;
+  if Length(Detail) > MAX_LEN then Detail := Copy(Detail, 1, MAX_LEN) + '...';
+  Result := Result + ': ' + Detail;
+end;
+
 function CheckHealth(const AHost: string): string;
 // Roda na worker (a UI chama por um botao "Testar"). '' = ok.
 var
@@ -278,7 +394,7 @@ begin
   Base := Trim(AHost);
   while (Base <> '') and (Base[Length(Base)] = '/') do
     Delete(Base, Length(Base), 1);
-  if Base = '' then Exit('endereco vazio');
+  if Base = '' then Exit(OBSLang.T('error.transcribe.emptyHost'));
   Http := TNetHTTPClient.Create(nil);
   try
     Http.ConnectionTimeout := HEALTH_TIMEOUT_MS;
@@ -288,9 +404,9 @@ begin
     except
       on E: Exception do Exit(E.Message);
     end;
-    if Resp = nil then Exit('sem resposta');
+    if Resp = nil then Exit(OBSLang.T('error.transcribe.noResponse'));
     if Resp.StatusCode <> 200 then
-      Exit(Format('HTTP %d', [Resp.StatusCode]));
+      Exit(HttpErrText(Resp));
     Result := '';
   finally
     Http.Free;
@@ -331,21 +447,23 @@ begin
   end;
 end;
 
-function PostTranscription(const AAudioPath: string; ATimeoutMs: Integer;
-  out ABody: string): string;
-// POST multipart. Devolve '' em sucesso; senao a mensagem de erro.
+function SubmitJob(const AAudioPath: string; out AJobId: string): string;
+// POST /jobs — devolve na hora um identificador (HTTP 202), sem esperar a
+// transcricao. O upload e a unica parte demorada aqui, e ele e rapido
+// porque so vai audio (ver cabecalho da unit).
 var
   Http: TNetHTTPClient;
   Data: TMultipartFormData;
   Resp: IHTTPResponse;
-  Lang: string;
+  Lang, Body: string;
+  Json: TJSONValue;
 begin
-  ABody := '';
+  AJobId := '';
   Http := TNetHTTPClient.Create(nil);
   try
     Http.ConnectionTimeout := CONNECT_TIMEOUT_MS;
-    // A resposta so vem no FIM da transcricao — minutos, as vezes horas.
-    Http.ResponseTimeout := ATimeoutMs;
+    // So o upload: a API responde assim que enfileira.
+    Http.ResponseTimeout := SUBMIT_TIMEOUT_MS;
     Http.UserAgent := 'NoOBS';
     Data := TMultipartFormData.Create;
     try
@@ -357,15 +475,28 @@ begin
       // Separacao por falante — e o que torna o painel do player util.
       Data.AddField('diarization', 'true');
       try
-        Resp := Http.Post(HostBase + TRANSCRIBE_PATH, Data);
+        Resp := Http.Post(HostBase + JOBS_PATH, Data);
       except
         on E: Exception do Exit(E.Message);
       end;
-      if Resp = nil then Exit('sem resposta');
-      if Resp.StatusCode <> 200 then
-        Exit(Format('HTTP %d', [Resp.StatusCode]));
-      ABody := Resp.ContentAsString(TEncoding.UTF8);
-      if Trim(ABody) = '' then Exit('resposta vazia');
+      if Resp = nil then Exit(OBSLang.T('error.transcribe.noResponse'));
+      // 202 e o esperado; aceita 200 tambem pra nao quebrar se a API
+      // mudar o codigo de sucesso.
+      if (Resp.StatusCode <> 202) and (Resp.StatusCode <> 200) then
+        Exit(HttpErrText(Resp));
+      Body := Resp.ContentAsString(TEncoding.UTF8);
+      Json := TJSONObject.ParseJSONValue(Body);
+      if not (Json is TJSONObject) then
+      begin
+        if Json <> nil then Json.Free;
+        Exit(OBSLang.T('error.transcribe.jobsNotJson'));
+      end;
+      try
+        TJSONObject(Json).TryGetValue<string>('job_id', AJobId);
+      finally
+        Json.Free;
+      end;
+      if Trim(AJobId) = '' then Exit(OBSLang.T('error.transcribe.noJobId'));
       Result := '';
     finally
       Data.Free;
@@ -375,32 +506,102 @@ begin
   end;
 end;
 
+procedure DeleteJob(const AJobId: string);
+// Melhor esforco: se o cancelamento nao chegar, o job termina sozinho e
+// expira pelo JOB_TTL_SECONDS da API. Nao vale falhar por causa disso.
+var
+  Http: TNetHTTPClient;
+begin
+  if AJobId = '' then Exit;
+  Http := TNetHTTPClient.Create(nil);
+  try
+    Http.ConnectionTimeout := CONNECT_TIMEOUT_MS;
+    Http.ResponseTimeout := POLL_TIMEOUT_MS;
+    try Http.Delete(HostBase + JOBS_PATH + '/' + AJobId); except end;
+    Log('Transcribe: job %s cancelado no servidor.', [AJobId]);
+  finally
+    Http.Free;
+  end;
+end;
+
+function PollJob(const AJobId: string; out AStatus, AStage, AError: string;
+  out AProgress: Double; out AEta: Integer; out AResult: string): string;
+// GET /jobs/{id}. Devolve '' se a consulta em si funcionou (mesmo com
+// status "error" do job — isso vem em AStatus/AError); senao a falha de
+// rede.
+var
+  Http: TNetHTTPClient;
+  Resp: IHTTPResponse;
+  Body: string;
+  Json: TJSONValue;
+  Obj: TJSONObject;
+  ResVal: TJSONValue;
+  Eta: Double;
+begin
+  AStatus := '';
+  AStage := '';
+  AError := '';
+  AResult := '';
+  AProgress := 0;
+  AEta := -1;
+  Http := TNetHTTPClient.Create(nil);
+  try
+    Http.ConnectionTimeout := CONNECT_TIMEOUT_MS;
+    Http.ResponseTimeout := POLL_TIMEOUT_MS;
+    Http.UserAgent := 'NoOBS';
+    try
+      Resp := Http.Get(HostBase + JOBS_PATH + '/' + AJobId);
+    except
+      on E: Exception do Exit(E.Message);
+    end;
+    if Resp = nil then Exit(OBSLang.T('error.transcribe.noResponse'));
+    if Resp.StatusCode = 404 then Exit(OBSLang.T('error.transcribe.jobGone'));
+    if Resp.StatusCode <> 200 then Exit(HttpErrText(Resp));
+    Body := Resp.ContentAsString(TEncoding.UTF8);
+    Json := TJSONObject.ParseJSONValue(Body);
+    if not (Json is TJSONObject) then
+    begin
+      if Json <> nil then Json.Free;
+      Exit(OBSLang.T('error.transcribe.statusNotJson'));
+    end;
+    try
+      Obj := TJSONObject(Json);
+      Obj.TryGetValue<string>('status', AStatus);
+      Obj.TryGetValue<string>('stage', AStage);
+      Obj.TryGetValue<string>('error', AError);
+      Obj.TryGetValue<Double>('progress', AProgress);
+      // eta_seconds so aparece a partir de ~10% (antes disso extrapolar
+      // nao faz sentido). -1 = ainda nao da pra dizer.
+      if Obj.TryGetValue<Double>('eta_seconds', Eta) then AEta := Round(Eta);
+      // O `result` so vem quando status = done, e e o MESMO JSON que o
+      // /transcribe devolvia — o resto da unit nao muda por causa disso.
+      ResVal := Obj.GetValue('result');
+      if ResVal is TJSONObject then AResult := ResVal.ToJSON;
+    finally
+      Json.Free;
+    end;
+    Result := '';
+  finally
+    Http.Free;
+  end;
+end;
+
 function ProcessOne(const APath: string): string;
 // Transcreve UMA gravacao. Devolve '' em sucesso, senao a mensagem.
 // Roda inteiro na worker thread.
+//
+// Modelo ASSINCRONO: POST /jobs devolve um id na hora, e o andamento sai
+// de GET /jobs/{id} — progresso REAL, medido pelo trecho de audio ja
+// coberto pelos segmentos. Nao ha mais estimativa nossa nem requisicao
+// HTTP pendurada por 40 minutos.
 var
-  Meta: TRecordingMeta;
-  Audio, Body, Txt: string;
-  TimeoutMs: Integer;
+  Audio, Body, Txt, JobId: string;
+  Status, Stage, JobErr, ResJson: string;
+  Prog: Double;
+  Eta: Integer;
   Json: TJSONValue;
 begin
-  if not TFile.Exists(APath) then Exit('arquivo nao existe');
-
-  // Duracao: alimenta a ESTIMATIVA mostrada na UI e o timeout do POST.
-  Meta := Default(TRecordingMeta);
-  try OBSPlayer.LoadRecordingMeta(APath, Meta); except end;
-  if Meta.DurationSec > 0 then
-    GCurrentEstimate := Round(Meta.DurationSec * ESTIMATE_FACTOR)
-  else
-    GCurrentEstimate := 0;
-
-  // Timeout generoso: 6x a duracao, com piso. Um servidor lento (CPU
-  // fraca, modelo grande) pode passar bem do 1,5x medido no README, e
-  // derrubar por timeout uma transcricao que ia terminar seria pior que
-  // esperar.
-  TimeoutMs := MIN_RESPONSE_TIMEOUT_MS;
-  if Meta.DurationSec > 0 then
-    TimeoutMs := Max(TimeoutMs, Meta.DurationSec * 6 * 1000);
+  if not TFile.Exists(APath) then Exit(OBSLang.T('error.transcribe.fileMissing'));
 
   // SO O AUDIO. O video passaria do MAX_UPLOAD_MB da API (512 MB) numa
   // gravacao 4K de poucos minutos. Indice 0 = faixa de MISTURA, que ja
@@ -408,19 +609,68 @@ begin
   Audio := IncludeTrailingPathDelimiter(OBSPlayer.CacheRootDir) +
     OBSPlayer.HashName(APath) + '_tr.m4a';
   try if TFile.Exists(Audio) then TFile.Delete(Audio); except end;
+  SetStage('extracting', 0, -1);
   if not FFmpegOps.ExtractAudioTracks(APath, [Audio], 0) then
-    Exit('falha ao extrair o audio');
-  if not TFile.Exists(Audio) then Exit('audio extraido nao encontrado');
+    Exit(OBSLang.T('error.transcribe.extractFailed'));
+  if not TFile.Exists(Audio) then Exit(OBSLang.T('error.transcribe.extractMissing'));
 
+  Body := '';
   try
-    Result := PostTranscription(Audio, TimeoutMs, Body);
+    SetStage('uploading', 0, -1);
+    Result := SubmitJob(Audio, JobId);
     if Result <> '' then Exit;
+    Log('Transcribe: job %s aceito.', [JobId]);
+
+    // Acompanha ate terminar. O intervalo e curto porque a consulta e
+    // local e barata; o progresso em si anda aos saltos (o Whisper
+    // processa em janelas de 30s), entao poucos tiques mostram avanco.
+    while True do
+    begin
+      if ShuttingDown then
+      begin
+        DeleteJob(JobId);
+        Exit(OBSLang.T('error.transcribe.shuttingDown'));
+      end;
+      if CancelRequested then
+      begin
+        // Agora DA pra abortar de verdade: a API tem DELETE /jobs/{id}.
+        DeleteJob(JobId);
+        Exit(CANCELED_MARK);
+      end;
+
+      Result := PollJob(JobId, Status, Stage, JobErr, Prog, Eta, ResJson);
+      if Result <> '' then Exit;
+
+      if Status = 'done' then
+      begin
+        SetStage('done', 1, 0);
+        Body := ResJson;
+        if Trim(Body) = '' then Exit(OBSLang.T('error.transcribe.emptyResult'));
+        Break;
+      end;
+      if Status = 'error' then
+      begin
+        if JobErr = '' then JobErr := OBSLang.T('error.transcribe.serverSilent');
+        Exit(JobErr);
+      end;
+
+      // 'queued' | 'decoding' | 'transcribing' | 'diarizing'
+      SetStage(Stage, Prog, Eta);
+
+      // Espera interrompivel: o StopEvent tira a thread daqui na hora, em
+      // vez de deixar o fechamento do app esperando um Sleep.
+      if WaitForSingleObject(StopEvent, POLL_INTERVAL_MS) = WAIT_OBJECT_0 then
+      begin
+        DeleteJob(JobId);
+        Exit(OBSLang.T('error.transcribe.shuttingDown'));
+      end;
+    end;
 
     Json := TJSONObject.ParseJSONValue(Body);
     if not (Json is TJSONObject) then
     begin
       if Json <> nil then Json.Free;
-      Exit('resposta nao e JSON');
+      Exit(OBSLang.T('error.transcribe.resultNotJson'));
     end;
     try
       Txt := ExtractPlainText(TJSONObject(Json));
@@ -434,7 +684,7 @@ begin
       TFile.WriteAllText(TranscriptPath(APath), Body, TEncoding.UTF8);
       TFile.WriteAllText(TranscriptTextPath(APath), Txt, TEncoding.UTF8);
     except
-      on E: Exception do Exit('falha ao gravar: ' + E.Message);
+      on E: Exception do Exit(OBSLang.T('error.transcribe.writeFailed', ['error', E.Message]));
     end;
     Result := '';
   finally
@@ -465,7 +715,12 @@ begin
           GCurrentPath := Path;
           GCurrentName := ChangeFileExt(ExtractFileName(Path), '');
           GCurrentStartTick := GetTickCount;
-          GCurrentEstimate := 0;
+          GStage := 'extracting';
+          GProgress := -1;
+          GEta := -1;
+          // O cancelamento vale pro item que estava em curso quando o
+          // usuario clicou; um item NOVO comeca limpo.
+          GCancelCurrent := False;
         end
         else
         begin
@@ -473,6 +728,10 @@ begin
           GCurrentPath := '';
           GCurrentName := '';
           GCurrentStartTick := 0;
+          GStage := '';
+          GProgress := -1;
+          GEta := -1;
+          GCancelCurrent := False;
           // Os contadores do lote NAO sao zerados aqui: a UI precisa
           // continuar mostrando "7 de 7 concluidas" depois que a fila
           // esvazia. Quem zera e o proximo lote (ver ResetBatchIfIdle).
@@ -500,11 +759,16 @@ begin
 
     GLock.Enter;
     try
-      if Err = '' then Inc(GDone)
+      if Err = CANCELED_MARK then
+        // Cancelado pelo usuario: nao conta como concluido nem como
+        // falha, e nao vira mensagem de erro na tela.
+        Log('Transcribe: cancelado "%s"', [Path])
+      else if Err = '' then Inc(GDone)
       else
       begin
         Inc(GFailed);
         GLastError := Err;
+        GLastErrorName := ChangeFileExt(ExtractFileName(Path), '');
       end;
     finally
       GLock.Leave;
@@ -556,6 +820,7 @@ begin
   GDone := 0;
   GFailed := 0;
   GLastError := '';
+  GLastErrorName := '';
 end;
 
 procedure Enqueue(const APath: string);
@@ -606,12 +871,16 @@ begin
   GLock.Enter;
   try
     if GQueue <> nil then GQueue.Clear;
-    // O item EM CURSO nao e abortado: a API nao tem cancelamento e o
-    // POST ja esta em voo. Ele termina e o resultado e gravado — nao ha
-    // motivo pra jogar fora trabalho que ja foi feito do outro lado.
+    // Agora o item EM CURSO tambem para: a API ganhou DELETE /jobs/{id}.
+    // A worker ve esta flag na proxima consulta (no maximo 1s), manda o
+    // DELETE e desiste. Antes, sem rota de cancelamento, ele tinha que
+    // ir ate o fim.
+    GCancelCurrent := True;
     GBatchTotal := 0;
     GDone := 0;
     GFailed := 0;
+    GLastError := '';
+    GLastErrorName := '';
   finally
     GLock.Leave;
   end;

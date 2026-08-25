@@ -52,6 +52,11 @@ function updateAudioMeters(items) {
     if (!meter) return;
     const ch = (it.channels && it.channels >= 2) ? 2 : 1;
     meter.dataset.channels = String(ch);
+    // Microfone mudo no Windows: a barra continua se mexendo (o medidor
+    // le o sinal do mesmo jeito), so troca de cor. `toggle` com o valor
+    // explicito porque a saida nao manda o campo — e sem o segundo
+    // argumento isso viraria um alterna-a-cada-tique.
+    meter.classList.toggle('muted', !!it.muted);
 
     const fillL = meter.querySelector('.source-meter-track[data-ch="l"] .source-meter-fill');
     const fillR = meter.querySelector('.source-meter-track[data-ch="r"] .source-meter-fill');

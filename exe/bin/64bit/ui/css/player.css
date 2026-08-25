@@ -684,6 +684,43 @@
     border: 1px solid rgba(0,0,0,0.08);
   }
 
+  /* ===== Tema CLARO do painel de transcrição =====
+     O cabeçalho e o botão de fechar reusam as classes do painel de info,
+     então já vêm cobertos pelo bloco acima — aqui só o que é próprio da
+     transcrição. */
+  [data-theme="light"] .player-tr-panel {
+    background: rgba(255,255,255,0.97);
+    border-left: 1px solid rgba(0,0,0,0.08);
+    color: #1f2937;
+  }
+  [data-theme="light"] .player-tr-search {
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  [data-theme="light"] .player-tr-search .search {
+    background: rgba(0,0,0,0.03);
+    border-color: rgba(0,0,0,0.12);
+    color: #1f2937;
+  }
+  [data-theme="light"] .player-tr-empty { color: rgba(0,0,0,0.55); }
+  [data-theme="light"] .player-tr-turn:hover { background: rgba(0,0,0,0.04); }
+  [data-theme="light"] .player-tr-turn.active { background: rgba(0,0,0,0.06); }
+  /* Mais forte que o equivalente do tema escuro (0.4 sobre preto): preto
+     translucido sobre branco perde contraste mais rapido que branco sobre
+     preto, e em 0.42 o horario ficava em 3,0 — abaixo do minimo legivel
+     pra texto de 10px. */
+  [data-theme="light"] .player-tr-time { color: rgba(0,0,0,0.55); }
+  [data-theme="light"] .player-tr-text { color: rgba(0,0,0,0.82); }
+
+  /* As cores de falante do tema escuro são pastéis, feitas pra brilhar
+     sobre preto — sobre branco elas somem. Estas são as mesmas matizes
+     escurecidas, mantendo a correspondência (falante 1 continua verde). */
+  [data-theme="light"] .player-tr-spk[data-spk="0"] { color: #0f7a45; }
+  [data-theme="light"] .player-tr-spk[data-spk="1"] { color: #1668b8; }
+  [data-theme="light"] .player-tr-spk[data-spk="2"] { color: #a1580f; }
+  [data-theme="light"] .player-tr-spk[data-spk="3"] { color: #7a3fa8; }
+  [data-theme="light"] .player-tr-spk[data-spk="4"] { color: #b03a5b; }
+  [data-theme="light"] .player-tr-spk[data-spk="5"] { color: #7d6c0a; }
+
   .player-controls {
     position: absolute;
     bottom: 0; left: 0; right: 0;
@@ -1044,11 +1081,27 @@
     gap: 8px;
     margin-bottom: 3px;
   }
+  /* O nome do falante e clicavel: abre a edicao no proprio rotulo. O
+     cursor de texto ja sinaliza isso sem precisar de icone. */
   .player-tr-spk {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.2px;
+    cursor: text;
+    border-radius: 3px;
+    margin: 0 -3px;
+    padding: 0 3px;
+    transition: background 0.12s, box-shadow 0.12s;
   }
+  .player-tr-spk:hover { background: rgba(255,255,255,0.1); }
+  .player-tr-spk.editing {
+    background: rgba(255,255,255,0.12);
+    box-shadow: 0 0 0 1.5px var(--success);
+    outline: none;
+    cursor: text;
+  }
+  [data-theme="light"] .player-tr-spk:hover { background: rgba(0,0,0,0.06); }
+  [data-theme="light"] .player-tr-spk.editing { background: rgba(0,0,0,0.05); }
   /* Cor por falante, estável ao longo do vídeo (o índice vem do JS).
      Seis matizes bem separadas — acima disso a distinção some. */
   .player-tr-spk[data-spk="0"] { color: #6ee7a8; }

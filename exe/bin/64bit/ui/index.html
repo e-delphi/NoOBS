@@ -816,17 +816,23 @@
                   onclick="Transcribe.cancel()" disabled
                   data-i18n="common.cancel">Cancelar</button>
         </div>
-        <!-- Barra de ESTIMATIVA, nao de progresso real: a API nao tem
-             rota de progresso (o POST /transcribe so responde no fim),
-             entao o preenchimento vem de decorrido/estimado. -->
+        <!-- Barra de progresso REAL: a API tem jobs (GET /jobs/{id} dá
+             estágio, percentual e ETA) e o percentual mede o trecho de
+             áudio já coberto pelos segmentos. Nada é estimado aqui. -->
         <div class="transcribe-progress" id="transcribeProgress" hidden>
           <div class="transcribe-bar"><div class="transcribe-fill" id="transcribeFill"></div></div>
           <div class="transcribe-line" id="transcribeLine"></div>
         </div>
+        <!-- MOTIVO da falha. Fica FORA da caixa de progresso de
+             propósito: aquela some quando a fila esvazia, e o erro
+             precisa continuar legível depois que o lote terminou. -->
+        <div class="transcribe-error" id="transcribeError" hidden></div>
         <div class="settings-hint" id="transcribeHint" data-i18n="settings.transcribe.queueHint">
           Uma transcrição por vez — o próprio container serializa as
-          requisições, então enfileirar mais não adiantaria. O tempo
-          mostrado é uma estimativa: a API só responde no fim.
+          requisições, então enfileirar mais não adiantaria. O percentual
+          vem da API e é real: mede o trecho de áudio já transcrito, e
+          avança aos saltos porque o processamento é feito em janelas de
+          30 segundos.
         </div>
       </div>
 

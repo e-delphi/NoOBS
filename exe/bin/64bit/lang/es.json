@@ -454,10 +454,13 @@
       "doneAll": "{{total}} transcripción(es) completada(s).",
       "doneWithFailures": "{{done}} de {{total}} completada(s), {{failed}} con error.",
       "failedN": "{{failed}} con error",
+      "queueNow": "ahora",
+      "queueRemove": "Quitar de la cola",
       "error": "Motivo del error: {{error}}",
       "errorNamed": "Error en \"{{name}}\": {{error}}",
       "remaining": "faltan ~{{eta}}",
       "stage": {
+        "checking": "comprobando el servidor",
         "extracting": "extrayendo el audio",
         "uploading": "enviando",
         "queued": "en cola en el servidor",
@@ -601,6 +604,7 @@
   "error": {
     "transcribe": {
       "emptyHost": "La dirección del servidor de transcripción está vacía. Complétala en Configuración → Transcripción.",
+      "serverDown": "El servidor de transcripción no respondió en {{host}}. Verifica que el contenedor esté en ejecución.",
       "noResponse": "El servidor de transcripción no respondió. Verifica que el contenedor esté activo y que la dirección sea correcta.",
       "jobsNotJson": "El servidor respondió algo que no es JSON al encolar el trabajo. ¿La dirección apunta realmente a Transcritor API?",
       "noJobId": "El servidor aceptó el audio pero no devolvió un identificador de trabajo.",

@@ -74,6 +74,26 @@ function LastErrorName: string;
 // Total planejado do lote atual (pra "3 de 7"). Zera quando a fila esvazia.
 function BatchTotal: Integer;
 
+// --- fila visivel/editavel (aba Transcricao) ---
+// Caminhos que AINDA ESPERAM, na ordem em que serao processados. O item
+// em curso NAO entra aqui — ele ja saiu da fila quando a worker o pegou;
+// quem o identifica e o CurrentPath.
+function QueuedPaths: TArray<string>;
+// Caminho do item em curso ('' se parado). O CurrentName so tem o nome,
+// e nome nao identifica arquivo (duas pastas podem ter homonimos).
+function CurrentPath: string;
+// Contador que muda quando a COMPOSICAO da fila muda (entrou, saiu,
+// mudou de lugar) — e nao quando so o progresso andou. O Bridge compara
+// com o ultimo que empurrou pra nao remandar a lista inteira a cada
+// tique de 1s (ver PushTranscribeQueue).
+function QueueRevision: Integer;
+// Move um item da espera pra posicao ANewIndex (0 = proximo a rodar).
+// False se o path nao esta esperando. Nao mexe no item em curso.
+function MoveInQueue(const APath: string; ANewIndex: Integer): Boolean;
+// Tira um item da espera. False se nao estava la. O item EM CURSO nao
+// sai por aqui — pra ele existe o CancelAll.
+function RemoveFromQueue(const APath: string): Boolean;
+
 // True se a gravacao ja tem transcricao no cache.
 function HasTranscript(const APath: string): Boolean;
 // Estado da transcricao em UMA palavra, pros cards da biblioteca:
@@ -173,6 +193,8 @@ var
   // Nome da gravacao que falhou. Sem ele, "1 com falha" num lote de 7
   // nao diz QUAL — e a mensagem sozinha raramente identifica o item.
   GLastErrorName: string = '';
+  // Sobe a cada mudanca de COMPOSICAO da fila. Ver QueueRevision.
+  GQueueRev: Integer = 0;
 
 function HostBase: string;
 begin
@@ -346,6 +368,102 @@ begin
   try Result := GLastErrorName; finally GLock.Leave; end;
 end;
 
+function CurrentPath: string;
+begin
+  if GLock = nil then Exit('');
+  GLock.Enter;
+  try Result := GCurrentPath; finally GLock.Leave; end;
+end;
+
+function QueueRevision: Integer;
+begin
+  Result := GQueueRev;
+end;
+
+function QueuedPaths: TArray<string>;
+// Copia sob o lock: a worker tira itens da fila a qualquer momento, e
+// devolver a TList crua deixaria o Bridge iterando sobre ela sem lock.
+var
+  i: Integer;
+begin
+  Result := nil;
+  if GLock = nil then Exit;
+  GLock.Enter;
+  try
+    if GQueue = nil then Exit;
+    SetLength(Result, GQueue.Count);
+    for i := 0 to GQueue.Count - 1 do Result[i] := GQueue[i];
+  finally
+    GLock.Leave;
+  end;
+end;
+
+function IndexInQueue(const APath: string): Integer;
+// Caller segura o GLock. Mesma regra do AlreadyQueued: compara por PATH.
+var
+  i: Integer;
+begin
+  Result := -1;
+  if GQueue = nil then Exit;
+  for i := 0 to GQueue.Count - 1 do
+    if SameText(GQueue[i], APath) then Exit(i);
+end;
+
+function MoveInQueue(const APath: string; ANewIndex: Integer): Boolean;
+var
+  Old: Integer;
+begin
+  Result := False;
+  if (GLock = nil) or (APath = '') then Exit;
+  GLock.Enter;
+  try
+    Old := IndexInQueue(APath);
+    if Old < 0 then Exit;
+    // Clamp em vez de recusar: a UI manda um indice calculado de posicao
+    // de mouse, e a fila pode ter encolhido entre o gesto e a mensagem
+    // (a worker pegou o primeiro item nesse meio-tempo).
+    if ANewIndex < 0 then ANewIndex := 0;
+    if ANewIndex > GQueue.Count - 1 then ANewIndex := GQueue.Count - 1;
+    if ANewIndex = Old then Exit;
+    GQueue.Move(Old, ANewIndex);
+    Inc(GQueueRev);
+    Result := True;
+  finally
+    GLock.Leave;
+  end;
+  if Result then
+  begin
+    Log('Transcribe: "%s" movido pra posicao %d da fila.', [APath, ANewIndex]);
+    NotifyChanged;
+  end;
+end;
+
+function RemoveFromQueue(const APath: string): Boolean;
+var
+  Idx: Integer;
+begin
+  Result := False;
+  if (GLock = nil) or (APath = '') then Exit;
+  GLock.Enter;
+  try
+    Idx := IndexInQueue(APath);
+    if Idx < 0 then Exit;
+    GQueue.Delete(Idx);
+    Inc(GQueueRev);
+    // O total do lote conta o que VAI rodar. Sem descontar, a linha de
+    // progresso ficaria presa em "6 de 7" com a fila vazia.
+    if GBatchTotal > 0 then Dec(GBatchTotal);
+    Result := True;
+  finally
+    GLock.Leave;
+  end;
+  if Result then
+  begin
+    Log('Transcribe: "%s" tirado da fila.', [APath]);
+    NotifyChanged;
+  end;
+end;
+
 function HttpErrText(const AResp: IHTTPResponse): string;
 // "HTTP 422" sozinho nao diz NADA — quem sabe o motivo e o CORPO da
 // resposta, e ele estava sendo jogado fora. A Transcritor API e FastAPI,
@@ -384,8 +502,21 @@ begin
   Result := Result + ': ' + Detail;
 end;
 
+function NetErrText(const AMsg: string): string;
+// Falha de CONEXAO chega aqui como texto cru do WinINet — "Error sending
+// data: (12152) O servidor retornou uma resposta invalida" — que descreve
+// o sintoma e nao o que fazer. Container parado da justamente isso, e o
+// usuario nao tem como ligar uma coisa a outra. Troca pela frase que diz
+// o que houve e ONDE; o texto tecnico vai pro log, que e onde ele serve.
+begin
+  Log('Transcribe: falha de rede contra %s: %s', [HostBase, AMsg]);
+  Result := OBSLang.T('error.transcribe.serverDown', ['host', HostBase]);
+end;
+
 function CheckHealth(const AHost: string): string;
 // Roda na worker (a UI chama por um botao "Testar"). '' = ok.
+// Devolve o texto CRU da falha de proposito: aqui o usuario apertou
+// "Testar" e quer o diagnostico. Quem transcreve usa o serverDown.
 var
   Http: TNetHTTPClient;
   Resp: IHTTPResponse;
@@ -477,7 +608,7 @@ begin
       try
         Resp := Http.Post(HostBase + JOBS_PATH, Data);
       except
-        on E: Exception do Exit(E.Message);
+        on E: Exception do Exit(NetErrText(E.Message));
       end;
       if Resp = nil then Exit(OBSLang.T('error.transcribe.noResponse'));
       // 202 e o esperado; aceita 200 tambem pra nao quebrar se a API
@@ -552,7 +683,7 @@ begin
     try
       Resp := Http.Get(HostBase + JOBS_PATH + '/' + AJobId);
     except
-      on E: Exception do Exit(E.Message);
+      on E: Exception do Exit(NetErrText(E.Message));
     end;
     if Resp = nil then Exit(OBSLang.T('error.transcribe.noResponse'));
     if Resp.StatusCode = 404 then Exit(OBSLang.T('error.transcribe.jobGone'));
@@ -600,8 +731,23 @@ var
   Prog: Double;
   Eta: Integer;
   Json: TJSONValue;
+  HealthErr: string;
 begin
   if not TFile.Exists(APath) then Exit(OBSLang.T('error.transcribe.fileMissing'));
+
+  // PING ANTES DE QUALQUER TRABALHO. Duas razoes, e a segunda e a que
+  // pesa: (1) servidor fora do ar so aparecia depois de extrair o audio
+  // — dezenas de MB, segundos a minutos jogados fora por item do lote;
+  // (2) o erro que chegava era o do WinINet no meio do upload ("Error
+  // sending data: (12152)..."), que nao tem como ser lido como
+  // "o container nao esta rodando". O /health e barato e local.
+  SetStage('checking', 0, -1);
+  HealthErr := CheckHealth(HostBase);
+  if HealthErr <> '' then
+  begin
+    Log('Transcribe: /health nao respondeu (%s): %s', [HostBase, HealthErr]);
+    Exit(OBSLang.T('error.transcribe.serverDown', ['host', HostBase]));
+  end;
 
   // SO O AUDIO. O video passaria do MAX_UPLOAD_MB da API (512 MB) numa
   // gravacao 4K de poucos minutos. Indice 0 = faixa de MISTURA, que ja
@@ -711,6 +857,7 @@ begin
         begin
           Path := GQueue[0];
           GQueue.Delete(0);
+          Inc(GQueueRev);
           GRunning := True;
           GCurrentPath := Path;
           GCurrentName := ChangeFileExt(ExtractFileName(Path), '');
@@ -724,6 +871,7 @@ begin
         end
         else
         begin
+          if GRunning then Inc(GQueueRev);   // a linha "em curso" sai da lista
           GRunning := False;
           GCurrentPath := '';
           GCurrentName := '';
@@ -833,6 +981,7 @@ begin
     ResetBatchIfIdle;
     GQueue.Add(APath);
     Inc(GBatchTotal);
+    Inc(GQueueRev);
   finally
     GLock.Leave;
   end;
@@ -856,6 +1005,7 @@ begin
       if AlreadyQueued(APaths[i]) then Continue;
       GQueue.Add(APaths[i]);
       Inc(GBatchTotal);
+      Inc(GQueueRev);
       Inc(Added);
     end;
   finally
@@ -871,6 +1021,7 @@ begin
   GLock.Enter;
   try
     if GQueue <> nil then GQueue.Clear;
+    Inc(GQueueRev);
     // Agora o item EM CURSO tambem para: a API ganhou DELETE /jobs/{id}.
     // A worker ve esta flag na proxima consulta (no maximo 1s), manda o
     // DELETE e desiste. Antes, sem rota de cancelamento, ele tinha que

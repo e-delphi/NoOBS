@@ -454,10 +454,13 @@
       "doneAll": "{{total}} transcription(s) finished.",
       "doneWithFailures": "{{done}} of {{total}} finished, {{failed}} failed.",
       "failedN": "{{failed}} failed",
+      "queueNow": "now",
+      "queueRemove": "Remove from queue",
       "error": "Failure reason: {{error}}",
       "errorNamed": "\"{{name}}\" failed: {{error}}",
       "remaining": "~{{eta}} left",
       "stage": {
+        "checking": "checking the server",
         "extracting": "extracting audio",
         "uploading": "uploading",
         "queued": "queued on the server",
@@ -601,6 +604,7 @@
   "error": {
     "transcribe": {
       "emptyHost": "The transcription server address is empty. Fill it in under Settings → Transcription.",
+      "serverDown": "The transcription server did not respond at {{host}}. Check that the container is running.",
       "noResponse": "The transcription server did not respond. Check that the container is running and the address is correct.",
       "jobsNotJson": "The server replied with something that is not JSON when queuing the job. Does the address really point to the Transcritor API?",
       "noJobId": "The server accepted the audio but did not return a job id.",

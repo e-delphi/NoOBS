@@ -52,18 +52,25 @@ function updateAudioMeters(items) {
     if (!meter) return;
     const ch = (it.channels && it.channels >= 2) ? 2 : 1;
     meter.dataset.channels = String(ch);
-    // Microfone mudo no Windows: a barra continua se mexendo (o medidor
-    // le o sinal do mesmo jeito), so troca de cor. `toggle` com o valor
-    // explicito porque a saida nao manda o campo — e sem o segundo
-    // argumento isso viraria um alterna-a-cada-tique.
+    // Microfone mudo no Windows. `toggle` com o valor explícito porque a
+    // saída não manda o campo — e sem o segundo argumento isso viraria um
+    // alterna-a-cada-tique.
     meter.classList.toggle('muted', !!it.muted);
 
     const fillL = meter.querySelector('.source-meter-track[data-ch="l"] .source-meter-fill');
     const fillR = meter.querySelector('.source-meter-track[data-ch="r"] .source-meter-fill');
 
     // Backend manda left/right separados. Fallback: usa level.
-    const vL = ampToBar(typeof it.left  === 'number' ? it.left  : it.level);
-    const vR = ampToBar(typeof it.right === 'number' ? it.right : it.level);
+    let vL = ampToBar(typeof it.left  === 'number' ? it.left  : it.level);
+    let vR = ampToBar(typeof it.right === 'number' ? it.right : it.level);
+
+    // Endpoint mudo: o nível É zero, e não é limitação nossa — o mudo do
+    // microfone é aplicado ANTES de qualquer aplicativo (nesta máquina,
+    // no próprio hardware), então nem o medidor do Windows nem as
+    // amostras cruas de uma captura WASAPI trazem sinal. Ver pegadinha
+    // #59. Como não há intensidade pra mostrar, a barra vai CHEIA: vazia
+    // e vermelha parece medidor quebrado, cheia e vermelha diz CORTADO.
+    if (it.muted) { vL = 1; vR = 1; }
 
     // Cover desliza da esquerda (sinal zero = cobre tudo) pra direita
     // (sinal 1.0 = cover colapsado, gradient inteiro visivel).

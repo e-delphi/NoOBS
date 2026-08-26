@@ -70,6 +70,8 @@
     transcribe_recording : id (filepath) — enfileira uma
     transcribe_pending   : — enfileira TODAS as ainda nao transcritas
     cancel_transcribe    : — limpa a fila (o item em voo termina)
+    move_transcribe_item : id, to (indice na ESPERA) — reordena a fila
+    remove_transcribe_item: id — tira da fila (nao apaga o arquivo)
     get_transcribe_state : — pede transcribe_state + transcribe_pending
     request_transcript   : id (filepath) — responde `transcript`
     set_speaker_name     : id (filepath), speaker (ex.: 'SPEAKER_00'),
@@ -101,6 +103,9 @@
                            eta (segundos, -1 = a API ainda nao arrisca),
                            stage, lastError, lastErrorName (pegadinha #60)
     transcribe_pending   : count (quantas ainda nao foram transcritas)
+    transcribe_queue     : items[] ({id,name,duration,current}) — a fila
+                           na ordem de execucao, item em curso primeiro.
+                           So sai quando a COMPOSICAO muda (QueueRevision)
     transcribe_health    : ok, error
     transcript           : id, transcribed (o arquivo existe), has (tem
                            turnos), turns[] ({speaker,start,end,text}),
@@ -2613,9 +2618,11 @@ begin
   Levels := ReadPeakLevels;
   if Length(Levels) = 0 then Exit;
   Devs := EnumerateAudioDevices;
-  // Mudo do ENDPOINT, pra UI pintar a barra do microfone de vermelho. O
-  // medidor continua lendo o sinal normalmente num endpoint mudo — a cor
-  // e a unica coisa que muda.
+  // Mudo do ENDPOINT, pra UI pintar a barra do microfone de vermelho.
+  // Num endpoint mudo o pico vem ZERO e nao ha como recuperar o nivel:
+  // o mudo e aplicado antes de qualquer aplicativo (medido — pegadinha
+  // #59). Por isso a UI desenha a barra CHEIA de vermelho em vez de
+  // vazia: nao ha intensidade pra mostrar, so o estado.
   Mutes := ReadInputMutes;
 
   Arr := TJSONArray.Create;
@@ -5289,6 +5296,128 @@ begin
   PostOwned(Obj);
 end;
 
+procedure FillQueueDurations(const APaths: TArray<string>); forward;
+
+var
+  // Ultima revisao de fila JA empurrada. A composicao da fila muda raro
+  // (entrou, saiu, mudou de lugar), mas o transcribe_state sai a cada
+  // tique de 1s — remandar a lista inteira junto seria desperdicio.
+  LastQueueRev: Integer = -1;
+  // Uma varredura de duracao por vez (ver FillQueueDurations).
+  QueueDurBusy: Boolean = False;
+  // Paths que JA passaram pelo probe. Sem esta marca a varredura
+  // reentraria pra sempre: o re-push no fim dela reencontra como
+  // "sem duracao" justamente os arquivos que o probe nao conseguiu
+  // ler, e dispararia outra varredura. Tambem evita reprobar a fila
+  // inteira a cada reordenacao.
+  QueueDurTried: TStringList = nil;
+
+procedure PushTranscribeQueue;
+// A fila COMPLETA pra tela: o item em curso primeiro (marcado, e nao
+// reordenavel), depois os que esperam na ordem em que vao rodar.
+//
+// Duracao sai do cache (GetCachedMeta e instantaneo). Quem nao tem vai
+// com 0 e a UI mostra um traco, ate o FillQueueDurations preencher —
+// o scan de metadata do startup so cobre a pasta VISIVEL, e a fila
+// costuma juntar gravacoes da arvore inteira.
+var
+  Obj: TJSONObject;
+  Arr: TJSONArray;
+  Item: TJSONObject;
+  Waiting, Missing: TArray<string>;
+  Cur: string;
+  i, n: Integer;
+
+  procedure AddItem(const APath: string; ACurrent: Boolean);
+  var
+    Dur: Integer;
+    Thumb: string;
+    Meta: TRecordingMeta;
+  begin
+    Dur := 0;
+    Thumb := '';
+    GetCachedMeta(APath, Dur, Thumb, Meta);
+    Item := TJSONObject.Create;
+    Item.AddPair('id', APath);
+    Item.AddPair('name', ChangeFileExt(ExtractFileName(APath), ''));
+    Item.AddPair('duration', TJSONNumber.Create(Dur));
+    Item.AddPair('current', TJSONBool.Create(ACurrent));
+    Arr.AddElement(Item);
+    if (Dur <= 0) and (not ACurrent) and
+       ((QueueDurTried = nil) or (QueueDurTried.IndexOf(APath) < 0)) then
+    begin
+      SetLength(Missing, Length(Missing) + 1);
+      Missing[High(Missing)] := APath;
+    end;
+  end;
+
+begin
+  Cur := OBSTranscribe.CurrentPath;
+  Waiting := OBSTranscribe.QueuedPaths;
+  SetLength(Missing, 0);
+
+  Arr := TJSONArray.Create;
+  if (Cur <> '') and OBSTranscribe.IsRunning then AddItem(Cur, True);
+  n := Length(Waiting);
+  for i := 0 to n - 1 do AddItem(Waiting[i], False);
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'transcribe_queue');
+  Obj.AddPair('items', Arr);
+  PostOwned(Obj);
+
+  if Length(Missing) > 0 then FillQueueDurations(Missing);
+end;
+
+procedure FillQueueDurations(const APaths: TArray<string>);
+// Worker: preenche as duracoes que faltam (libav, pegadinha #3) e
+// re-empurra a fila UMA vez no fim. Por item seria um push por
+// gravacao — a lista inteira piscando dezenas de vezes.
+var
+  Snapshot: TArray<string>;
+  i: Integer;
+begin
+  if QueueDurBusy then Exit;
+  if not FFmpegLibAvailable then Exit;
+  QueueDurBusy := True;
+  if QueueDurTried = nil then
+  begin
+    QueueDurTried := TStringList.Create;
+    QueueDurTried.Sorted := True;
+    QueueDurTried.Duplicates := dupIgnore;
+    QueueDurTried.CaseSensitive := False;
+  end;
+  SetLength(Snapshot, Length(APaths));
+  for i := 0 to High(APaths) do
+  begin
+    Snapshot[i] := APaths[i];
+    QueueDurTried.Add(APaths[i]);
+  end;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      j, Dur: Integer;
+      Thumb: string;
+    begin
+      for j := 0 to High(Snapshot) do
+      begin
+        if IsShuttingDown then Break;
+        try EnsureRecordingMeta(Snapshot[j], Dur, Thumb); except end;
+      end;
+      TThread.Queue(nil,
+        procedure
+        begin
+          QueueDurBusy := False;
+          if IsShuttingDown then Exit;
+          // Forca o re-push: a composicao nao mudou (mesma revisao), so
+          // os numeros que faltavam.
+          LastQueueRev := -1;
+          PushTranscribeQueue;
+          LastQueueRev := OBSTranscribe.QueueRevision;
+        end);
+    end).Start;
+end;
+
 var
   // Ultimo estado de "rodando" visto pelo callback, pra detectar a BORDA
   // de fim de lote.
@@ -5299,6 +5428,13 @@ procedure OnTranscribeChanged;
 begin
   if IsShuttingDown then Exit;
   PushTranscribeState;
+  // So quando a COMPOSICAO da fila mudou — o progresso sozinho nao
+  // justifica remandar a lista a cada segundo.
+  if OBSTranscribe.QueueRevision <> LastQueueRev then
+  begin
+    PushTranscribeQueue;
+    LastQueueRev := OBSTranscribe.QueueRevision;
+  end;
   // Lote terminou: re-lista pra os selos de "transcrita" aparecerem nos
   // cards. So na BORDA — re-listar a cada item concluido faria uma
   // biblioteca grande piscar dezenas de vezes durante um lote.
@@ -5364,6 +5500,25 @@ end;
 procedure HandleCancelTranscribe;
 begin
   OBSTranscribe.CancelAll;
+end;
+
+procedure HandleMoveTranscribeItem(const APath: string; AIndex: Integer);
+// Reordena a ESPERA. O indice vem da posicao final na lista da tela,
+// ja descontando a linha do item em curso (que a UI nao deixa arrastar).
+begin
+  if not IsPathInRecordDir(APath) then Exit;
+  OBSTranscribe.MoveInQueue(APath, AIndex);
+end;
+
+procedure HandleRemoveTranscribeItem(const APath: string);
+// Tira da fila SEM apagar nada do disco — o arquivo continua la, so
+// nao vai ser transcrito neste lote.
+begin
+  if not IsPathInRecordDir(APath) then Exit;
+  if OBSTranscribe.RemoveFromQueue(APath) then
+    // A gravacao volta a contar como "pendente": o botao "Transcrever
+    // pendentes" tem que voltar a oferece-la.
+    PushTranscribePending;
 end;
 
 function LoadSpeakerNames(const APath: string): TJSONObject;
@@ -6480,10 +6635,19 @@ begin
       HandleTranscribePending
     else if MsgType = 'cancel_transcribe' then
       HandleCancelTranscribe
+    else if MsgType = 'move_transcribe_item' then
+      HandleMoveTranscribeItem(GetStrField(Obj, 'id'),
+        GetIntField(Obj, 'to', 0))
+    else if MsgType = 'remove_transcribe_item' then
+      HandleRemoveTranscribeItem(GetStrField(Obj, 'id'))
     else if MsgType = 'get_transcribe_state' then
     begin
       PushTranscribeState;
       PushTranscribePending;
+      // A aba acabou de abrir: manda a lista mesmo sem a composicao
+      // ter mudado, senao ela so apareceria na proxima alteracao.
+      PushTranscribeQueue;
+      LastQueueRev := OBSTranscribe.QueueRevision;
     end
     else if MsgType = 'request_transcript' then
       HandleRequestTranscript(GetStrField(Obj, 'id'))
@@ -7083,5 +7247,6 @@ initialization
 
 finalization
   Shutdown;
+  if QueueDurTried <> nil then FreeAndNil(QueueDurTried);
 
 end.

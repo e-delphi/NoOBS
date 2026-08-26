@@ -371,10 +371,10 @@
       var(--danger-2) 100%);
   }
   /* Microfone mudo no Windows — mudo do sistema, botao do fone, ou app
-     de chamada que propaga o mudo (Teams e afins). A barra continua
-     respondendo ao som: o medidor le o sinal normalmente num endpoint
-     mudo, e e justamente por isso que o aviso e util (voce ve que esta
-     falando e que nada disso esta saindo).
+     de chamada que propaga o mudo (Teams e afins). A barra fica CHEIA e
+     vermelha, nao vazia: o nivel num endpoint mudo e zero de verdade e
+     nao ha como recupera-lo (medido — ver pegadinha #59), entao uma
+     barra vazia so pareceria medidor quebrado. Cheia, ela diz CORTADO.
      Cor CHAPADA de proposito: o gradiente verde/ambar/vermelho fala de
      NIVEL, e aqui a cor precisa falar de ESTADO. Um gradiente vermelho
      seria lido como pico. */

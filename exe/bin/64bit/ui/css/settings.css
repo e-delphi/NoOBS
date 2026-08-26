@@ -942,3 +942,84 @@
     overflow-wrap: anywhere;
   }
   .transcribe-error[hidden] { display: none; }
+
+  /* ===== Fila de transcrição =====
+     Lista arrastável. As linhas têm altura confortável de propósito: o
+     alvo de arrasto é o item inteiro, e uma tira de 20px seria briga com
+     o mouse. `user-select: none` porque arrastar sobre texto selecionável
+     vira seleção em vez de drag. */
+  .transcribe-queue {
+    margin-top: 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+  }
+  .transcribe-queue[hidden] { display: none; }
+
+  .tq-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    font-size: 12px;
+    color: var(--text-2);
+    border-top: 1px solid var(--border-2);
+    background: transparent;
+  }
+  .tq-item:first-child { border-top: none; }
+  .tq-item[draggable="true"] { cursor: grab; }
+  .tq-item.dragging { opacity: .45; cursor: grabbing; }
+  /* Linha por cima da qual o item arrastado vai cair. */
+  .tq-item.drop-before { box-shadow: inset 0 2px 0 0 var(--success); }
+  .tq-item.drop-after  { box-shadow: inset 0 -2px 0 0 var(--success); }
+
+  .tq-grip {
+    flex: none;
+    width: 12px;
+    text-align: center;
+    color: var(--text-3);
+    line-height: 1;
+  }
+  .tq-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tq-dur {
+    flex: none;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .tq-del {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tq-del:hover { background: var(--danger); color: #fff; }
+
+  /* O item EM CURSO: fica, mas não se arrasta nem se remove. O ponto
+     verde é o mesmo sinal do resto do app pra "acontecendo agora". */
+  .tq-item.current {
+    color: var(--text);
+    background: var(--panel-3);
+    cursor: default;
+  }
+  .tq-item.current .tq-grip { color: var(--success); }
+  .tq-badge {
+    flex: none;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--success);
+  }

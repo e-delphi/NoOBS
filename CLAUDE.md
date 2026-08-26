@@ -96,7 +96,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
-| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO da faixa de mistura; grava a resposta no cache |
+| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO da faixa de mistura; grava a resposta no cache. A fila é reordenável e removível item a item (`MoveInQueue`/`RemoveFromQueue`) |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
@@ -2074,14 +2074,40 @@ Três detalhes de implementação que não são óbvios:
 - **Só chame o libobs quando muda de verdade** — o tick é de 100ms.
   `MicMuteApplied` guarda o último estado aplicado por fonte; sem ele
   seriam 10 chamadas por segundo por microfone, sem nenhuma mudança.
-- **O MEDIDOR continua lendo o sinal num endpoint mudo.** Isso não é
-  óbvio (dá pra supor que o mute zera o pico), e é o que torna o aviso
-  visual útil: a barra do microfone se mexe enquanto você fala, mas fica
-  **vermelha** — você vê que está falando e que nada disso está saindo. O
-  `audio_meters` leva `muted` só nas ENTRADAS, e o CSS troca o gradiente
-  verde/âmbar/vermelho por vermelho CHAPADO: o gradiente fala de NÍVEL, e
-  aqui a cor precisa falar de ESTADO (um gradiente vermelho seria lido
-  como pico).
+- **Num endpoint mudo NÃO HÁ nível pra ler — nem pelo medidor, nem pelas
+  amostras cruas.** O CLAUDE.md afirmou o contrário ("a barra se mexe
+  enquanto você fala, mas fica vermelha"); era suposição, e foi derrubada
+  medindo. Com o mudo ligado, tanto o `IAudioMeterInformation` do
+  endpoint quanto o PCM de um `IAudioClient` de captura em shared mode
+  vêm **exatamente 0,0000** — e o flag `AUDCLNT_BUFFERFLAGS_SILENT` nem
+  chega a ser setado: o buffer vem zerado e ponto.
+
+  | estado | medidor | amostras | RAW mode |
+  |---|---|---|---|
+  | não mudo | 0,04–0,08 | 0,04–0,07 | 0,01–0,02 |
+  | mudo | **0,0000** | **0,0000** | **0,0000** |
+
+  O motivo está no `IAudioEndpointVolume::QueryHardwareSupport`, que
+  devolve **0x3** nesta máquina: o bit `ENDPOINT_HARDWARE_SUPPORT_MUTE`
+  (0x2) diz que o mudo é feito **no hardware**. O sinal é cortado no
+  próprio dispositivo, antes de existir para o Windows — não é limitação
+  da nossa API nem coisa que outra interface COM resolva. Testado
+  inclusive o último candidato, `IAudioClient2::SetClientProperties` com
+  `AUDCLNT_STREAMOPTIONS_RAW` (que ignora os APOs do driver): aceito com
+  `S_OK` e mesmo assim zeros.
+
+  Consequência de UI: como não há intensidade pra mostrar, a barra do
+  microfone mudo vai **CHEIA** de vermelho, não vazia — vazia e vermelha
+  parece medidor quebrado, que foi exatamente como se leu na prática.
+  O `audio_meters` leva `muted` só nas ENTRADAS, e o CSS troca o
+  gradiente verde/âmbar/vermelho por vermelho CHAPADO: o gradiente fala
+  de NÍVEL, e aqui a cor precisa falar de ESTADO (um gradiente vermelho
+  seria lido como pico).
+
+  **Não tente "recuperar" esse nível.** Se algum dia parecer que dá,
+  refaça a medição antes — o probe é ~200 linhas de C# por
+  `Add-Type`/PowerShell contra o COM real, no mesmo espírito da nota de
+  método abaixo.
 
 Nota de método: não havia `endpointvolume.h` na máquina nem referência na
 fonte do OBS, então a ordem da vtable foi **verificada em runtime** —
@@ -2135,6 +2161,43 @@ gravação 4K de poucos minutos passa disso. Vai só a **faixa de mistura**
 (stream 0, que já tem todos os microfones e o som do sistema), extraída
 em m4a pelo `ExtractAudioTracks` — 1 hora dá ~70 MB. O m4a é apagado
 depois do envio: é veículo de upload, não cache.
+
+**i) A fila é EDITÁVEL, e por isso ela é o estado — não a contagem.**
+A aba de Transcrição lista a fila inteira (nome + duração), com arrastar
+pra reordenar e × pra tirar da fila. Quatro coisas que isso obrigou:
+
+- **A ordem é do backend, nunca do DOM.** A UI manda `move_transcribe_item`
+  com a posição final e espera o push de volta. Reordenar só no cliente
+  divergiria da `GQueue` na primeira vez que a worker pegasse um item no
+  meio do gesto.
+- **O índice é da ESPERA, não da lista da tela.** O item em curso já saiu
+  da `GQueue` quando a worker o pegou, então ele aparece na lista (fixo,
+  sem alça e sem ×) mas não conta pro índice. `Transcribe._dropOn` filtra
+  o `current` antes de calcular, e o `MoveInQueue` faz clamp em vez de
+  recusar — a fila pode ter encolhido entre o gesto e a mensagem.
+- **Remover desconta o `GBatchTotal`.** Ele conta o que VAI rodar; sem o
+  `Dec` a linha de progresso ficaria presa em "6 de 7" com a fila vazia.
+  E o `PushTranscribePending` tem que sair junto, senão o botão
+  "Transcrever pendentes" não voltaria a oferecer a gravação.
+- **A lista sai num push PRÓPRIO (`transcribe_queue`), guiado pelo
+  `QueueRevision`.** O `transcribe_state` sai a cada tique de 1 s; mandar
+  a lista inteira junto seria remandar dezenas de caminhos por segundo
+  pra nada. O contador só sobe quando a COMPOSIÇÃO muda (entrou, saiu,
+  mudou de lugar, a worker pegou um item), e o Bridge compara com o que
+  já empurrou.
+
+E a duração: ela vem do cache (`GetCachedMeta`, instantâneo), mas o scan
+de metadata do startup só cobre a pasta **visível** — a fila junta
+gravações da árvore inteira, então boa parte chegaria sem número. O
+`FillQueueDurations` roda o probe em worker pros que faltam e reempurra a
+lista UMA vez no fim. Ele guarda os paths já tentados (`QueueDurTried`):
+sem essa marca o re-push reencontra como "sem duração" justamente os
+arquivos que o probe não conseguiu ler e dispara outra varredura — laço
+infinito — além de reprobar a fila inteira a cada reordenação.
+
+Arrastar tem a armadilha da pegadinha #56 de novo: um push que chegue no
+meio do gesto refaria a lista e mataria o drag. `renderQueue` adia
+enquanto `_dragId` estiver setado e reaplica no `dragend`.
 
 **c) Uma por vez não é escolha nossa.** O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
@@ -2204,6 +2267,23 @@ Corolário: como essas mensagens agora são LIDAS, elas passaram a sair do
 `error.transcribe.*` do `lang\*.json`, como o resto do app. O que vem do
 servidor ou do SO (detail do HTTP, `E.Message`) segue cru — não há como
 traduzir texto de fora.
+
+Com uma exceção, e é a falha mais comum de todas: **container parado.**
+Isso chegava como texto do WinINet no meio do upload — `Error sending
+data: (12152) O servidor retornou uma resposta inválida` — que descreve o
+sintoma e não tem como ser lido como "o Docker não está rodando". Duas
+peças: o `ProcessOne` **pinga o `/health` ANTES de extrair o áudio** (sem
+isso o lote gastava dezenas de MB e minutos por item pra descobrir no
+upload que não havia servidor), e o `NetErrText` troca qualquer exceção
+de conexão pela frase com o host, mandando o texto técnico pro log. O
+`CheckHealth` continua devolvendo o erro CRU: ali o usuário apertou
+"Testar" e quer o diagnóstico.
+
+E o toast passou a sair **só quando o motivo é novo**. Com o servidor
+fora do ar o lote inteiro falha pela mesma razão, um item atrás do
+outro — e o `Toast` deduplica por TÍTULO, que aqui traz o nome da
+gravação, então seriam N avisos empilhados dizendo a mesma coisa. A
+contagem corrente fica na linha vermelha, que é o lugar dela.
 
 **e) "Sem fala" não é "não transcrita".** Uma gravação de tela sem
 ninguém falando é transcrita com sucesso e volta com **zero turnos** —

@@ -93,6 +93,11 @@ const Bridge = {
       // Etapa da transcrição é traduzida em tempo de render (o código
       // vem da API em inglês), então precisa repintar na troca de idioma.
       try { Transcribe.render(); } catch (e) {}
+      // A fila tem o selo "agora" e o title do botão de remover, os
+      // dois traduzidos em tempo de render. Fora do render() de
+      // propósito: aquele roda a cada segundo e refazer a lista ali
+      // mataria um arrasto em curso.
+      try { Transcribe.renderQueue(); } catch (e) {}
       // Caminho da pasta: "Gravações" (raiz) e "Voltar" sao traduzidos e
       // ficam fora do walk do apply() — o breadcrumb e montado em JS.
       try { RecFolders.renderPath(); } catch (e) {}
@@ -219,6 +224,7 @@ const Bridge = {
     settings(data) { Settings.applySettings(data); },
     transcribe_state(data)   { Transcribe.applyState(data); },
     transcribe_pending(data) { Transcribe.applyPending(data); },
+    transcribe_queue(data)   { Transcribe.applyQueue(data); },
     transcribe_health(data)  { Transcribe.onHealth(data); },
     transcript(data)         { Player.applyTranscript(data); },
     transcript_search(data)  { onTranscriptSearchResult(data); },

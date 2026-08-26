@@ -827,6 +827,11 @@
              propósito: aquela some quando a fila esvazia, e o erro
              precisa continuar legível depois que o lote terminou. -->
         <div class="transcribe-error" id="transcribeError" hidden></div>
+        <!-- Fila visível: nome + duração, arrastável pra reordenar e
+             com × pra tirar da fila (não apaga a gravação). O item em
+             curso aparece no topo, fixo — reordenar o que já está no
+             servidor não faria nada. Montada em JS (Transcribe.renderQueue). -->
+        <div class="transcribe-queue" id="transcribeQueue" hidden></div>
         <div class="settings-hint" id="transcribeHint" data-i18n="settings.transcribe.queueHint">
           Uma transcrição por vez — o próprio container serializa as
           requisições, então enfileirar mais não adiantaria. O percentual

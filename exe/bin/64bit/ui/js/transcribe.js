@@ -29,7 +29,11 @@ const Transcribe = {
   stage: '',
   lastError: '',
   lastErrorName: '',   // qual gravação falhou — "1 com falha" sozinho não diz
+  _lastToastError: '', // último motivo já avisado por toast (ver applyState)
   pending: 0,
+  queueItems: [],  // [{id,name,duration,current}] na ordem de execução
+  _dragId: null,   // item sendo arrastado AGORA (trava o re-render)
+  _pendingQueueRender: false,
   _tick: null,
 
   // ---- ações ---------------------------------------------------------
@@ -86,11 +90,22 @@ const Transcribe = {
     // vai fazer outra coisa — ninguém fica olhando esta aba. Sem o toast,
     // a falha só existia numa linha que não estava na tela de ninguém.
     // Só na BORDA (o contador subiu), senão cada push repetiria o aviso.
-    if (this.failed > failedBefore && this.lastError) {
+    //
+    // E só quando o MOTIVO é novo: com o servidor fora do ar o lote
+    // inteiro falha pelo mesmo motivo, um item atrás do outro, e o
+    // Toast só deduplica por título — que aqui traz o nome da gravação,
+    // então seriam N avisos empilhados dizendo a mesma coisa. A contagem
+    // corrente continua na linha vermelha, que é o lugar dela.
+    if (this.failed > failedBefore && this.lastError &&
+        this.lastError !== this._lastToastError) {
+      this._lastToastError = this.lastError;
       Toast.show(
         T('toast.transcribeFailed', { name: this.lastErrorName || '—' }),
         this.lastError, { warn: true, ttl: 12000 });
     }
+    // Lote novo (o backend zerou os contadores) reabre o aviso: o mesmo
+    // motivo numa segunda tentativa é informação, não repetição.
+    if (this.failed === 0) this._lastToastError = '';
     this.render();
     // O decorrido anda sozinho entre um push e outro: o backend só
     // reempurra quando algo MUDA (etapa, percentual, ETA), e o percentual
@@ -101,6 +116,18 @@ const Transcribe = {
   applyPending(data) {
     this.pending = (data && data.count) || 0;
     this.render();
+  },
+
+  applyQueue(data) {
+    this.queueItems = (data && data.items) || [];
+    this.renderQueue();
+  },
+
+  // Tira da fila. NÃO apaga a gravação — ela volta a contar como
+  // pendente e pode ser enfileirada de novo depois.
+  removeFromQueue(id) {
+    if (!id) return;
+    Bridge.send('remove_transcribe_item', { id: id });
   },
 
   // O "faltam" só DESCE.
@@ -154,6 +181,148 @@ const Transcribe = {
       return `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
     }
     return `${m}:${String(s).padStart(2, '0')}`;
+  },
+
+  // ---- fila (lista arrastável) ---------------------------------------
+
+  // A lista vem PRONTA do backend, na ordem de execução, com o item em
+  // curso na frente. Nada é deduzido aqui: a ordem é do OBSTranscribe, e
+  // reordenar é mandar a nova posição e esperar o push de volta.
+  renderQueue() {
+    const box = document.getElementById('transcribeQueue');
+    if (!box) return;
+
+    // Arrastando: o DOM está no meio de um gesto e re-renderizar mataria
+    // o drag (mesma armadilha da edição de nome — pegadinha #56). O push
+    // que chegar agora é reaplicado no dragend.
+    if (this._dragId) { this._pendingQueueRender = true; return; }
+
+    const items = this.queueItems || [];
+    box.textContent = '';
+    box.hidden = items.length === 0;
+    if (!items.length) return;
+
+    items.forEach((it) => {
+      const row = document.createElement('div');
+      row.className = 'tq-item' + (it.current ? ' current' : '');
+      row.dataset.id = it.id;
+
+      const grip = document.createElement('span');
+      grip.className = 'tq-grip';
+      grip.textContent = it.current ? '●' : '⠿';
+      row.appendChild(grip);
+
+      const name = document.createElement('span');
+      name.className = 'tq-name';
+      name.textContent = it.name || '';
+      name.title = it.name || '';
+      row.appendChild(name);
+
+      const dur = document.createElement('span');
+      dur.className = 'tq-dur';
+      // Duração 0 = ainda não lida do arquivo. O backend dispara o probe
+      // ao montar a lista e reempurra quando termina, então o traço é
+      // temporário — não é "gravação sem duração".
+      dur.textContent = it.duration > 0 ? this._fmt(it.duration) : '—';
+      row.appendChild(dur);
+
+      if (it.current) {
+        const badge = document.createElement('span');
+        badge.className = 'tq-badge';
+        badge.textContent = T('settings.transcribe.queueNow');
+        row.appendChild(badge);
+      } else {
+        row.draggable = true;
+        this._wireDrag(row);
+        const del = document.createElement('button');
+        del.className = 'tq-del';
+        del.type = 'button';
+        del.textContent = '×';
+        del.title = T('settings.transcribe.queueRemove');
+        del.setAttribute('aria-label', del.title);
+        del.draggable = false;   // o botão não inicia o arrasto da linha
+        del.addEventListener('mousedown', (e) => e.stopPropagation());
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.removeFromQueue(it.id);
+        });
+        row.appendChild(del);
+      }
+
+      box.appendChild(row);
+    });
+  },
+
+  _wireDrag(row) {
+    row.addEventListener('dragstart', (e) => {
+      this._dragId = row.dataset.id;
+      row.classList.add('dragging');
+      try {
+        e.dataTransfer.effectAllowed = 'move';
+        // Alguns alvos só aceitam o drop se houver dado; o conteúdo em si
+        // não é lido por ninguém (mesma razão do RecFolders).
+        e.dataTransfer.setData('text/plain', row.dataset.id);
+      } catch (err) {}
+      e.stopPropagation();
+    });
+
+    row.addEventListener('dragover', (e) => {
+      if (!this._dragId || row.dataset.id === this._dragId) return;
+      e.preventDefault();   // sem isto o navegador recusa o drop
+      e.stopPropagation();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+      const r = row.getBoundingClientRect();
+      const after = (e.clientY - r.top) > r.height / 2;
+      this._clearDropMarks();
+      row.classList.add(after ? 'drop-after' : 'drop-before');
+    });
+
+    row.addEventListener('dragleave', () => {
+      row.classList.remove('drop-before', 'drop-after');
+    });
+
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const after = row.classList.contains('drop-after');
+      this._clearDropMarks();
+      this._dropOn(row.dataset.id, after);
+    });
+
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      this._clearDropMarks();
+      this._dragId = null;
+      // Um push pode ter chegado durante o gesto (o item em curso terminou,
+      // por exemplo). Aplica agora, que o DOM já está livre.
+      if (this._pendingQueueRender) {
+        this._pendingQueueRender = false;
+        this.renderQueue();
+      }
+    });
+  },
+
+  _clearDropMarks() {
+    const box = document.getElementById('transcribeQueue');
+    if (!box) return;
+    box.querySelectorAll('.drop-before, .drop-after')
+       .forEach(el => el.classList.remove('drop-before', 'drop-after'));
+  },
+
+  // Posição final na ESPERA — o backend indexa a fila de espera, que não
+  // inclui o item em curso, então a linha dele sai da conta.
+  _dropOn(targetId, after) {
+    const dragId = this._dragId;
+    if (!dragId || !targetId || dragId === targetId) return;
+    const waiting = (this.queueItems || []).filter(it => !it.current);
+    const from = waiting.findIndex(it => it.id === dragId);
+    let to = waiting.findIndex(it => it.id === targetId);
+    if (from < 0 || to < 0) return;
+    if (after) to++;
+    // Tirar o item da posição antiga desloca em 1 tudo que vem depois.
+    if (from < to) to--;
+    if (to === from) return;
+    Bridge.send('move_transcribe_item', { id: dragId, to: to });
   },
 
   // O MOTIVO da falha, em linha própria. Fora da caixa de progresso

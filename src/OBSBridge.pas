@@ -101,7 +101,8 @@
     transcribe_state     : running, queue, total, done, failed, current,
                            elapsed, progress (0..1 REAL, -1 = sem numero),
                            eta (segundos, -1 = a API ainda nao arrisca),
-                           stage, lastError, lastErrorName (pegadinha #60)
+                           stage, track, trackCount, lastError,
+                           lastErrorName (pegadinha #60)
     transcribe_pending   : count (quantas ainda nao foram transcritas)
     transcribe_queue     : items[] ({id,name,duration,current}) — a fila
                            na ordem de execucao, item em curso primeiro.
@@ -5259,6 +5260,11 @@ begin
   // aparece a partir de ~10% de progresso).
   Obj.AddPair('eta',      TJSONNumber.Create(OBSTranscribe.CurrentEtaSec));
   Obj.AddPair('stage',    OBSTranscribe.CurrentStage);
+  // Faixa em transcricao. Com faixas isoladas a gravacao vira N jobs, e
+  // o `progress` acima ja e o do CONJUNTO — estes dois existem pra a UI
+  // dizer QUAL faixa esta rodando e pra reancorar o ETA a cada troca.
+  Obj.AddPair('track',      TJSONNumber.Create(OBSTranscribe.CurrentTrack));
+  Obj.AddPair('trackCount', TJSONNumber.Create(OBSTranscribe.CurrentTrackCount));
   Obj.AddPair('lastError', OBSTranscribe.LastError);
   // Sem o NOME, "1 com falha" num lote de 7 nao diz QUAL gravacao foi.
   Obj.AddPair('lastErrorName', OBSTranscribe.LastErrorName);

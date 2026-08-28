@@ -454,6 +454,7 @@
       "doneAll": "{{total}} transcription(s) finished.",
       "doneWithFailures": "{{done}} of {{total}} finished, {{failed}} failed.",
       "failedN": "{{failed}} failed",
+      "trackN": "track {{n}} of {{total}}",
       "queueNow": "now",
       "queueRemove": "Remove from queue",
       "error": "Failure reason: {{error}}",
@@ -600,6 +601,9 @@
     "cutN": "{{count}} items ready to paste into another folder.",
     "transcribeFailed": "Could not transcribe \"{{name}}\"",
     "transcribeQueued": "Transcription queued"
+  },
+  "transcript": {
+    "trackN": "Track {{n}}"
   },
   "error": {
     "transcribe": {

@@ -27,6 +27,8 @@ const Transcribe = {
   _etaShown: -1,  // o ETA que vai pra TELA: conta pra baixo (ver _syncEta)
   _etaFor: '',    // de qual gravação ele é — trocou de item, recomeça
   stage: '',
+  track: 0,       // faixa em transcrição (0-based) quando são várias
+  trackCount: 1,  // 1 = faixa única; a UI não mostra nada nesse caso
   lastError: '',
   lastErrorName: '',   // qual gravação falhou — "1 com falha" sozinho não diz
   _lastToastError: '', // último motivo já avisado por toast (ver applyState)
@@ -83,6 +85,8 @@ const Transcribe = {
     this.progress  = (typeof data.progress === 'number') ? data.progress : -1;
     this.eta       = (typeof data.eta === 'number') ? data.eta : -1;
     this.stage     = data.stage || '';
+    this.track      = data.track || 0;
+    this.trackCount = data.trackCount || 1;
     this._syncEta();
     this.lastError = data.lastError || '';
     this.lastErrorName = data.lastErrorName || '';
@@ -145,7 +149,10 @@ const Transcribe = {
   _syncEta() {
     // Item novo (ou fila parada) recomeça do zero: o ETA de uma
     // gravação não diz nada sobre a próxima.
-    const key = this.running ? (this.current || '') : '';
+    // A chave inclui a FAIXA: cada faixa é um job novo com estimativa
+    // própria, e sem reancorar aqui o "só desce" prenderia o número da
+    // faixa anterior pelo resto da gravação.
+    const key = this.running ? (this.current || '') + '#' + this.track : '';
     if (key !== this._etaFor) {
       this._etaFor = key;
       this._etaShown = -1;
@@ -384,6 +391,12 @@ const Transcribe = {
     // e a UI tem três idiomas.
     const st = this.stage ? T('settings.transcribe.stage.' + this.stage) : '';
     if (st && st.charAt(0) !== '[') txt += ' · ' + st;
+
+    // Faixas isoladas: a gravação vira N transcrições. Sem dizer qual
+    // está rodando, a barra parece travada por minutos a fio.
+    if (this.trackCount > 1)
+      txt += ' · ' + T('settings.transcribe.trackN',
+        { n: this.track + 1, total: this.trackCount });
 
     // Barra com o percentual REAL. Sem teto artificial: quando a API diz
     // 100%, é 100%.

@@ -454,6 +454,7 @@
       "doneAll": "{{total}} transcripción(es) completada(s).",
       "doneWithFailures": "{{done}} de {{total}} completada(s), {{failed}} con error.",
       "failedN": "{{failed}} con error",
+      "trackN": "pista {{n}} de {{total}}",
       "queueNow": "ahora",
       "queueRemove": "Quitar de la cola",
       "error": "Motivo del error: {{error}}",
@@ -600,6 +601,9 @@
     "cutN": "{{count}} elementos listos para pegar en otra carpeta.",
     "transcribeFailed": "No se pudo transcribir \"{{name}}\"",
     "transcribeQueued": "Transcripción en cola"
+  },
+  "transcript": {
+    "trackN": "Pista {{n}}"
   },
   "error": {
     "transcribe": {

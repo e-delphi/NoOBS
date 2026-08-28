@@ -6,8 +6,19 @@
   Desenho em tres pontos que nao sao obvios:
 
   1. MANDA AUDIO, NUNCA O VIDEO. A API tem MAX_UPLOAD_MB=512 por padrao e
-     uma gravacao 4K passa disso facil. A faixa de MISTURA (stream 0, que
-     ja tem tudo) sai em m4a pelo ExtractAudioTracks: 1 hora da ~70 MB.
+     uma gravacao 4K passa disso facil. O audio sai em m4a pelo
+     ExtractAudioTracks: 1 hora da ~70 MB.
+
+     E manda as faixas ISOLADAS, uma transcricao por faixa, nao a
+     mistura: cada faixa e um dispositivo, com o nome dele escrito no MKV
+     — entao a atribuicao de falante sai de graca, com "Microfone (X)" no
+     lugar de SPEAKER_00. Custa N vezes mais tempo de servidor, entao so
+     vale com 2+ isoladas; com uma so a mistura tem o mesmo conteudo.
+     Faixa muda nem e enviada. Ver PlanTracks.
+
+     O preco disso e o ECO: o que sai pelos alto-falantes volta pelo
+     microfone e o mesmo trecho e transcrito duas vezes. O
+     MergeTranscripts derruba a copia — ver o comentario dele.
 
   2. MODELO ASSINCRONO, COM PROGRESSO REAL. POST /jobs devolve um id na
      hora; GET /jobs/{id} da estagio, percentual e ETA, e o `result`
@@ -66,6 +77,11 @@ function CurrentEtaSec: Integer;
 // Etapa em curso: 'extracting' | 'uploading' | 'queued' | 'decoding' |
 // 'transcribing' | 'diarizing' | 'done'. Vazio = parado.
 function CurrentStage: string;
+// Faixa em transcricao e quantas ha, quando a gravacao esta sendo mandada
+// por faixas isoladas. TrackCount = 1 = faixa unica (a mistura, ou uma
+// isolada so) — a UI nao mostra nada nesse caso.
+function CurrentTrack: Integer;
+function CurrentTrackCount: Integer;
 function DoneCount: Integer;
 function FailedCount: Integer;
 function LastError: string;
@@ -134,8 +150,12 @@ uses
   System.Net.URLClient,
   System.Net.Mime,
   System.Generics.Collections,
+  System.Generics.Defaults,
+  System.Character,
+  System.Math,
   OBSLog,
   OBSLang,
+  OBSProbe,
   OBSConfig,
   OBSPlayer,
   FFmpegOps;
@@ -158,6 +178,43 @@ const
   // Consulta barata e local. O progresso anda aos saltos (o Whisper
   // processa em janelas de 30s), entao 1s ja mostra cada degrau.
   POLL_INTERVAL_MS  = 1000;
+
+  // --- deduplicacao entre faixas ---
+  // Com faixas isoladas, o que sai pelos alto-falantes VOLTA pelo
+  // microfone (a menos que o usuario use fone). O mesmo trecho e entao
+  // transcrito duas vezes, e a copia precisa cair fora.
+  //
+  // Dois testes, os DOIS obrigatorios — cada um sozinho tem falso
+  // positivo obvio: so tempo derrubaria duas pessoas falando junto (que
+  // e exatamente o que faixas isoladas existem pra preservar), e so
+  // texto derrubaria uma repeticao legitima minutos depois.
+  DEDUP_OVERLAP_MIN = 0.5;   // fracao do turno mais curto em comum
+  DEDUP_SIM_MIN     = 0.7;   // fracao das palavras do turno CURTO no longo
+  // Turno de uma palavra so nao entra: "sim"/"certo" esta contido em
+  // quase qualquer frase mais longa, e derrubar um "sim" simultaneo por
+  // isso seria falso positivo garantido.
+  DEDUP_MIN_WORDS   = 2;
+
+  // --- recorte de turnos a partir das PALAVRAS ---
+  // O `turns` da API agrupa por MUDANCA DE FALANTE. Na mistura os
+  // falantes se alternam e isso da turnos curtos; numa faixa isolada de
+  // uma pessoa so NAO HA troca, e a faixa inteira vira um turno unico —
+  // medido: 22,5 s num bloco so, com o player destacando esse bloco
+  // enquanto as palavras acontecem em algum lugar dentro dele.
+  //
+  // Por isso os turnos sao remontados a partir do timestamp POR PALAVRA
+  // que a resposta ja traz (segments[].words). Corta em: troca de
+  // falante, pausa, fim de frase depois de um tempo, e um teto duro pra
+  // fala continua que nunca respira.
+  TURN_GAP_SEC      = 1.0;   // silencio que ja separa duas falas
+  TURN_SOFT_MAX_SEC = 8.0;   // a partir daqui, corta no fim de frase
+  TURN_HARD_MAX_SEC = 20.0;  // fala continua: corta de qualquer jeito
+
+  // Faixa cujo pico nunca passa disso nao vai pro servidor: e o
+  // microfone que ninguem usou, ou o alto-falante de uma gravacao muda.
+  // Mandar assim so gastaria minutos de fila pra receber zero turnos.
+  SILENCE_PEAK_MIN = 0.02;
+  SILENCE_BUCKETS  = 400;
 
   // Sentinela de "cancelado pelo usuario". Nao e erro: nao entra na
   // contagem de falhas nem vira mensagem na tela.
@@ -195,6 +252,8 @@ var
   GLastErrorName: string = '';
   // Sobe a cada mudanca de COMPOSICAO da fila. Ver QueueRevision.
   GQueueRev: Integer = 0;
+  GTrack: Integer = 0;
+  GTrackCount: Integer = 1;
 
 function HostBase: string;
 begin
@@ -325,6 +384,27 @@ function ShuttingDown: Boolean;
 begin
   Result := (StopEvent <> 0) and
     (WaitForSingleObject(StopEvent, 0) = WAIT_OBJECT_0);
+end;
+
+function CurrentTrack: Integer;      begin Result := GTrack; end;
+function CurrentTrackCount: Integer; begin Result := GTrackCount; end;
+
+procedure SetTrack(ATrack, ACount: Integer);
+// Qual faixa esta sendo transcrita. So notifica quando MUDA: e uma vez
+// por faixa, nao a cada tique.
+var
+  Mudou: Boolean;
+begin
+  if GLock = nil then Exit;
+  GLock.Enter;
+  try
+    Mudou := (GTrack <> ATrack) or (GTrackCount <> ACount);
+    GTrack := ATrack;
+    GTrackCount := ACount;
+  finally
+    GLock.Leave;
+  end;
+  if Mudou then NotifyChanged;
 end;
 
 procedure SetStage(const AStage: string; AProgress: Double; AEta: Integer);
@@ -717,21 +797,629 @@ begin
   end;
 end;
 
+type
+  TTurn = record
+    Speaker: string;      // rotulo final (nome da faixa, + falante se houver)
+    StartS, EndS: Double;
+    Text: string;
+    Track: Integer;       // de qual faixa veio — o dedup so cruza faixas
+    Drop: Boolean;
+  end;
+
+function NormalizeForCompare(const S: string): string;
+// Minusculas, so letras/digitos, espaco unico. A pontuacao do Whisper
+// varia entre duas passagens do MESMO trecho (o eco chega mais fraco),
+// entao compara-la geraria falso negativo no dedup.
+var
+  i: Integer;
+  Ch: Char;
+  SB: TStringBuilder;
+  LastSpace: Boolean;
+begin
+  SB := TStringBuilder.Create;
+  try
+    LastSpace := True;
+    for i := 1 to Length(S) do
+    begin
+      Ch := S[i];
+      if Ch.IsLetterOrDigit then
+      begin
+        SB.Append(Ch.ToLower);
+        LastSpace := False;
+      end
+      else if not LastSpace then
+      begin
+        SB.Append(' ');
+        LastSpace := True;
+      end;
+    end;
+    Result := Trim(SB.ToString);
+  finally
+    SB.Free;
+  end;
+end;
+
+function WordSimilarity(const A, B: string): Double;
+// CONTENCAO: quantas das palavras do turno CURTO aparecem no longo.
+//
+// Nao e Dice (2*comuns/(total+total)), e a diferenca decide o caso que
+// mais importa: o eco PARCIAL. O microfone costuma pegar so um pedaco do
+// que saiu no alto-falante, e Dice pune diferenca de tamanho — "e adiar
+// tudo" dentro de "entao eu acho que a melhor saida aqui e adiar tudo
+// pra semana que vem" da 0,33 no Dice (nao dedupa) e 1,00 aqui.
+//
+// Medido sobre 10 pares (5 ecos reais, 5 falas legitimas): Dice pegou
+// 4/5 ecos, contencao pegou 5/5 — os dois com zero falso positivo,
+// desde que o turno curto tenha 2+ palavras.
+//
+// Palavra e nao caractere de proposito: o eco troca uma palavra aqui e
+// ali, mas as demais coincidem; distancia de edicao seria mais cara e
+// mais sensivel justamente a essas trocas.
+var
+  WA, WB: TArray<string>;
+  UsedB: TArray<Boolean>;
+  i, j, Common, Shortest: Integer;
+begin
+  Result := 0;
+  WA := A.Split([' '], TStringSplitOptions.ExcludeEmpty);
+  WB := B.Split([' '], TStringSplitOptions.ExcludeEmpty);
+  if (Length(WA) = 0) or (Length(WB) = 0) then Exit;
+  Shortest := Min(Length(WA), Length(WB));
+  if Shortest < DEDUP_MIN_WORDS then Exit;
+  SetLength(UsedB, Length(WB));
+  Common := 0;
+  for i := 0 to High(WA) do
+    for j := 0 to High(WB) do
+      if (not UsedB[j]) and (WA[i] = WB[j]) then
+      begin
+        UsedB[j] := True;
+        Inc(Common);
+        Break;
+      end;
+  Result := Common / Shortest;
+end;
+
+function TimeOverlapRatio(const A, B: TTurn): Double;
+// Fracao do turno mais CURTO coberta pela intersecao. Dividir pelo mais
+// curto e deliberado: o eco costuma sair picado em turnos menores, e
+// dividir pela uniao faria um turno curto dentro de um longo pontuar
+// baixo justamente no caso que interessa.
+var
+  Inter, Shortest: Double;
+begin
+  Result := 0;
+  Inter := Min(A.EndS, B.EndS) - Max(A.StartS, B.StartS);
+  if Inter <= 0 then Exit;
+  Shortest := Min(A.EndS - A.StartS, B.EndS - B.StartS);
+  if Shortest <= 0 then Exit;
+  Result := Inter / Shortest;
+end;
+
+function PlanTracks(const APath: string; out ANames: TArray<string>;
+  out AStreams: TArray<Integer>): Boolean;
+// Decide QUAIS streams de audio vao pra transcricao.
+//
+// Stream 0 e a MISTURA; 1..N-1 sao as ISOLADAS por dispositivo. Mandar
+// as isoladas separadas da a atribuicao de falante DE GRACA — cada faixa
+// e um dispositivo, e o nome dele foi escrito como titulo da stream no
+// MKV pelo OBSEngine. Diarizacao dentro da faixa vira detalhe, nao a
+// unica pista.
+//
+// O custo e uma transcricao POR FAIXA, e o container roda uma de cada
+// vez. Dai o corte: so vale com DUAS ou mais isoladas. Com uma so, a
+// mistura tem exatamente o mesmo conteudo e sairia o mesmo texto pelo
+// dobro do tempo.
+var
+  Rep: TProbeReport;
+  Auds: TStreamArray;
+  i: Integer;
+begin
+  SetLength(ANames, 0);
+  SetLength(AStreams, 0);
+  Result := False;
+
+  if not GetConfigBool('transcribePerTrack', True) then Exit;
+  if not Probe(APath, Rep) then Exit;
+  Auds := Rep.AudioStreams;
+  if Length(Auds) < 3 then Exit;   // mistura + no minimo 2 isoladas
+
+  SetLength(ANames, Length(Auds) - 1);
+  SetLength(AStreams, Length(Auds) - 1);
+  for i := 1 to High(Auds) do
+  begin
+    AStreams[i - 1] := i;
+    // O titulo vem do BuildTrackNames, gravado como metadata da stream.
+    // Sem ele (gravacao de outra ferramenta) cai num rotulo generico.
+    ANames[i - 1] := Trim(Auds[i].Title);
+    if ANames[i - 1] = '' then
+      ANames[i - 1] := OBSLang.T('transcript.trackN', ['n', IntToStr(i + 1)]);
+  end;
+  Result := True;
+end;
+
+function TrackHasSound(const AAudioPath: string): Boolean;
+// Decoda a faixa e olha o pico. Faixa muda (microfone que ninguem usou,
+// alto-falante de uma gravacao silenciosa) nao vai pro servidor: gastaria
+// minutos de fila pra voltar com zero turnos. Decodar custa segundos; a
+// transcricao custaria minutos.
+var
+  Peaks: TArray<Single>;
+  i: Integer;
+begin
+  Result := True;   // na duvida, MANDA: perder fala e pior que gastar tempo
+  if not FFmpegOps.ComputeAudioPeaks(AAudioPath, SILENCE_BUCKETS, Peaks) then Exit;
+  if Length(Peaks) = 0 then Exit;
+  for i := 0 to High(Peaks) do
+    if Peaks[i] >= SILENCE_PEAK_MIN then Exit;
+  Result := False;
+end;
+
+function RunJob(const AAudioPath: string; ATrack, ATrackCount: Integer;
+  var AEstPerTrackSec: Integer; out ABody: string): string;
+// Sobe UM arquivo de audio e acompanha ate o fim. '' = sucesso (JSON em
+// ABody), CANCELED_MARK se o usuario cancelou, senao a mensagem de erro.
+//
+// O progresso publicado e o do CONJUNTO de faixas, nao o da faixa: com 3
+// faixas, a segunda a 50% vale 50% do total, senao a barra voltaria pra
+// zero tres vezes. E o "faltam" soma as faixas que ainda nem comecaram,
+// usando o tempo medido da primeira que terminou — antes disso nao ha
+// base pra estimar e sai so o da faixa atual.
+var
+  JobId, Status, Stage, JobErr, ResJson: string;
+  Prog: Double;
+  Eta, TotalEta: Integer;
+  StartTick: Cardinal;
+
+  function Overall(AInner: Double): Double;
+  begin
+    if ATrackCount <= 1 then Exit(AInner);
+    if AInner < 0 then AInner := 0;
+    Result := (ATrack + AInner) / ATrackCount;
+  end;
+
+begin
+  ABody := '';
+  StartTick := GetTickCount;
+  SetTrack(ATrack, ATrackCount);
+  SetStage('uploading', Overall(0), -1);
+  Result := SubmitJob(AAudioPath, JobId);
+  if Result <> '' then Exit;
+  Log('Transcribe: job %s aceito (faixa %d de %d).',
+    [JobId, ATrack + 1, ATrackCount]);
+
+  while True do
+  begin
+    if ShuttingDown then
+    begin
+      DeleteJob(JobId);
+      Exit(OBSLang.T('error.transcribe.shuttingDown'));
+    end;
+    if CancelRequested then
+    begin
+      DeleteJob(JobId);
+      Exit(CANCELED_MARK);
+    end;
+
+    Result := PollJob(JobId, Status, Stage, JobErr, Prog, Eta, ResJson);
+    if Result <> '' then Exit;
+
+    if Status = 'done' then
+    begin
+      ABody := ResJson;
+      if Trim(ABody) = '' then Exit(OBSLang.T('error.transcribe.emptyResult'));
+      // A primeira faixa concluida vira a regua pras que faltam.
+      if AEstPerTrackSec <= 0 then
+        AEstPerTrackSec := Integer((GetTickCount - StartTick) div 1000);
+      SetStage('done', Overall(1), -1);
+      Result := '';
+      Exit;
+    end;
+    if Status = 'error' then
+    begin
+      if JobErr = '' then JobErr := OBSLang.T('error.transcribe.serverSilent');
+      Exit(JobErr);
+    end;
+
+    TotalEta := Eta;
+    if (TotalEta >= 0) and (AEstPerTrackSec > 0) then
+      Inc(TotalEta, (ATrackCount - ATrack - 1) * AEstPerTrackSec);
+    SetStage(Stage, Overall(Prog), TotalEta);
+
+    // Espera interrompivel: o StopEvent tira a thread daqui na hora, em
+    // vez de deixar o fechamento do app esperando um Sleep.
+    if WaitForSingleObject(StopEvent, POLL_INTERVAL_MS) = WAIT_OBJECT_0 then
+    begin
+      DeleteJob(JobId);
+      Exit(OBSLang.T('error.transcribe.shuttingDown'));
+    end;
+  end;
+end;
+
+function EndsSentence(const S: string): Boolean;
+// Ultima letra util e ponto final / interrogacao / exclamacao / reticencia.
+var
+  T: string;
+begin
+  T := TrimRight(S);
+  Result := (T <> '') and CharInSet(T[Length(T)], ['.', '?', '!']);
+end;
+
+procedure TurnsFromWords(AObj: TJSONObject; ATrack: Integer;
+  var ATurns: TArray<TTurn>);
+// Remonta os turnos a partir de segments[].words, que traz start/end/
+// speaker POR PALAVRA. Ver o bloco TURN_* nas constantes pra o porque.
+//
+// Nao substitui a diarizacao: o `speaker` continua vindo da API, palavra
+// a palavra. O que muda e ONDE o turno quebra — o da API so quebra em
+// troca de falante, e uma faixa isolada raramente tem uma.
+var
+  SegsVal, WordsVal: TJSONValue;
+  Segs, Words: TJSONArray;
+  Seg, W: TJSONObject;
+  i, j, n: Integer;
+  WStart, WEnd: Double;
+  WText, WSpk: string;
+  Cur: TTurn;
+  Have: Boolean;
+  Corta: Boolean;
+
+  procedure Flush;
+  begin
+    if not Have then Exit;
+    Cur.Text := Trim(Cur.Text);
+    if Cur.Text <> '' then
+    begin
+      n := Length(ATurns);
+      SetLength(ATurns, n + 1);
+      ATurns[n] := Cur;
+    end;
+    Have := False;
+  end;
+
+begin
+  SegsVal := AObj.GetValue('segments');
+  if not (SegsVal is TJSONArray) then Exit;
+  Segs := TJSONArray(SegsVal);
+  Have := False;
+  Cur := Default(TTurn);
+
+  for i := 0 to Segs.Count - 1 do
+  begin
+    if not (Segs.Items[i] is TJSONObject) then Continue;
+    Seg := TJSONObject(Segs.Items[i]);
+    WordsVal := Seg.GetValue('words');
+    if not (WordsVal is TJSONArray) then Continue;
+    Words := TJSONArray(WordsVal);
+    for j := 0 to Words.Count - 1 do
+    begin
+      if not (Words.Items[j] is TJSONObject) then Continue;
+      W := TJSONObject(Words.Items[j]);
+      WText := ''; WSpk := ''; WStart := 0; WEnd := 0;
+      W.TryGetValue<string>('word', WText);
+      W.TryGetValue<string>('speaker', WSpk);
+      W.TryGetValue<Double>('start', WStart);
+      W.TryGetValue<Double>('end', WEnd);
+      if Trim(WText) = '' then Continue;
+      // A API nao poe speaker na palavra em toda configuracao; cai no
+      // do segmento pra o rotulo nao ficar vazio.
+      if WSpk = '' then Seg.TryGetValue<string>('speaker', WSpk);
+
+      if Have then
+      begin
+        Corta := (WSpk <> Cur.Speaker)
+              or (WStart - Cur.EndS > TURN_GAP_SEC)
+              or (WEnd - Cur.StartS > TURN_HARD_MAX_SEC)
+              or ((WEnd - Cur.StartS > TURN_SOFT_MAX_SEC) and
+                  EndsSentence(Cur.Text));
+        if Corta then Flush;
+      end;
+
+      if not Have then
+      begin
+        Cur.Speaker := WSpk;
+        Cur.StartS := WStart;
+        Cur.Text := '';
+        Cur.Track := ATrack;
+        Cur.Drop := False;
+        Have := True;
+      end;
+      Cur.Text := Cur.Text + WText;
+      Cur.EndS := WEnd;
+    end;
+  end;
+  Flush;
+end;
+
+function RechunkTurns(const ABody: string; out ANewBody: string): Boolean;
+// Troca o `turns` da resposta pelos turnos remontados das PALAVRAS,
+// preservando todo o resto (segments, words, language, by_speaker...).
+//
+// Vale pro caminho da MISTURA, que guarda o JSON da API como veio. O
+// defeito e o mesmo do caminho por faixa: o `turns` da API so quebra em
+// troca de falante, entao uma fala corrida de uma pessoa vira um bloco
+// unico. Medido numa gravacao real: um turno de 10,04 s com SETE
+// segundos de silencio no meio; remontado, virou dois de ~2 s.
+var
+  Root: TJSONValue;
+  Obj: TJSONObject;
+  Turns: TArray<TTurn>;
+  Arr: TJSONArray;
+  Item: TJSONObject;
+  Old: TJSONPair;
+  i: Integer;
+begin
+  Result := False;
+  ANewBody := ABody;
+  Root := TJSONObject.ParseJSONValue(ABody);
+  if not (Root is TJSONObject) then
+  begin
+    if Root <> nil then Root.Free;
+    Exit;
+  end;
+  try
+    Obj := TJSONObject(Root);
+    SetLength(Turns, 0);
+    TurnsFromWords(Obj, 0, Turns);
+    // Sem word timestamps nao ha o que remontar — deixa como veio.
+    if Length(Turns) = 0 then Exit;
+
+    Arr := TJSONArray.Create;
+    for i := 0 to High(Turns) do
+    begin
+      Item := TJSONObject.Create;
+      Item.AddPair('speaker', Turns[i].Speaker);
+      Item.AddPair('start', TJSONNumber.Create(Turns[i].StartS));
+      Item.AddPair('end', TJSONNumber.Create(Turns[i].EndS));
+      Item.AddPair('text', Turns[i].Text);
+      Arr.AddElement(Item);
+    end;
+    Old := Obj.RemovePair('turns');
+    if Old <> nil then Old.Free;
+    Obj.AddPair('turns', Arr);
+    ANewBody := Obj.ToJSON;
+    Result := True;
+  finally
+    Root.Free;
+  end;
+end;
+
+function CollectTurns(const ABody, ATrackName: string; ATrack: Integer;
+  var ATurns: TArray<TTurn>): Boolean;
+// Le os turnos de UMA faixa e rotula o falante.
+//
+// A regra do rotulo: se a faixa tem um falante so (o caso do microfone),
+// o nome do DISPOSITIVO ja diz tudo e o SPEAKER_00 seria ruido. Se tem
+// mais de um (o caso do alto-falante numa reuniao), o nome da faixa vira
+// prefixo e a diarizacao continua distinguindo quem e quem dentro dela.
+var
+  Root: TJSONValue;
+  Obj, T: TJSONObject;
+  Arr: TJSONValue;
+  A: TJSONArray;
+  i, n: Integer;
+  Spk, Txt: string;
+  St, En: Double;
+  Distinct: TStringList;
+  Tmp: TArray<TTurn>;
+begin
+  Result := False;
+  if Trim(ABody) = '' then Exit;
+  Root := TJSONObject.ParseJSONValue(ABody);
+  if not (Root is TJSONObject) then
+  begin
+    if Root <> nil then Root.Free;
+    Exit;
+  end;
+  Distinct := TStringList.Create;
+  try
+    Distinct.Sorted := True;
+    Distinct.Duplicates := dupIgnore;
+    Obj := TJSONObject(Root);
+    SetLength(Tmp, 0);
+
+    // Caminho bom: remonta pelas PALAVRAS (ver o bloco TURN_*). Sem isto,
+    // faixa de uma pessoa so vira um turno unico de dezenas de segundos.
+    TurnsFromWords(Obj, ATrack, Tmp);
+
+    // Resposta sem word timestamps: usa o `turns` como veio. Fica grosso,
+    // mas e melhor que nao ter turno nenhum.
+    if Length(Tmp) = 0 then
+    begin
+      Arr := Obj.GetValue('turns');
+      if not (Arr is TJSONArray) then Exit(True);   // faixa sem fala: ok
+      A := TJSONArray(Arr);
+      for i := 0 to A.Count - 1 do
+      begin
+        if not (A.Items[i] is TJSONObject) then Continue;
+        T := TJSONObject(A.Items[i]);
+        Spk := ''; Txt := ''; St := 0; En := 0;
+        T.TryGetValue<string>('speaker', Spk);
+        T.TryGetValue<string>('text', Txt);
+        T.TryGetValue<Double>('start', St);
+        T.TryGetValue<Double>('end', En);
+        if Trim(Txt) = '' then Continue;
+        n := Length(Tmp);
+        SetLength(Tmp, n + 1);
+        Tmp[n].Speaker := Trim(Spk);
+        Tmp[n].StartS := St;
+        Tmp[n].EndS := En;
+        Tmp[n].Text := Trim(Txt);
+        Tmp[n].Track := ATrack;
+        Tmp[n].Drop := False;
+      end;
+    end;
+
+    for i := 0 to High(Tmp) do
+      if Tmp[i].Speaker <> '' then Distinct.Add(Tmp[i].Speaker);
+
+    for i := 0 to High(Tmp) do
+    begin
+      if (Distinct.Count > 1) and (Tmp[i].Speaker <> '') then
+        Tmp[i].Speaker := ATrackName + ' · ' + Tmp[i].Speaker
+      else
+        Tmp[i].Speaker := ATrackName;
+      n := Length(ATurns);
+      SetLength(ATurns, n + 1);
+      ATurns[n] := Tmp[i];
+    end;
+    Result := True;
+  finally
+    Distinct.Free;
+    Root.Free;
+  end;
+end;
+
+function MergeTranscripts(const ABodies, ANames: TArray<string>;
+  out AMerged, AText: string): Boolean;
+// Junta as faixas numa transcricao so, no MESMO formato que a API
+// devolve pra uma faixa unica ({turns:[{speaker,start,end,text}], text}).
+// Manter o formato e o que faz o painel do player e a busca continuarem
+// funcionando sem saber que isto existe.
+//
+// DEDUPLICACAO: o que sai pelos alto-falantes volta pelo microfone, e o
+// mesmo trecho aparece nas duas faixas. Turnos de faixas DIFERENTES que
+// se sobrepoem no tempo E dizem quase a mesma coisa sao a mesma fala
+// capturada duas vezes — fica a versao com MAIS palavras, que na pratica
+// e a da fonte direta: o eco chega mais fraco e o Whisper corta pedacos.
+//
+// O criterio nao tenta adivinhar qual faixa e microfone e qual e
+// alto-falante. Poderia (o titulo da faixa vem do BuildTrackNames), mas
+// seria casar texto traduzivel — e o "fica o mais completo" resolve os
+// dois sentidos do eco sem depender disso.
+var
+  Turns: TArray<TTurn>;
+  i, j, Kept: Integer;
+  Sim, Ov: Double;
+  NA, NB: string;
+  Norm: TArray<string>;
+  Obj: TJSONObject;
+  Arr, TracksArr: TJSONArray;
+  Item: TJSONObject;
+  SB: TStringBuilder;
+begin
+  Result := False;
+  AMerged := '';
+  AText := '';
+  SetLength(Turns, 0);
+  for i := 0 to High(ABodies) do
+    if not CollectTurns(ABodies[i], ANames[i], i, Turns) then
+      Exit;
+
+  // Ordena por inicio: o dedup abaixo depende disso pra so olhar a
+  // janela vizinha em vez de todos contra todos.
+  TArray.Sort<TTurn>(Turns, TComparer<TTurn>.Construct(
+    function(const A, B: TTurn): Integer
+    begin
+      Result := CompareValue(A.StartS, B.StartS);
+      if Result = 0 then Result := CompareValue(A.Track, B.Track);
+    end));
+
+  SetLength(Norm, Length(Turns));
+  for i := 0 to High(Turns) do Norm[i] := NormalizeForCompare(Turns[i].Text);
+
+  for i := 0 to High(Turns) do
+  begin
+    if Turns[i].Drop then Continue;
+    j := i + 1;
+    // Ordenado por inicio: assim que um turno comeca depois do fim
+    // deste, nenhum dos seguintes se sobrepoe.
+    while (j <= High(Turns)) and (Turns[j].StartS < Turns[i].EndS) do
+    begin
+      if Turns[j].Drop or (Turns[j].Track = Turns[i].Track) then
+      begin
+        Inc(j);
+        Continue;
+      end;
+      Ov := TimeOverlapRatio(Turns[i], Turns[j]);
+      if Ov >= DEDUP_OVERLAP_MIN then
+      begin
+        NA := Norm[i];
+        NB := Norm[j];
+        Sim := WordSimilarity(NA, NB);
+        if Sim >= DEDUP_SIM_MIN then
+        begin
+          // Fica a versao com MAIS palavras: o eco chega mais fraco e o
+          // Whisper corta pedacos dele.
+          if Length(NB) > Length(NA) then Turns[i].Drop := True
+          else Turns[j].Drop := True;
+          if Turns[i].Drop then
+            Log('Transcribe: eco descartado (sobrep=%.2f cont=%.2f) "%s"',
+              [Ov, Sim, Copy(Turns[i].Text, 1, 40)])
+          else
+            Log('Transcribe: eco descartado (sobrep=%.2f cont=%.2f) "%s"',
+              [Ov, Sim, Copy(Turns[j].Text, 1, 40)]);
+          if Turns[i].Drop then Break;
+        end;
+      end;
+      Inc(j);
+    end;
+  end;
+
+  Obj := TJSONObject.Create;
+  SB := TStringBuilder.Create;
+  try
+    Arr := TJSONArray.Create;
+    Kept := 0;
+    for i := 0 to High(Turns) do
+    begin
+      if Turns[i].Drop then Continue;
+      Item := TJSONObject.Create;
+      Item.AddPair('speaker', Turns[i].Speaker);
+      Item.AddPair('start', TJSONNumber.Create(Turns[i].StartS));
+      Item.AddPair('end', TJSONNumber.Create(Turns[i].EndS));
+      Item.AddPair('text', Turns[i].Text);
+      Arr.AddElement(Item);
+      if SB.Length > 0 then SB.Append(' ');
+      SB.Append(Turns[i].Text);
+      Inc(Kept);
+    end;
+    AText := SB.ToString;
+    Obj.AddPair('turns', Arr);
+    Obj.AddPair('text', AText);
+    // Proveniencia: quais faixas entraram. Nao e lido por ninguem hoje,
+    // mas e a unica pista de que este arquivo veio de varias faixas.
+    TracksArr := TJSONArray.Create;
+    for i := 0 to High(ANames) do TracksArr.Add(ANames[i]);
+    Obj.AddPair('tracks', TracksArr);
+    AMerged := Obj.ToJSON;
+  finally
+    SB.Free;
+    Obj.Free;
+  end;
+  Log('Transcribe: %d faixas -> %d turnos (%d descartados por eco).',
+    [Length(ABodies), Kept, Length(Turns) - Kept]);
+  Result := True;
+end;
+
 function ProcessOne(const APath: string): string;
 // Transcreve UMA gravacao. Devolve '' em sucesso, senao a mensagem.
 // Roda inteiro na worker thread.
 //
-// Modelo ASSINCRONO: POST /jobs devolve um id na hora, e o andamento sai
-// de GET /jobs/{id} — progresso REAL, medido pelo trecho de audio ja
-// coberto pelos segmentos. Nao ha mais estimativa nossa nem requisicao
-// HTTP pendurada por 40 minutos.
+// Duas formas, decididas pelo PlanTracks:
+//   1 faixa  — a MISTURA (stream 0), como sempre foi.
+//   N faixas — as ISOLADAS por dispositivo, uma transcricao cada, o
+//              resultado juntado e desduplicado pelo MergeTranscripts.
+// A segunda custa N vezes mais tempo de servidor e entrega atribuicao de
+// falante de verdade, com o nome do dispositivo em vez de SPEAKER_00.
 var
-  Audio, Body, Txt, JobId: string;
-  Status, Stage, JobErr, ResJson: string;
-  Prog: Double;
-  Eta: Integer;
-  Json: TJSONValue;
+  Body, Txt, Merged: string;
+  Files, Send, Names, Bodies, UsedNames: TArray<string>;
+  Streams: TArray<Integer>;
+  CacheBase: string;
   HealthErr: string;
+  PerTrack: Boolean;
+  Est, i, n: Integer;
+
+  procedure CleanupFiles;
+  var
+    k: Integer;
+  begin
+    // Os m4a sao so veiculo do upload — regeneram em segundos, e uma
+    // hora de audio ocupa ~70 MB que nao vale guardar.
+    for k := 0 to High(Files) do
+      try if TFile.Exists(Files[k]) then TFile.Delete(Files[k]); except end;
+  end;
+
 begin
   if not TFile.Exists(APath) then Exit(OBSLang.T('error.transcribe.fileMissing'));
 
@@ -749,94 +1437,121 @@ begin
     Exit(OBSLang.T('error.transcribe.serverDown', ['host', HostBase]));
   end;
 
-  // SO O AUDIO. O video passaria do MAX_UPLOAD_MB da API (512 MB) numa
-  // gravacao 4K de poucos minutos. Indice 0 = faixa de MISTURA, que ja
-  // tem todos os microfones e o som do sistema juntos.
-  Audio := IncludeTrailingPathDelimiter(OBSPlayer.CacheRootDir) +
-    OBSPlayer.HashName(APath) + '_tr.m4a';
-  try if TFile.Exists(Audio) then TFile.Delete(Audio); except end;
-  SetStage('extracting', 0, -1);
-  if not FFmpegOps.ExtractAudioTracks(APath, [Audio], 0) then
-    Exit(OBSLang.T('error.transcribe.extractFailed'));
-  if not TFile.Exists(Audio) then Exit(OBSLang.T('error.transcribe.extractMissing'));
+  CacheBase := IncludeTrailingPathDelimiter(OBSPlayer.CacheRootDir) +
+    OBSPlayer.HashName(APath);
 
-  Body := '';
+  PerTrack := PlanTracks(APath, Names, Streams);
+  if not PerTrack then
+  begin
+    // Caminho antigo: SO O AUDIO da mistura. O video passaria do
+    // MAX_UPLOAD_MB da API (512 MB) numa gravacao 4K de poucos minutos.
+    SetLength(Names, 1);
+    SetLength(Streams, 1);
+    Names[0] := '';
+    Streams[0] := 0;
+  end;
+
+  SetLength(Files, Length(Streams));
+  for i := 0 to High(Files) do
+    Files[i] := Format('%s_tr%d.m4a', [CacheBase, Streams[i]]);
+
   try
-    SetStage('uploading', 0, -1);
-    Result := SubmitJob(Audio, JobId);
-    if Result <> '' then Exit;
-    Log('Transcribe: job %s aceito.', [JobId]);
+    CleanupFiles;
+    SetStage('extracting', 0, -1);
+    // UMA passada de demux pra todas as faixas. Streams[0] e o indice do
+    // primeiro audio pedido; como PlanTracks devolve sempre um intervalo
+    // contiguo comecando em Streams[0], o start index cobre o resto.
+    if not FFmpegOps.ExtractAudioTracks(APath, Files, Streams[0]) then
+      Exit(OBSLang.T('error.transcribe.extractFailed'));
 
-    // Acompanha ate terminar. O intervalo e curto porque a consulta e
-    // local e barata; o progresso em si anda aos saltos (o Whisper
-    // processa em janelas de 30s), entao poucos tiques mostram avanco.
-    while True do
+    // Faixa muda nao vai pro servidor. Com varias faixas isto e o que
+    // impede o microfone que ninguem usou de gastar uma fila inteira.
+    SetLength(Bodies, 0);
+    SetLength(UsedNames, 0);
+    SetLength(Send, 0);
+    n := 0;
+    for i := 0 to High(Files) do
     begin
-      if ShuttingDown then
+      if not TFile.Exists(Files[i]) then
+        Exit(OBSLang.T('error.transcribe.extractMissing'));
+      if PerTrack and not TrackHasSound(Files[i]) then
       begin
-        DeleteJob(JobId);
-        Exit(OBSLang.T('error.transcribe.shuttingDown'));
+        Log('Transcribe: faixa "%s" sem som — nao vai pro servidor.', [Names[i]]);
+        Continue;
       end;
-      if CancelRequested then
-      begin
-        // Agora DA pra abortar de verdade: a API tem DELETE /jobs/{id}.
-        DeleteJob(JobId);
-        Exit(CANCELED_MARK);
-      end;
-
-      Result := PollJob(JobId, Status, Stage, JobErr, Prog, Eta, ResJson);
-      if Result <> '' then Exit;
-
-      if Status = 'done' then
-      begin
-        SetStage('done', 1, 0);
-        Body := ResJson;
-        if Trim(Body) = '' then Exit(OBSLang.T('error.transcribe.emptyResult'));
-        Break;
-      end;
-      if Status = 'error' then
-      begin
-        if JobErr = '' then JobErr := OBSLang.T('error.transcribe.serverSilent');
-        Exit(JobErr);
-      end;
-
-      // 'queued' | 'decoding' | 'transcribing' | 'diarizing'
-      SetStage(Stage, Prog, Eta);
-
-      // Espera interrompivel: o StopEvent tira a thread daqui na hora, em
-      // vez de deixar o fechamento do app esperando um Sleep.
-      if WaitForSingleObject(StopEvent, POLL_INTERVAL_MS) = WAIT_OBJECT_0 then
-      begin
-        DeleteJob(JobId);
-        Exit(OBSLang.T('error.transcribe.shuttingDown'));
-      end;
+      SetLength(UsedNames, n + 1);
+      SetLength(Send, n + 1);
+      UsedNames[n] := Names[i];
+      // Lista SEPARADA: compactar o Files em si mesmo perderia os paths
+      // das faixas puladas, e o CleanupFiles deixaria .m4a orfaos no cache.
+      Send[n] := Files[i];
+      Inc(n);
     end;
 
-    Json := TJSONObject.ParseJSONValue(Body);
-    if not (Json is TJSONObject) then
+    // Todas mudas: e uma gravacao sem fala, nao uma falha. Escreve a
+    // transcricao vazia — o app distingue "sem fala" de "nao transcrita"
+    // (transcribed=True, has=False) e o player diz a coisa certa.
+    if n = 0 then
     begin
-      if Json <> nil then Json.Free;
-      Exit(OBSLang.T('error.transcribe.resultNotJson'));
-    end;
-    try
-      Txt := ExtractPlainText(TJSONObject(Json));
-    finally
-      Json.Free;
+      Log('Transcribe: nenhuma faixa com som em "%s".', [APath]);
+      Merged := '{"turns":[],"text":""}';
+      Txt := '';
+    end
+    else
+    begin
+      Est := 0;
+      SetLength(Bodies, n);
+      for i := 0 to n - 1 do
+      begin
+        Result := RunJob(Send[i], i, n, Est, Body);
+        if Result <> '' then Exit;
+        Bodies[i] := Body;
+      end;
+
+      // So a MISTURA passa direto: o JSON da API ja esta no formato
+      // final, e reescreve-lo jogaria fora os segmentos com timestamp por
+      // palavra que o merge nao carrega.
+      //
+      // Por faixa, mesmo com UMA sobrando (as outras mudas), o merge
+      // roda: e ele quem troca o SPEAKER_00 pelo nome do dispositivo, e
+      // sair com rotulo generico justo na faixa que tem a fala anularia
+      // o motivo de mandar por faixa.
+      if not PerTrack then
+      begin
+        Merged := Bodies[0];
+        // Mesmo aqui os turnos sao remontados: o `turns` da API quebra so
+        // em troca de falante, e o player destaca o bloco inteiro.
+        // O resto da resposta (segments, words) e preservado.
+        var Rechunked: string;
+        if RechunkTurns(Merged, Rechunked) then Merged := Rechunked;
+        var Json := TJSONObject.ParseJSONValue(Merged);
+        if not (Json is TJSONObject) then
+        begin
+          if Json <> nil then Json.Free;
+          Exit(OBSLang.T('error.transcribe.resultNotJson'));
+        end;
+        try
+          Txt := ExtractPlainText(TJSONObject(Json));
+        finally
+          Json.Free;
+        end;
+      end
+      else if not MergeTranscripts(Bodies, UsedNames, Merged, Txt) then
+        Exit(OBSLang.T('error.transcribe.resultNotJson'));
     end;
 
-    // Dois arquivos: o JSON inteiro pro player, o texto puro pra busca.
+    // Dois arquivos: o JSON pro player, o texto puro pra busca.
     // Ver o cabecalho da unit.
     try
-      TFile.WriteAllText(TranscriptPath(APath), Body, TEncoding.UTF8);
+      TFile.WriteAllText(TranscriptPath(APath), Merged, TEncoding.UTF8);
       TFile.WriteAllText(TranscriptTextPath(APath), Txt, TEncoding.UTF8);
     except
       on E: Exception do Exit(OBSLang.T('error.transcribe.writeFailed', ['error', E.Message]));
     end;
     Result := '';
   finally
-    // O m4a e so o veiculo do upload — regenera em segundos se precisar,
-    // e uma hora de audio ocupa ~70 MB que nao vale guardar.
-    try if TFile.Exists(Audio) then TFile.Delete(Audio); except end;
+    CleanupFiles;
+    SetTrack(0, 1);
   end;
 end;
 
@@ -865,6 +1580,8 @@ begin
           GStage := 'extracting';
           GProgress := -1;
           GEta := -1;
+          GTrack := 0;
+          GTrackCount := 1;
           // O cancelamento vale pro item que estava em curso quando o
           // usuario clicou; um item NOVO comeca limpo.
           GCancelCurrent := False;

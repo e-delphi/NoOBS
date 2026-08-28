@@ -454,6 +454,7 @@
       "doneAll": "{{total}} transcrição(ões) concluída(s).",
       "doneWithFailures": "{{done}} de {{total}} concluída(s), {{failed}} com falha.",
       "failedN": "{{failed}} com falha",
+      "trackN": "faixa {{n}} de {{total}}",
       "queueNow": "agora",
       "queueRemove": "Tirar da fila",
       "error": "Motivo da falha: {{error}}",
@@ -600,6 +601,9 @@
     "cutN": "{{count}} itens prontos pra colar em outra pasta.",
     "transcribeFailed": "Falha ao transcrever \"{{name}}\"",
     "transcribeQueued": "Transcrição na fila"
+  },
+  "transcript": {
+    "trackN": "Faixa {{n}}"
   },
   "error": {
     "transcribe": {

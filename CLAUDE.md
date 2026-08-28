@@ -2199,6 +2199,81 @@ Arrastar tem a armadilha da pegadinha #56 de novo: um push que chegue no
 meio do gesto refaria a lista e mataria o drag. `renderQueue` adia
 enquanto `_dragId` estiver setado e reaplica no `dragend`.
 
+**j) Faixas ISOLADAS em vez da mistura — e o eco que isso traz junto.**
+Mandar a mistura joga fora a informação mais valiosa que a gravação já
+tem: **cada faixa é um dispositivo**, e o nome dele foi escrito como
+título da stream no MKV pelo `OBSEngine` (`BuildTrackNames`). Uma
+transcrição por faixa dá atribuição de falante de graça — "Microfone
+(Realtek)" no lugar de `SPEAKER_00` — e a diarização passa a distinguir
+pessoas DENTRO de uma faixa em vez de ser a única pista.
+
+Quatro decisões, cada uma com um porquê medido ou contado:
+
+- **Só com 2+ isoladas** (`PlanTracks`). Cada faixa é um job, o container
+  serializa, então são N× o tempo de servidor. Com UMA isolada, a mistura
+  tem exatamente o mesmo conteúdo — seria o mesmo texto pelo dobro do
+  tempo. `transcribePerTrack=false` volta pra mistura sempre.
+- **Faixa muda não é enviada** (`TrackHasSound`, via `ComputeAudioPeaks`).
+  Decodificar custa segundos; mandar o microfone que ninguém usou custaria
+  minutos de fila pra receber zero turnos. Se TODAS forem mudas, escreve a
+  transcrição vazia — que é "sem fala", não falha (ver item **e**).
+- **O ECO é o preço.** Sem fone, o que sai pelos alto-falantes volta pelo
+  microfone, e o mesmo trecho é transcrito duas vezes. `MergeTranscripts`
+  derruba a cópia exigindo **as duas** coisas: sobreposição no tempo
+  (≥50% do turno mais curto) **e** semelhança de texto. Só tempo
+  derrubaria duas pessoas falando junto — que é exatamente o que faixas
+  isoladas existem pra preservar; só texto derrubaria uma repetição
+  legítima minutos depois.
+- **A métrica é CONTENÇÃO, não Dice** — e isso foi medido, não escolhido
+  por gosto. O eco costuma ser PARCIAL (o microfone pega um pedaço do que
+  saiu), e Dice pune diferença de tamanho: `"e adiar tudo"` dentro de
+  `"entao eu acho que a melhor saida aqui e adiar tudo pra semana que
+  vem"` dá **0,33** no Dice e **1,00** na contenção. Sobre 10 pares (5
+  ecos reais, 5 falas legítimas): Dice pegou 4/5, contenção pegou **5/5**,
+  ambos com zero falso positivo. O guarda é o mínimo de **2 palavras** no
+  turno curto — sem ele, `"sim"` e `"certo"` estão contidos em quase
+  qualquer frase mais longa e sumiriam.
+
+Fica a versão com MAIS palavras: o eco chega mais fraco e o Whisper corta
+pedaços dele. O critério NÃO tenta adivinhar qual faixa é microfone e
+qual é alto-falante — poderia (o título vem do `BuildTrackNames`), mas
+seria casar texto traduzível, e "fica o mais completo" resolve os dois
+sentidos do eco sem depender disso.
+
+O arquivo final tem o MESMO formato de uma faixa só
+(`{turns:[{speaker,start,end,text}], text}`) — é isso que faz o painel do
+player e a busca continuarem funcionando sem saber que isto existe. Com
+UMA faixa o JSON da API é gravado como veio, sem passar pelo merge: ele
+não carrega os segmentos com timestamp por palavra.
+
+**k) O `turns` da API quebra só em TROCA DE FALANTE — remonte pelas
+palavras.** Sintoma: no player, o turno destacado não bate com o que está
+sendo dito. Não é desalinhamento de tempo (medido: todos os streams de
+áudio do MKV começam no mesmo offset, −21 ms) — é **granularidade**.
+
+Na mistura os falantes se alternam, então os turnos saem curtos e a
+imprecisão passa despercebida. Numa faixa ISOLADA de uma pessoa só não há
+troca nenhuma, e a faixa inteira vira **um turno** — medido numa gravação
+real: 22,5 s num bloco só, com o player destacando esse bloco enquanto as
+palavras acontecem em algum lugar lá dentro.
+
+A resposta já traz `segments[].words` com `start`/`end`/`speaker` **por
+palavra**. `TurnsFromWords` remonta os turnos a partir dela, cortando em:
+troca de falante, pausa > 1 s, fim de frase depois de 8 s, e um teto duro
+de 20 s pra fala corrida. Validado contra os dados reais de uma gravação
+pela mistura — reproduziu os 8 turnos da API e ainda partiu os
+imprecisos: um turno de 10,04 s que tinha **sete segundos de silêncio no
+meio** virou dois; o maior turno caiu de 10,04 s pra 3,76 s.
+
+Vale pros DOIS caminhos. O da mistura guarda o JSON da API como veio, e
+por isso o `RechunkTurns` troca só o array `turns`, preservando
+`segments`/`words`/`language`. Não é escopo esticado: é o mesmo defeito,
+e o caminho da mistura é o que a maioria das gravações usa.
+
+Corolário pro dedup: com turnos de 20 s a sobreposição e a contenção não
+casavam nada (medido: `0 descartados por eco` numa gravação com três
+faixas). Turno curto é pré-requisito pro dedup do item **j** funcionar.
+
 **c) Uma por vez não é escolha nossa.** O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
 a fila do outro lado. Uma thread, uma fila.
@@ -2361,6 +2436,7 @@ recuperáveis manualmente).
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
 | `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). A ROTA é fixa (`/transcribe`) — só o host é configurável |
+| `transcribePerTrack`             | `true` / `false` (default **`true`**) — manda as faixas de áudio ISOLADAS pra transcrição, uma por vez, em vez da mistura. Dá atribuição de falante pelo nome do dispositivo, e custa N transcrições por gravação; só entra em ação com 2+ faixas isoladas. Só existe como chave do JSON, sem controle na UI (pegadinha #60j) |
 | `transcribeLanguage`             | código ISO passado à API (`pt`, `en`…). Vazio = detecção automática. Só existe como chave do JSON, sem controle na UI |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |

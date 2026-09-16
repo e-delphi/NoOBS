@@ -592,6 +592,9 @@ const Player = {
     });
     this.audioEls = [];
     this.audiosRequested = false;
+    // A velocidade volta pra 1× no open; o flag tem que voltar junto,
+    // senão o próximo vídeo abriria achando que veio de uma suspensão.
+    this._audioWasSuspended = false;
     this.audiosReadyForId = null;
     this.trackVolumes = null;
     const player = document.querySelector('.player');
@@ -1397,6 +1400,22 @@ const Player = {
   masterVolume: 1.0,
   masterMuted: false,
   audioEls: [],                 // <audio> pras tracks 2..N (indice 0 = track 2)
+  // Acima desta taxa as faixas escravas PARAM.
+  //
+  // Não é economia teórica. Medindo a decodificação do AV1 4K das próprias
+  // gravações, o orçamento é ~80 quadros/s e 2× já pede 60 — não sobra
+  // folga pra mais nada. Cada faixa isolada é um pipeline de mídia a mais
+  // disputando CPU e uma das SEIS conexões que o Chromium abre por host
+  // (medido: exatamente 6), e uma gravação com 5 faixas mais o vídeo já
+  // ocupa as seis. Acima de 4× o Chromium silencia o áudio de qualquer
+  // jeito, então o que se perde acima de 2× é pouco.
+  AUDIO_MAX_RATE: 2,
+  _audioWasSuspended: false,
+
+  _audioSuspended() {
+    const v = document.getElementById('playerVideo');
+    return !!v && v.playbackRate > this.AUDIO_MAX_RATE;
+  },
   audiosRequested: false,       // ja pediu extracao pro Delphi?
   audiosReadyForId: null,       // id pra qual ja temos URLs
   driftRaf: null,
@@ -1477,6 +1496,10 @@ const Player = {
   syncAudios(forceSeek) {
     const v = document.getElementById('playerVideo');
     if (!v || this.audioEls.length === 0) return;
+    // Ponto único de bloqueio: o 'seeked' e o 'play' do vídeo chamam
+    // isto, e sem a guarda ressuscitariam as faixas que a velocidade
+    // alta acabou de parar.
+    if (this._audioSuspended()) { this.pauseAudios(); return; }
     const log = (m) => Bridge.send('ui_log', { message: 'audio-sync: ' + m });
     this.audioEls.forEach((a, i) => {
       if (forceSeek || Math.abs(a.currentTime - v.currentTime) > 0.05)
@@ -1499,9 +1522,20 @@ const Player = {
   applyRateAudios() {
     const v = document.getElementById('playerVideo');
     if (!v) return;
+    if (this._audioSuspended()) {
+      this.pauseAudios();
+      this._audioWasSuspended = true;
+      return;
+    }
     this.audioEls.forEach(a => {
       try { a.playbackRate = v.playbackRate; } catch (e) {}
     });
+    // Voltando de uma velocidade alta as faixas estão paradas num ponto
+    // velho. Sem este re-sync elas só voltariam no próximo seek do usuário.
+    if (this._audioWasSuspended) {
+      this._audioWasSuspended = false;
+      this.syncAudios(true);
+    }
   },
   startDriftCheck() {
     if (this.driftRaf) return;
@@ -1512,7 +1546,7 @@ const Player = {
       // Check a cada ~200ms (nao todo frame).
       if (t - lastCheck > 200) {
         lastCheck = t;
-        if (!v.paused && !v.ended) {
+        if (!v.paused && !v.ended && !this._audioSuspended()) {
           this.audioEls.forEach(a => {
             const drift = a.currentTime - v.currentTime;
             if (Math.abs(drift) > 0.10)

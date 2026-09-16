@@ -5,9 +5,9 @@
 
   Desenho em tres pontos que nao sao obvios:
 
-  1. MANDA AUDIO, NUNCA O VIDEO. A API tem MAX_UPLOAD_MB=512 por padrao e
-     uma gravacao 4K passa disso facil. O audio sai em m4a pelo
-     ExtractAudioTracks: 1 hora da ~70 MB.
+  1. MANDA AUDIO, NUNCA O VIDEO. A API tem MAX_UPLOAD_MB=1024 por padrao
+     (era 512 ate a v2) e uma gravacao 4K passa disso facil. O audio sai
+     em m4a pelo ExtractAudioTracks: 1 hora da ~70 MB.
 
      E manda as faixas ISOLADAS, uma transcricao por faixa, nao a
      mistura: cada faixa e um dispositivo, com o nome dele escrito no MKV
@@ -21,10 +21,20 @@
      MergeTranscripts derruba a copia — ver o comentario dele.
 
   2. MODELO ASSINCRONO, COM PROGRESSO REAL. POST /jobs devolve um id na
-     hora; GET /jobs/{id} da estagio, percentual e ETA, e o `result`
-     quando termina. O percentual mede o trecho de audio ja coberto pelos
-     segmentos — nao ha estimativa nossa. Avanca aos saltos (janelas de
-     30s do Whisper), e o ETA so existe a partir de ~10%.
+     hora; GET /jobs/{id} da estagio, percentual e ETA — e o `result` so
+     com ?incluir_resultado=true (mudou na v2; ver STATUS_QUERY). O
+     percentual mede o trecho de audio ja coberto pelos segmentos — nao
+     ha estimativa nossa. Avanca aos saltos (janelas de 30s do Whisper),
+     e o ETA so existe a partir de ~10%.
+
+     Etapas da v2: queued -> decoding -> transcribing -> aligning ->
+     diarizing -> done. O `aligning` e novo (WhisperX alinha as palavras
+     com wav2vec2 antes de separar falantes).
+
+     O id do job e o SHA-256 do AUDIO combinado com as opcoes, entao
+     reenviar a mesma gravacao devolve o resultado pronto na hora, com
+     HTTP 200 e `cached: true` em vez de 202. Retentar depois de uma falha
+     de rede custa so o upload.
 
   3. UMA POR VEZ. O proprio container serializa as requisicoes (os
      modelos nao sao thread-safe), entao paralelizar aqui so encheria a
@@ -166,6 +176,11 @@ const
   // andamento sai de GET /jobs/{id}.
   JOBS_PATH   = '/jobs';
   HEALTH_PATH = '/health';
+  // A v2 da API separou andamento de resultado: o GET /jobs/{id} devolve
+  // so o progresso, e o JSON da transcricao vem neste parametro. (O outro
+  // caminho seria o GET /jobs/{id}/download, que existe pra json/txt/srt/
+  // vtt — mas ai seriam duas requisicoes pra ter a mesma coisa.)
+  STATUS_QUERY = '?incluir_resultado=true';
 
   DEFAULT_HOST = 'http://localhost:8000';
 
@@ -685,6 +700,11 @@ begin
       if Lang <> '' then Data.AddField('language', Lang);
       // Separacao por falante — e o que torna o painel do player util.
       Data.AddField('diarization', 'true');
+      // Alinhamento por palavra. O padrao da API ja e true, mas vai
+      // EXPLICITO porque o TurnsFromWords depende dele: sem os
+      // `segments[].words` o recorte de turnos cai no `turns` cru da API,
+      // que so quebra em troca de falante (pegadinha #60k).
+      Data.AddField('alignment', 'true');
       try
         Resp := Http.Post(HostBase + JOBS_PATH, Data);
       except
@@ -761,7 +781,7 @@ begin
     Http.ResponseTimeout := POLL_TIMEOUT_MS;
     Http.UserAgent := 'NoOBS';
     try
-      Resp := Http.Get(HostBase + JOBS_PATH + '/' + AJobId);
+      Resp := Http.Get(HostBase + JOBS_PATH + '/' + AJobId + STATUS_QUERY);
     except
       on E: Exception do Exit(NetErrText(E.Message));
     end;
@@ -785,7 +805,10 @@ begin
       // nao faz sentido). -1 = ainda nao da pra dizer.
       if Obj.TryGetValue<Double>('eta_seconds', Eta) then AEta := Round(Eta);
       // O `result` so vem quando status = done, e e o MESMO JSON que o
-      // /transcribe devolvia — o resto da unit nao muda por causa disso.
+      // /transcribe devolve. E so vem porque pedimos: desde a v2 da API o
+      // GET /jobs/{id} traz SO o andamento por padrao, e o resultado
+      // depende do ?incluir_resultado=true (ver STATUS_QUERY). Sem ele a
+      // transcricao terminava e o job "concluia sem resultado".
       ResVal := Obj.GetValue('result');
       if ResVal is TJSONObject then AResult := ResVal.ToJSON;
     finally
@@ -1044,6 +1067,22 @@ begin
   Result := (T <> '') and CharInSet(T[Length(T)], ['.', '?', '!']);
 end;
 
+procedure AppendWord(var ADest: string; const AWord: string);
+// Junta a palavra ao texto do turno inserindo o espaco SO quando falta.
+//
+// O formato mudou com o WhisperX: o faster-whisper devolvia a palavra
+// com o espaco na frente (" Bom"), o alinhador devolve ela pelada
+// ("Bom") — e e por isso que o _build_turns da propria API junta com
+// " ".join(). Somar direto emendava tudo ("Bomdiapessoal"); somar sempre
+// um espaco dobraria no formato antigo, que ainda aparece nos segmentos
+// que nao passaram pelo alinhamento (idioma sem alinhador embutido).
+begin
+  if AWord = '' then Exit;
+  if (ADest <> '') and (ADest[Length(ADest)] <> ' ') and (AWord[1] <> ' ') then
+    ADest := ADest + ' ';
+  ADest := ADest + AWord;
+end;
+
 procedure TurnsFromWords(AObj: TJSONObject; ATrack: Integer;
   var ATurns: TArray<TTurn>);
 // Remonta os turnos a partir de segments[].words, que traz start/end/
@@ -1059,6 +1098,9 @@ var
   i, j, n: Integer;
   WStart, WEnd: Double;
   WText, WSpk: string;
+  HasTs, AnyTimed: Boolean;
+  SegText, SegSpk, Pending: string;
+  SegStart, SegEnd: Double;
   Cur: TTurn;
   Have: Boolean;
   Corta: Boolean;
@@ -1090,6 +1132,8 @@ begin
     WordsVal := Seg.GetValue('words');
     if not (WordsVal is TJSONArray) then Continue;
     Words := TJSONArray(WordsVal);
+    AnyTimed := False;
+    Pending := '';
     for j := 0 to Words.Count - 1 do
     begin
       if not (Words.Items[j] is TJSONObject) then Continue;
@@ -1097,9 +1141,24 @@ begin
       WText := ''; WSpk := ''; WStart := 0; WEnd := 0;
       W.TryGetValue<string>('word', WText);
       W.TryGetValue<string>('speaker', WSpk);
-      W.TryGetValue<Double>('start', WStart);
-      W.TryGetValue<Double>('end', WEnd);
+      // PALAVRA SEM TIMESTAMP. A v2 da API manda `word` sem `start`/`end`
+      // quando o alinhador nao reconhece o token (numeros, simbolos) — e
+      // manda de proposito, pra o texto nao perder pedaco. Sem esta
+      // guarda o TryGetValue deixava os dois em 0 e a palavra ancorava o
+      // turno no segundo ZERO da gravacao. O turno perde essas palavras;
+      // o `text` do topo, que a busca le, continua inteiro.
+      HasTs := W.TryGetValue<Double>('start', WStart);
+      if not W.TryGetValue<Double>('end', WEnd) then WEnd := WStart;
       if Trim(WText) = '' then Continue;
+      if not HasTs then
+      begin
+        // Guarda o texto e segue: ela entra no turno da proxima palavra
+        // alinhada, sem mexer no inicio/fim dele. Descartar era o que a
+        // API faz, mas aqui o turno e o que o usuario LE — "Custou 1500
+        // reais" viraria "Custou reais".
+        AppendWord(Pending, WText);
+        Continue;
+      end;
       // A API nao poe speaker na palavra em toda configuracao; cai no
       // do segmento pra o rotulo nao ficar vazio.
       if WSpk = '' then Seg.TryGetValue<string>('speaker', WSpk);
@@ -1123,8 +1182,47 @@ begin
         Cur.Drop := False;
         Have := True;
       end;
-      Cur.Text := Cur.Text + WText;
+      AppendWord(Cur.Text, Pending);
+      AppendWord(Cur.Text, WText);
+      Pending := '';
       Cur.EndS := WEnd;
+      AnyTimed := True;
+    end;
+
+    // Sobrou pendente no fim do segmento (ultima palavra sem timestamp):
+    // entra no turno corrente, senao o texto dela sumiria.
+    if Have and (Pending <> '') then
+    begin
+      AppendWord(Cur.Text, Pending);
+      Pending := '';
+    end;
+
+    // Segmento inteiro sem palavra alinhada: usa o proprio segmento, que
+    // tem start/end. E o mesmo fallback do _build_turns da API — sem ele
+    // o trecho sumiria dos turnos, e some CALADO: o `text` do topo
+    // continua completo, entao so o painel do player perde a fala.
+    if not AnyTimed then
+    begin
+      Flush;
+      SegText := '';
+      SegSpk := '';
+      SegStart := 0;
+      SegEnd := 0;
+      Seg.TryGetValue<string>('text', SegText);
+      Seg.TryGetValue<string>('speaker', SegSpk);
+      Seg.TryGetValue<Double>('start', SegStart);
+      Seg.TryGetValue<Double>('end', SegEnd);
+      if Trim(SegText) <> '' then
+      begin
+        Cur.Speaker := SegSpk;
+        Cur.StartS := SegStart;
+        Cur.EndS := SegEnd;
+        Cur.Text := SegText;
+        Cur.Track := ATrack;
+        Cur.Drop := False;
+        Have := True;
+        Flush;
+      end;
     end;
   end;
   Flush;

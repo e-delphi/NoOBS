@@ -33,6 +33,7 @@ const Transcribe = {
   lastErrorName: '',   // qual gravação falhou — "1 com falha" sozinho não diz
   _lastToastError: '', // último motivo já avisado por toast (ver applyState)
   pending: 0,
+  pendingCloud: 0,  // ficaram de fora: só na nuvem (não baixamos em lote)
   queueItems: [],  // [{id,name,duration,current}] na ordem de execução
   _dragId: null,   // item sendo arrastado AGORA (trava o re-render)
   _pendingQueueRender: false,
@@ -119,6 +120,8 @@ const Transcribe = {
 
   applyPending(data) {
     this.pending = (data && data.count) || 0;
+    // Pendentes que o backend deixou de fora por estarem só na nuvem.
+    this.pendingCloud = (data && data.cloud) || 0;
     this.render();
   },
 
@@ -332,6 +335,19 @@ const Transcribe = {
     Bridge.send('move_transcribe_item', { id: dragId, to: to });
   },
 
+  // Gravações que não entram na conta nem no lote por estarem só na
+  // nuvem. Sem este aviso, uma biblioteca inteira no OneDrive mostraria
+  // "Nada pendente" com dezenas de gravações sem transcrição — parece
+  // defeito, e o usuário não teria como saber o porquê.
+  _renderCloudHint() {
+    const el = document.getElementById('transcribeCloudHint');
+    if (!el) return;
+    if (!this.pendingCloud) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = T('settings.transcribe.pendingCloud',
+      { count: this.pendingCloud });
+  },
+
   // O MOTIVO da falha, em linha própria. Fora da caixa de progresso
   // porque aquela some quando a fila esvazia — e o erro precisa
   // continuar legível depois que o lote terminou.
@@ -348,6 +364,7 @@ const Transcribe = {
 
   render() {
     this._renderError();
+    this._renderCloudHint();
     const box  = document.getElementById('transcribeProgress');
     const fill = document.getElementById('transcribeFill');
     const line = document.getElementById('transcribeLine');

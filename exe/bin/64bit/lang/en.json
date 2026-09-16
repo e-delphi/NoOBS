@@ -439,7 +439,9 @@
     },
     "transcribe": {
       "host": "Transcription server",
-      "hostHint": "Address and port of the Transcritor API container. The route is fixed (/transcribe) — only the host is configurable.",
+      "hostHint": "Address and port of the Transcritor API container. The routes are fixed (/jobs and /health) — only the host is configurable.",
+      "dockerHint": "The Transcritor API container must be running. In its repository: <code>docker compose build</code> once (with <code>HF_TOKEN_FILE</code> pointing at your HuggingFace token) and <code>docker compose up -d</code>. The models take a few minutes to load — until then Test fails.",
+      "pendingCloud": "{{count}} recording(s) left out: they are cloud-only. Transcribing would download them, so the batch skips them — open a recording to download it, or transcribe one at a time from its menu.",
       "test": "Test",
       "testing": "Testing…",
       "ok": "Server responded. Ready to transcribe.",
@@ -467,6 +469,7 @@
         "queued": "queued on the server",
         "decoding": "decoding",
         "transcribing": "transcribing",
+        "aligning": "aligning words",
         "diarizing": "separating speakers",
         "done": "done"
       }

@@ -439,7 +439,9 @@
     },
     "transcribe": {
       "host": "Servidor de transcripción",
-      "hostHint": "Dirección y puerto del contenedor de Transcritor API. La ruta es fija (/transcribe): solo el host es configurable.",
+      "hostHint": "Dirección y puerto del contenedor de Transcritor API. Las rutas son fijas (/jobs y /health): solo el host es configurable.",
+      "dockerHint": "Se necesita el contenedor de Transcritor API en ejecución. En su repositorio: <code>docker compose build</code> una vez (con <code>HF_TOKEN_FILE</code> apuntando a tu token de HuggingFace) y <code>docker compose up -d</code>. Los modelos tardan unos minutos en cargar; hasta entonces Probar falla.",
+      "pendingCloud": "{{count}} grabación(es) quedaron fuera: están solo en la nube. Transcribir las descargaría, así que el lote las omite — abre la grabación para descargarla, o transcribe una por una desde su menú.",
       "test": "Probar",
       "testing": "Probando…",
       "ok": "El servidor respondió. Listo para transcribir.",
@@ -467,6 +469,7 @@
         "queued": "en cola en el servidor",
         "decoding": "decodificando",
         "transcribing": "transcribiendo",
+        "aligning": "alineando palabras",
         "diarizing": "separando hablantes",
         "done": "completado"
       }

@@ -127,6 +127,13 @@ uses
   FFmpegLib,
   FFmpegOps;
 
+const
+  // Por quanto tempo o Chromium pode reter os bytes de midia servidos
+  // em /v/. Uma hora cobre de sobra a sessao de quem esta revendo uma
+  // gravacao; o valor exato importa pouco, o que importa e nao ser
+  // `no-store` (ver o comentario no ServeFileWithRange).
+  MEDIA_CACHE_SECONDS = 3600;
+
 type
   // OnCommandGet exige method-of-object. Esta classe e um trampolim.
   TPlayerServerHandler = class
@@ -899,6 +906,7 @@ procedure ServeFileWithRange(AReq: TIdHTTPRequestInfo;
   AResp: TIdHTTPResponseInfo; const AFilePath: string);
 var
   TotalSize, RangeStart, RangeEnd, ContentLen, SuffixLen: Int64;
+  ExtKind: Integer;
   RangeHdr, S, StartStr: string;
   P: Integer;
 begin
@@ -982,9 +990,10 @@ begin
   ContentLen := RangeEnd - RangeStart + 1;
   // Content-Type por extensao — Chromium e mais permissivo se vier
   // o tipo certo. video/x-matroska pra .mkv, video/mp4 pra .mp4 etc.
-  case IndexStr(LowerCase(ExtractFileExt(AFilePath)),
+  ExtKind := IndexStr(LowerCase(ExtractFileExt(AFilePath)),
                 ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg',
-                 '.jpeg', '.png', '.m4a', '.aac']) of
+                 '.jpeg', '.png', '.m4a', '.aac']);
+  case ExtKind of
     0, 1: AResp.ContentType := 'video/mp4';
     2:    AResp.ContentType := 'video/x-matroska';
     3:    AResp.ContentType := 'video/webm';
@@ -997,7 +1006,31 @@ begin
     AResp.ContentType := 'application/octet-stream';
   end;
   AResp.CustomHeaders.Values['Accept-Ranges'] := 'bytes';
-  AResp.CustomHeaders.Values['Cache-Control'] := 'no-store';
+
+  // CACHE. `no-store` proibia o cache de midia do Chromium de guardar
+  // QUALQUER coisa, entao todo seek — e cada passo de uma varredura em
+  // velocidade alta — voltava pela rede. Video e audio agora sao
+  // cacheaveis; e o unico ganho que existe do lado do servidor, ja que o
+  // gargalo real e o decode (AV1 4K entrega ~80 quadros/s).
+  //
+  // E seguro porque o conteudo de uma URL /v/ nao muda: o token e o hash
+  // do PATH e os arquivos por tras dele (gravacao, remux, faixa extraida)
+  // sao escritos uma vez. Entre execucoes tambem nao ha risco — a porta
+  // do servidor e efemera (bind em 0), entao o origin muda e nada do
+  // cache anterior e reaproveitado.
+  //
+  // `private` porque isto e conteudo do usuario: proibe cache
+  // compartilhado (proxy) de guardar, mesmo o servidor sendo local.
+  //
+  // IMAGEM fica de fora. A thumb da gravacao PODE ser regerada na mesma
+  // sessao com a MESMA URL (o GC apaga as quebradas e o scan refaz), e
+  // ela e pequena demais pra valer o risco de mostrar a antiga. Os thumbs
+  // AO VIVO de monitor nem passam por aqui (rota /thumb/).
+  if (ExtKind >= 5) and (ExtKind <= 7) then
+    AResp.CustomHeaders.Values['Cache-Control'] := 'no-store'
+  else
+    AResp.CustomHeaders.Values['Cache-Control'] :=
+      Format('private, max-age=%d', [MEDIA_CACHE_SECONDS]);
   AResp.ContentLength := ContentLen;
 
   // Streaming: o Indy le o TRangeFileStream em blocos e envia pelo socket,

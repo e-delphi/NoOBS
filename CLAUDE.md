@@ -2123,9 +2123,49 @@ cada peça saiu de um limite concreto:
 
 **a) O modelo é ASSÍNCRONO, com progresso REAL.** `POST /jobs` devolve um
 `job_id` na hora (HTTP 202) e `GET /jobs/{id}` dá `status`, `stage`,
-`progress` (0..1), `eta_seconds` e — quando termina — o campo `result`,
-que é exatamente o JSON que o antigo `/transcribe` devolvia. O percentual
-mede o trecho de áudio já coberto pelos segmentos; não inventamos nada.
+`progress` (0..1) e `eta_seconds`. O percentual mede o trecho de áudio já
+coberto pelos segmentos; não inventamos nada.
+
+**O `result` NÃO vem por padrão — é preciso `?incluir_resultado=true`.**
+Mudou na v2 da API (a v1 embutia sempre), e o sintoma é silencioso: a
+transcrição roda inteira, chega em `status: done` e morre no
+`error.transcribe.emptyResult` ("job concluído sem resultado"). Daí o
+`STATUS_QUERY` no `PollJob`. O outro caminho seria o
+`GET /jobs/{id}/download` (json/txt/srt/vtt), mas seriam duas requisições
+pra ter a mesma coisa.
+
+As etapas da v2 são `queued` → `decoding` → `transcribing` → **`aligning`**
+→ `diarizing` → `done`. O `aligning` é novo: o WhisperX alinha as palavras
+com wav2vec2 antes de separar falantes, e é o que deixou os timestamps por
+palavra bem mais precisos — exatamente a entrada do `TurnsFromWords` (item
+**k**). Toda etapa nova precisa da chave `settings.transcribe.stage.*` nos
+três idiomas, senão a linha de progresso fica sem legenda.
+
+**Palavra pode vir SEM `start`/`end`.** A v2 manda o token mesmo quando o
+alinhador não o reconhece (números, símbolos), de propósito, pra o texto
+não perder pedaço. O `TryGetValue` deixava os dois em `0` e a palavra
+ancorava o turno no segundo ZERO da gravação — o `TurnsFromWords` pula
+essas palavras, como o `_build_turns` da própria API faz.
+
+**A palavra vem SEM o espaço na frente.** O faster-whisper devolvia
+`" Bom"`; o alinhador do WhisperX devolve `"Bom"` — e é por isso que o
+`_build_turns` da própria API junta com `" ".join()`. Concatenar direto,
+que funcionava na v1, passou a emendar tudo (`"Bomdiapessoal"`). Mas somar
+sempre um espaço também não serve: o formato antigo ainda aparece nos
+segmentos que não passaram pelo alinhamento (idioma sem alinhador
+embutido), e dobraria. Daí o `AppendWord`, que insere o espaço só quando
+falta dos dois lados.
+
+> Armadilha de teste: a suíte que validou o `TurnsFromWords` foi escrita
+> com dados no formato ANTIGO (`" Bom"`), então passou verdinha enquanto o
+> app emendava as palavras. Payload de teste montado à mão espelha o que
+> você ACHA que a API manda — confira o formato na fonte (aqui, o exemplo
+> de `words` no README da API) antes de confiar no verde.
+
+**O `job_id` é o SHA-256 do áudio + as opções.** Reenviar a mesma gravação
+devolve o resultado pronto na hora, com HTTP 200 e `cached: true` em vez
+de 202 — retentar depois de uma falha de rede custa só o upload. O
+`SubmitJob` já aceita os dois códigos.
 
 Quatro consequências que moldam a UI:
 
@@ -2157,7 +2197,8 @@ português, e a UI tem três idiomas. Traduzimos a partir do código
 > de regressão — o número real existe.
 
 **b) Não dá pra mandar o vídeo.** `MAX_UPLOAD_MB` é 512 por padrão e uma
-gravação 4K de poucos minutos passa disso. Vai só a **faixa de mistura**
+gravação 4K de poucos minutos passa disso (era 512 até a v2). Vai só a
+**faixa de mistura**
 (stream 0, que já tem todos os microfones e o som do sistema), extraída
 em m4a pelo `ExtractAudioTracks` — 1 hora dá ~70 MB. O m4a é apagado
 depois do envio: é veículo de upload, não cache.
@@ -2274,6 +2315,28 @@ Corolário pro dedup: com turnos de 20 s a sobreposição e a contenção não
 casavam nada (medido: `0 descartados por eco` numa gravação com três
 faixas). Turno curto é pré-requisito pro dedup do item **j** funcionar.
 
+**l) "Transcrever pendentes" não puxa da nuvem.** Transcrever lê o
+arquivo inteiro pra extrair o áudio, então um placeholder do OneDrive
+viraria download — e o botão numa biblioteca sincronizada baixaria a
+biblioteca INTEIRA de uma vez, sem ninguém ter pedido. `TranscribablePaths`
+pula o que `IsFileCloudOnly` marca, que é a mesma regra da prévia da
+galeria (`libraryThumbs` no modo `auto`): trabalho em LOTE não puxa da
+nuvem. Checar é de graça — `GetFileAttributes` lê metadado, que é sempre
+local, e não dispara o recall.
+
+O filtro vale pra CONTAGEM e pro enfileiramento porque os dois saem da
+mesma função: o botão não pode oferecer "7 pendentes" e enfileirar 3.
+
+Mas contar a menos, sozinho, cria um mistério: biblioteca inteira no
+OneDrive mostraria **"Nada pendente"** com dezenas de gravações sem
+transcrição, e isso se lê como defeito. Por isso o `transcribe_pending`
+leva também o `cloud`, e a aba explica quantas ficaram de fora e por quê.
+
+Transcrever UMA gravação pelo menu dela **continua funcionando** mesmo na
+nuvem: ali o usuário pediu por aquele arquivo, igual a abrir no player um
+vídeo que só está na nuvem. A regra é sobre trabalho automático em lote,
+não sobre gesto explícito.
+
 **c) Uma por vez não é escolha nossa.** O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
 a fila do outro lado. Uma thread, uma fila.
@@ -2377,6 +2440,58 @@ quando algo **muda** (item começa, termina, falha). Quem faz o decorrido
 andar de segundo em segundo é um `setInterval` no `Transcribe` — 40
 minutos de push por segundo seriam ruído puro no canal.
 
+### 61. **Reprodução acelerada esbarra no DECODE, não no disco**
+
+Sintoma: a partir de 2× o player trava sem parar, com o disco ocioso.
+
+Medido com as DLLs empacotadas, sobre uma gravação real (3840×2160 AV1,
+30 fps — o formato padrão do app), `threads=auto`:
+
+| | |
+|---|---|
+| decode AV1 4K | **80 quadros/s** |
+| keyframes | a cada **2,00 s** exatos |
+
+A conta que decide: 1× pede 30 quadros/s e cabe; **2× pede 60 e já usa
+75% do teto**; 3× pede 90 e não cabe; 8× pede 240. O Chromium usa dav1d
+(mais rápido que o libaom que medimos), então o teto real dele é maior —
+mas 8× está fora de alcance em qualquer decodificador de software.
+
+Três coisas que a investigação derrubou ou descobriu, e que valem mais
+que a conclusão:
+
+- **O laço de sincronia das faixas NÃO era o culpado.** A hipótese era
+  boa (tolerância de drift fixa em 0,10 s, que a 8× equivale a 12 ms de
+  relógio, e cada correção é um seek). Medindo as 5 faixas m4a reais a
+  8×: **0 seeks corretivos**, áudio a 99% da taxa pedida. Não reintroduza
+  essa suspeita sem medir de novo.
+- **O Chromium abre exatamente 6 conexões por host** (medido: 12
+  requisições simultâneas, as 6 últimas esperaram o primeiro lote). Uma
+  gravação com 5 faixas isoladas gasta 1 no `<video>` + 5 nos `<audio>` =
+  as seis. Por isso as escravas param acima de `Player.AUDIO_MAX_RATE`
+  (2×): liberam cinco conexões e o CPU delas, e acima de 4× o Chromium
+  silencia o áudio de qualquer jeito.
+- **`avcodec_find_decoder` para AV1 devolve `libaom-av1`.** Não há
+  `libdav1d` no build, e o decoder nativo `av1` é só-hardware (decodificou
+  **0 quadros** sem hwaccel). Ou seja: todo decode de AV1 nosso — thumb,
+  exportação — passa pelo mais lento disponível. As thumbs funcionam, mas
+  é bom saber de onde vem a lentidão.
+
+O `no-store` do `ServeFileWithRange` virou `private, max-age` para vídeo
+e áudio: ele proibia o cache de mídia do Chromium de guardar qualquer
+coisa, então todo seek voltava pela rede. É seguro porque a URL `/v/` é o
+hash do path e o conteúdo por trás dela não muda, e porque a porta do
+servidor é efêmera — nada sobrevive para a sessão seguinte. **Imagem
+continua `no-store`**: a thumb pode ser regerada na mesma sessão com a
+mesma URL.
+
+O conserto de verdade para varredura rápida seria **avanço por seek** em
+vez de reprodução acelerada: pausar e pular o `currentTime` na grade de
+keyframes. A 8× com passo de 2,00 s são 4 quadros/s decodificados em vez
+de 240 — 5% do orçamento em vez de 300%. Detalhe que decide: o Chromium
+**não implementa `fastSeek()`** (verificado), então todo seek é exato e
+alinhar na grade deixa de ser otimização e vira requisito.
+
 ---
 
 ## Caches
@@ -2435,7 +2550,7 @@ recuperáveis manualmente).
 | `autoRecordOnMic`                | `true` / `false` (default `false`) — auto-inicia/para gravação quando o mic é usado por outro app |
 | `autoRecordMicApps`              | nomes de processo separados por vírgula (ex.: `teams, whatsapp`); vazio = qualquer app |
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
-| `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). A ROTA é fixa (`/transcribe`) — só o host é configurável |
+| `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). As ROTAS são fixas (`/jobs`, `/health`) — só o host é configurável |
 | `transcribePerTrack`             | `true` / `false` (default **`true`**) — manda as faixas de áudio ISOLADAS pra transcrição, uma por vez, em vez da mistura. Dá atribuição de falante pelo nome do dispositivo, e custa N transcrições por gravação; só entra em ação com 2+ faixas isoladas. Só existe como chave do JSON, sem controle na UI (pegadinha #60j) |
 | `transcribeLanguage`             | código ISO passado à API (`pt`, `en`…). Vazio = detecção automática. Só existe como chave do JSON, sem controle na UI |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |

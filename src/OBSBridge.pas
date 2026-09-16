@@ -103,7 +103,8 @@
                            eta (segundos, -1 = a API ainda nao arrisca),
                            stage, track, trackCount, lastError,
                            lastErrorName (pegadinha #60)
-    transcribe_pending   : count (quantas ainda nao foram transcritas)
+    transcribe_pending   : count (pendentes LOCAIS), cloud (pendentes
+                           que ficaram de fora por estarem so na nuvem)
     transcribe_queue     : items[] ({id,name,duration,current}) — a fila
                            na ordem de execucao, item em curso primeiro.
                            So sai quando a COMPOSICAO muda (QueueRevision)
@@ -5271,34 +5272,66 @@ begin
   PostOwned(Obj);
 end;
 
-function TranscribablePaths: TArray<string>;
+function TranscribablePaths(out ACloudOnly: Integer): TArray<string>;
 // Gravacoes da arvore INTEIRA que ainda nao tem transcricao. Recursivo
 // de proposito: o botao "transcrever pendentes" fala da biblioteca, nao
 // da pasta que por acaso esta aberta.
+//
+// PULA O QUE ESTA SO NA NUVEM. Transcrever le o arquivo inteiro pra
+// extrair o audio, entao um placeholder do OneDrive viraria download —
+// e "transcrever pendentes" numa biblioteca sincronizada baixaria a
+// biblioteca INTEIRA de uma vez, sem o usuario ter pedido. Mesma regra
+// da previa da galeria (`libraryThumbs` no modo auto): trabalho em lote
+// nao puxa da nuvem. O `IsFileCloudOnly` le so os atributos, que sao
+// sempre locais — checar nao dispara o recall.
+//
+// Vale pra CONTAGEM e pro enfileiramento, que saem os dois daqui: o
+// botao nao pode oferecer "7 pendentes" e enfileirar 3.
+//
+// Transcrever UMA gravacao pelo menu dela continua funcionando mesmo na
+// nuvem — ali o usuario pediu por aquele arquivo, igual a abrir um video
+// so na nuvem no player.
 var
   Files: TStringDynArray;
-  i, n: Integer;
+  i, n, Cloud: Integer;
 begin
   SetLength(Result, 0);
   Files := ListRecordingsRecursive(RecordDir);
   SetLength(Result, Length(Files));
   n := 0;
+  Cloud := 0;
   for i := 0 to High(Files) do
   begin
     if OBSTranscribe.HasTranscript(Files[i]) then Continue;
+    if IsFileCloudOnly(Files[i]) then
+    begin
+      Inc(Cloud);
+      Continue;
+    end;
     Result[n] := Files[i];
     Inc(n);
   end;
   SetLength(Result, n);
+  ACloudOnly := Cloud;
+  if Cloud > 0 then
+    Log('Transcribe: %d pendente(s) fora da conta — so na nuvem.', [Cloud]);
 end;
 
 procedure PushTranscribePending;
 var
   Obj: TJSONObject;
+  Cloud: Integer;
+  Paths: TArray<string>;
 begin
+  Cloud := 0;
+  Paths := TranscribablePaths(Cloud);
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'transcribe_pending');
-  Obj.AddPair('count', TJSONNumber.Create(Length(TranscribablePaths)));
+  Obj.AddPair('count', TJSONNumber.Create(Length(Paths)));
+  // Pendentes que ficaram DE FORA por estarem so na nuvem. Sem este
+  // numero, uma biblioteca inteira no OneDrive mostraria "Nada pendente"
+  // com dezenas de gravacoes sem transcricao — parece defeito.
+  Obj.AddPair('cloud', TJSONNumber.Create(Cloud));
   PostOwned(Obj);
 end;
 
@@ -5499,8 +5532,11 @@ begin
 end;
 
 procedure HandleTranscribePending;
+var
+  Cloud: Integer;
 begin
-  OBSTranscribe.EnqueueMany(TranscribablePaths);
+  Cloud := 0;
+  OBSTranscribe.EnqueueMany(TranscribablePaths(Cloud));
 end;
 
 procedure HandleCancelTranscribe;

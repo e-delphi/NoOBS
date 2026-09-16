@@ -800,8 +800,20 @@
         </div>
         <div class="settings-hint" id="settingsTranscribeStatus"
              data-i18n="settings.transcribe.hostHint">
-          Endereço e porta do container da Transcritor API. A rota é fixa
-          (<code>/transcribe</code>) — só o host é configurável.
+          Endereço e porta do container da Transcritor API. As rotas são
+          fixas (<code>/jobs</code> e <code>/health</code>) — só o host é
+          configurável.
+        </div>
+        <!-- Elemento PRÓPRIO: o #settingsTranscribeStatus acima é
+             reaproveitado pelo botão Testar, então a instrução sumiria no
+             primeiro teste. -->
+        <div class="settings-hint" id="transcribeDockerHint"
+             data-i18n-html="settings.transcribe.dockerHint">
+          Precisa do container da Transcritor API rodando. No repositório dela:
+          <code>docker compose build</code> uma vez (com <code>HF_TOKEN_FILE</code>
+          apontando pro seu token do HuggingFace) e
+          <code>docker compose up -d</code>. Os modelos levam alguns minutos
+          pra carregar — até lá o Testar falha.
         </div>
       </div>
 
@@ -832,6 +844,10 @@
              curso aparece no topo, fixo — reordenar o que já está no
              servidor não faria nada. Montada em JS (Transcribe.renderQueue). -->
         <div class="transcribe-queue" id="transcribeQueue" hidden></div>
+        <!-- Pendentes que NAO entram na conta nem na fila por estarem só
+             na nuvem. Sem isto, biblioteca inteira no OneDrive mostraria
+             "Nada pendente" com dezenas de gravações sem transcrição. -->
+        <div class="settings-hint" id="transcribeCloudHint" hidden></div>
         <div class="settings-hint" id="transcribeHint" data-i18n="settings.transcribe.queueHint">
           Uma transcrição por vez — o próprio container serializa as
           requisições, então enfileirar mais não adiantaria. O percentual

@@ -943,6 +943,82 @@
   }
   .transcribe-error[hidden] { display: none; }
 
+  /* ===== Diagnóstico do servidor de transcrição =====
+     Uma etapa por linha, com o ícone dizendo o estado. Só a etapa que
+     falta ganha o bloco de instrução — o resto é lista curta de "ok",
+     pra o olho ir direto no que fazer. */
+  .transcribe-setup[hidden] { display: none; }
+  .transcribe-setup {
+    margin-top: 12px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .transcribe-setup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .transcribe-setup-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .ts-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .ts-icon {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .ts-row.ok   .ts-icon { color: var(--success); }
+  .ts-row.fail .ts-icon { color: var(--danger-2); }
+  .ts-row.wait .ts-icon { color: var(--text-3); }
+  .ts-row.fail { color: var(--text); }
+  /* Instrução da etapa que falta: recuada sob o texto da linha. */
+  .ts-detail {
+    margin: 4px 0 8px 22px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+  .ts-detail p { margin: 0 0 6px; }
+  .ts-detail p:last-child { margin-bottom: 0; }
+  /* Comando copiável. `pre-wrap` + `anywhere` porque o docker run é
+     longo e a coluna das Configurações é estreita: quebrar a linha na
+     tela não muda o que vai pro clipboard. */
+  .ts-cmd {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 6px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--panel-3);
+    border: 1px solid var(--border-2);
+  }
+  .ts-cmd code {
+    flex: 1;
+    min-width: 0;
+    font-family: Consolas, 'Cascadia Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .ts-cmd .settings-btn { flex: none; }
+  .ts-actions { margin: 6px 0; }
+
   /* ===== Fila de transcrição =====
      Lista arrastável. As linhas têm altura confortável de propósito: o
      alvo de arrasto é o item inteiro, e uma tira de 20px seria briga com

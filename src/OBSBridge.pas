@@ -66,7 +66,14 @@
                            mixAudio (Boolean)
     cancel_export        : — (aborta a exportacao em andamento)
     set_transcribe_host  : host (base do servidor; a ROTA e fixa)
+    set_transcribe_language: language ('app' = idioma do NoOBS, 'auto' =
+                           a API detecta, ou codigo ISO: 'pt', 'en'...)
+    set_transcribe_on_stop: enabled — enfileira a gravacao ao terminar
     test_transcribe_host : host — GET /health, responde transcribe_health
+    check_transcribe_setup: host, seq — diagnostico em etapas (WSL, Docker,
+                           container, servidor); responde transcribe_setup
+    transcribe_setup_action: action ('openDockerSite' | 'startDockerDesktop')
+                           — alvos FIXOS no Delphi, nunca vindos da UI
     transcribe_recording : id (filepath) — enfileira uma
     transcribe_pending   : — enfileira TODAS as ainda nao transcritas
     cancel_transcribe    : — limpa a fila (o item em voo termina)
@@ -109,6 +116,10 @@
                            na ordem de execucao, item em curso primeiro.
                            So sai quando a COMPOSICAO muda (QueueRevision)
     transcribe_health    : ok, error
+    transcribe_setup     : seq, serverOk, serverError, isLocal, port, wslOk,
+                           dockerInstalled, dockerRunning, canStartDocker,
+                           containerId, containerImage, containerState,
+                           containerStatus, restartPolicy
     transcript           : id, transcribed (o arquivo existe), has (tem
                            turnos), turns[] ({speaker,start,end,text}),
                            speakers ({'SPEAKER_00':'Eduardo'} — nomes
@@ -1339,7 +1350,7 @@ begin
   // mostrando. Gravacao nova sempre cai na RAIZ; se o usuario estiver
   // navegando numa subpasta, empurrar o card ali colocaria a gravacao
   // visualmente dentro de uma pasta onde ela nao esta. Ele a encontra ao
-  // voltar pra raiz. Vale tambem pro split/merge/export, que criam
+  // voltar pra raiz. Vale tambem pro merge/export, que criam
   // arquivo ao lado do original.
   if not SameText(ExcludeTrailingPathDelimiter(ExtractFilePath(AFilePath)),
                   ExcludeTrailingPathDelimiter(CurrentBrowseDir)) then
@@ -2829,6 +2840,43 @@ procedure MaybeAutoCheckUpdates; forward;
 // HandleRecordStop (que ela usa), mas o DoInit ja a registra aqui.
 procedure IndicatorClickStop; forward;
 
+procedure RestoreTranscribeQueue;
+// Devolve pra fila o que ficou pendente na sessao anterior — inclusive o
+// item que estava sendo transcrito quando o app fechou (ele vem primeiro).
+//
+// Filtra antes de enfileirar, porque o arquivo da fila pode ter ficado
+// velho enquanto o app estava fechado:
+//   - gravacao apagada ou movida pelo Explorer;
+//   - ja transcrita (o app fechou logo depois de terminar);
+//   - so na nuvem: restaurar e trabalho AUTOMATICO, e trabalho automatico
+//     nao puxa arquivo do OneDrive (mesma regra do "transcrever
+//     pendentes", pegadinha #60l).
+var
+  Saved, Keep: TArray<string>;
+  i, Skipped: Integer;
+begin
+  Saved := OBSTranscribe.LoadSavedQueue;
+  if Length(Saved) = 0 then Exit;
+  SetLength(Keep, 0);
+  Skipped := 0;
+  for i := 0 to High(Saved) do
+  begin
+    if (not TFile.Exists(Saved[i])) or OBSTranscribe.HasTranscript(Saved[i]) or
+       IsFileCloudOnly(Saved[i]) then
+    begin
+      Inc(Skipped);
+      Continue;
+    end;
+    Keep := Keep + [Saved[i]];
+  end;
+  Log('Transcribe: fila restaurada — %d item(ns), %d descartado(s).',
+    [Length(Keep), Skipped]);
+  // O EnqueueMany regrava o arquivo, entao os descartados saem dele aqui.
+  // Se TODOS forem descartados nada e regravado e eles ficam no arquivo
+  // ate a proxima mudanca da fila — inofensivo, o filtro roda de novo.
+  if Length(Keep) > 0 then OBSTranscribe.EnqueueMany(Keep);
+end;
+
 procedure DoInit;
 // OBS so sobe quando o usuario clica "Iniciar Gravacao". Init pega
 // monitores via Win32 e audio via WASAPI — UI funciona toda via APIs
@@ -2991,6 +3039,13 @@ begin
   // Fila de transcricao: so registra o callback. A thread sobe sozinha
   // no primeiro Enqueue — sem transcricao pedida, nada roda.
   try OBSTranscribe.SetOnChanged(OnTranscribeChanged); except end;
+
+  // A fila sobrevive a reinicio: o que estava pendente volta agora. Com
+  // itens a restaurar a worker sobe ja (e testa o servidor primeiro — se
+  // o Docker ainda nao subiu, a fila so espera).
+  try RestoreTranscribeQueue; except
+    on E: Exception do Log('Transcribe: falha ao restaurar a fila: %s', [E.Message]);
+  end;
 
   // Auto-gravacao ao detectar uso do microfone por outro app (chamadas de
   // Teams/WhatsApp/etc.). Monitor WASAPI em thread propria; o callback
@@ -3194,6 +3249,15 @@ begin
   end;
 
   PushRecordingAdded(AOutputPath, LastRecordingDuration);
+
+  // TRANSCRICAO AUTOMATICA. Enfileira ja com o arquivo integro (o sinal
+  // "stop" garante o trailer escrito). Com o servidor fora do ar o item
+  // espera na fila, que e persistida — nada se perde por o Docker ainda
+  // estar subindo.
+  if GetConfigBool('transcribeOnStop', True) then
+    try OBSTranscribe.Enqueue(AOutputPath); except
+      on E: Exception do Log('Transcricao automatica falhou: %s', [E.Message]);
+    end;
 end;
 
 const
@@ -4367,6 +4431,13 @@ begin
   // Titulo da janela (default 'NoOBS') e modelo do nome do arquivo de saida.
   Obj.AddPair('windowTitle', GetConfigStr('windowTitle', 'NoOBS'));
   Obj.AddPair('transcribeHost', OBSTranscribe.HostBase);
+  // '' no config (nunca mexido) e o mesmo que 'app': a UI recebe sempre um
+  // valor que existe no seletor.
+  var TrLang := LowerCase(Trim(GetConfigStr('transcribeLanguage', '')));
+  if TrLang = '' then TrLang := 'app';
+  Obj.AddPair('transcribeLanguage', TrLang);
+  Obj.AddPair('transcribeOnStop',
+    TJSONBool.Create(GetConfigBool('transcribeOnStop', True)));
   Obj.AddPair('muteWhenDeviceMuted',
     TJSONBool.Create(GetConfigBool('muteWhenDeviceMuted', True)));
   Obj.AddPair('filenamePattern',
@@ -5269,6 +5340,8 @@ begin
   Obj.AddPair('lastError', OBSTranscribe.LastError);
   // Sem o NOME, "1 com falha" num lote de 7 nao diz QUAL gravacao foi.
   Obj.AddPair('lastErrorName', OBSTranscribe.LastErrorName);
+  // Fila parada esperando o servidor voltar (nao e falha).
+  Obj.AddPair('waiting', TJSONBool.Create(OBSTranscribe.WaitingForServer));
   PostOwned(Obj);
 end;
 
@@ -5495,6 +5568,105 @@ begin
   Log('TranscribeHost: "%s"', [H]);
 end;
 
+procedure HandleSetTranscribeLanguage(const ALanguage: string);
+// 'app', 'auto' ou um codigo ISO de 2-3 letras. Qualquer outra coisa e
+// ignorada — o valor vai direto pro campo `language` da API.
+var
+  L: string;
+  i: Integer;
+  Ok: Boolean;
+begin
+  L := LowerCase(Trim(ALanguage));
+  Ok := (L = 'app') or (L = 'auto');
+  if not Ok and (Length(L) >= 2) and (Length(L) <= 3) then
+  begin
+    Ok := True;
+    for i := 1 to Length(L) do
+      if not CharInSet(L[i], ['a'..'z']) then Ok := False;
+  end;
+  if not Ok then
+  begin
+    Log('TranscribeLanguage: valor recusado "%s"', [ALanguage]);
+    Exit;
+  end;
+  SetConfigStr('transcribeLanguage', L);
+  Log('TranscribeLanguage: %s (enviado a API: "%s")',
+    [L, OBSTranscribe.ResolveTranscribeLanguage]);
+end;
+
+procedure HandleSetTranscribeOnStop(AEnable: Boolean);
+begin
+  SetConfigBool('transcribeOnStop', AEnable);
+  Log('TranscribeOnStop: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleCheckTranscribeSetup(const AHost: string; ASeq: Integer);
+// Diagnostico em worker: roda wsl.exe/docker.exe e pode levar segundos
+// (docker info com o Docker Desktop subindo). O `seq` volta junto pra
+// UI descartar a resposta de uma verificacao ja superada — sem ele, uma
+// checagem lenta anterior poderia sobrescrever a tela com estado velho.
+var
+  HostCopy: string;
+begin
+  HostCopy := Trim(AHost);
+  if HostCopy = '' then HostCopy := OBSTranscribe.HostBase;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      R: TTranscribeSetup;
+    begin
+      R := OBSTranscribe.DiagnoseSetup(HostCopy);
+      if R.ServerOk then OBSTranscribe.NudgeQueue;
+      TThread.Queue(nil,
+        procedure
+        var
+          Obj: TJSONObject;
+        begin
+          if IsShuttingDown then Exit;
+          Obj := TJSONObject.Create;
+          Obj.AddPair('type', 'transcribe_setup');
+          Obj.AddPair('seq', TJSONNumber.Create(ASeq));
+          Obj.AddPair('serverOk', TJSONBool.Create(R.ServerOk));
+          Obj.AddPair('serverError', R.ServerError);
+          Obj.AddPair('isLocal', TJSONBool.Create(R.IsLocal));
+          Obj.AddPair('port', TJSONNumber.Create(R.Port));
+          Obj.AddPair('wslOk', TJSONBool.Create(R.WslOk));
+          Obj.AddPair('dockerInstalled', TJSONBool.Create(R.DockerInstalled));
+          Obj.AddPair('dockerRunning', TJSONBool.Create(R.DockerRunning));
+          // So o booleano: o caminho do executavel nao sai do Delphi (o
+          // "abrir" e resolvido de novo aqui, nunca vindo da UI).
+          Obj.AddPair('canStartDocker', TJSONBool.Create(R.DockerDesktopPath <> ''));
+          Obj.AddPair('containerId', R.ContainerId);
+          Obj.AddPair('containerImage', R.ContainerImage);
+          Obj.AddPair('containerState', R.ContainerState);
+          Obj.AddPair('containerStatus', R.ContainerStatus);
+          Obj.AddPair('restartPolicy', R.RestartPolicy);
+          PostOwned(Obj);
+        end);
+    end).Start;
+end;
+
+procedure HandleTranscribeSetupAction(const AAction: string);
+// Alvos FIXOS. A UI escolhe a acao, nunca o caminho ou a URL — mandar
+// ShellExecute num alvo vindo da pagina abriria qualquer coisa.
+const
+  DOCKER_SITE = 'https://www.docker.com/products/docker-desktop/';
+var
+  Exe: string;
+begin
+  if AAction = 'openDockerSite' then
+    ShellExecute(0, 'open', PChar(DOCKER_SITE), nil, nil, SW_SHOWNORMAL)
+  else if AAction = 'startDockerDesktop' then
+  begin
+    Exe := IncludeTrailingPathDelimiter(GetEnvironmentVariable('ProgramFiles')) +
+      'Docker\Docker\Docker Desktop.exe';
+    if FileExists(Exe) then
+      ShellExecute(0, 'open', PChar(Exe), nil, nil, SW_SHOWNORMAL)
+    else
+      Log('TranscribeSetup: Docker Desktop nao encontrado em "%s"', [Exe]);
+  end;
+end;
+
 procedure HandleTestTranscribeHost(const AHost: string);
 // GET /health em worker: o servidor pode estar carregando os modelos
 // (37s no README) e travar a UI pelo tempo do timeout.
@@ -5509,6 +5681,9 @@ begin
       Err: string;
     begin
       Err := OBSTranscribe.CheckHealth(HostCopy);
+      // Servidor de pe: se a fila estava esperando por ele, nao tem por
+      // que aguardar o proximo ciclo de 30 s.
+      if Err = '' then OBSTranscribe.NudgeQueue;
       TThread.Queue(nil,
         procedure
         var
@@ -5773,45 +5948,9 @@ begin
     end).Start;
 end;
 
-function MakeSplitPath(const AOrig: string; APart: Integer): string;
-// <dir>\<base> - <part>.<ext>, com sufixo " (N)" se ja existir.
-var
-  Dir, Base, Ext, Cand: string;
-  N: Integer;
-begin
-  Dir := ExtractFilePath(AOrig);
-  Base := ChangeFileExt(ExtractFileName(AOrig), '');
-  Ext := ExtractFileExt(AOrig);
-  Cand := Dir + Format('%s - %d%s', [Base, APart, Ext]);
-  N := 2;
-  while TFile.Exists(Cand) do
-  begin
-    Cand := Dir + Format('%s - %d (%d)%s', [Base, APart, N, Ext]);
-    Inc(N);
-  end;
-  Result := Cand;
-end;
-
-procedure PushSplitPending;
-var Obj: TJSONObject;
-begin
-  Obj := TJSONObject.Create;
-  Obj.AddPair('type', 'split_pending');
-  PostOwned(Obj);
-end;
-
-procedure PushSplitDone(AOk: Boolean);
-var Obj: TJSONObject;
-begin
-  Obj := TJSONObject.Create;
-  Obj.AddPair('type', 'split_done');
-  Obj.AddPair('ok', TJSONBool.Create(AOk));
-  PostOwned(Obj);
-end;
-
 function MakeMergePath: string;
-// "<yyyy-mm-dd_hh-nn-ss> - U.mkv" — sem prefixo; o " - U" (de "Unido") espelha
-// o " - 1"/" - 2" do split. Sufixo " (N)" se ja existir.
+// "<yyyy-mm-dd_hh-nn-ss> - U.mkv" — sem prefixo; o " - U" e de "Unido".
+// Sufixo " (N)" se ja existir.
 var
   Dir, Base, Cand: string;
   N: Integer;
@@ -6029,179 +6168,6 @@ begin
     end).Start;
 end;
 
-procedure HandleSplitRecording(const APath: string; APosSec: Double);
-// Divide a gravacao em DUAS partes no keyframe mais proximo de APosSec
-// (stream copy via FFmpegOps, sem reencode). O original vai pra lixeira
-// (recuperavel). Roda em worker — split de arquivo grande leva segundos.
-var
-  PathCopy: string;
-  PosCopy: Double;
-begin
-  if APath = '' then Exit;
-  if not IsPathInRecordDir(APath) then
-  begin
-    Log('HandleSplitRecording: path fora da pasta, ignorado: %s', [APath]);
-    Exit;
-  end;
-  if not TFile.Exists(APath) then
-  begin
-    PostError(OBSLang.T('error.fileNotFound'));
-    Exit;
-  end;
-  if not FFmpegLibAvailable then
-  begin
-    PostError(OBSLang.T('error.mediaLibUnavailable'));
-    Exit;
-  end;
-  if APosSec <= 0 then Exit;  // inicio do video: nada a dividir
-
-  // Espaco em disco: as duas partes somam ~o tamanho do original (stream
-  // copy). Como o original so vai pra lixeira DEPOIS (continua ocupando ate
-  // esvaziar), o pico exige ~o tamanho do original livre. Checa ANTES de
-  // tentar — senao o corte falharia no meio com o disco cheio, gerando
-  // arquivos parciais. Folga: +5% +16MB (headers/cues das 2 partes + respiro).
-  var OrigSize: Int64 := 0;
-  try OrigSize := TFile.GetSize(APath); except end;
-  var FreeBytes: Int64 := GetRecordDirFreeBytes;
-  var Needed: Int64 := OrigSize + (OrigSize div 20) + 16 * 1024 * 1024;
-  if (OrigSize > 0) and (FreeBytes >= 0) and (FreeBytes < Needed) then
-  begin
-    Log('HandleSplitRecording: espaco insuficiente — precisa ~%d, livre %d.',
-      [Needed, FreeBytes]);
-    PostError(OBSLang.T('error.splitNoSpace',
-      ['needed', FormatBytesShort(Needed), 'free', FormatBytesShort(FreeBytes)]));
-    Exit;
-  end;
-
-  PathCopy := APath;
-  PosCopy := APosSec;
-  PushSplitPending;
-
-  TThread.CreateAnonymousThread(
-    procedure
-    var
-      PathA, PathB: string;
-      Outcome: TSplitOutcome;
-      NoCutPoint: Boolean;
-      SizeA, SizeB: Int64;
-    begin
-      if IsShuttingDown then Exit;
-      PathA := MakeSplitPath(PathCopy, 1);
-      PathB := MakeSplitPath(PathCopy, 2);
-
-      Outcome := soError;
-      try
-        Outcome := SplitFileAtKeyframe(PathCopy, PathA, PathB, PosCopy);
-      except
-        on E: Exception do
-          Log('HandleSplitRecording: excecao: %s', [E.Message]);
-      end;
-
-      // Mesmo com soOk, confirma que as duas partes sairam com bytes.
-      if Outcome = soOk then
-      begin
-        SizeA := 0; SizeB := 0;
-        try
-          SizeA := TFile.GetSize(PathA);
-          SizeB := TFile.GetSize(PathB);
-        except end;
-        if (SizeA <= 0) or (SizeB <= 0) then Outcome := soError;
-      end;
-
-      if Outcome <> soOk then
-      begin
-        // Limpa qualquer parte parcial que tenha sobrado.
-        try if TFile.Exists(PathA) then TFile.Delete(PathA); except end;
-        try if TFile.Exists(PathB) then TFile.Delete(PathB); except end;
-        NoCutPoint := (Outcome = soNoCutPoint);
-        TThread.Queue(nil,
-          procedure
-          begin
-            if IsShuttingDown then Exit;
-            PushSplitDone(False);
-            // "Sem ponto de corte" (keyframe) ganha dica especifica em vez
-            // da falha generica.
-            if NoCutPoint then
-              PostError(OBSLang.T('error.splitNoCutPoint'))
-            else
-              PostError(OBSLang.T('error.splitFailed'));
-          end);
-        Exit;
-      end;
-
-      // Preserva o layout de monitores/webcams (canvas + regioes) do original
-      // nas duas partes. A divisao e stream copy, entao a disposicao no canvas
-      // e IDENTICA — so o tempo muda; o seletor de monitor do player precisa
-      // disso. Le ANTES de mover o original pra lixeira / rodar o GC (que apaga
-      // o <hash>.json dele). DurationSec fica 0 e o ScanSingleRecordingMeta
-      // (via PushRecordingAdded) calcula a duracao real de cada parte
-      // PRESERVANDO este layout (EnsureRecordingMeta so sobrescreve a duracao).
-      var OrigMeta: TRecordingMeta;
-      if OBSPlayer.LoadRecordingMeta(PathCopy, OrigMeta) and
-         (Length(OrigMeta.Layout.Regions) > 0) then
-      begin
-        var PartMeta: TRecordingMeta := Default(TRecordingMeta);
-        PartMeta.Layout := OrigMeta.Layout;
-        try OBSPlayer.SaveRecordingMeta(PathA, PartMeta); except end;
-        try OBSPlayer.SaveRecordingMeta(PathB, PartMeta); except end;
-      end;
-
-      // Carimba nas duas partes a data do ORIGINAL (LastWrite + Creation). A
-      // lista ordena/agrupa por LastWriteTime; sem isso as partes ficam com a
-      // hora do corte e aparecem como "mais recentes" em vez de na data em que
-      // a gravacao foi feita. Le ANTES de reciclar (o original ainda existe) e
-      // carimba ANTES de montar os cards (PushRecordingAdded le GetLastWriteTime).
-      // As gravacoes de meta (.json) e thumbs sao arquivos separados — nao
-      // tocam o mtime do .mkv, entao o carimbo persiste.
-      try
-        var OrigWrite: TDateTime := TFile.GetLastWriteTime(PathCopy);
-        var OrigCreate: TDateTime := TFile.GetCreationTime(PathCopy);
-        try
-          TFile.SetCreationTime(PathA, OrigCreate);
-          TFile.SetLastWriteTime(PathA, OrigWrite);
-        except end;
-        try
-          TFile.SetCreationTime(PathB, OrigCreate);
-          TFile.SetLastWriteTime(PathB, OrigWrite);
-        except end;
-      except end;
-
-      // Sucesso: original pra lixeira (recuperavel). Guarda o resultado — se
-      // o arquivo estiver em uso e NAO for reciclado, nao removemos o card
-      // (senao ele "some" mas reaparece no proximo scan, confundindo). A UI
-      // solta o <video> antes de dividir (player.split), liberando o handle do
-      // servidor HTTP, entao o recycle passa no caso normal.
-      var Recycled: Boolean := DeleteToRecycleBin(PathCopy);
-      if not Recycled then
-        Log('HandleSplitRecording: original nao foi pra lixeira (em uso?) — card mantido.');
-
-      TThread.Queue(nil,
-        procedure
-        var
-          Obj: TJSONObject;
-        begin
-          if IsShuttingDown then Exit;
-          // Remove o card do original SO se ele realmente foi pra lixeira.
-          if Recycled then
-          begin
-            Obj := TJSONObject.Create;
-            Obj.AddPair('type', 'recording_removed');
-            Obj.AddPair('id', PathCopy);
-            PostOwned(Obj);
-          end;
-          // Cache orfao do original removido aqui (GC pegaria no proximo
-          // start de qualquer forma).
-          try GarbageCollectCache(ListRecordingsRecursive(RecordDir)); except end;
-          // Adiciona as duas partes (duracao=0 → ScanSingleRecordingMeta
-          // preenche thumb + duracao em background).
-          PushRecordingAdded(PathA, 0);
-          PushRecordingAdded(PathB, 0);
-          // Fecha o player + toast de sucesso.
-          PushSplitDone(True);
-        end);
-    end).Start;
-end;
-
 // =====================================================================
 // Exportacao (re-encode) — FFmpegExport
 // =====================================================================
@@ -6302,7 +6268,7 @@ end;
 
 procedure HandleExportRecording(AObj: TJSONObject);
 // Exporta um trecho da gravacao com re-encode. Roda em worker (pode levar
-// minutos). Validacoes espelham o HandleSplitRecording.
+// minutos). Valida pasta, arquivo e espaco antes de comecar.
 var
   Opts: TExportOptions;
   SrcPath, EncPref, FinalPath, Ext: string;
@@ -6671,6 +6637,15 @@ begin
       HandleSetTranscribeHost(GetStrField(Obj, 'host'))
     else if MsgType = 'test_transcribe_host' then
       HandleTestTranscribeHost(GetStrField(Obj, 'host'))
+    else if MsgType = 'set_transcribe_language' then
+      HandleSetTranscribeLanguage(GetStrField(Obj, 'language'))
+    else if MsgType = 'set_transcribe_on_stop' then
+      HandleSetTranscribeOnStop(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'check_transcribe_setup' then
+      HandleCheckTranscribeSetup(GetStrField(Obj, 'host'),
+        GetIntField(Obj, 'seq', 0))
+    else if MsgType = 'transcribe_setup_action' then
+      HandleTranscribeSetupAction(GetStrField(Obj, 'action'))
     else if MsgType = 'transcribe_recording' then
       HandleTranscribeRecording(GetStrField(Obj, 'id'))
     else if MsgType = 'transcribe_pending' then
@@ -6718,8 +6693,6 @@ begin
       if Arr is TJSONArray then
         HandleMergeRecordings(TJSONArray(Arr));
     end
-    else if MsgType = 'split_recording' then
-      HandleSplitRecording(GetStrField(Obj, 'id'), GetIntField(Obj, 'posMs') / 1000)
     else if MsgType = 'export_recording' then
       HandleExportRecording(Obj)
     else if MsgType = 'cancel_export' then
@@ -7115,7 +7088,12 @@ begin
     // RE-ARMA em vez de desistir: assim que a fila esvaziar, a proxima
     // verificacao hiberna normalmente. Desarmar aqui deixaria o app em
     // modo full pelo resto da sessao.
-    if OBSTranscribe.QueueLength > 0 then
+    //
+    // EXCETO esperando o servidor: ai o item nao esta andando, e segurar o
+    // app acordado por um Docker que talvez nunca suba mataria a
+    // hibernacao de quem grava sem usar a transcricao. A fila esta salva
+    // no disco e volta sozinha quando o app acordar.
+    if (OBSTranscribe.QueueLength > 0) and not OBSTranscribe.WaitingForServer then
     begin
       Log('TIMER_HIBERNATE_IDLE: transcrevendo (%d na fila), hibernacao adiada.',
         [OBSTranscribe.QueueLength]);

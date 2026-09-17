@@ -31,8 +31,8 @@ instalar nem configurar nada — só abrir e gravar.
   taxa fixa: tela parada quase não ocupa nada, e as cenas de movimento
   gastam o que precisarem.
 
-- **Corta, junta e exporta sem sair do app.** Dividir e unir não
-  reencodam — são instantâneos e sem perda. A exportação recorta trechos,
+- **Junta e exporta sem sair do app.** Unir não reencoda — é instantâneo
+  e sem perda. A exportação recorta trechos,
   escolhe monitores e reduz resolução, com prévia do que está saindo. Para
   enquadrar, é só arrastar as bordas da prévia: o que ficar dentro da
   moldura é o que vai pro arquivo.

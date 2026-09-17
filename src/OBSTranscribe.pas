@@ -144,6 +144,49 @@ function CheckHealth(const AHost: string): string;
 // Base do servidor, do config ('transcribeHost'). Sempre sem barra final.
 function HostBase: string;
 
+// --- servidor fora do ar ---
+// True enquanto a fila esta PARADA esperando o servidor voltar. Servidor
+// fora do ar nao e defeito do arquivo: o item volta pra frente da espera
+// e a worker tenta de novo a cada SERVER_RETRY_MS. O Bridge usa isto pra
+// deixar o app hibernar mesmo com fila (a fila fica salva no disco).
+function WaitingForServer: Boolean;
+// Acorda a worker que espera o servidor, sem aguardar o proximo ciclo.
+// Chamado quando um teste ou diagnostico acabou de ver o servidor de pe.
+procedure NudgeQueue;
+
+// --- persistencia ---
+// Caminhos salvos na sessao anterior (item em curso primeiro, depois a
+// espera). Quem restaura e o Bridge, que filtra o que nao faz mais
+// sentido (arquivo sumiu, ja transcrito, so na nuvem) antes do EnqueueMany.
+function LoadSavedQueue: TArray<string>;
+
+// Idioma que vai pra API ('' = deixar a API detectar). Ver o comentario
+// na implementacao: detectar e o que fazia a transcricao sair TRADUZIDA.
+function ResolveTranscribeLanguage: string;
+
+// --- diagnostico do ambiente (aba Transcricao) ---
+type
+  TTranscribeSetup = record
+    ServerOk: Boolean;
+    ServerError: string;
+    IsLocal: Boolean;          // o host aponta pra esta maquina
+    Port: Integer;
+    WslOk: Boolean;
+    DockerInstalled: Boolean;
+    DockerRunning: Boolean;
+    DockerDesktopPath: string; // '' = nao achou o executavel
+    ContainerId: string;       // '' = nenhum container publica a porta
+    ContainerImage: string;
+    ContainerState: string;    // 'running' | 'exited' | 'created' | ...
+    ContainerStatus: string;   // texto do docker ("Up 3 minutes")
+    RestartPolicy: string;     // 'always' | 'no' | ...
+  end;
+
+// Descobre, em etapas, por que o servidor nao responde (WSL -> Docker ->
+// container -> servidor). Roda processos wsl/docker e pode levar alguns
+// segundos: chame SO de worker thread.
+function DiagnoseSetup(const AHost: string): TTranscribeSetup;
+
 implementation
 
 uses
@@ -163,6 +206,7 @@ uses
   System.Generics.Defaults,
   System.Character,
   System.Math,
+  System.StrUtils,
   OBSLog,
   OBSLang,
   OBSProbe,
@@ -209,6 +253,26 @@ const
   // quase qualquer frase mais longa, e derrubar um "sim" simultaneo por
   // isso seria falso positivo garantido.
   DEDUP_MIN_WORDS   = 2;
+  // (Os DEDUP_* acima sao do dedup POR TURNO, que sobrou so como rede de
+  // seguranca pra faixa sem timestamp por palavra. O caminho normal e o
+  // dedup POR PALAVRA abaixo — ver DedupWords.)
+
+  // --- deduplicacao POR PALAVRA ---
+  // Casa a MESMA palavra nas duas faixas no MESMO instante, forma corridas
+  // tolerando palavras faltando (o eco chega picado) e derruba a copia.
+  // Valores escolhidos por varredura sobre 624 palavras REAIS de uma
+  // ligacao, em 6 cenarios (dois mics na sala, alto-falante com eco, fone
+  // sem eco, gente falando junto, frase repetida depois):
+  WDEDUP_TOL       = 0.8;   // s entre a mesma palavra nas duas faixas
+  WDEDUP_MAXSKIP   = 3;     // palavras puladas entre dois pares da corrida
+  WDEDUP_RUN_GAP   = 1.5;   // s de silencio que quebra a corrida
+  WDEDUP_MIN_RUN   = 4;     // corrida LONGA: eco com certeza
+  // Corrida CURTA (resposta de 1-3 palavras, o caso mais comum numa
+  // ligacao) so conta se for SIMULTANEA — quem repete a fala do outro
+  // fala DEPOIS; o eco acontece no mesmo instante do original.
+  WDEDUP_MIN_SHORT = 2;     // 1 palavra so coincide por acaso ("oi", "ta")
+  WDEDUP_SHORT_TOL = 0.35;  // s: a folga apertada da corrida curta
+  WDEDUP_PAD       = 0.5;   // s em volta da corrida curta pra achar "sobra"
 
   // --- recorte de turnos a partir das PALAVRAS ---
   // O `turns` da API agrupa por MUDANCA DE FALANTE. Na mistura os
@@ -234,6 +298,26 @@ const
   // Sentinela de "cancelado pelo usuario". Nao e erro: nao entra na
   // contagem de falhas nem vira mensagem na tela.
   CANCELED_MARK = #1'canceled';
+
+  // Sentinela de "servidor fora do ar". Tambem NAO e falha: o item volta
+  // pra frente da espera e a worker tenta de novo (ver Execute). Com a
+  // transcricao automatica ao fim da gravacao, gravar com o Docker ainda
+  // subindo e o caso COMUM — tratar como falha descartaria o item, e a
+  // fila persistida nao serviria pra nada.
+  SERVER_DOWN_MARK = #1'serverdown';
+  // Entre tentativas com o servidor fora. O teste e um GET /health local
+  // (conexao recusada volta na hora; 4 s no pior caso). Era 30 s, e o
+  // aviso vermelho ficava na tela meio minuto depois do Docker subir.
+  SERVER_RETRY_MS = 10000;
+
+  QUEUE_FILE = 'transcribe-queue.json';
+
+  // Timeouts do diagnostico. O `docker info` e o mais lento: com o Docker
+  // Desktop subindo ele pode segurar varios segundos antes de responder.
+  // Medido nesta maquina com tudo de pe: wsl --status 84 ms, docker info
+  // 313 ms, docker ps 175 ms.
+  DIAG_WSL_TIMEOUT_MS    = 10000;
+  DIAG_DOCKER_TIMEOUT_MS = 20000;
 
 type
   TTranscribeThread = class(TThread)
@@ -269,6 +353,15 @@ var
   GQueueRev: Integer = 0;
   GTrack: Integer = 0;
   GTrackCount: Integer = 1;
+  GWaitingServer: Boolean = False;
+  // O item em curso JA terminou (sucesso, falha ou cancelamento) e so
+  // falta a proxima volta do laco tira-lo do estado. Sem esta marca, um
+  // fechamento nesse intervalo persistiria o item concluido de novo.
+  GCurrentFinished: Boolean = False;
+  // Auto-reset: acorda a worker que espera o servidor (NudgeQueue).
+  WakeEvent: THandle = 0;
+  SaveLock: TCriticalSection = nil;
+  GShuttingDown: Boolean = False;
 
 function HostBase: string;
 begin
@@ -401,6 +494,142 @@ begin
     (WaitForSingleObject(StopEvent, 0) = WAIT_OBJECT_0);
 end;
 
+function WaitingForServer: Boolean;
+begin
+  Result := GWaitingServer;
+end;
+
+procedure NudgeQueue;
+begin
+  if WakeEvent <> 0 then SetEvent(WakeEvent);
+end;
+
+function QueueFilePath: string;
+begin
+  // Ao lado do config.json. O OBSConfig so exporta o caminho do arquivo
+  // (ConfigDir e privada dele), entao a pasta sai dali.
+  Result := ExtractFilePath(OBSConfig.ConfigFilePath) + QUEUE_FILE;
+end;
+
+procedure SaveQueue;
+// Grava a fila no disco. Chamada FORA do GLock, depois de toda mudanca de
+// composicao (entrou, saiu, mudou de lugar, a worker pegou ou soltou).
+//
+// O item em curso entra PRIMEIRO: se o app fechar no meio da transcricao,
+// ele e o primeiro a voltar. So sai do arquivo quando termina de verdade
+// (ver GCurrentFinished).
+//
+// No fechamento NAO grava. O Shutdown para a worker, e a volta final do
+// laco trataria o item interrompido como "terminado" e o tiraria do
+// arquivo — justo o item que a persistencia existe pra preservar.
+//
+// SaveLock serializa snapshot + escrita: duas gravacoes cruzadas (main e
+// worker) podiam tirar o snapshot numa ordem e escrever na outra, e o
+// arquivo terminaria com o estado VELHO.
+var
+  Items: TArray<string>;
+  Arr: TJSONArray;
+  Obj: TJSONObject;
+  i: Integer;
+  Tmp, Dst: string;
+begin
+  if GShuttingDown or (SaveLock = nil) or (GLock = nil) then Exit;
+  SaveLock.Enter;
+  try
+    SetLength(Items, 0);
+    GLock.Enter;
+    try
+      if GRunning and (not GCurrentFinished) and (GCurrentPath <> '') then
+        Items := Items + [GCurrentPath];
+      if GQueue <> nil then
+        for i := 0 to GQueue.Count - 1 do
+          Items := Items + [GQueue[i]];
+    finally
+      GLock.Leave;
+    end;
+
+    Obj := TJSONObject.Create;
+    try
+      Arr := TJSONArray.Create;
+      for i := 0 to High(Items) do Arr.Add(Items[i]);
+      Obj.AddPair('version', TJSONNumber.Create(1));
+      Obj.AddPair('items', Arr);
+      Dst := QueueFilePath;
+      Tmp := Dst + '.tmp';
+      try
+        ForceDirectories(ExtractFilePath(Dst));
+        TFile.WriteAllText(Tmp, Obj.ToJSON, TEncoding.UTF8);
+        // Troca atomica: fechar no meio da escrita nunca deixa o arquivo
+        // pela metade — o que zeraria a fila na proxima leitura.
+        if not MoveFileExW(PChar(Tmp), PChar(Dst), MOVEFILE_REPLACE_EXISTING) then
+          Log('Transcribe: falha ao gravar a fila (erro %d).', [GetLastError]);
+      except
+        on E: Exception do
+          Log('Transcribe: falha ao gravar a fila: %s', [E.Message]);
+      end;
+    finally
+      Obj.Free;
+    end;
+  finally
+    SaveLock.Leave;
+  end;
+end;
+
+function LoadSavedQueue: TArray<string>;
+var
+  Body: string;
+  Root, V: TJSONValue;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  SetLength(Result, 0);
+  try
+    if not TFile.Exists(QueueFilePath) then Exit;
+    Body := TFile.ReadAllText(QueueFilePath);
+  except
+    on E: Exception do
+    begin
+      Log('Transcribe: fila salva ilegivel: %s', [E.Message]);
+      Exit;
+    end;
+  end;
+  Root := TJSONObject.ParseJSONValue(Body);
+  try
+    if not (Root is TJSONObject) then Exit;
+    V := TJSONObject(Root).GetValue('items');
+    if not (V is TJSONArray) then Exit;
+    Arr := TJSONArray(V);
+    for i := 0 to Arr.Count - 1 do
+      if (Arr.Items[i] is TJSONString) and (Trim(Arr.Items[i].Value) <> '') then
+        Result := Result + [Arr.Items[i].Value];
+  finally
+    Root.Free;
+  end;
+end;
+
+function ResolveTranscribeLanguage: string;
+// Idioma que vai pra API. O padrao e MANDAR, nunca deixar detectar:
+// sem `language`, o faster-whisper decide pelos primeiros 30 s do audio,
+// e quando erra (silencio, musica, ruido — comum numa faixa isolada) ele
+// "transcreve" no idioma errado, que na pratica e TRADUZIR a fala
+// inteira. Foi exatamente o sintoma: transcricoes saindo em outra lingua.
+//
+//   '' / 'app' -> idioma da interface do NoOBS (pt-BR -> pt)
+//   'auto'     -> '' (a API detecta; so por escolha explicita)
+//   outro      -> o codigo escolhido na tela
+var
+  Pref, Code: string;
+  P: Integer;
+begin
+  Pref := LowerCase(Trim(GetConfigStr('transcribeLanguage', '')));
+  if Pref = 'auto' then Exit('');
+  if (Pref <> '') and (Pref <> 'app') then Exit(Pref);
+  Code := OBSLang.CurrentLanguage;
+  P := Pos('-', Code);
+  if P > 0 then Code := Copy(Code, 1, P - 1);
+  Result := LowerCase(Trim(Code));
+end;
+
 function CurrentTrack: Integer;      begin Result := GTrack; end;
 function CurrentTrackCount: Integer; begin Result := GTrackCount; end;
 
@@ -529,6 +758,7 @@ begin
   if Result then
   begin
     Log('Transcribe: "%s" movido pra posicao %d da fila.', [APath, ANewIndex]);
+    SaveQueue;
     NotifyChanged;
   end;
 end;
@@ -555,6 +785,7 @@ begin
   if Result then
   begin
     Log('Transcribe: "%s" tirado da fila.', [APath]);
+    SaveQueue;
     NotifyChanged;
   end;
 end;
@@ -673,6 +904,221 @@ begin
   end;
 end;
 
+function RunHidden(const AExe, AArgs: string; ATimeoutMs: Cardinal;
+  out AOutput: string): Integer;
+// Roda um programa de console SEM janela e devolve o codigo de saida
+// (-1 = nao rodou ou estourou o tempo). stdout + stderr voltam em AOutput.
+// Existe SO pro diagnostico do ambiente — toda midia continua in-process.
+//
+// O pipe e lido DURANTE a espera, nao so no fim: se a saida encher o
+// buffer do pipe (4 KB), o filho trava escrevendo e a espera acabaria em
+// timeout com o processo vivo.
+var
+  SA: TSecurityAttributes;
+  ReadPipe, WritePipe: THandle;
+  SI: TStartupInfo;
+  PI: TProcessInformation;
+  Cmd: string;
+  Buf: array[0..4095] of Byte;
+  Avail, Got, Code, W: DWORD;
+  Raw: TBytes;
+  Start: UInt64;
+
+  procedure Drain;
+  var
+    n: Integer;
+  begin
+    while PeekNamedPipe(ReadPipe, nil, 0, nil, @Avail, nil) and (Avail > 0) do
+    begin
+      if (not ReadFile(ReadPipe, Buf, SizeOf(Buf), Got, nil)) or (Got = 0) then
+        Break;
+      n := Length(Raw);
+      SetLength(Raw, n + Integer(Got));
+      Move(Buf[0], Raw[n], Got);
+    end;
+  end;
+
+begin
+  Result := -1;
+  AOutput := '';
+  SetLength(Raw, 0);
+  FillChar(SA, SizeOf(SA), 0);
+  SA.nLength := SizeOf(SA);
+  SA.bInheritHandle := True;
+  if not CreatePipe(ReadPipe, WritePipe, @SA, 0) then Exit;
+  try
+    // So a ponta de ESCRITA vai pro filho. Herdada, a de leitura manteria
+    // o pipe aberto do lado dele e o ReadFile nunca veria o fim.
+    SetHandleInformation(ReadPipe, HANDLE_FLAG_INHERIT, 0);
+    FillChar(SI, SizeOf(SI), 0);
+    SI.cb := SizeOf(SI);
+    SI.dwFlags := STARTF_USESTDHANDLES or STARTF_USESHOWWINDOW;
+    SI.wShowWindow := SW_HIDE;
+    SI.hStdOutput := WritePipe;
+    SI.hStdError := WritePipe;
+    Cmd := '"' + AExe + '" ' + AArgs;
+    UniqueString(Cmd);   // o CreateProcessW pode escrever na linha de comando
+    FillChar(PI, SizeOf(PI), 0);
+    if not CreateProcessW(nil, PChar(Cmd), nil, nil, True, CREATE_NO_WINDOW,
+      nil, nil, SI, PI) then Exit;
+    // O filho ja tem a copia dele; fechar a nossa e o que faz o pipe
+    // terminar quando ele sai.
+    CloseHandle(WritePipe);
+    WritePipe := 0;
+    try
+      Start := GetTickCount64;
+      repeat
+        W := WaitForSingleObject(PI.hProcess, 50);
+        Drain;
+        if (W <> WAIT_OBJECT_0) and (GetTickCount64 - Start > ATimeoutMs) then
+        begin
+          TerminateProcess(PI.hProcess, 1);
+          Exit;   // Result segue -1
+        end;
+      until W = WAIT_OBJECT_0;
+      Drain;
+      if GetExitCodeProcess(PI.hProcess, Code) then Result := Integer(Code);
+    finally
+      CloseHandle(PI.hThread);
+      CloseHandle(PI.hProcess);
+    end;
+  finally
+    if WritePipe <> 0 then CloseHandle(WritePipe);
+    CloseHandle(ReadPipe);
+    if Length(Raw) > 0 then AOutput := Trim(TEncoding.UTF8.GetString(Raw));
+  end;
+end;
+
+procedure ParseHost(const AHost: string; out AName: string; out APort: Integer);
+// 'http://localhost:8000/' -> ('localhost', 8000). Aceita IPv6 entre
+// colchetes. Sem porta, vale a do esquema.
+var
+  S: string;
+  P: Integer;
+begin
+  S := Trim(AHost);
+  if StartsText('https://', S) then APort := 443 else APort := 80;
+  P := Pos('://', S);
+  if P > 0 then Delete(S, 1, P + 2);
+  P := Pos('/', S);
+  if P > 0 then S := Copy(S, 1, P - 1);
+  AName := S;
+  if (S <> '') and (S[1] = '[') then
+  begin
+    P := Pos(']', S);
+    if P > 0 then
+    begin
+      AName := Copy(S, 2, P - 2);
+      if (P < Length(S)) and (S[P + 1] = ':') then
+        APort := StrToIntDef(Copy(S, P + 2, MaxInt), APort);
+    end;
+  end
+  else
+  begin
+    P := LastDelimiter(':', S);
+    if P > 0 then
+    begin
+      AName := Copy(S, 1, P - 1);
+      APort := StrToIntDef(Copy(S, P + 1, MaxInt), APort);
+    end;
+  end;
+  AName := LowerCase(Trim(AName));
+end;
+
+function DiagnoseSetup(const AHost: string): TTranscribeSetup;
+// Em ETAPAS, e cada uma so roda se a anterior passou — a tela mostra o
+// primeiro degrau que falta, com a instrucao dele, e nao uma lista de
+// coisas que talvez estejam erradas.
+//
+//   1. O servidor responde?        sim -> pronto, nada mais importa
+//   2. O host e desta maquina?     nao -> servidor remoto: Docker local
+//                                         nao tem nada a ver
+//   3. WSL instalado?              (o Docker Desktop precisa dele)
+//   4. Docker instalado?
+//   5. Docker em execucao?
+//   6. Ha container publicando a porta? parado, rodando, de outra imagem?
+//
+// O passo 6 existe pra NAO mandar o usuario rodar `docker run` de novo
+// quando o container ja existe e so esta parado: o segundo brigaria pela
+// mesma porta. Visto na pratica — container criado sem --restart, morto
+// por um reinicio, `Exited (255)`.
+//
+// O container e achado pela PORTA publicada, nao pelo nome da imagem:
+// quem fez build local tem `transcritor-api:latest`, nao a do Docker Hub.
+var
+  HostName, Wsl, Docker, ProgFiles, Outp: string;
+  Lines, Parts: TArray<string>;
+  Buf: array[0..MAX_PATH] of Char;
+  FilePart: PChar;
+  i: Integer;
+begin
+  Result := Default(TTranscribeSetup);
+
+  Result.ServerError := CheckHealth(AHost);
+  Result.ServerOk := Result.ServerError = '';
+  ParseHost(AHost, HostName, Result.Port);
+  Result.IsLocal := (HostName = 'localhost') or (HostName = '127.0.0.1') or
+    (HostName = '::1') or (HostName = '0.0.0.0') or
+    SameText(HostName, GetEnvironmentVariable('COMPUTERNAME'));
+  if Result.ServerOk or not Result.IsLocal then Exit;
+
+  // WSL: em versoes novas do Windows o wsl.exe existe como "stub" mesmo
+  // sem WSL instalado, entao a existencia do arquivo nao basta — o que
+  // decide e o `--status` sair com 0.
+  Wsl := IncludeTrailingPathDelimiter(GetEnvironmentVariable('WINDIR')) +
+    'System32\wsl.exe';
+  Result.WslOk := FileExists(Wsl) and
+    (RunHidden(Wsl, '--status', DIAG_WSL_TIMEOUT_MS, Outp) = 0);
+
+  // Docker: primeiro pelo PATH, depois no lugar padrao do Docker Desktop.
+  // O PATH do NoOBS e o do momento em que ele abriu — quem instalou o
+  // Docker com o app aberto nao o teria ali.
+  Docker := '';
+  FilePart := nil;
+  if SearchPath(nil, 'docker.exe', nil, Length(Buf), @Buf[0], FilePart) > 0 then
+    Docker := Buf;
+  ProgFiles := IncludeTrailingPathDelimiter(GetEnvironmentVariable('ProgramFiles'));
+  if (Docker = '') and FileExists(ProgFiles + 'Docker\Docker\resources\bin\docker.exe') then
+    Docker := ProgFiles + 'Docker\Docker\resources\bin\docker.exe';
+  if FileExists(ProgFiles + 'Docker\Docker\Docker Desktop.exe') then
+    Result.DockerDesktopPath := ProgFiles + 'Docker\Docker\Docker Desktop.exe';
+  Result.DockerInstalled := (Docker <> '') or (Result.DockerDesktopPath <> '');
+  if Docker = '' then Exit;
+
+  Result.DockerRunning :=
+    RunHidden(Docker, 'info --format "{{.ServerVersion}}"',
+      DIAG_DOCKER_TIMEOUT_MS, Outp) = 0;
+  if not Result.DockerRunning then Exit;
+
+  if RunHidden(Docker,
+       Format('ps -a --filter "publish=%d" --format "{{.ID}}|{{.Image}}|{{.State}}|{{.Status}}"',
+         [Result.Port]), DIAG_DOCKER_TIMEOUT_MS, Outp) = 0 then
+  begin
+    Lines := Outp.Split([#13, #10], TStringSplitOptions.ExcludeEmpty);
+    // Varios parados podem publicar a mesma porta; so um roda. Prefere o
+    // que esta rodando, senao o primeiro listado (o mais recente).
+    for i := 0 to High(Lines) do
+    begin
+      Parts := Lines[i].Split(['|']);
+      if Length(Parts) < 4 then Continue;
+      if (Result.ContainerId = '') or SameText(Trim(Parts[2]), 'running') then
+      begin
+        Result.ContainerId := Trim(Parts[0]);
+        Result.ContainerImage := Trim(Parts[1]);
+        Result.ContainerState := LowerCase(Trim(Parts[2]));
+        Result.ContainerStatus := Trim(Parts[3]);
+        if Result.ContainerState = 'running' then Break;
+      end;
+    end;
+  end;
+
+  if (Result.ContainerId <> '') and
+     (RunHidden(Docker, 'inspect ' + Result.ContainerId +
+        ' --format "{{.HostConfig.RestartPolicy.Name}}"',
+        DIAG_DOCKER_TIMEOUT_MS, Outp) = 0) then
+    Result.RestartPolicy := LowerCase(Trim(Outp));
+end;
+
 function SubmitJob(const AAudioPath: string; out AJobId: string): string;
 // POST /jobs — devolve na hora um identificador (HTTP 202), sem esperar a
 // transcricao. O upload e a unica parte demorada aqui, e ele e rapido
@@ -694,10 +1140,13 @@ begin
     Data := TMultipartFormData.Create;
     try
       Data.AddFile('file', AAudioPath);
-      // Idioma: vazio = deteccao automatica (padrao da API). Fica no
-      // config pra quem grava sempre no mesmo idioma ganhar precisao.
-      Lang := Trim(GetConfigStr('transcribeLanguage', ''));
+      // Idioma SEMPRE explicito, salvo escolha de "detectar" — deixar a
+      // API adivinhar era o que traduzia a transcricao. Ver
+      // ResolveTranscribeLanguage.
+      Lang := ResolveTranscribeLanguage;
       if Lang <> '' then Data.AddField('language', Lang);
+      if Lang = '' then Log('Transcribe: idioma: deteccao automatica.')
+      else Log('Transcribe: idioma: %s', [Lang]);
       // Separacao por falante — e o que torna o painel do player util.
       Data.AddField('diarization', 'true');
       // Alinhamento por palavra. O padrao da API ja e true, mas vai
@@ -1083,27 +1532,126 @@ begin
   ADest := ADest + AWord;
 end;
 
-procedure TurnsFromWords(AObj: TJSONObject; ATrack: Integer;
-  var ATurns: TArray<TTurn>);
-// Remonta os turnos a partir de segments[].words, que traz start/end/
-// speaker POR PALAVRA. Ver o bloco TURN_* nas constantes pra o porque.
+type
+  // Uma palavra alinhada de UMA faixa. E a unidade do dedup: comparar
+  // turnos inteiros apagava fala legitima junto com o eco (medido: 4,8%
+  // das palavras legitimas perdidas contra 0,3% por palavra).
+  TTimedWord = record
+    Text: string;        // como vai pro turno (inclui o texto de palavras
+                         // sem timestamp que vieram logo antes dela)
+    Norm: string;        // SO a propria palavra normalizada; '' = fora do
+                         // casamento (pontuacao solta, segmento inteiro)
+    Speaker: string;
+    StartS, EndS: Double;
+    Score: Double;       // confianca do alinhador: o eco chega mais fraco
+    IsSegment: Boolean;  // segmento sem NENHUMA palavra alinhada, inteiro
+    Drop: Boolean;
+  end;
+  TTimedWords = TArray<TTimedWord>;
+
+procedure CollectWords(AObj: TJSONObject; var AWords: TTimedWords);
+// Le segments[].words de UMA resposta da API, na ordem do tempo.
 //
-// Nao substitui a diarizacao: o `speaker` continua vindo da API, palavra
-// a palavra. O que muda e ONDE o turno quebra — o da API so quebra em
-// troca de falante, e uma faixa isolada raramente tem uma.
+// Dois casos da v2 que moldam isto (pegadinha #60a):
+//   - palavra SEM start/end (numero, simbolo que o alinhador nao
+//     reconheceu): o texto dela entra na PROXIMA palavra alinhada, sem
+//     mexer em tempo nenhum — "Custou 1500 reais" nao vira "Custou reais";
+//   - segmento sem nenhuma palavra alinhada: vira uma pseudo-palavra com
+//     o tempo e o texto do proprio segmento (o fallback do _build_turns da
+//     API), fora do dedup.
 var
   SegsVal, WordsVal: TJSONValue;
   Segs, Words: TJSONArray;
   Seg, W: TJSONObject;
-  i, j, n: Integer;
-  WStart, WEnd: Double;
-  WText, WSpk: string;
-  HasTs, AnyTimed: Boolean;
-  SegText, SegSpk, Pending: string;
-  SegStart, SegEnd: Double;
+  i, j, n, SegFirst: Integer;
+  WStart, WEnd, Sc: Double;
+  WText, WSpk, Pending, SegText, SegSpk: string;
+  HasTs: Boolean;
+begin
+  SegsVal := AObj.GetValue('segments');
+  if not (SegsVal is TJSONArray) then Exit;
+  Segs := TJSONArray(SegsVal);
+  for i := 0 to Segs.Count - 1 do
+  begin
+    if not (Segs.Items[i] is TJSONObject) then Continue;
+    Seg := TJSONObject(Segs.Items[i]);
+    SegFirst := Length(AWords);
+    Pending := '';
+    WordsVal := Seg.GetValue('words');
+    if WordsVal is TJSONArray then
+    begin
+      Words := TJSONArray(WordsVal);
+      for j := 0 to Words.Count - 1 do
+      begin
+        if not (Words.Items[j] is TJSONObject) then Continue;
+        W := TJSONObject(Words.Items[j]);
+        WText := ''; WSpk := ''; WStart := 0; WEnd := 0;
+        W.TryGetValue<string>('word', WText);
+        if Trim(WText) = '' then Continue;
+        HasTs := W.TryGetValue<Double>('start', WStart);
+        if not W.TryGetValue<Double>('end', WEnd) then WEnd := WStart;
+        if not HasTs then
+        begin
+          AppendWord(Pending, WText);
+          Continue;
+        end;
+        W.TryGetValue<string>('speaker', WSpk);
+        // A API nao poe speaker na palavra em toda configuracao.
+        if WSpk = '' then Seg.TryGetValue<string>('speaker', WSpk);
+        // `score` na v2; `probability` nas respostas antigas guardadas.
+        if not W.TryGetValue<Double>('score', Sc) then
+          if not W.TryGetValue<Double>('probability', Sc) then Sc := 0;
+        n := Length(AWords);
+        SetLength(AWords, n + 1);
+        AWords[n] := Default(TTimedWord);
+        AWords[n].Text := '';
+        AppendWord(AWords[n].Text, Pending);
+        AppendWord(AWords[n].Text, WText);
+        Pending := '';
+        AWords[n].Norm := NormalizeForCompare(WText);
+        AWords[n].Speaker := WSpk;
+        AWords[n].StartS := WStart;
+        AWords[n].EndS := WEnd;
+        AWords[n].Score := Sc;
+      end;
+    end;
+
+    if Length(AWords) > SegFirst then
+    begin
+      // Sobrou pendente no fim do segmento: vai pra ultima palavra dele.
+      if Pending <> '' then AppendWord(AWords[High(AWords)].Text, Pending);
+    end
+    else
+    begin
+      SegText := ''; SegSpk := ''; WStart := 0; WEnd := 0;
+      Seg.TryGetValue<string>('text', SegText);
+      Seg.TryGetValue<string>('speaker', SegSpk);
+      Seg.TryGetValue<Double>('start', WStart);
+      Seg.TryGetValue<Double>('end', WEnd);
+      if Trim(SegText) <> '' then
+      begin
+        n := Length(AWords);
+        SetLength(AWords, n + 1);
+        AWords[n] := Default(TTimedWord);
+        AWords[n].Text := Trim(SegText);
+        AWords[n].Speaker := SegSpk;
+        AWords[n].StartS := WStart;
+        AWords[n].EndS := WEnd;
+        AWords[n].IsSegment := True;
+      end;
+    end;
+  end;
+end;
+
+procedure TurnsFromWordList(const AWords: TTimedWords; ATrack: Integer;
+  var ATurns: TArray<TTurn>);
+// Remonta os turnos a partir das palavras que SOBRARAM do dedup. Ver o
+// bloco TURN_* nas constantes pra o porque de cortar aqui e nao usar o
+// `turns` da API (que so quebra em troca de falante).
+var
+  i, n: Integer;
   Cur: TTurn;
   Have: Boolean;
-  Corta: Boolean;
 
   procedure Flush;
   begin
@@ -1119,113 +1667,220 @@ var
   end;
 
 begin
-  SegsVal := AObj.GetValue('segments');
-  if not (SegsVal is TJSONArray) then Exit;
-  Segs := TJSONArray(SegsVal);
   Have := False;
   Cur := Default(TTurn);
-
-  for i := 0 to Segs.Count - 1 do
+  for i := 0 to High(AWords) do
   begin
-    if not (Segs.Items[i] is TJSONObject) then Continue;
-    Seg := TJSONObject(Segs.Items[i]);
-    WordsVal := Seg.GetValue('words');
-    if not (WordsVal is TJSONArray) then Continue;
-    Words := TJSONArray(WordsVal);
-    AnyTimed := False;
-    Pending := '';
-    for j := 0 to Words.Count - 1 do
+    if AWords[i].Drop then Continue;
+    if AWords[i].IsSegment then
     begin
-      if not (Words.Items[j] is TJSONObject) then Continue;
-      W := TJSONObject(Words.Items[j]);
-      WText := ''; WSpk := ''; WStart := 0; WEnd := 0;
-      W.TryGetValue<string>('word', WText);
-      W.TryGetValue<string>('speaker', WSpk);
-      // PALAVRA SEM TIMESTAMP. A v2 da API manda `word` sem `start`/`end`
-      // quando o alinhador nao reconhece o token (numeros, simbolos) — e
-      // manda de proposito, pra o texto nao perder pedaco. Sem esta
-      // guarda o TryGetValue deixava os dois em 0 e a palavra ancorava o
-      // turno no segundo ZERO da gravacao. O turno perde essas palavras;
-      // o `text` do topo, que a busca le, continua inteiro.
-      HasTs := W.TryGetValue<Double>('start', WStart);
-      if not W.TryGetValue<Double>('end', WEnd) then WEnd := WStart;
-      if Trim(WText) = '' then Continue;
-      if not HasTs then
-      begin
-        // Guarda o texto e segue: ela entra no turno da proxima palavra
-        // alinhada, sem mexer no inicio/fim dele. Descartar era o que a
-        // API faz, mas aqui o turno e o que o usuario LE — "Custou 1500
-        // reais" viraria "Custou reais".
-        AppendWord(Pending, WText);
-        Continue;
-      end;
-      // A API nao poe speaker na palavra em toda configuracao; cai no
-      // do segmento pra o rotulo nao ficar vazio.
-      if WSpk = '' then Seg.TryGetValue<string>('speaker', WSpk);
-
-      if Have then
-      begin
-        Corta := (WSpk <> Cur.Speaker)
-              or (WStart - Cur.EndS > TURN_GAP_SEC)
-              or (WEnd - Cur.StartS > TURN_HARD_MAX_SEC)
-              or ((WEnd - Cur.StartS > TURN_SOFT_MAX_SEC) and
-                  EndsSentence(Cur.Text));
-        if Corta then Flush;
-      end;
-
-      if not Have then
-      begin
-        Cur.Speaker := WSpk;
-        Cur.StartS := WStart;
-        Cur.Text := '';
-        Cur.Track := ATrack;
-        Cur.Drop := False;
-        Have := True;
-      end;
-      AppendWord(Cur.Text, Pending);
-      AppendWord(Cur.Text, WText);
-      Pending := '';
-      Cur.EndS := WEnd;
-      AnyTimed := True;
-    end;
-
-    // Sobrou pendente no fim do segmento (ultima palavra sem timestamp):
-    // entra no turno corrente, senao o texto dela sumiria.
-    if Have and (Pending <> '') then
-    begin
-      AppendWord(Cur.Text, Pending);
-      Pending := '';
-    end;
-
-    // Segmento inteiro sem palavra alinhada: usa o proprio segmento, que
-    // tem start/end. E o mesmo fallback do _build_turns da API — sem ele
-    // o trecho sumiria dos turnos, e some CALADO: o `text` do topo
-    // continua completo, entao so o painel do player perde a fala.
-    if not AnyTimed then
-    begin
+      // Segmento sem alinhamento: turno proprio, com o tempo dele.
       Flush;
-      SegText := '';
-      SegSpk := '';
-      SegStart := 0;
-      SegEnd := 0;
-      Seg.TryGetValue<string>('text', SegText);
-      Seg.TryGetValue<string>('speaker', SegSpk);
-      Seg.TryGetValue<Double>('start', SegStart);
-      Seg.TryGetValue<Double>('end', SegEnd);
-      if Trim(SegText) <> '' then
-      begin
-        Cur.Speaker := SegSpk;
-        Cur.StartS := SegStart;
-        Cur.EndS := SegEnd;
-        Cur.Text := SegText;
-        Cur.Track := ATrack;
-        Cur.Drop := False;
-        Have := True;
-        Flush;
-      end;
+      Cur := Default(TTurn);
+      Cur.Speaker := AWords[i].Speaker;
+      Cur.StartS := AWords[i].StartS;
+      Cur.EndS := AWords[i].EndS;
+      Cur.Text := AWords[i].Text;
+      Cur.Track := ATrack;
+      Have := True;
+      Flush;
+      Continue;
     end;
+    if Have and ((AWords[i].Speaker <> Cur.Speaker)
+        or (AWords[i].StartS - Cur.EndS > TURN_GAP_SEC)
+        or (AWords[i].EndS - Cur.StartS > TURN_HARD_MAX_SEC)
+        or ((AWords[i].EndS - Cur.StartS > TURN_SOFT_MAX_SEC) and
+            EndsSentence(Cur.Text))) then
+      Flush;
+    if not Have then
+    begin
+      Cur := Default(TTurn);
+      Cur.Speaker := AWords[i].Speaker;
+      Cur.StartS := AWords[i].StartS;
+      Cur.Text := '';
+      Cur.Track := ATrack;
+      Have := True;
+    end;
+    AppendWord(Cur.Text, AWords[i].Text);
+    Cur.EndS := AWords[i].EndS;
   end;
   Flush;
+end;
+
+procedure TurnsFromWords(AObj: TJSONObject; ATrack: Integer;
+  var ATurns: TArray<TTurn>);
+// Caminho de UMA faixa (mistura): palavras -> turnos, sem dedup.
+var
+  Words: TTimedWords;
+begin
+  SetLength(Words, 0);
+  CollectWords(AObj, Words);
+  TurnsFromWordList(Words, ATrack, ATurns);
+end;
+
+function DedupWords(var ATracks: TArray<TTimedWords>): Integer;
+// DEDUPLICACAO POR PALAVRA entre faixas. Devolve quantas caíram.
+//
+// O que sai pelos alto-falantes volta pelo microfone, e dois microfones
+// na mesma sala captam a mesma fala. Comparar TURNOS nao funcionava: cada
+// faixa corta os turnos em pontos diferentes, entao a copia quase nunca
+// se sobrepunha o bastante (31 falas duplicadas sobreviveram numa
+// palestra real), e quando casava o turno inteiro caia — levando junto
+// as palavras legitimas dele.
+//
+// Aqui, por par de faixas:
+//   1. CASA a mesma palavra nas duas, dentro de WDEDUP_TOL, em ordem
+//      (guloso e monotono: cada palavra de A pega a primeira igual em B
+//      depois do ultimo par);
+//   2. forma CORRIDAS de pares seguidos, tolerando ate WDEDUP_MAXSKIP
+//      palavras puladas de cada lado — o eco chega picado;
+//   3. corrida LONGA (>= 4 pares) e eco: cai o trecho da faixa que
+//      capturou MENOS palavras (empate: a de menor confianca);
+//   4. corrida CURTA (2-3 pares) so e eco se TODOS os pares forem
+//      simultaneos (WDEDUP_SHORT_TOL) e se ao menos um lado nao tiver
+//      falado mais nada em volta; cai a copia de MENOR confianca.
+//
+// Por que "menor confianca" na curta e nao "o lado sem sobra": a resposta
+// do falante local logo depois poe sobra justamente no lado do ECO, e a
+// regra apagava o original. Medido e corrigido na varredura.
+//
+// Varredura (624 palavras reais, 6 cenarios, 3 sementes): eco que sobra
+// 13%, fala legitima perdida 0,3%. O dedup por turno dava 28% e 4,8%.
+// Conversa real SEM eco (fone): zero palavras perdidas.
+var
+  a, b, pa, pb, i, j, k, low, last, RunStart, Dropped, NM: Integer;
+  IA, IB, MI, MJ: TArray<Integer>;
+
+  procedure Filter(const W: TTimedWords; var Idx: TArray<Integer>);
+  var
+    x, c: Integer;
+  begin
+    SetLength(Idx, Length(W));
+    c := 0;
+    for x := 0 to High(W) do
+      if (W[x].Norm <> '') and not W[x].IsSegment then
+      begin
+        Idx[c] := x;
+        Inc(c);
+      end;
+    SetLength(Idx, c);
+  end;
+
+  function Continues(p, q: Integer): Boolean;
+  begin
+    Result := (MI[q] - MI[p] <= WDEDUP_MAXSKIP + 1) and
+              (MJ[q] - MJ[p] <= WDEDUP_MAXSKIP + 1) and
+              (ATracks[a][IA[MI[q]]].StartS - ATracks[a][IA[MI[p]]].EndS <= WDEDUP_RUN_GAP);
+  end;
+
+  procedure HandleRun(r0, r1: Integer);
+  var
+    Len, iA0, iA1, jB0, jB1, CountA, CountB, x: Integer;
+    ScoreA, ScoreB, T0, T1: Double;
+    ExtraA, ExtraB, LoseB: Boolean;
+  begin
+    Len := r1 - r0 + 1;
+    iA0 := MI[r0]; iA1 := MI[r1];
+    jB0 := MJ[r0]; jB1 := MJ[r1];
+    CountA := iA1 - iA0 + 1;
+    CountB := jB1 - jB0 + 1;
+    ScoreA := 0;
+    for x := iA0 to iA1 do ScoreA := ScoreA + ATracks[a][IA[x]].Score;
+    ScoreA := ScoreA / CountA;
+    ScoreB := 0;
+    for x := jB0 to jB1 do ScoreB := ScoreB + ATracks[b][IB[x]].Score;
+    ScoreB := ScoreB / CountB;
+
+    if Len >= WDEDUP_MIN_RUN then
+      LoseB := (CountA > CountB) or ((CountA = CountB) and (ScoreA >= ScoreB))
+    else
+    begin
+      if Len < WDEDUP_MIN_SHORT then Exit;
+      for x := r0 to r1 do
+        if Abs(ATracks[a][IA[MI[x]]].StartS - ATracks[b][IB[MJ[x]]].StartS) > WDEDUP_SHORT_TOL then
+          Exit;
+      T0 := Min(ATracks[a][IA[iA0]].StartS, ATracks[b][IB[jB0]].StartS) - WDEDUP_PAD;
+      T1 := Max(ATracks[a][IA[iA1]].EndS, ATracks[b][IB[jB1]].EndS) + WDEDUP_PAD;
+      // "Sobra" = palavra do lado que nao entrou na corrida: no meio dela,
+      // ou colada antes/depois (as palavras vem em ordem de tempo).
+      ExtraA := (CountA > Len) or
+        ((iA0 > 0) and (ATracks[a][IA[iA0 - 1]].StartS >= T0)) or
+        ((iA1 < High(IA)) and (ATracks[a][IA[iA1 + 1]].StartS <= T1));
+      ExtraB := (CountB > Len) or
+        ((jB0 > 0) and (ATracks[b][IB[jB0 - 1]].StartS >= T0)) or
+        ((jB1 < High(IB)) and (ATracks[b][IB[jB1 + 1]].StartS <= T1));
+      // Os dois lados falaram mais coisa ali: e conversa, nao eco.
+      if ExtraA and ExtraB then Exit;
+      LoseB := ScoreA >= ScoreB;
+    end;
+
+    if LoseB then
+    begin
+      for x := jB0 to jB1 do
+        if not ATracks[b][IB[x]].Drop then
+        begin
+          ATracks[b][IB[x]].Drop := True;
+          Inc(Dropped);
+        end;
+    end
+    else
+      for x := iA0 to iA1 do
+        if not ATracks[a][IA[x]].Drop then
+        begin
+          ATracks[a][IA[x]].Drop := True;
+          Inc(Dropped);
+        end;
+  end;
+
+begin
+  Dropped := 0;
+  // a/b NAO sao as variaveis do for: as rotinas aninhadas leem as duas, e
+  // variavel de controle de for tem que ser local simples.
+  for pa := 0 to High(ATracks) do
+    for pb := pa + 1 to High(ATracks) do
+    begin
+      a := pa;
+      b := pb;
+      Filter(ATracks[a], IA);
+      Filter(ATracks[b], IB);
+      if (Length(IA) = 0) or (Length(IB) = 0) then Continue;
+
+      SetLength(MI, Length(IA));
+      SetLength(MJ, Length(IA));
+      NM := 0;
+      low := 0;
+      last := -1;
+      for i := 0 to High(IA) do
+      begin
+        while (low <= High(IB)) and
+              (ATracks[b][IB[low]].StartS < ATracks[a][IA[i]].StartS - WDEDUP_TOL) do
+          Inc(low);
+        j := Max(low, last + 1);
+        while (j <= High(IB)) and
+              (ATracks[b][IB[j]].StartS <= ATracks[a][IA[i]].StartS + WDEDUP_TOL) do
+        begin
+          if ATracks[b][IB[j]].Norm = ATracks[a][IA[i]].Norm then
+          begin
+            MI[NM] := i;
+            MJ[NM] := j;
+            Inc(NM);
+            last := j;
+            Break;
+          end;
+          Inc(j);
+        end;
+      end;
+
+      RunStart := 0;
+      if NM = 0 then Continue;
+      for k := 1 to NM do
+        if (k = NM) or not Continues(k - 1, k) then
+        begin
+          HandleRun(RunStart, k - 1);
+          RunStart := k;
+        end;
+    end;
+  Result := Dropped;
 end;
 
 function RechunkTurns(const ABody: string; out ANewBody: string): Boolean;
@@ -1281,89 +1936,64 @@ begin
   end;
 end;
 
-function CollectTurns(const ABody, ATrackName: string; ATrack: Integer;
-  var ATurns: TArray<TTurn>): Boolean;
-// Le os turnos de UMA faixa e rotula o falante.
-//
+procedure FallbackTurns(AObj: TJSONObject; ATrack: Integer;
+  var ATurns: TArray<TTurn>);
+// Resposta SEM palavra nenhuma (API sem alinhamento): usa o `turns` como
+// veio. Fica grosso, mas e melhor que nao ter turno nenhum.
+var
+  Arr: TJSONValue;
+  A: TJSONArray;
+  T: TJSONObject;
+  i, n: Integer;
+  Spk, Txt: string;
+  St, En: Double;
+begin
+  Arr := AObj.GetValue('turns');
+  if not (Arr is TJSONArray) then Exit;
+  A := TJSONArray(Arr);
+  for i := 0 to A.Count - 1 do
+  begin
+    if not (A.Items[i] is TJSONObject) then Continue;
+    T := TJSONObject(A.Items[i]);
+    Spk := ''; Txt := ''; St := 0; En := 0;
+    T.TryGetValue<string>('speaker', Spk);
+    T.TryGetValue<string>('text', Txt);
+    T.TryGetValue<Double>('start', St);
+    T.TryGetValue<Double>('end', En);
+    if Trim(Txt) = '' then Continue;
+    n := Length(ATurns);
+    SetLength(ATurns, n + 1);
+    ATurns[n] := Default(TTurn);
+    ATurns[n].Speaker := Trim(Spk);
+    ATurns[n].StartS := St;
+    ATurns[n].EndS := En;
+    ATurns[n].Text := Trim(Txt);
+    ATurns[n].Track := ATrack;
+  end;
+end;
+
+procedure LabelTrackSpeakers(var ATurns: TArray<TTurn>; const ATrackName: string);
 // A regra do rotulo: se a faixa tem um falante so (o caso do microfone),
 // o nome do DISPOSITIVO ja diz tudo e o SPEAKER_00 seria ruido. Se tem
 // mais de um (o caso do alto-falante numa reuniao), o nome da faixa vira
 // prefixo e a diarizacao continua distinguindo quem e quem dentro dela.
 var
-  Root: TJSONValue;
-  Obj, T: TJSONObject;
-  Arr: TJSONValue;
-  A: TJSONArray;
-  i, n: Integer;
-  Spk, Txt: string;
-  St, En: Double;
   Distinct: TStringList;
-  Tmp: TArray<TTurn>;
+  i: Integer;
 begin
-  Result := False;
-  if Trim(ABody) = '' then Exit;
-  Root := TJSONObject.ParseJSONValue(ABody);
-  if not (Root is TJSONObject) then
-  begin
-    if Root <> nil then Root.Free;
-    Exit;
-  end;
   Distinct := TStringList.Create;
   try
     Distinct.Sorted := True;
     Distinct.Duplicates := dupIgnore;
-    Obj := TJSONObject(Root);
-    SetLength(Tmp, 0);
-
-    // Caminho bom: remonta pelas PALAVRAS (ver o bloco TURN_*). Sem isto,
-    // faixa de uma pessoa so vira um turno unico de dezenas de segundos.
-    TurnsFromWords(Obj, ATrack, Tmp);
-
-    // Resposta sem word timestamps: usa o `turns` como veio. Fica grosso,
-    // mas e melhor que nao ter turno nenhum.
-    if Length(Tmp) = 0 then
-    begin
-      Arr := Obj.GetValue('turns');
-      if not (Arr is TJSONArray) then Exit(True);   // faixa sem fala: ok
-      A := TJSONArray(Arr);
-      for i := 0 to A.Count - 1 do
-      begin
-        if not (A.Items[i] is TJSONObject) then Continue;
-        T := TJSONObject(A.Items[i]);
-        Spk := ''; Txt := ''; St := 0; En := 0;
-        T.TryGetValue<string>('speaker', Spk);
-        T.TryGetValue<string>('text', Txt);
-        T.TryGetValue<Double>('start', St);
-        T.TryGetValue<Double>('end', En);
-        if Trim(Txt) = '' then Continue;
-        n := Length(Tmp);
-        SetLength(Tmp, n + 1);
-        Tmp[n].Speaker := Trim(Spk);
-        Tmp[n].StartS := St;
-        Tmp[n].EndS := En;
-        Tmp[n].Text := Trim(Txt);
-        Tmp[n].Track := ATrack;
-        Tmp[n].Drop := False;
-      end;
-    end;
-
-    for i := 0 to High(Tmp) do
-      if Tmp[i].Speaker <> '' then Distinct.Add(Tmp[i].Speaker);
-
-    for i := 0 to High(Tmp) do
-    begin
-      if (Distinct.Count > 1) and (Tmp[i].Speaker <> '') then
-        Tmp[i].Speaker := ATrackName + ' · ' + Tmp[i].Speaker
+    for i := 0 to High(ATurns) do
+      if ATurns[i].Speaker <> '' then Distinct.Add(ATurns[i].Speaker);
+    for i := 0 to High(ATurns) do
+      if (Distinct.Count > 1) and (ATurns[i].Speaker <> '') then
+        ATurns[i].Speaker := ATrackName + ' · ' + ATurns[i].Speaker
       else
-        Tmp[i].Speaker := ATrackName;
-      n := Length(ATurns);
-      SetLength(ATurns, n + 1);
-      ATurns[n] := Tmp[i];
-    end;
-    Result := True;
+        ATurns[i].Speaker := ATrackName;
   finally
     Distinct.Free;
-    Root.Free;
   end;
 end;
 
@@ -1374,21 +2004,21 @@ function MergeTranscripts(const ABodies, ANames: TArray<string>;
 // Manter o formato e o que faz o painel do player e a busca continuarem
 // funcionando sem saber que isto existe.
 //
-// DEDUPLICACAO: o que sai pelos alto-falantes volta pelo microfone, e o
-// mesmo trecho aparece nas duas faixas. Turnos de faixas DIFERENTES que
-// se sobrepoem no tempo E dizem quase a mesma coisa sao a mesma fala
-// capturada duas vezes — fica a versao com MAIS palavras, que na pratica
-// e a da fonte direta: o eco chega mais fraco e o Whisper corta pedacos.
+// A ordem importa: PALAVRAS de todas as faixas -> dedup POR PALAVRA ->
+// turnos so com as palavras que sobraram. Montar os turnos antes e
+// deduplicar depois era o que falhava (ver DedupWords).
 //
-// O criterio nao tenta adivinhar qual faixa e microfone e qual e
-// alto-falante. Poderia (o titulo da faixa vem do BuildTrackNames), mas
-// seria casar texto traduzivel — e o "fica o mais completo" resolve os
-// dois sentidos do eco sem depender disso.
+// O dedup por TURNO sobrou como rede de seguranca so pra faixa sem
+// timestamp por palavra (idioma sem alinhador): la nao ha palavra pra
+// casar. Entre duas faixas COM palavras ele nao roda — ja foi resolvido
+// no nivel certo, e por turno ele apagaria fala legitima.
 var
-  Turns: TArray<TTurn>;
-  i, j, Kept: Integer;
+  Roots: TArray<TJSONValue>;
+  Words: TArray<TTimedWords>;
+  HasWords: TArray<Boolean>;
+  Turns, Tmp: TArray<TTurn>;
+  i, j, x, Kept, WordDrops, TurnDrops: Integer;
   Sim, Ov: Double;
-  NA, NB: string;
   Norm: TArray<string>;
   Obj: TJSONObject;
   Arr, TracksArr: TJSONArray;
@@ -1399,12 +2029,44 @@ begin
   AMerged := '';
   AText := '';
   SetLength(Turns, 0);
-  for i := 0 to High(ABodies) do
-    if not CollectTurns(ABodies[i], ANames[i], i, Turns) then
-      Exit;
+  SetLength(Roots, Length(ABodies));
+  SetLength(Words, Length(ABodies));
+  SetLength(HasWords, Length(ABodies));
+  for i := 0 to High(Roots) do Roots[i] := nil;
+  try
+    for i := 0 to High(ABodies) do
+    begin
+      if Trim(ABodies[i]) = '' then Exit;
+      Roots[i] := TJSONObject.ParseJSONValue(ABodies[i]);
+      if not (Roots[i] is TJSONObject) then Exit;
+      SetLength(Words[i], 0);
+      CollectWords(TJSONObject(Roots[i]), Words[i]);
+      HasWords[i] := False;
+      for x := 0 to High(Words[i]) do
+        if (Words[i][x].Norm <> '') and not Words[i][x].IsSegment then
+        begin
+          HasWords[i] := True;
+          Break;
+        end;
+    end;
 
-  // Ordena por inicio: o dedup abaixo depende disso pra so olhar a
-  // janela vizinha em vez de todos contra todos.
+    WordDrops := DedupWords(Words);
+
+    for i := 0 to High(ABodies) do
+    begin
+      SetLength(Tmp, 0);
+      TurnsFromWordList(Words[i], i, Tmp);
+      if Length(Tmp) = 0 then FallbackTurns(TJSONObject(Roots[i]), i, Tmp);
+      LabelTrackSpeakers(Tmp, ANames[i]);
+      Turns := Turns + Tmp;
+    end;
+  finally
+    for i := 0 to High(Roots) do
+      if Roots[i] <> nil then Roots[i].Free;
+  end;
+
+  // Ordena por inicio: o player acompanha o destaque nessa ordem, e o dedup
+  // por turno abaixo so olha a janela vizinha.
   TArray.Sort<TTurn>(Turns, TComparer<TTurn>.Construct(
     function(const A, B: TTurn): Integer
     begin
@@ -1415,15 +2077,17 @@ begin
   SetLength(Norm, Length(Turns));
   for i := 0 to High(Turns) do Norm[i] := NormalizeForCompare(Turns[i].Text);
 
+  TurnDrops := 0;
   for i := 0 to High(Turns) do
   begin
     if Turns[i].Drop then Continue;
     j := i + 1;
-    // Ordenado por inicio: assim que um turno comeca depois do fim
-    // deste, nenhum dos seguintes se sobrepoe.
     while (j <= High(Turns)) and (Turns[j].StartS < Turns[i].EndS) do
     begin
-      if Turns[j].Drop or (Turns[j].Track = Turns[i].Track) then
+      // So a rede de seguranca: entre duas faixas com palavras o dedup ja
+      // foi feito por palavra.
+      if Turns[j].Drop or (Turns[j].Track = Turns[i].Track) or
+         (HasWords[Turns[i].Track] and HasWords[Turns[j].Track]) then
       begin
         Inc(j);
         Continue;
@@ -1431,21 +2095,12 @@ begin
       Ov := TimeOverlapRatio(Turns[i], Turns[j]);
       if Ov >= DEDUP_OVERLAP_MIN then
       begin
-        NA := Norm[i];
-        NB := Norm[j];
-        Sim := WordSimilarity(NA, NB);
+        Sim := WordSimilarity(Norm[i], Norm[j]);
         if Sim >= DEDUP_SIM_MIN then
         begin
-          // Fica a versao com MAIS palavras: o eco chega mais fraco e o
-          // Whisper corta pedacos dele.
-          if Length(NB) > Length(NA) then Turns[i].Drop := True
+          if Length(Norm[j]) > Length(Norm[i]) then Turns[i].Drop := True
           else Turns[j].Drop := True;
-          if Turns[i].Drop then
-            Log('Transcribe: eco descartado (sobrep=%.2f cont=%.2f) "%s"',
-              [Ov, Sim, Copy(Turns[i].Text, 1, 40)])
-          else
-            Log('Transcribe: eco descartado (sobrep=%.2f cont=%.2f) "%s"',
-              [Ov, Sim, Copy(Turns[j].Text, 1, 40)]);
+          Inc(TurnDrops);
           if Turns[i].Drop then Break;
         end;
       end;
@@ -1484,9 +2139,37 @@ begin
     SB.Free;
     Obj.Free;
   end;
-  Log('Transcribe: %d faixas -> %d turnos (%d descartados por eco).',
-    [Length(ABodies), Kept, Length(Turns) - Kept]);
+  Log('Transcribe: %d faixas -> %d turnos (eco: %d palavra(s) por palavra, %d turno(s) por turno).',
+    [Length(ABodies), Kept, WordDrops, TurnDrops]);
   Result := True;
+end;
+
+procedure ServerBackUp;
+// O /health acabou de responder. Se a fila estava esperando o servidor,
+// tira a frase de espera da tela AGORA — antes ela so saia quando o item
+// terminava de transcrever, minutos depois, e parecia que o erro tinha
+// ficado preso. So a frase de espera (nome vazio), nunca a falha real de
+// uma gravacao.
+var
+  Changed: Boolean;
+begin
+  Changed := False;
+  GLock.Enter;
+  try
+    if GWaitingServer then
+    begin
+      GWaitingServer := False;
+      if GLastErrorName = '' then GLastError := '';
+      Changed := True;
+    end;
+  finally
+    GLock.Leave;
+  end;
+  if Changed then
+  begin
+    Log('Transcribe: servidor voltou (%s) — fila retomada.', [HostBase]);
+    NotifyChanged;
+  end;
 end;
 
 function ProcessOne(const APath: string): string;
@@ -1531,8 +2214,31 @@ begin
   HealthErr := CheckHealth(HostBase);
   if HealthErr <> '' then
   begin
-    Log('Transcribe: /health nao respondeu (%s): %s', [HostBase, HealthErr]);
-    Exit(OBSLang.T('error.transcribe.serverDown', ['host', HostBase]));
+    // Uma linha por queda, nao uma a cada tentativa.
+    if not WaitingForServer then
+      Log('Transcribe: /health nao respondeu (%s): %s', [HostBase, HealthErr]);
+    // Sentinela, nao mensagem: o Execute poe o item de volta na frente da
+    // espera e tenta de novo depois. A frase pra tela sai de la.
+    Exit(SERVER_DOWN_MARK);
+  end;
+  ServerBackUp;
+
+  // GRAVACAO SEM AUDIO nenhum (so monitores, nenhum microfone marcado):
+  // nao ha o que transcrever. Sem este atalho o ExtractAudioTracks
+  // falhava e, com a transcricao automatica ao fim da gravacao, quem
+  // grava sem audio levaria um aviso de erro depois de CADA gravacao.
+  // Sai como "sem fala", que e o que a gravacao e.
+  var Rep: TProbeReport;
+  if Probe(APath, Rep) and (Length(Rep.AudioStreams) = 0) then
+  begin
+    Log('Transcribe: "%s" nao tem faixa de audio — gravada como sem fala.', [APath]);
+    try
+      TFile.WriteAllText(TranscriptPath(APath), '{"turns":[],"text":""}', TEncoding.UTF8);
+      TFile.WriteAllText(TranscriptTextPath(APath), '', TEncoding.UTF8);
+    except
+      on E: Exception do Exit(OBSLang.T('error.transcribe.writeFailed', ['error', E.Message]));
+    end;
+    Exit('');
   end;
 
   CacheBase := IncludeTrailingPathDelimiter(OBSPlayer.CacheRootDir) +
@@ -1602,7 +2308,19 @@ begin
       for i := 0 to n - 1 do
       begin
         Result := RunJob(Send[i], i, n, Est, Body);
-        if Result <> '' then Exit;
+        if Result <> '' then
+        begin
+          // O container pode cair NO MEIO do job (Docker reiniciado,
+          // computador suspenso). Isso chega como erro de rede, mas e o
+          // mesmo caso do servidor fora antes de comecar: se o /health
+          // agora nao responde, o item espera em vez de ser descartado.
+          // Voltando, a API reaproveita o job se o audio reenviado for
+          // identico (o id e o hash dele); se nao for, refaz do zero.
+          if (Result <> CANCELED_MARK) and (not ShuttingDown) and
+             (CheckHealth(HostBase) <> '') then
+            Result := SERVER_DOWN_MARK;
+          Exit;
+        end;
         Bodies[i] := Body;
       end;
 
@@ -1657,6 +2375,7 @@ procedure TTranscribeThread.Execute;
 var
   Path, Err: string;
   Has: Boolean;
+  Handles: array[0..1] of THandle;
 begin
   while not Terminated do
   begin
@@ -1672,6 +2391,7 @@ begin
           GQueue.Delete(0);
           Inc(GQueueRev);
           GRunning := True;
+          GCurrentFinished := False;
           GCurrentPath := Path;
           GCurrentName := ChangeFileExt(ExtractFileName(Path), '');
           GCurrentStartTick := GetTickCount;
@@ -1695,6 +2415,10 @@ begin
           GProgress := -1;
           GEta := -1;
           GCancelCurrent := False;
+          // Fila vazia: nao ha mais o que esperar — nem o aviso de espera
+          // (o item que esperava foi removido da fila).
+          if GWaitingServer and (GLastErrorName = '') then GLastError := '';
+          GWaitingServer := False;
           // Os contadores do lote NAO sao zerados aqui: a UI precisa
           // continuar mostrando "7 de 7 concluidas" depois que a fila
           // esvazia. Quem zera e o proximo lote (ver ResetBatchIfIdle).
@@ -1711,6 +2435,9 @@ begin
       Continue;
     end;
 
+    // O item saiu da espera e virou "em curso": continua no arquivo, agora
+    // na primeira posicao.
+    SaveQueue;
     NotifyChanged;
     Log('Transcribe: iniciando "%s"', [Path]);
     Err := '';
@@ -1720,8 +2447,55 @@ begin
       on E: Exception do Err := E.Message;
     end;
 
+    // SERVIDOR FORA DO AR: nao e defeito do arquivo. Devolve o item pra
+    // FRENTE da espera, sem contar como falha nem soltar aviso de erro por
+    // item, e tenta de novo daqui a SERVER_RETRY_MS — ou antes, se alguem
+    // chamar NudgeQueue (um teste de servidor que deu certo).
+    if (Err = SERVER_DOWN_MARK) and not Terminated then
+    begin
+      GLock.Enter;
+      try
+        GQueue.Insert(0, Path);
+        Inc(GQueueRev);
+        GRunning := False;
+        GCurrentFinished := True;
+        GCurrentPath := '';
+        GCurrentName := '';
+        GCurrentStartTick := 0;
+        GStage := 'waiting';
+        GProgress := -1;
+        GEta := -1;
+        if not GWaitingServer then
+        begin
+          GWaitingServer := True;
+          // Nome vazio de proposito: nao e a gravacao que falhou, e o
+          // servidor. E e por ele que a limpeza abaixo reconhece a frase.
+          GLastError := OBSLang.T('error.transcribe.serverDown', ['host', HostBase]);
+          GLastErrorName := '';
+          Log('Transcribe: servidor fora do ar — fila em espera.');
+        end;
+      finally
+        GLock.Leave;
+      end;
+      SaveQueue;
+      NotifyChanged;
+      Handles[0] := StopEvent;
+      Handles[1] := WakeEvent;
+      if WaitForMultipleObjects(2, @Handles[0], False, SERVER_RETRY_MS) = WAIT_OBJECT_0 then
+        Break;
+      Continue;
+    end;
+
     GLock.Enter;
     try
+      GCurrentFinished := True;
+      // Passou do /health: o servidor voltou. Tira a frase de espera da
+      // tela — so ela (nome vazio), nunca a falha real de uma gravacao.
+      if GWaitingServer then
+      begin
+        GWaitingServer := False;
+        if GLastErrorName = '' then GLastError := '';
+      end;
       if Err = CANCELED_MARK then
         // Cancelado pelo usuario: nao conta como concluido nem como
         // falha, e nao vira mensagem de erro na tela.
@@ -1736,6 +2510,9 @@ begin
     finally
       GLock.Leave;
     end;
+    // Terminou de verdade: sai do arquivo. (No fechamento o SaveQueue nao
+    // grava, entao o item interrompido fica la pra voltar na proxima vez.)
+    SaveQueue;
     if Err = '' then Log('Transcribe: concluida "%s"', [Path])
     else Log('Transcribe: FALHOU "%s": %s', [Path, Err]);
     NotifyChanged;
@@ -1748,6 +2525,8 @@ begin
   if GLock = nil then GLock := TCriticalSection.Create;
   if GQueue = nil then GQueue := TList<string>.Create;
   if StopEvent = 0 then StopEvent := CreateEvent(nil, True, False, nil);
+  if WakeEvent = 0 then WakeEvent := CreateEvent(nil, False, False, nil);
+  if SaveLock = nil then SaveLock := TCriticalSection.Create;
   if Worker = nil then
   begin
     // Nao-suspensa e sem Start explicito — pegadinha #45: criar suspensa
@@ -1801,6 +2580,7 @@ begin
     GLock.Leave;
   end;
   Log('Transcribe: enfileirado "%s" (fila=%d)', [APath, QueueLength]);
+  SaveQueue;
   NotifyChanged;
 end;
 
@@ -1827,6 +2607,7 @@ begin
     GLock.Leave;
   end;
   Log('Transcribe: %d item(ns) enfileirado(s).', [Added]);
+  if Added > 0 then SaveQueue;
   NotifyChanged;
 end;
 
@@ -1847,15 +2628,23 @@ begin
     GFailed := 0;
     GLastError := '';
     GLastErrorName := '';
+    GWaitingServer := False;
   finally
     GLock.Leave;
   end;
   Log('Transcribe: fila cancelada.');
+  SaveQueue;
+  // Se a worker esperava o servidor, acorda: com a fila vazia ela sai do
+  // modo de espera na hora, em vez de a tela seguir "aguardando" por 30 s.
+  NudgeQueue;
   NotifyChanged;
 end;
 
 procedure Shutdown;
 begin
+  // ANTES de parar a worker: a volta final do laco dela trataria o item
+  // interrompido como terminado e o tiraria do arquivo da fila.
+  GShuttingDown := True;
   OnChanged := nil;
   if Worker <> nil then
   begin
@@ -1881,8 +2670,14 @@ begin
     CloseHandle(StopEvent);
     StopEvent := 0;
   end;
+  if WakeEvent <> 0 then
+  begin
+    CloseHandle(WakeEvent);
+    WakeEvent := 0;
+  end;
   if GQueue <> nil then FreeAndNil(GQueue);
   if GLock <> nil then FreeAndNil(GLock);
+  if SaveLock <> nil then FreeAndNil(SaveLock);
 end;
 
 end.

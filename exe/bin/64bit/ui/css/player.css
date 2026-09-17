@@ -876,9 +876,70 @@
   }
 
   .player-volume-wrap {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+  }
+  /* Popup do volume: sobe acima do alto-falante, no visual do menu de
+     velocidade. Abre por :hover e fica aberto com foco de TECLADO no slider
+     ou durante o arrasto (:active) — escapar do popup arrastando nao pode
+     fechar no meio. Nao :focus-within: clicar no mudo daria foco ao botao
+     e o popup ficaria preso aberto. O ::after cobre o vao ate o botao, senao
+     o hover se perderia no caminho do mouse. Sempre ESCURO, nos dois temas:
+     o gradiente do slider e branco/vermelho, pensado pra fundo escuro. */
+  .player-volume-pop {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 8px 12px;
+    background: rgba(20, 20, 22, 0.96);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 8px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  }
+  .player-volume-pop::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    top: 100%;
+    height: 10px;
+  }
+  .player-volume-wrap:hover .player-volume-pop,
+  .player-volume-wrap:has(.player-volume:focus-visible) .player-volume-pop,
+  .player-volume-wrap:has(.player-volume:active) .player-volume-pop {
+    display: flex;
+  }
+  .player-volume-pct {
+    min-width: 36px;
+    text-align: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .player-volume-pct.boost { color: var(--danger-2, #ef4444); }
+  /* A caixa tem as medidas do slider DEPOIS de girado; o input continua
+     horizontal por dentro (o gradiente e o thumb seguem valendo) e o
+     rotate(-90deg) poe o 0 embaixo e o 200 em cima. */
+  .player-volume-track {
+    position: relative;
+    width: 20px;
+    height: 110px;
+  }
+  .player-volume-track .player-volume {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 110px;
+    margin: 0;
+    transform: translate(-50%, -50%) rotate(-90deg);
   }
   /* Volume slider master: range 0..200. Visual em 3 segmentos:
        0..100  → branco (zona "normal", --vp-mid fica igual a --vp)
@@ -995,12 +1056,109 @@
     color: #047857;
   }
 
+  /* ===== Menu de legenda/transcricao (abre ao passar o mouse) =====
+     Reaproveita o visual do menu de velocidade. Abre por :hover em vez de
+     clique; a faixa invisivel (::after) cobre o vao entre o botao e o
+     menu, senao o hover se perderia no caminho do mouse ate as opcoes. */
+  .player-cc-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .player-cc-menu {
+    display: none;
+    min-width: 190px;
+    overflow: visible;
+    max-height: none;
+  }
+  .player-cc-menu::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0;
+    top: 100%;
+    height: 10px;
+  }
+  /* So :hover — com :focus-within, clicar no botao deixaria o menu preso
+     aberto depois que o mouse sai. */
+  .player-cc-wrap:hover .player-cc-menu { display: flex; }
+  .player-cc-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .player-cc-check {
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .player-cc-option.on .player-cc-check::before { content: '✓'; }
+  .player-cc-option.on { color: var(--success); font-weight: 600; }
+  .player-cc-key {
+    margin-left: auto;
+    padding-left: 12px;
+    font-size: 11px;
+    opacity: 0.55;
+  }
+  [data-theme="light"] .player-cc-option.on { color: #047857; }
+
+  /* ===== Legenda sobre o video =====
+     Branca com sombra em volta (nao so embaixo): tem que ler em cima de
+     tela clara E escura, e gravacao de tela alterna as duas o tempo todo.
+     Sem caixa de fundo, pra tapar o minimo do quadro. O limite de DUAS
+     linhas e do JS (_captionChunks, que parte a fala em blocos); o
+     line-clamp aqui e so rede de seguranca. */
+  .player-caption {
+    position: absolute;
+    left: 50%;
+    bottom: var(--cap-bottom, 92px);
+    transform: translateX(-50%);
+    width: min(86%, 960px);
+    z-index: 4;
+    text-align: center;
+    pointer-events: none;
+    transition: bottom 220ms ease;
+  }
+  .player-caption[hidden] { display: none; }
+  .player.idle .player-caption { --cap-bottom: 36px; }
+  .player-caption-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: #fff;
+    font-size: clamp(16px, 2.2vw, 30px);
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    text-shadow:
+      0 0 3px rgba(0,0,0,0.95),
+      0 0 6px rgba(0,0,0,0.8),
+      1px 1px 2px rgba(0,0,0,0.95),
+      -1px -1px 2px rgba(0,0,0,0.95);
+  }
+  /* A regua: mesmas regras, invisivel e sem o clamp (e ela que descobre
+     quando o texto passaria de duas linhas). */
+  .player-caption-measure {
+    visibility: hidden;
+    bottom: auto;
+    top: 0;
+    transition: none;
+  }
+  .player-caption-measure .player-caption-text {
+    display: block;
+    -webkit-line-clamp: unset;
+  }
+
   /* ===== Controles responsivos (janela estreita / modo compacto) ===== */
   /* O player e sempre full-viewport (.player-overlay position:fixed inset:0),
      entao media query por largura da janela == largura do player. Em vez de
      espremer a barra de progresso ate ficar inutilizavel, ela quebra pra uma
      linha propria (largura total) e os botoes ficam na linha de cima. */
   @media (max-width: 640px) {
+    /* Controles em duas linhas: a legenda sobe pra nao ficar atras. */
+    .player-caption { --cap-bottom: 130px; }
     .player-controls {
       flex-wrap: wrap;
       row-gap: 8px;
@@ -1012,11 +1170,6 @@
       order: 1;
       flex-basis: 100%;
     }
-  }
-  /* Muito estreito: esconde o slider de volume (mantem o botao de mudo) pros
-     botoes caberem numa linha so. */
-  @media (max-width: 460px) {
-    .player-volume { display: none; }
   }
 
   /* ===== Painel de transcrição =====

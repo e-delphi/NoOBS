@@ -33,6 +33,7 @@ const Transcribe = {
   lastErrorName: '',   // qual gravação falhou — "1 com falha" sozinho não diz
   _lastToastError: '', // último motivo já avisado por toast (ver applyState)
   pending: 0,
+  waiting: false,   // fila parada esperando o servidor (não é falha)
   pendingCloud: 0,  // ficaram de fora: só na nuvem (não baixamos em lote)
   queueItems: [],  // [{id,name,duration,current}] na ordem de execução
   _dragId: null,   // item sendo arrastado AGORA (trava o re-render)
@@ -49,6 +50,10 @@ const Transcribe = {
   },
 
   onHealth(data) {
+    // O "Testar" sabe a mesma coisa que o diagnóstico: servidor de pé
+    // esconde o painel de etapas; fora do ar, mostra o que falta.
+    if (data && data.ok) TranscribeSetup.apply({ seq: TranscribeSetup._seq, serverOk: true });
+    else if (TranscribeSetup.isHidden()) TranscribeSetup.check();
     const status = document.getElementById('settingsTranscribeStatus');
     if (!status) return;
     status.textContent = data && data.ok
@@ -111,6 +116,11 @@ const Transcribe = {
     // Lote novo (o backend zerou os contadores) reabre o aviso: o mesmo
     // motivo numa segunda tentativa é informação, não repetição.
     if (this.failed === 0) this._lastToastError = '';
+
+    // SERVIDOR FORA DO AR não é falha: o backend devolve o item pra fila e
+    // tenta de novo sozinho. Sem toast de propósito — a espera aparece só
+    // na aba de Transcrição, junto do diagnóstico do servidor.
+    this.waiting = !!data.waiting;
     this.render();
     // O decorrido anda sozinho entre um push e outro: o backend só
     // reempurra quando algo MUDA (etapa, percentual, ETA), e o percentual
@@ -438,5 +448,235 @@ const Transcribe = {
     if (this.failed > 0)
       txt += ' · ' + T('settings.transcribe.failedN', { failed: this.failed });
     line.textContent = txt;
+  }
+};
+
+
+// =====================================================================
+// Diagnóstico do servidor de transcrição (aba Configurações → Transcrição)
+// =====================================================================
+// O backend descobre EM ETAPAS por que o servidor não responde (rodando
+// wsl.exe e docker.exe) e manda o resultado cru. Aqui só decidimos o que
+// dizer: a tela mostra o PRIMEIRO degrau que falta, com a instrução dele e
+// o comando pronto pra copiar — não uma lista de coisas que talvez estejam
+// erradas.
+//
+// Ordem das etapas e por quê:
+//   servidor responde  -> pronto; nada mais importa
+//   host remoto        -> Docker local não tem nada a ver com isso
+//   WSL                -> o Docker Desktop precisa dele
+//   Docker instalado / em execução
+//   container          -> ausente: `docker run`; PARADO: `docker start`.
+//                         Mandar `docker run` com um container parado
+//                         criaria um segundo brigando pela mesma porta.
+
+const TRANSCRITOR_IMAGE = 'eduardo20041995/transcritor-api:latest';
+
+const TranscribeSetup = {
+  _seq: 0,
+  _last: null,
+
+  check() {
+    const el = document.getElementById('settingsTranscribeHost');
+    const host = el ? el.value.trim() : '';
+    this._seq++;
+    this._last = { checking: true };
+    this._render(this._last);
+    Bridge.send('check_transcribe_setup', { host: host, seq: this._seq });
+  },
+
+  apply(data) {
+    // Resposta de uma verificação já superada (o usuário clicou de novo,
+    // ou trocou de aba e voltou): descarta, senão o estado velho venceria.
+    if (!data || data.seq !== this._seq) return;
+    this._last = data;
+    this._render(data);
+  },
+
+  // Troca de idioma: redesenha com os textos novos, sem verificar de novo.
+  rerender() { if (this._last) this._render(this._last); },
+
+  isHidden() {
+    const box = document.getElementById('transcribeSetup');
+    return !box || box.hidden;
+  },
+
+  action(name) { Bridge.send('transcribe_setup_action', { action: name }); },
+
+  async copy(text, btn) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+    if (!ok) {
+      // Sem permissão de clipboard: o caminho antigo ainda funciona.
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+    }
+    if (btn && ok) {
+      btn.textContent = T('settings.transcribe.setup.copied');
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = T('settings.transcribe.setup.copy');
+        btn.disabled = false;
+      }, 1500);
+    }
+  },
+
+  // ---- desenho ------------------------------------------------------
+
+  _row(body, state, text) {
+    const r = document.createElement('div');
+    r.className = 'ts-row ' + state;
+    const i = document.createElement('span');
+    i.className = 'ts-icon';
+    i.textContent = state === 'ok' ? '✓' : state === 'fail' ? '✕' : '…';
+    const t = document.createElement('span');
+    t.textContent = text;
+    r.appendChild(i);
+    r.appendChild(t);
+    body.appendChild(r);
+  },
+
+  _detail(body) {
+    const d = document.createElement('div');
+    d.className = 'ts-detail';
+    body.appendChild(d);
+    return d;
+  },
+
+  _p(parent, text) {
+    const p = document.createElement('p');
+    p.textContent = text;
+    parent.appendChild(p);
+  },
+
+  _cmd(parent, command) {
+    const box = document.createElement('div');
+    box.className = 'ts-cmd';
+    const code = document.createElement('code');
+    code.textContent = command;
+    const btn = document.createElement('button');
+    btn.className = 'settings-btn';
+    btn.type = 'button';
+    btn.textContent = T('settings.transcribe.setup.copy');
+    btn.onclick = () => this.copy(command, btn);
+    box.appendChild(code);
+    box.appendChild(btn);
+    parent.appendChild(box);
+  },
+
+  _button(parent, label, action) {
+    const wrap = document.createElement('div');
+    wrap.className = 'ts-actions';
+    const btn = document.createElement('button');
+    btn.className = 'settings-btn';
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.onclick = () => this.action(action);
+    wrap.appendChild(btn);
+    parent.appendChild(wrap);
+  },
+
+  _render(d) {
+    const body = document.getElementById('transcribeSetupBody');
+    const btn = document.getElementById('transcribeSetupCheckBtn');
+    if (!body) return;
+    body.textContent = '';
+    if (btn) btn.disabled = !!d.checking;
+    const S = (k, a) => T('settings.transcribe.setup.' + k, a);
+
+    // SERVIDOR NO AR: o painel inteiro some — as etapas existem pra
+    // orientar o que falta, e não falta nada. Verificando, fica como
+    // estava: quem já estava escondido não pisca "verificando…" a cada
+    // abertura da aba (o caso comum é o servidor estar de pé), e quem
+    // mostrava uma falha continua visível enquanto re-verifica.
+    const box = document.getElementById('transcribeSetup');
+    if (d.checking) { this._row(body, 'wait', S('checking')); return; }
+    if (box) box.hidden = !!d.serverOk;
+    if (d.serverOk) return;
+    if (!d.isLocal) {
+      this._row(body, 'fail', S('remote'));
+      this._p(this._detail(body), S('remoteHow', { error: d.serverError || '' }));
+      return;
+    }
+
+    // WSL só entra na conversa enquanto o Docker não roda: com ele de pé,
+    // o WSL obviamente está ok (ou o Docker usa outro backend).
+    if (!d.dockerRunning) {
+      this._row(body, d.wslOk ? 'ok' : 'fail', S(d.wslOk ? 'wslOk' : 'wslMissing'));
+      if (!d.wslOk) {
+        const det = this._detail(body);
+        this._p(det, S('wslHow'));
+        this._cmd(det, 'wsl --install');
+        this._p(det, S('wslAfter'));
+        return;
+      }
+    }
+
+    this._row(body, d.dockerInstalled ? 'ok' : 'fail',
+      S(d.dockerInstalled ? 'dockerOk' : 'dockerMissing'));
+    if (!d.dockerInstalled) {
+      const det = this._detail(body);
+      this._p(det, S('dockerHow'));
+      this._button(det, S('dockerDownload'), 'openDockerSite');
+      this._p(det, S('dockerAfter'));
+      return;
+    }
+
+    this._row(body, d.dockerRunning ? 'ok' : 'fail',
+      S(d.dockerRunning ? 'runningOk' : 'runningMissing'));
+    if (!d.dockerRunning) {
+      const det = this._detail(body);
+      this._p(det, S('runningHow'));
+      if (d.canStartDocker) this._button(det, S('openDocker'), 'startDockerDesktop');
+      return;
+    }
+
+    const port = d.port || 8000;
+    if (!d.containerId) {
+      this._row(body, 'fail', S('containerMissing'));
+      const det = this._detail(body);
+      this._p(det, S('containerHow'));
+      this._cmd(det, 'docker run --restart=always -d -p ' + port +
+        ':8000 -v transcritor-dados:/data ' + TRANSCRITOR_IMAGE);
+      this._p(det, S('containerAfter'));
+      return;
+    }
+
+    // Alguém usa a porta, mas não é o transcritor: não adianta mandar
+    // `docker start` num container que não é o nosso.
+    if (!/transcritor/i.test(d.containerImage || '')) {
+      this._row(body, 'fail', S('portBusy', { port: port, image: d.containerImage }));
+      this._p(this._detail(body), S('portBusyHow'));
+      return;
+    }
+
+    const noRestart = (d.restartPolicy || '') !== 'always';
+    const updateCmd = 'docker update --restart=always ' + d.containerId;
+
+    if (d.containerState !== 'running') {
+      this._row(body, 'fail', S('containerStopped', { status: d.containerStatus }));
+      const det = this._detail(body);
+      this._p(det, S('containerStartHow'));
+      // Duas linhas, não `a && b`: o `&&` não existe no PowerShell 5, que é
+      // onde muita gente vai colar. Colar várias linhas roda uma por vez.
+      this._cmd(det, (noRestart ? updateCmd + '\n' : '') + 'docker start ' + d.containerId);
+      if (noRestart) this._p(det, S('containerRestartWhy'));
+      return;
+    }
+
+    this._row(body, 'ok', S('containerRunning', { status: d.containerStatus }));
+    this._row(body, 'wait', S('serverLoading'));
+    const det = this._detail(body);
+    this._p(det, S('serverLoadingHow'));
+    if (noRestart) {
+      this._p(det, S('containerRestartTip'));
+      this._cmd(det, updateCmd);
+    }
   }
 };

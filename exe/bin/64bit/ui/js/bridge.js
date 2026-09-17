@@ -93,6 +93,10 @@ const Bridge = {
       // Etapa da transcrição é traduzida em tempo de render (o código
       // vem da API em inglês), então precisa repintar na troca de idioma.
       try { Transcribe.render(); } catch (e) {}
+      // Diagnóstico e seletor de idioma da transcrição: textos montados
+      // em JS, e o "Idioma do NoOBS (…)" muda de nome com a interface.
+      try { TranscribeSetup.rerender(); } catch (e) {}
+      try { Settings._fillTranscribeLangs(); } catch (e) {}
       // A fila tem o selo "agora" e o title do botão de remover, os
       // dois traduzidos em tempo de render. Fora do render() de
       // propósito: aquele roda a cada segundo e refazer a lista ali
@@ -226,6 +230,7 @@ const Bridge = {
     transcribe_pending(data) { Transcribe.applyPending(data); },
     transcribe_queue(data)   { Transcribe.applyQueue(data); },
     transcribe_health(data)  { Transcribe.onHealth(data); },
+    transcribe_setup(data)   { TranscribeSetup.apply(data); },
     transcript(data)         { Player.applyTranscript(data); },
     transcript_search(data)  { onTranscriptSearchResult(data); },
     update_result(data) { Updates.applyResult(data); },
@@ -306,8 +311,6 @@ const Bridge = {
       if (Export.isWaitingFor(data && data.id)) { Export.onPlayUrl(data); return; }
       Player.play(data.url, data.name, data.mode, data.id, data.startClockSec);
     },
-    split_pending() { Player._splitting = true; Player._showSplitting(true); },
-    split_done(data) { Player.onSplitDone(!!(data && data.ok)); },
     merge_pending() {
       setMergeBusy(true);
       Toast.show(T('toast.mergeStarted'), T('toast.mergeStartedMsg'), { ttl: 3000 });

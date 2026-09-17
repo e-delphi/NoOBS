@@ -66,7 +66,7 @@ Arquitetura em 4 camadas:
    - `FFmpegLib` — libavformat/avcodec/avutil/swscale + structs + acessors low-level
 2. **Wrappers altos** — API Delphi limpa sobre as DLLs:
    - `OBSEngine` — TOBSEngine class (init, scene, sources, output MKV)
-   - `FFmpegOps` — RemuxFile, SplitFileAtKeyframe, MergeFiles, ExtractAudioTracks, ExtractFrameJpeg
+   - `FFmpegOps` — RemuxFile, MergeFiles, ExtractAudioTracks, ExtractFrameJpeg
    - `FFmpegExport` — ExportVideo (a única operação que re-encoda)
 3. **Domínio do app** — lógica de negócio:
    - `OBSEncoder` — seleção de codec (AV1/HEVC/H264/x264)
@@ -91,12 +91,12 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets, AvErrStr) |
-| `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `SplitFileAtKeyframe`, `MergeFiles`, `ExtractAudioTracks`, `ExtractFrameJpeg` |
+| `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `MergeFiles`, `ExtractAudioTracks`, `ExtractFrameJpeg` |
 | `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas) |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
-| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO da faixa de mistura; grava a resposta no cache. A fila é reordenável e removível item a item (`MoveInQueue`/`RemoveFromQueue`) |
+| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO (faixas isoladas ou a mistura); grava a resposta no cache. A fila é reordenável item a item, **persistida em disco** e **espera o servidor voltar** em vez de falhar; `DiagnoseSetup` descobre em etapas o que falta (WSL → Docker → container) |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
@@ -1404,6 +1404,12 @@ essa affinity; então funciona pro caminho de captura do projeto.
 
 ### 50. **Corte de vídeo: keyframe é PTS, roteamento é DTS — não misture**
 
+> **Histórico:** o "Dividir aqui" do player (`SplitFileAtKeyframe`,
+> `FindCutKeyframe`, `split_recording`) foi **removido** — a exportação já
+> recorta trechos, e a barra do player estava cheia demais. A lição fica:
+> vale pra qualquer corte por stream copy que volte a existir, e a
+> pegadinha irmã do `MergeFiles` (fim desta seção) continua viva.
+
 Dividir por stream copy tem DUAS linhas do tempo e elas só coincidem quando
 o encoder não usa B-frames. `FFmpegOps.SplitFileAtKeyframe` escolhe o
 keyframe do corte pelo **pts** (é o tempo que o usuário vê na barra do
@@ -2259,13 +2265,14 @@ Quatro decisões, cada uma com um porquê medido ou contado:
   minutos de fila pra receber zero turnos. Se TODAS forem mudas, escreve a
   transcrição vazia — que é "sem fala", não falha (ver item **e**).
 - **O ECO é o preço.** Sem fone, o que sai pelos alto-falantes volta pelo
-  microfone, e o mesmo trecho é transcrito duas vezes. `MergeTranscripts`
-  derruba a cópia exigindo **as duas** coisas: sobreposição no tempo
-  (≥50% do turno mais curto) **e** semelhança de texto. Só tempo
-  derrubaria duas pessoas falando junto — que é exatamente o que faixas
-  isoladas existem pra preservar; só texto derrubaria uma repetição
-  legítima minutos depois.
-- **A métrica é CONTENÇÃO, não Dice** — e isso foi medido, não escolhido
+  microfone, e o mesmo trecho é transcrito duas vezes. O dedup é **POR
+  PALAVRA** (`DedupWords`, ver item **q**): a mesma palavra nas duas
+  faixas no mesmo instante. Só tempo derrubaria duas pessoas falando
+  junto — que é exatamente o que faixas isoladas existem pra preservar;
+  só texto derrubaria uma repetição legítima minutos depois.
+- *Histórico — o dedup POR TURNO, que sobrou só pra faixa sem timestamp
+  por palavra:* sobreposição ≥50% do turno mais curto **e** contenção de
+  texto. **A métrica é CONTENÇÃO, não Dice** — e isso foi medido, não escolhido
   por gosto. O eco costuma ser PARCIAL (o microfone pega um pedaço do que
   saiu), e Dice pune diferença de tamanho: `"e adiar tudo"` dentro de
   `"entao eu acho que a melhor saida aqui e adiar tudo pra semana que
@@ -2336,6 +2343,215 @@ Transcrever UMA gravação pelo menu dela **continua funcionando** mesmo na
 nuvem: ali o usuário pediu por aquele arquivo, igual a abrir no player um
 vídeo que só está na nuvem. A regra é sobre trabalho automático em lote,
 não sobre gesto explícito.
+
+**m) Detectar o idioma TRADUZ a transcrição — mande sempre o idioma.**
+Sem `language`, o faster-whisper decide o idioma pelos primeiros 30 s do
+áudio. Quando erra — silêncio, música, ruído no começo, que é o caso
+COMUM numa faixa isolada — ele "transcreve" no idioma que achou, e o
+resultado é a fala inteira traduzida. Não é o `task=translate` (esse vai
+sempre `transcribe`); é a detecção.
+
+Por isso `ResolveTranscribeLanguage` manda o idioma SEMPRE, e o padrão é o
+da interface do NoOBS (`pt-BR` → `pt`). `transcribeLanguage` vazio vale
+`app` — de propósito: a chave antes era só JSON e vazio significava
+"detectar", exatamente o comportamento que traduzia. Detectar continua
+existindo, como escolha explícita (`auto`). O idioma entra no hash do job
+da API, então trocar de idioma gera job novo, nunca reaproveita o velho.
+
+Os nomes dos idiomas no seletor NÃO vivem no `lang\*.json`: saem do
+`Intl.DisplayNames`, cada um no próprio idioma (Português, English, 日本語),
+que é como seletor de idioma se lê em qualquer lugar.
+
+**n) Transcrição automática + fila PERSISTIDA ⇒ servidor fora do ar não
+pode ser falha.** Com `transcribeOnStop`, toda gravação entra na fila ao
+terminar — e gravar com o Docker ainda subindo (logo depois de ligar o PC)
+é o caso comum. Se "servidor fora" continuasse sendo falha, o item seria
+descartado e a persistência não serviria pra nada. Então:
+
+- O `ProcessOne` devolve a sentinela `SERVER_DOWN_MARK` quando o `/health`
+  não responde — antes de começar, **e também quando um job cai no meio**
+  (erro de rede + `/health` fora = mesmo caso). O `Execute` põe o item de
+  volta na FRENTE da espera, não conta como falha, marca `WaitingForServer`
+  e tenta de novo a cada 10 s. `NudgeQueue` acorda na hora quando o
+  "Testar" ou o diagnóstico acabam de ver o servidor de pé. A frase
+  vermelha de espera sai no instante em que o `/health` responde
+  (`ServerBackUp`), não quando o item termina — antes ela ficava na tela
+  os minutos inteiros da transcrição e parecia erro preso. Também sai se
+  a fila esvaziar durante a espera.
+- **Esperando o servidor, o app PODE hibernar.** A regra da #60g (fila
+  segura o app acordado) tem exceção: item parado não anda, e segurar o
+  app por um Docker que talvez nunca suba mataria a hibernação de quem
+  grava sem usar transcrição. A fila está no disco e volta sozinha.
+- **Persistência** (`transcribe-queue.json`): gravada a cada mudança de
+  composição, com o item EM CURSO primeiro — fechando no meio da
+  transcrição, ele é o primeiro a voltar. `GCurrentFinished` tira do
+  arquivo o item que já terminou; `GShuttingDown` impede o `Shutdown` de
+  gravar, senão a volta final do laço da worker trataria o item
+  interrompido como concluído e o apagaria — justo o que a persistência
+  existe pra guardar. Troca atômica (`.tmp` + `MoveFileEx`) e `SaveLock`
+  serializando snapshot+escrita (duas gravações cruzadas escreveriam o
+  estado velho por último).
+- **Restaurar filtra** (`RestoreTranscribeQueue`): arquivo apagado, já
+  transcrito, ou só na nuvem (restaurar é trabalho automático — regra da
+  #60l).
+- **Gravação sem áudio nenhum** vira "sem fala" direto. Sem isso o
+  `ExtractAudioTracks` falhava e quem grava só a tela levaria um aviso de
+  erro depois de CADA gravação.
+- **Sem toast de espera.** Existiu um aviso "aguardando o servidor" e foi
+  removido a pedido: com a transcrição automática ele aparecia depois de
+  toda gravação feita com o Docker desligado. A espera aparece só na aba
+  de Transcrição (etapa `waiting` + diagnóstico do item **o**).
+
+**o) O diagnóstico do servidor é EM ETAPAS, e o degrau que falta decide o
+texto.** `DiagnoseSetup` (worker) roda `wsl.exe`/`docker.exe` escondido
+(`RunHidden`: `CREATE_NO_WINDOW`, pipe lido DURANTE a espera — senão uma
+saída maior que o buffer trava o filho) e a tela mostra só o primeiro
+degrau que falta, com a instrução e o comando pronto pra copiar:
+
+`/health` ok → pronto · host remoto → Docker local é irrelevante · WSL →
+`wsl --install` no Prompt como administrador · Docker instalado → link do
+Docker Desktop · Docker rodando → botão pra abrir o Docker Desktop ·
+container → `docker run --restart=always …` / `docker start`.
+
+Medido nesta máquina: `wsl --status` 84 ms, `docker info` 313 ms, `docker
+ps` 175 ms — barato o bastante pra rodar toda vez que a aba abre.
+
+Quatro detalhes que vieram de medir, não de supor:
+
+- **Container PARADO não é container AUSENTE.** O estado real encontrado
+  aqui foi `Exited (255)` com `RestartPolicy=no` — um reinício matou e ele
+  não voltou. Mandar `docker run` nesse caso criaria um segundo container
+  brigando pela porta. A tela manda `docker start <id>`, precedido de
+  `docker update --restart=always <id>` quando a política não é `always`.
+- **O container é achado pela PORTA publicada** (`ps -a --filter
+  publish=N`), não pela imagem: quem fez build local tem
+  `transcritor-api:latest`, não a do Docker Hub. Se a porta for de outro
+  container (imagem sem "transcritor"), a tela diz isso em vez de mandar
+  iniciar algo que não é o nosso. O filtro `ancestor=` com imagem
+  inexistente devolve vazio sem erro, mas não pegaria o build local.
+- **`wsl.exe` existe como stub sem WSL instalado** nas versões novas do
+  Windows — o que decide é o `--status` sair com 0.
+- **Comando de várias linhas, nunca `a && b`**: o `&&` não existe no
+  PowerShell 5, que é onde muita gente cola.
+
+**Com o servidor no ar o painel inteiro some** (`#transcribeSetup` nasce
+`hidden`): as etapas existem pra orientar o que falta. Enquanto verifica,
+ele mantém a visibilidade anterior — escondido não pisca "verificando…" a
+cada abertura da aba, e uma falha na tela continua visível durante a
+re-verificação. O botão "Testar" alimenta o mesmo painel: sucesso esconde,
+falha dispara o diagnóstico.
+
+A resposta leva o `seq` da requisição e a UI descarta respostas velhas —
+uma checagem lenta (Docker subindo) não pode sobrescrever a mais nova. Os
+alvos de "abrir" (site do Docker, `Docker Desktop.exe`) são FIXOS no
+Delphi; a UI manda só o nome da ação.
+
+**p) Turnos SOBREPOSTOS: o destaque tem que seguir o clique, não a ordem
+da lista.** Sintoma: clicar num trecho da transcrição e o player "ir pro
+lugar errado". O seek estava certo — medido na interface real, 115/115
+cliques posicionam o vídeo no `start` do turno. O que errava era o
+DESTAQUE: `_syncTranscriptActive` pegava o PRIMEIRO turno que contém o
+instante, e com turnos sobrepostos esse é o anterior, que ainda não
+terminou; o painel rolava até ele. **51 de 115 cliques** destacavam outro
+trecho.
+
+Sobreposição é normal com faixas isoladas: dois microfones na mesma sala
+transcrevem a mesma fala cortada em pontos diferentes, e duas pessoas podem
+falar juntas. A regra agora: o turno clicado fica fixo (`_trPinned`)
+enquanto o tempo estiver nele; fora disso, vale o que COMEÇOU POR ÚLTIMO
+entre os que contêm o instante. Resultado: 0/115.
+
+> Foi nessa investigação que o dedup POR TURNO (item **j**) caiu: com
+> dois microfones captando a mesma palestra, **31 falas duplicadas
+> sobreviveram** em 115 turnos. Cada faixa corta os turnos em pontos
+> diferentes — A (1,7–13,0 s) e B (9,6–20,1 s) se sobrepõem só 32%
+> (limiar 50%), embora o fim de A seja o começo de B. Resolvido no item **q**.
+
+> Descartado na investigação, com medida: **não é o limite de 6 conexões**
+> do Chromium (#61). Com o vídeo real + as 4 faixas escravas, o seek levou
+> ~60 ms com ou sem elas — o Chromium solta as conexões ociosas depois de
+> bufferizar.
+
+**q) O eco se tira POR PALAVRA, antes de montar os turnos.** Turno é a
+unidade errada pros dois lados: a cópia raramente se sobrepõe o bastante
+(cada faixa corta em outro ponto), e quando casa o turno INTEIRO cai,
+levando junto a fala legítima que estava nele. `MergeTranscripts` agora
+faz palavras de todas as faixas → `DedupWords` → turnos só com o que
+sobrou (`TurnsFromWordList`, mesmas regras de corte do item **k**).
+
+`DedupWords`, por par de faixas:
+
+1. **casa** a mesma palavra normalizada nas duas, a até 0,8 s, em ordem
+   (guloso monótono: cada palavra de A pega a primeira igual em B depois
+   do último par);
+2. forma **corridas** tolerando até 3 palavras puladas de cada lado e
+   pausa de até 1,5 s — o eco chega picado;
+3. corrida **longa** (≥4 pares) é eco: cai o trecho da faixa que capturou
+   MENOS palavras (empate: menor `score` médio);
+4. corrida **curta** (2–3 pares, o "sim, pode ser" de uma ligação) só é eco
+   se TODOS os pares estão a ≤0,35 s — quem repete a fala do outro fala
+   DEPOIS, o eco é simultâneo — e se ao menos um lado não falou mais nada
+   em ±0,5 s. Cai a cópia de menor `score`.
+
+Os números saíram de varredura, não de palpite: 624 palavras REAIS de
+uma ligação (formato v2), 6 cenários × 3 sementes — dois mics na mesma
+sala, alto-falante + mic com eco (nas duas ordens), fone sem eco, duas
+pessoas falando junto, a mesma frase 30 s depois:
+
+| | eco que sobrou | fala legítima perdida |
+|---|---|---|
+| por turno (antes) | ~28% | 4,8% |
+| **por palavra** | **13,6%** | **0,27%** |
+
+Fone sem eco, fala simultânea e repetição posterior: **zero** palavras
+perdidas. O eco que sobra é o que o Whisper transcreveu diferente nas duas
+faixas (palavra trocada quebra a corrida) — não dá pra casar sem aceitar
+falso positivo.
+
+Três regras que custaram tentativa:
+
+- **Uma palavra só não é corrida.** "oi", "tá", "sim" coincidem no tempo
+  entre duas pessoas por acaso — `MIN_SHORT=2`.
+- **Na corrida curta perde o menor `score`, não "o lado sem sobra".** A
+  resposta do falante local logo depois do eco põe sobra justamente no
+  lado do ECO, e a regra apagava o original.
+- **Palavra sem timestamp não casa** (`Norm=''` fica fora), mas o texto
+  dela vai grudado na próxima palavra alinhada e cai ou fica com ela.
+  Segmento sem nenhuma palavra alinhada vira pseudo-palavra, fora do dedup.
+
+O dedup por turno continua existindo só entre turnos em que PELO MENOS
+UMA das faixas não tem palavra alinhada (idioma sem alinhador): ali não
+há palavra pra casar. Entre duas faixas com palavras ele não roda — por
+turno ele voltaria a apagar fala legítima.
+
+**r) Legenda SOBRE o vídeo: a fala é partida em blocos de duas linhas.**
+Botão CC (ou tecla `C`) no player, alternativa ao painel lateral. É UM
+botão pras duas vistas: clique liga a legenda, e passar o mouse abre um
+menu subindo com "Legenda no vídeo" e "Transcrição ao lado" (`_syncCcUi`
+acende o botão se qualquer uma estiver ligada). O menu abre por `:hover`
+só — com `:focus-within`, o clique deixava o botão focado e o menu preso
+aberto — e um `::after` invisível cobre o vão até as opções. Mesma regra
+no volume: só o alto-falante fica na barra, e o slider desliza na
+horizontal no hover (ou com foco de teclado / durante o arrasto). Usa os
+mesmos turnos e o mesmo turno ativo do painel (`_trActive`), então as duas
+vistas nunca discordam. Ligada, a transcrição é pedida já na abertura do
+vídeo. A preferência é de visualização, por máquina: `localStorage`
+(`noobs.player.captions`), não `config.json`.
+
+Um turno tem até 20 s de fala (item **k**) — em letra de legenda são cinco,
+seis linhas tapando a tela. `_captionChunks` parte o turno guloso palavra a
+palavra contra uma RÉGUA invisível com a largura e a fonte reais, fechando
+o bloco quando passaria de duas linhas, e divide o tempo do turno entre os
+blocos na proporção dos caracteres (o backend não manda tempo por palavra).
+O cache é por turno + largura; `resize` o invalida. O `line-clamp: 2` do
+CSS é só rede de segurança. Medido nos 57 turnos de uma transcrição real,
+a 1280 e 500 px: 67/87 blocos, nenhum com mais de 2 linhas, nenhum cortado,
+nenhuma palavra perdida.
+
+A legenda fica FORA da camada do zoom (o transform vai só no `<video>` e no
+canvas) e desce quando os controles somem (`.player.idle`). Trocar de vídeo
+sem fechar o player agora zera a transcrição — antes os turnos do anterior
+ficavam até alguém abrir o painel.
 
 **c) Uma por vez não é escolha nossa.** O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
@@ -2506,6 +2722,7 @@ alinhar na grade deixa de ser otimização e vira requisito.
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>_aN.m4a` | Audio track isolada N, **N≥1** (libavformat extract) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.transcript.json` | Resposta inteira da Transcritor API (turnos, segmentos, palavras) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.txt` | Só o texto puro da transcrição — é o que a BUSCA lê |
+| `%LOCALAPPDATA%\NoOBS\transcribe-queue.json` | Fila de transcrição pendente (item em curso primeiro), restaurada no próximo início do modo full (pegadinha #60n) |
 
 `<hash>` = primeiros 10 bytes hex do SHA1 do path original.
 
@@ -2552,7 +2769,8 @@ recuperáveis manualmente).
 | `autoRecordMicExcept`            | exceções: processos a ignorar mesmo usando o mic (ex.: `steam, discord`); **só vale com `autoRecordMicApps` vazio**; vazio = nada ignorado |
 | `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). As ROTAS são fixas (`/jobs`, `/health`) — só o host é configurável |
 | `transcribePerTrack`             | `true` / `false` (default **`true`**) — manda as faixas de áudio ISOLADAS pra transcrição, uma por vez, em vez da mistura. Dá atribuição de falante pelo nome do dispositivo, e custa N transcrições por gravação; só entra em ação com 2+ faixas isoladas. Só existe como chave do JSON, sem controle na UI (pegadinha #60j) |
-| `transcribeLanguage`             | código ISO passado à API (`pt`, `en`…). Vazio = detecção automática. Só existe como chave do JSON, sem controle na UI |
+| `transcribeLanguage`             | `"app"` (default; vazio vale o mesmo) = idioma da interface do NoOBS; `"auto"` = a API detecta; ou código ISO (`pt`, `en`…). Seletor na aba Transcrição. **Detectar é o que fazia a transcrição sair TRADUZIDA** (pegadinha #60m) |
+| `transcribeOnStop`               | `true` / `false` (default **`true`**) — enfileira a gravação na transcrição assim que ela termina. Com o servidor fora do ar o item espera na fila persistida (pegadinha #60n) |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
@@ -2769,7 +2987,7 @@ Get-Content (Get-ChildItem $env:LOCALAPPDATA\NoOBS\logs\NoOBS_*.log |
   via sinal "stop" do output (pegadinha #41). Release sai do callback do
   sinal (ou do timeout). Poll síncrono sobrou só pro shutdown.
 - **NÃO compare** o dts de um pacote contra o pts do keyframe (nem o
-  contrário) ao cortar por stream copy — com B-frames o keyframe vai pro
+  contrário) se um corte por stream copy voltar a existir — com B-frames o keyframe vai pro
   lado errado e a 2ª parte nasce sem I-frame (pegadinha #50).
 - **NÃO derive** os encoders da exportação das caps do `OBSEncoder` — são
   os IDs do libobs, não os do libavcodec. Use

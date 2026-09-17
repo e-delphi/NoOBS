@@ -35,10 +35,24 @@ const Player = {
     document.getElementById('playerPlay').onclick = () => Player.togglePlay();
     document.getElementById('playerMute').onclick = () => Player.toggleMute();
     document.getElementById('playerInfo').onclick = () => Player.toggleInfoPanel();
-    const trBtn = document.getElementById('playerTr');
-    if (trBtn) trBtn.onclick = () => Player.toggleTranscript();
     const trClose = document.getElementById('playerTrClose');
     if (trClose) trClose.onclick = () => Player.toggleTranscript();
+    // Botao unico: clique = legenda (como a tecla C); o menu que abre ao
+    // passar o mouse tem as duas opcoes.
+    const ccBtn = document.getElementById('playerCc');
+    if (ccBtn) ccBtn.onclick = () => Player.toggleCaptions();
+    const optCap = document.getElementById('playerCcOptCaptions');
+    if (optCap) optCap.onclick = (e) => { e.stopPropagation(); Player.toggleCaptions(); };
+    const optPanel = document.getElementById('playerCcOptPanel');
+    if (optPanel) optPanel.onclick = (e) => { e.stopPropagation(); Player.toggleTranscript(); };
+    this.captionsOn = this._loadCaptionsPref();
+    this._syncCcUi();
+    // Janela/tela cheia mudou de largura: os blocos de duas linhas foram
+    // medidos na largura antiga.
+    window.addEventListener('resize', () => {
+      Player._capCache = null;
+      Player._syncCaption(true);
+    });
     const trSearch = document.getElementById('playerTrSearch');
     if (trSearch) trSearch.addEventListener('input', () => Player.renderTranscript());
     document.getElementById('playerInfoClose').onclick = () => Player.closeInfoPanel();
@@ -144,6 +158,11 @@ const Player = {
       }
       else if (e.key === ' ') { Player.togglePlay(); e.preventDefault(); }
       else if (e.key === 'm' || e.key === 'M') { Player.toggleMute(); }
+      else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey &&
+               !(e.target && (e.target.isContentEditable ||
+                 /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)))) {
+        Player.toggleCaptions();
+      }
       else if (e.key === 'f' || e.key === 'F') { Player.toggleFullscreen(); }
       else if (e.key === '0') { Player.resetZoom(); }
       else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -435,6 +454,13 @@ const Player = {
     if (changed) {
       this.triedTranscode = false;
       this.infoLoaded = null;
+      // Transcricao e legenda sao do video anterior (pegadinha #37).
+      this.transcriptTurns = null;
+      this.transcribed = false;
+      this._trActive = -1;
+      this._trPinned = -1;
+      this._capCache = null;
+      this._setCaptionText('');
       // Reseta multi-track audio do video anterior.
       this.stopDriftCheck();
       this.audioEls.forEach(a => {
@@ -468,11 +494,15 @@ const Player = {
     }
     this.currentId = id;
     this.currentMode = mode || 'direct';
+    // Legenda ligada: a transcricao e pedida ja na abertura, sem esperar
+    // o painel lateral (que e justamente o que a legenda dispensa).
+    if (changed && (this.captionsOn ||
+        document.getElementById('playerTrPanel').classList.contains('open')))
+      Bridge.send('request_transcript', { id: id });
     // Hora-do-relogio do inicio da gravacao (segundos desde meia-noite).
     // >= 0 ativa o campo de horario; < 0 (desconhecido) mantem oculto.
     this.startClockSec =
       (typeof startClockSec === 'number' && startClockSec >= 0) ? startClockSec : -1;
-    this._splitting = false;
     this.pendingId = null;
     // Se o painel de info ja esta aberto e o video mudou, recarrega.
     if (changed &&
@@ -557,10 +587,12 @@ const Player = {
     this.transcribed = false;
     this.speakerNames = null;
     this._trActive = -1;
+    this._trPinned = -1;
+    this._capCache = null;
+    this._setCaptionText('');
     const trPanel = document.getElementById('playerTrPanel');
     if (trPanel) { trPanel.classList.remove('open'); trPanel.setAttribute('aria-hidden', 'true'); }
-    const trBtn2 = document.getElementById('playerTr');
-    if (trBtn2) trBtn2.classList.remove('active');
+    this._syncCcUi();
     const trS = document.getElementById('playerTrSearch');
     if (trS) trS.value = '';
     // Reseta velocidade pra 1x — novo video comeca em ritmo normal
@@ -1048,6 +1080,11 @@ const Player = {
     const pct = this.masterMuted ? 0 :
       Math.round((this.masterVolume == null ? 1 : this.masterVolume) * 100);
     vol.value = pct;
+    const pctEl = document.getElementById('playerVolumePct');
+    if (pctEl) {
+      pctEl.textContent = pct + '%';
+      pctEl.classList.toggle('boost', pct > 100);
+    }
     // Slider range 0..200 → --vp e --vp-mid em % da largura (0..100%).
     // helper centralizado pra a mesma logica vir pros per-track sliders.
     setVolBarVars(vol, pct);
@@ -1071,12 +1108,20 @@ const Player = {
   transcribed: false,      // o arquivo de transcrição existe?
   speakerNames: null,      // {'SPEAKER_00': 'Eduardo'} — dado pelo usuário
   _trActive: -1,
+  // Turno escolhido por CLIQUE. Fica destacado enquanto o vídeo estiver
+  // dentro dele, mesmo que outro turno sobreposto também cubra o instante
+  // (ver _syncTranscriptActive). -1 = nenhum.
+  _trPinned: -1,
 
-  seekTo(sec) {
+  seekTo(sec, pinIdx) {
     const v = document.getElementById('playerVideo');
     if (!v || !isFinite(sec)) return;
+    // O turno clicado é o que o usuário quer ver destacado — sem fixar,
+    // um turno anterior que ainda não terminou "roubava" o destaque.
+    this._trPinned = (typeof pinIdx === 'number') ? pinIdx : -1;
     v.currentTime = Math.max(0, sec);
     this._syncTranscriptActive(true);
+    this._syncCaption();
   },
 
   toggleTranscript() {
@@ -1090,8 +1135,7 @@ const Player = {
     }
     panel.classList.toggle('open', opening);
     panel.setAttribute('aria-hidden', opening ? 'true' : 'false');
-    const btn = document.getElementById('playerTr');
-    if (btn) btn.classList.toggle('active', opening);
+    this._syncCcUi();
     if (opening && this.transcriptTurns === null && this.currentId)
       Bridge.send('request_transcript', { id: this.currentId });
   },
@@ -1107,7 +1151,136 @@ const Player = {
       ? data.speakers : {};
     this.transcriptTurns = Array.isArray(data.turns) ? data.turns : [];
     this._trActive = -1;
+    this._trPinned = -1;
+    this._capCache = null;
     this.renderTranscript();
+    if (this._capNotify) {
+      this._capNotify = false;
+      this._notifyNoCaptions();
+    }
+    this._syncCaption(true);
+  },
+
+  // ---------- Legenda sobre o vídeo ----------
+  //
+  // Alternativa ao painel lateral pra quem só quer ler junto. Usa os MESMOS
+  // turnos e o mesmo turno ativo do painel (_trActive), então as duas
+  // vistas nunca discordam sobre o que está sendo dito.
+  //
+  // Um turno pode ter até 20 s de fala — em letra de legenda isso são
+  // cinco, seis linhas tapando o vídeo. Então cada turno é partido em
+  // BLOCOS de no máximo duas linhas, medidos com a largura e a fonte
+  // reais, e o tempo do turno é dividido entre os blocos na proporção dos
+  // caracteres. O backend não manda o tempo por palavra (megabytes), e a
+  // fala tem ritmo razoavelmente constante dentro de um turno curto.
+
+  captionsOn: false,
+  _capCache: null,     // { key, chunks: [{text, start, end}] }
+  _capText: '',
+  _capNotify: false,   // avisar "sem transcrição" quando ela chegar
+
+  _loadCaptionsPref() {
+    // Preferência de VISUALIZAÇÃO, por máquina: não vai pro config.json.
+    try { return localStorage.getItem('noobs.player.captions') === '1'; }
+    catch (e) { return false; }
+  },
+
+  toggleCaptions() {
+    this.captionsOn = !this.captionsOn;
+    try { localStorage.setItem('noobs.player.captions', this.captionsOn ? '1' : '0'); }
+    catch (e) {}
+    this._syncCcUi();
+    if (!this.captionsOn) { this._setCaptionText(''); return; }
+    if (this.transcriptTurns === null) {
+      this._capNotify = true;
+      if (this.currentId) Bridge.send('request_transcript', { id: this.currentId });
+    } else {
+      this._notifyNoCaptions();
+    }
+    this._syncCaption(true);
+  },
+
+  // Botão aceso se QUALQUER uma das duas vistas está ligada; o menu marca
+  // cada uma.
+  _syncCcUi() {
+    const panel = document.getElementById('playerTrPanel');
+    const panelOn = !!(panel && panel.classList.contains('open'));
+    const btn = document.getElementById('playerCc');
+    if (btn) btn.classList.toggle('active', this.captionsOn || panelOn);
+    const oc = document.getElementById('playerCcOptCaptions');
+    if (oc) oc.classList.toggle('on', this.captionsOn);
+    const op = document.getElementById('playerCcOptPanel');
+    if (op) op.classList.toggle('on', panelOn);
+  },
+
+  // Ligou a legenda numa gravação sem fala: sem aviso, parece defeito.
+  _notifyNoCaptions() {
+    const turns = this.transcriptTurns;
+    if (!this.captionsOn || !turns || turns.length > 0) return;
+    Toast.show(T('player.captionsOverlay'),
+      this.transcribed ? T('player.transcriptNoSpeech') : T('player.transcriptNone'));
+  },
+
+  _setCaptionText(txt) {
+    if (txt === this._capText) return;
+    this._capText = txt;
+    const box = document.getElementById('playerCaption');
+    const el = document.getElementById('playerCaptionText');
+    if (!box || !el) return;
+    el.textContent = txt;
+    box.hidden = !txt;
+  },
+
+  // Parte o turno em blocos de até duas linhas. Guloso palavra a palavra
+  // contra a régua invisível; o cache vale pra aquele turno naquela largura.
+  _captionChunks(idx) {
+    const turn = this.transcriptTurns && this.transcriptTurns[idx];
+    const ruler = document.getElementById('playerCaptionMeasure');
+    if (!turn || !ruler) return [];
+    const width = ruler.parentElement.clientWidth;
+    const key = idx + '|' + width;
+    if (this._capCache && this._capCache.key === key) return this._capCache.chunks;
+
+    const words = String(turn.text || '').split(/\s+/).filter(Boolean);
+    const lh = parseFloat(getComputedStyle(ruler).lineHeight) || 24;
+    const maxH = lh * 2 + lh * 0.5;   // folga: arredondamento de subpixel
+    const texts = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      ruler.textContent = next;
+      if (cur && ruler.offsetHeight > maxH) { texts.push(cur); cur = w; }
+      else cur = next;
+    }
+    if (cur) texts.push(cur);
+    ruler.textContent = '';
+
+    const start = turn.start || 0;
+    const dur = Math.max(0, (turn.end || start) - start);
+    const total = texts.reduce((n, s) => n + s.length, 0) || 1;
+    let acc = 0;
+    const chunks = texts.map(text => {
+      const a = start + dur * acc / total;
+      acc += text.length;
+      return { text, start: a, end: start + dur * acc / total };
+    });
+    this._capCache = { key, chunks };
+    return chunks;
+  },
+
+  _syncCaption() {
+    if (!this.captionsOn) return;
+    const v = document.getElementById('playerVideo');
+    const idx = this._trActive;
+    if (!v || idx < 0 || !this.transcriptTurns) { this._setCaptionText(''); return; }
+    const chunks = this._captionChunks(idx);
+    if (chunks.length === 0) { this._setCaptionText(''); return; }
+    const t = v.currentTime || 0;
+    // Antes do 1º bloco (seek caindo um quadro antes do início do turno
+    // clicado) vale o 1º; depois do último, o último.
+    let pick = chunks[0];
+    for (const ch of chunks) { if (t >= ch.start) pick = ch; else break; }
+    this._setCaptionText(pick.text);
   },
 
   // Nome amigável de um falante. O usuário pode batizar cada um clicando
@@ -1197,7 +1370,7 @@ const Player = {
       const el = document.createElement('div');
       el.className = 'player-tr-turn';
       el.dataset.idx = String(i);
-      el.onclick = () => this.seekTo(t.start || 0);
+      el.onclick = () => this.seekTo(t.start || 0, i);
 
       const head = document.createElement('div');
       head.className = 'player-tr-head';
@@ -1268,8 +1441,29 @@ const Player = {
     if (!v) return;
     const t = v.currentTime || 0;
     let idx = -1;
-    for (let i = 0; i < turns.length; i++) {
-      if (t >= (turns[i].start || 0) && t < (turns[i].end || 0)) { idx = i; break; }
+    // TURNOS SOBREPOSTOS são normais: com faixas isoladas, dois microfones
+    // na mesma sala transcrevem a mesma fala cortada em pontos diferentes,
+    // e duas pessoas podem falar ao mesmo tempo. A regra antiga pegava o
+    // PRIMEIRO turno que contém o instante — o anterior, que ainda não
+    // terminou — e o painel rolava pra ele: o vídeo ia pro lugar certo e a
+    // tela mostrava outro trecho. Medido numa transcrição real: 51 de 115
+    // cliques destacavam o turno errado.
+    //
+    // Agora: o turno clicado vence enquanto o tempo estiver nele (a folga
+    // de 0,5 s cobre o seek caindo um quadro antes do início); fora disso,
+    // vale o turno que COMEÇOU POR ÚLTIMO entre os que contêm o instante.
+    const pin = this._trPinned;
+    if (pin >= 0 && turns[pin] &&
+        t >= (turns[pin].start || 0) - 0.5 && t < (turns[pin].end || 0)) {
+      idx = pin;
+    } else {
+      this._trPinned = -1;
+      let bestStart = -Infinity;
+      for (let i = 0; i < turns.length; i++) {
+        const s = turns[i].start || 0;
+        if (s > t) break;   // turnos vêm ordenados pelo início
+        if (t < (turns[i].end || 0) && s >= bestStart) { bestStart = s; idx = i; }
+      }
     }
     if (idx === this._trActive && !force) return;
     this._trActive = idx;
@@ -1290,6 +1484,7 @@ const Player = {
 
   onTimeUpdate() {
     this._syncTranscriptActive(false);
+    this._syncCaption();
     const v = document.getElementById('playerVideo');
     const seek = document.getElementById('playerSeek');
     const tm = document.getElementById('playerTime');
@@ -1311,64 +1506,6 @@ const Player = {
       } else {
         clk.hidden = true;
       }
-    }
-    this.updateSplitEnabled();
-  },
-
-  _splitting: false,
-
-  // Habilita o botao de dividir sempre que houver conteudo dos DOIS lados do
-  // corte — posicao estritamente entre o inicio e o fim. So bloqueia o caso
-  // "nada pra cortar": posicao 0 deixaria a 1a parte vazia, e posicao no fim
-  // (cur == dur, ex.: video pausado no final) deixaria a 2a vazia. O backend
-  // faz snap pro keyframe e ainda valida que as duas partes sairam com bytes.
-  updateSplitEnabled() {
-    const btn = document.getElementById('playerSplit');
-    if (!btn) return;
-    const v = document.getElementById('playerVideo');
-    const cur = v ? (v.currentTime || 0) : 0;
-    const dur = (v && isFinite(v.duration)) ? v.duration : 0;
-    const ok = !this._splitting && dur > 0 && cur > 0 && cur < dur;
-    btn.disabled = !ok;
-  },
-
-  // Dispara a divisao da gravacao atual na posicao do player.
-  split() {
-    const v = document.getElementById('playerVideo');
-    if (!v || !this.currentId || this._splitting) return;
-    const cur = v.currentTime || 0;
-    const dur = isFinite(v.duration) ? v.duration : 0;
-    if (dur <= 0 || cur <= 0 || cur >= dur) return;  // nada pra cortar de um lado
-    this._splitting = true;
-    this.updateSplitEnabled();
-    this._showSplitting(true);
-    Bridge.send('split_recording',
-      { id: this.currentId, posMs: Math.round(cur * 1000) });
-  },
-
-  _showSplitting(on) {
-    const ld = document.getElementById('playerLoading');
-    const ldt = document.getElementById('playerLoadingText');
-    if (!ld) return;
-    if (on) {
-      if (ldt) ldt.textContent = T('player.splitting');
-      ld.classList.add('visible');
-    } else {
-      ld.classList.remove('visible');
-    }
-  },
-
-  // Backend terminou (split_done). Sucesso: fecha o player (o original foi
-  // pra lixeira) e avisa. Falha: o handler 'error' ja mostrou o toast; so
-  // tira o loading e mantem o player aberto pra nova tentativa.
-  onSplitDone(ok) {
-    this._splitting = false;
-    this._showSplitting(false);
-    if (ok) {
-      this.close();
-      Toast.show(T('toast.splitDone'), T('toast.splitDoneMsg'), { ttl: 5000 });
-    } else {
-      this.updateSplitEnabled();
     }
   },
 
@@ -1709,6 +1846,8 @@ const VolTooltip = {
   },
 
   show(slider) {
+    // Slider que mostra o % por conta propria (o master, girado no popup).
+    if (slider.dataset.noTip) return;
     const t = this._ensure();
     clearTimeout(this.hideTimer);
     const v = parseInt(slider.value, 10) || 0;

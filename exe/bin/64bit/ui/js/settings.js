@@ -183,6 +183,13 @@ const Settings = {
   // deveria entrar na gravacao.
   currentMuteWhenDeviceMuted: true,
   currentTranscribeHost: 'http://localhost:8000',
+  currentTranscribeLanguage: 'app',
+  currentTranscribeOnStop: true,
+  // Idiomas oferecidos pra transcrição. Os NOMES não vivem no lang\*.json:
+  // saem do Intl.DisplayNames, cada um no próprio idioma (Português,
+  // English, 日本語) — é como seletor de idioma se lê em qualquer app.
+  TRANSCRIBE_LANGS: ['pt', 'en', 'es', 'fr', 'de', 'it', 'nl', 'pl', 'ru',
+                     'uk', 'tr', 'ar', 'hi', 'ja', 'ko', 'zh'],
   currentHibernate: false,
   currentAutoRecordOnMic: false,
   currentAutoRecordMicApps: '',
@@ -228,6 +235,8 @@ const Settings = {
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
     document.getElementById('settingsTranscribeHost').value = this.currentTranscribeHost || '';
+    this._fillTranscribeLangs(this.currentTranscribeLanguage);
+    document.getElementById('settingsTranscribeOnStop').checked = !!this.currentTranscribeOnStop;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
     document.getElementById('settingsHibernate').checked = !!this.currentHibernate;
     document.getElementById('settingsAutoRecordOnMic').checked = !!this.currentAutoRecordOnMic;
@@ -333,6 +342,8 @@ const Settings = {
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
       const transcribeHost = document.getElementById('settingsTranscribeHost').value.trim();
+      const transcribeLanguage = document.getElementById('settingsTranscribeLang').value || 'app';
+      const transcribeOnStop = document.getElementById('settingsTranscribeOnStop').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
       const autoRecordOnMic = document.getElementById('settingsAutoRecordOnMic').checked;
       const autoRecordMicApps = document.getElementById('settingsAutoRecordMicApps').value.trim();
@@ -378,6 +389,10 @@ const Settings = {
         Bridge.send('set_mute_when_device_muted', { enabled: muteWhenDeviceMuted });
       if (transcribeHost !== this.currentTranscribeHost)
         Bridge.send('set_transcribe_host', { host: transcribeHost });
+      if (transcribeLanguage !== this.currentTranscribeLanguage)
+        Bridge.send('set_transcribe_language', { language: transcribeLanguage });
+      if (transcribeOnStop !== this.currentTranscribeOnStop)
+        Bridge.send('set_transcribe_on_stop', { enabled: transcribeOnStop });
       if (hibernate !== this.currentHibernate)
         Bridge.send('set_hibernate', { enabled: hibernate });
       if (autoRecordOnMic !== this.currentAutoRecordOnMic)
@@ -414,6 +429,8 @@ const Settings = {
       this.currentStopOnLock = stopOnLock;
       this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
       this.currentTranscribeHost = transcribeHost;
+      this.currentTranscribeLanguage = transcribeLanguage;
+      this.currentTranscribeOnStop = transcribeOnStop;
       this.currentHibernate = hibernate;
       this.currentAutoRecordOnMic = autoRecordOnMic;
       this.currentAutoRecordMicApps = autoRecordMicApps;
@@ -484,6 +501,9 @@ const Settings = {
     // faltar, ao contrario do `!!` usado nos que sao default false.
     this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
     this.currentTranscribeHost = data.transcribeHost || 'http://localhost:8000';
+    this.currentTranscribeLanguage = data.transcribeLanguage || 'app';
+    // Default TRUE, mesmo esquema do muteWhenDeviceMuted.
+    this.currentTranscribeOnStop = (data.transcribeOnStop !== false);
     // hibernate: default true — so faz sentido com closeToTray ON, e gateamos
     // a UI pra forcar isso (ambos vem ON por padrao, entao consistente).
     this.currentHibernate = !!data.hibernate;
@@ -948,8 +968,44 @@ const Settings = {
     // Fila e contagem de pendentes sao estado do backend: pede na hora de
     // entrar na aba, em vez de manter a UI assinada num push que ela
     // quase nunca esta olhando.
-    if (name === 'transcribe') Bridge.send('get_transcribe_state', {});
+    if (name === 'transcribe') {
+      Bridge.send('get_transcribe_state', {});
+      // Diagnóstico a cada entrada na aba: é aqui que o usuário vem quando
+      // a transcrição não anda, e a situação muda fora do app (Docker
+      // aberto, container iniciado) sem nenhum evento que nos avise.
+      TranscribeSetup.check();
+    }
   },
+  // Monta o seletor de idioma da transcrição. "Idioma do NoOBS" mostra
+  // entre parênteses QUAL idioma é hoje, senão a opção padrão não diria
+  // o que vai acontecer. Chamado de novo na troca de idioma da interface.
+  _fillTranscribeLangs(selected) {
+    const sel = document.getElementById('settingsTranscribeLang');
+    if (!sel) return;
+    const value = selected || sel.value || 'app';
+    const ui = (I18n.language || 'pt-BR');
+    const uiBase = ui.split('-')[0];
+    const nameIn = (code, locale) => {
+      let n = code;
+      try { n = new Intl.DisplayNames([locale], { type: 'language' }).of(code) || code; } catch (e) {}
+      return n.charAt(0).toLocaleUpperCase(locale) + n.slice(1);
+    };
+    sel.textContent = '';
+    const add = (val, label) => {
+      const o = document.createElement('option');
+      o.value = val;
+      o.textContent = label;
+      sel.appendChild(o);
+    };
+    add('app', T('settings.transcribe.language.app', { name: nameIn(uiBase, ui) }));
+    add('auto', T('settings.transcribe.language.auto'));
+    this.TRANSCRIBE_LANGS.forEach(c => add(c, nameIn(c, c)));
+    // Valor salvo fora da lista (editado à mão no config.json): continua
+    // selecionável em vez de sumir e virar outro idioma no próximo salvar.
+    if (!Array.from(sel.options).some(o => o.value === value)) add(value, value);
+    sel.value = value;
+  },
+
   _syncAutoRecordExceptVisibility() {
     const apps = document.getElementById('settingsAutoRecordMicApps');
     const wrap = document.getElementById('settingsAutoRecordExceptWrap');

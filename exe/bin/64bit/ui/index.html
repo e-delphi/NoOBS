@@ -804,16 +804,51 @@
           fixas (<code>/jobs</code> e <code>/health</code>) — só o host é
           configurável.
         </div>
-        <!-- Elemento PRÓPRIO: o #settingsTranscribeStatus acima é
-             reaproveitado pelo botão Testar, então a instrução sumiria no
-             primeiro teste. -->
-        <div class="settings-hint" id="transcribeDockerHint"
-             data-i18n-html="settings.transcribe.dockerHint">
-          Precisa do container da Transcritor API rodando. No repositório dela:
-          <code>docker compose build</code> uma vez (com <code>HF_TOKEN_FILE</code>
-          apontando pro seu token do HuggingFace) e
-          <code>docker compose up -d</code>. Os modelos levam alguns minutos
-          pra carregar — até lá o Testar falha.
+        <!-- Diagnóstico em ETAPAS (servidor → WSL → Docker → container).
+             Mostra só o primeiro degrau que falta, com a instrução dele e o
+             comando pronto pra copiar. Montado em JS (TranscribeSetup), a
+             partir do que o backend descobriu rodando wsl/docker. Fica fora
+             do #settingsTranscribeStatus, que o botão Testar reescreve.
+             Nasce ESCONDIDO e só aparece quando algo falta: com o servidor
+             no ar não há o que orientar. -->
+        <div class="transcribe-setup" id="transcribeSetup" hidden>
+          <div class="transcribe-setup-head">
+            <span class="transcribe-setup-title"
+                  data-i18n="settings.transcribe.setup.title">Situação do servidor</span>
+            <button class="settings-btn" id="transcribeSetupCheckBtn"
+                    onclick="TranscribeSetup.check()"
+                    data-i18n="settings.transcribe.setup.verify">Verificar</button>
+          </div>
+          <div class="transcribe-setup-body" id="transcribeSetupBody"></div>
+        </div>
+      </div>
+
+      <hr class="settings-divider" data-panel="transcribe">
+      <div class="settings-field" data-panel="transcribe">
+        <label for="settingsTranscribeLang"
+               data-i18n="settings.transcribe.language.label">Idioma da transcrição</label>
+        <div class="settings-input-row">
+          <!-- Opções montadas em JS: os nomes dos idiomas saem do
+               Intl.DisplayNames, no próprio idioma (Português, English…). -->
+          <select class="settings-input" id="settingsTranscribeLang"></select>
+        </div>
+        <div class="settings-hint" data-i18n="settings.transcribe.language.hint">
+          Fixar o idioma evita que a transcrição saia traduzida: detectando
+          sozinho, o transcritor decide pelo começo do áudio e, quando erra,
+          escreve tudo no idioma errado.
+        </div>
+      </div>
+
+      <hr class="settings-divider" data-panel="transcribe">
+      <div class="settings-field" data-panel="transcribe">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsTranscribeOnStop">
+          <span data-i18n="settings.transcribe.onStop.label">Transcrever automaticamente ao terminar uma gravação</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.transcribe.onStop.hint">
+          A gravação entra na fila assim que termina. Se o servidor estiver
+          fora do ar, ela espera — a fila é guardada e continua depois de
+          reiniciar o computador.
         </div>
       </div>
 
@@ -983,6 +1018,17 @@
              lado a lado aqui via RAF + drawImage. Buracos entre
              monitores nao-contiguos somem nesse modo. -->
         <canvas id="playerComposite" class="player-composite" hidden></canvas>
+        <!-- Legenda SOBRE o video, alternativa ao painel lateral. Fora da
+             camada que recebe o zoom (o transform vai so no <video> e no
+             canvas), entao o texto nao cresce junto com a imagem. -->
+        <div class="player-caption" id="playerCaption" aria-live="off" hidden>
+          <span class="player-caption-text" id="playerCaptionText"></span>
+        </div>
+        <!-- Regua invisivel: mede quantas palavras cabem em DUAS linhas
+             com a largura e a fonte reais da legenda. -->
+        <div class="player-caption player-caption-measure" aria-hidden="true">
+          <span class="player-caption-text" id="playerCaptionMeasure"></span>
+        </div>
         <div class="player-zoom-badge" id="playerZoomBadge">100%</div>
         <div class="player-pause-indicator" id="playerPauseIndicator">
           <svg viewBox="0 0 100 100" width="100" height="100" aria-hidden="true">
@@ -1045,12 +1091,8 @@
              a faixa Mix do audio. Decoracao visual — nao essencial. -->
         <div class="player-waveform" id="playerWaveform" hidden></div>
       </div>
-      <!-- Dividir o video na posicao atual (stream copy, snap no keyframe).
-           Desabilitado no inicio/fim do video. -->
-      <button class="player-btn" id="playerSplit" onclick="Player.split()"
-              data-i18n-hint="player.split" data-hint="Dividir aqui" disabled>
-        <svg viewBox="0 0 24 24"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5z"/></svg>
-      </button>
+      <!-- So o alto-falante fica na barra; ao passar o mouse sobe um popup
+           com o slider VERTICAL e o percentual, igual ao de velocidade. -->
       <div class="player-volume-wrap">
         <button class="player-btn" id="playerMute" data-i18n-hint="player.mute" data-hint="Mudo (M)">
           <svg viewBox="0 0 24 24" id="playerVolIcon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z"/></svg>
@@ -1059,7 +1101,16 @@
              100..200 = boost via Web Audio GainNode. Bar fica vermelha
              alem dos 100% pra avisar que esta amplificando (pode distorcer
              dependendo do material). -->
-        <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100" data-i18n-hint="player.volume" data-hint="Volume (0–200%)">
+        <div class="player-volume-pop">
+          <span class="player-volume-pct" id="playerVolumePct">100%</span>
+          <div class="player-volume-track">
+            <!-- data-no-tip: o % fica fixo no popup; o tooltip flutuante do
+                 VolTooltip mede a largura do slider e sairia torto com ele
+                 girado. Duplo clique continua voltando pra 100%. -->
+            <input type="range" class="player-volume" id="playerVolume" min="0" max="200" value="100"
+                   data-no-tip="1" data-i18n-aria="player.volume" aria-label="Volume (0–200%)">
+          </div>
+        </div>
       </div>
       <div class="player-speed-wrap">
         <button class="player-btn player-speed-btn" id="playerSpeedBtn" data-i18n-hint="player.speed" data-hint="Velocidade de execução">
@@ -1075,13 +1126,32 @@
           <div class="player-speed-option" data-speed="8">8×</div>
         </div>
       </div>
-      <button class="player-btn player-tr-btn" id="playerTr"
-              data-i18n-hint="player.transcript" data-hint="Transcrição">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 6h16M4 10h16M4 14h10M4 18h7"/>
-        </svg>
-      </button>
+      <!-- UM botao pra transcricao: clique liga/desliga a legenda no video
+           (igual a tecla C); passar o mouse abre o menu subindo, com a
+           legenda e o painel lateral. Sem data-hint: o tooltip cobriria o
+           proprio menu. -->
+      <div class="player-cc-wrap">
+        <button class="player-btn player-info-btn player-cc-btn" id="playerCc"
+                data-i18n-aria="player.captionsMenu" aria-label="Legendas e transcrição">
+          <!-- Icone CHEIO com o "CC" vazado: o .player-btn svg forca
+               fill: currentColor, entao um icone de contorno (fill="none")
+               vira um bloco solido e as letras somem dentro dele. -->
+          <svg viewBox="0 0 24 24">
+            <path d="M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/>
+          </svg>
+        </button>
+        <div class="player-speed-menu player-cc-menu" id="playerCcMenu">
+          <div class="player-speed-option player-cc-option" id="playerCcOptCaptions">
+            <span class="player-cc-check" aria-hidden="true"></span>
+            <span data-i18n="player.captionsOverlay">Legenda no vídeo</span>
+            <span class="player-cc-key">C</span>
+          </div>
+          <div class="player-speed-option player-cc-option" id="playerCcOptPanel">
+            <span class="player-cc-check" aria-hidden="true"></span>
+            <span data-i18n="player.transcriptPanel">Transcrição ao lado</span>
+          </div>
+        </div>
+      </div>
       <button class="player-btn player-info-btn" id="playerInfo" data-i18n-hint="player.videoInfo" data-hint="Informações do vídeo">
         <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z"/></svg>
       </button>

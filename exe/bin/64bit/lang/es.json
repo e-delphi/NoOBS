@@ -575,6 +575,7 @@
     "muteShort": "Silenciar",
     "volume": "Volumen (0–200%)",
     "speed": "Velocidad de reproducción",
+    "trickHint": "Velocidad de reproducción — desde 8× el video avanza a saltos entre fotogramas clave, sin sonido",
     "fullscreen": "Pantalla completa (F / doble clic)",
     "info": {
       "file": "Archivo",

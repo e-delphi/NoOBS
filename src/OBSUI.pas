@@ -973,6 +973,37 @@ begin
   end;
 end;
 
+procedure EnableWebViewBlinkFeatures;
+// Liga o AudioVideoTracks do Chromium (HTMLMediaElement.audioTracks), que
+// vem desligado por padrao. O player usa pra DESLIGAR o audio do <video>
+// acima de 2x (pegadinha #61): com o audio ligado, uma gravacao pesada em
+// 3x acumula video no demuxer ate "memory limit exceeded" e o Chromium
+// trata isso como FIM DO ARQUIVO; sem audio o video so para e espera o
+// decoder. Medido: 60 s em 3x de 4K120 a 205 Mbps, zero fins falsos.
+//
+// Pela variavel de ambiente que o WebView2 le ao criar o ambiente, em vez
+// de ICoreWebView2EnvironmentOptions: e uma chamada, sem implementar a
+// interface COM de opcoes. Preserva o que ja estiver la (ex.: a porta de
+// depuracao remota usada pra medir o player — ver o CLAUDE.md).
+const
+  VAR_NAME = 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS';
+  FEATURE_ARG = '--enable-blink-features=AudioVideoTracks';
+var
+  Buf: array[0..4095] of WideChar;
+  Len: DWORD;
+  Cur: string;
+begin
+  Len := GetEnvironmentVariableW(VAR_NAME, @Buf[0], Length(Buf));
+  if (Len > 0) and (Len < DWORD(Length(Buf))) then
+    SetString(Cur, PWideChar(@Buf[0]), Len)
+  else
+    Cur := '';
+  if Pos('AudioVideoTracks', Cur) > 0 then Exit;
+  if Cur <> '' then Cur := Cur + ' ';
+  SetEnvironmentVariableW(VAR_NAME, PWideChar(Cur + FEATURE_ARG));
+  Log('WebView2: argumentos extras = "%s"', [Cur + FEATURE_ARG]);
+end;
+
 function WindowProc(hwnd: HWND; msg: UINT; wParam: WPARAM; lParam: LPARAM): LRESULT; stdcall;
 begin
   // Mensagem custom de single-instance (segunda instancia traz primeira ao topo).
@@ -991,6 +1022,7 @@ begin
       if Assigned(AllowDarkModeForWindow) then
         AllowDarkModeForWindow(hwnd, True);
 
+      EnableWebViewBlinkFeatures;
       UserDataFolder := BuildUserDataFolder;
       if (UserDataFolder <> '') and EnsureSecureUserDataFolder(UserDataFolder) then
         CreateCoreWebView2EnvironmentWithOptions(nil, PWideChar(UserDataFolder), nil, TEnvironmentHandler.Create)

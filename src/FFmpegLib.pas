@@ -149,6 +149,17 @@ type
 
   PPAVStream = ^PAVStream;
 
+  // AVIndexEntry (avformat.h) — entrada do indice de busca de um stream.
+  // Em C, flags e size sao bitfields de um mesmo int (flags:2, size:30);
+  // no MSVC o primeiro campo ocupa os bits BAIXOS, dai o `and AVINDEX_KEYFRAME`.
+  PAVIndexEntry = ^AVIndexEntry;
+  AVIndexEntry = record
+    pos:          Int64;
+    timestamp:    Int64;     // na time_base do stream
+    flags_size:   Integer;
+    min_distance: Integer;
+  end;
+
   // AVDictionaryEntry — pra iterar metadata.
   PAVDictionaryEntry = ^AVDictionaryEntry;
   AVDictionaryEntry = record
@@ -247,6 +258,7 @@ const
   AVERROR_EAGAIN                = -11;
   AVERROR_EOF                   = -541478725; // FFERRTAG('E','O','F',' ') as int32
   AVSEEK_FLAG_BACKWARD          = 1;
+  AVINDEX_KEYFRAME              = 1;
 
   // Algoritmos de reamostragem do swscale. Valores da tabela de opcoes do
   // SwsContext (unit "sws_flags"), conferidos contra a swscale-8 empacotada.
@@ -431,6 +443,13 @@ function av_read_frame(s: AVFormatContext; pkt: PAVPacket): Integer; cdecl;
   external LIB_AVFORMAT delayed;
 function av_seek_frame(s: AVFormatContext; stream_index: Integer;
   timestamp: Int64; flags: Integer): Integer; cdecl;
+  external LIB_AVFORMAT delayed;
+// Indice de busca de um stream (API publica desde lavf 59). No MKV ele vem
+// dos Cues, que o demuxer so le no PRIMEIRO seek — abrir o arquivo nao
+// basta, a contagem volta 0 ate um av_seek_frame.
+function avformat_index_get_entries_count(st: PAVStream): Integer; cdecl;
+  external LIB_AVFORMAT delayed;
+function avformat_index_get_entry(st: PAVStream; idx: Integer): PAVIndexEntry; cdecl;
   external LIB_AVFORMAT delayed;
 function avformat_alloc_output_context2(ctx: PAVFormatContext;
   oformat: Pointer; format_name, filename: PAnsiChar): Integer; cdecl;

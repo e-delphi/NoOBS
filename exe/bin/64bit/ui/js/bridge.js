@@ -331,6 +331,7 @@ const Bridge = {
     },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     waveform_ready(data) { Waveform.onReady(data); },
+    keyframes(data) { Player.onKeyframes(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
     export_progress(data) { Export.onProgress(data && data.pct); },
     export_done(data) { Export.onDone(data); },

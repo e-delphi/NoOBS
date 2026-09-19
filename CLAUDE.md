@@ -1,4 +1,4 @@
-﻿# NoOBS
+# NoOBS
 
 Gravador de tela em Delphi com OBS Studio embarcado e UI em WebView2.
 
@@ -677,6 +677,15 @@ uma `TThread.CreateAnonymousThread` pra capturar + encodar; só o
 `PostJSON` final volta pra main via `TThread.Queue`. `ThumbBusy`
 (volatile bool) evita pile-up se uma captura demora mais que o
 intervalo do tick.
+
+**A captura PARA quando ninguém pode ver os previews** (`ThumbPauseReason`):
+player aberto, janela escondida/minimizada, ou app em tela cheia em
+primeiro plano (`SHQueryUserNotificationState` = BUSY / D3D full screen /
+apresentação). O `StretchBlt` do DC da tela obriga o DWM a copiar a
+superfície da GPU pra memória de sistema; com um jogo rodando isso vira
+engasgo intermitente a cada 500 ms — e rodava inclusive durante a gravação
+e com o app na bandeja. O teste de tela cheia existe porque o jogo cobre o
+NoOBS sem que ele esteja minimizado, e só visibilidade não pegaria.
 
 ### 23. **`textContent =` apaga filhos no DOM**
 
@@ -2472,58 +2481,58 @@ entre os que contêm o instante. Resultado: 0/115.
 > ~60 ms com ou sem elas — o Chromium solta as conexões ociosas depois de
 > bufferizar.
 
-**q) O eco se tira POR PALAVRA, antes de montar os turnos.** Turno é a
-unidade errada pros dois lados: a cópia raramente se sobrepõe o bastante
-(cada faixa corta em outro ponto), e quando casa o turno INTEIRO cai,
-levando junto a fala legítima que estava nele. `MergeTranscripts` agora
-faz palavras de todas as faixas → `DedupWords` → turnos só com o que
-sobrou (`TurnsFromWordList`, mesmas regras de corte do item **k**).
-
-`DedupWords`, por par de faixas:
-
-1. **casa** a mesma palavra normalizada nas duas, a até 0,8 s, em ordem
-   (guloso monótono: cada palavra de A pega a primeira igual em B depois
-   do último par);
-2. forma **corridas** tolerando até 3 palavras puladas de cada lado e
-   pausa de até 1,5 s — o eco chega picado;
-3. corrida **longa** (≥4 pares) é eco: cai o trecho da faixa que capturou
-   MENOS palavras (empate: menor `score` médio);
-4. corrida **curta** (2–3 pares, o "sim, pode ser" de uma ligação) só é eco
-   se TODOS os pares estão a ≤0,35 s — quem repete a fala do outro fala
-   DEPOIS, o eco é simultâneo — e se ao menos um lado não falou mais nada
-   em ±0,5 s. Cai a cópia de menor `score`.
-
-Os números saíram de varredura, não de palpite: 624 palavras REAIS de
-uma ligação (formato v2), 6 cenários × 3 sementes — dois mics na mesma
-sala, alto-falante + mic com eco (nas duas ordens), fone sem eco, duas
-pessoas falando junto, a mesma frase 30 s depois:
-
-| | eco que sobrou | fala legítima perdida |
-|---|---|---|
-| por turno (antes) | ~28% | 4,8% |
-| **por palavra** | **13,6%** | **0,27%** |
-
-Fone sem eco, fala simultânea e repetição posterior: **zero** palavras
-perdidas. O eco que sobra é o que o Whisper transcreveu diferente nas duas
-faixas (palavra trocada quebra a corrida) — não dá pra casar sem aceitar
-falso positivo.
-
-Três regras que custaram tentativa:
-
-- **Uma palavra só não é corrida.** "oi", "tá", "sim" coincidem no tempo
-  entre duas pessoas por acaso — `MIN_SHORT=2`.
-- **Na corrida curta perde o menor `score`, não "o lado sem sobra".** A
-  resposta do falante local logo depois do eco põe sobra justamente no
-  lado do ECO, e a regra apagava o original.
-- **Palavra sem timestamp não casa** (`Norm=''` fica fora), mas o texto
-  dela vai grudado na próxima palavra alinhada e cai ou fica com ela.
-  Segmento sem nenhuma palavra alinhada vira pseudo-palavra, fora do dedup.
-
-O dedup por turno continua existindo só entre turnos em que PELO MENOS
-UMA das faixas não tem palavra alinhada (idioma sem alinhador): ali não
-há palavra pra casar. Entre duas faixas com palavras ele não roda — por
-turno ele voltaria a apagar fala legítima.
-
+**q) O eco se tira POR PALAVRA, antes de montar os turnos.** Turno é a
+unidade errada pros dois lados: a cópia raramente se sobrepõe o bastante
+(cada faixa corta em outro ponto), e quando casa o turno INTEIRO cai,
+levando junto a fala legítima que estava nele. `MergeTranscripts` agora
+faz palavras de todas as faixas → `DedupWords` → turnos só com o que
+sobrou (`TurnsFromWordList`, mesmas regras de corte do item **k**).
+
+`DedupWords`, por par de faixas:
+
+1. **casa** a mesma palavra normalizada nas duas, a até 0,8 s, em ordem
+   (guloso monótono: cada palavra de A pega a primeira igual em B depois
+   do último par);
+2. forma **corridas** tolerando até 3 palavras puladas de cada lado e
+   pausa de até 1,5 s — o eco chega picado;
+3. corrida **longa** (≥4 pares) é eco: cai o trecho da faixa que capturou
+   MENOS palavras (empate: menor `score` médio);
+4. corrida **curta** (2–3 pares, o "sim, pode ser" de uma ligação) só é eco
+   se TODOS os pares estão a ≤0,35 s — quem repete a fala do outro fala
+   DEPOIS, o eco é simultâneo — e se ao menos um lado não falou mais nada
+   em ±0,5 s. Cai a cópia de menor `score`.
+
+Os números saíram de varredura, não de palpite: 624 palavras REAIS de
+uma ligação (formato v2), 6 cenários × 3 sementes — dois mics na mesma
+sala, alto-falante + mic com eco (nas duas ordens), fone sem eco, duas
+pessoas falando junto, a mesma frase 30 s depois:
+
+| | eco que sobrou | fala legítima perdida |
+|---|---|---|
+| por turno (antes) | ~28% | 4,8% |
+| **por palavra** | **13,6%** | **0,27%** |
+
+Fone sem eco, fala simultânea e repetição posterior: **zero** palavras
+perdidas. O eco que sobra é o que o Whisper transcreveu diferente nas duas
+faixas (palavra trocada quebra a corrida) — não dá pra casar sem aceitar
+falso positivo.
+
+Três regras que custaram tentativa:
+
+- **Uma palavra só não é corrida.** "oi", "tá", "sim" coincidem no tempo
+  entre duas pessoas por acaso — `MIN_SHORT=2`.
+- **Na corrida curta perde o menor `score`, não "o lado sem sobra".** A
+  resposta do falante local logo depois do eco põe sobra justamente no
+  lado do ECO, e a regra apagava o original.
+- **Palavra sem timestamp não casa** (`Norm=''` fica fora), mas o texto
+  dela vai grudado na próxima palavra alinhada e cai ou fica com ela.
+  Segmento sem nenhuma palavra alinhada vira pseudo-palavra, fora do dedup.
+
+O dedup por turno continua existindo só entre turnos em que PELO MENOS
+UMA das faixas não tem palavra alinhada (idioma sem alinhador): ali não
+há palavra pra casar. Entre duas faixas com palavras ele não roda — por
+turno ele voltaria a apagar fala legítima.
+
 **r) Legenda SOBRE o vídeo: a fala é partida em blocos de duas linhas.**
 Botão CC (ou tecla `C`) no player, alternativa ao painel lateral. É UM
 botão pras duas vistas: clique liga a legenda, e passar o mouse abre um
@@ -2668,10 +2677,34 @@ Medido com as DLLs empacotadas, sobre uma gravação real (3840×2160 AV1,
 | decode AV1 4K | **80 quadros/s** |
 | keyframes | a cada **2,00 s** exatos |
 
-A conta que decide: 1× pede 30 quadros/s e cabe; **2× pede 60 e já usa
-75% do teto**; 3× pede 90 e não cabe; 8× pede 240. O Chromium usa dav1d
-(mais rápido que o libaom que medimos), então o teto real dele é maior —
-mas 8× está fora de alcance em qualquer decodificador de software.
+> **Corrigido por medição:** o WebView2 **NÃO** decodifica AV1 por
+> software. O domínio `Media` do CDP reporta `kVideoDecoderName =
+> D3D11VideoDecoder` e `kIsPlatformVideoDecoder = true` (RX 9070 XT) — é
+> decode na GPU, o mesmo que o player do Windows usa. O teto de 80 q/s
+> acima é do NOSSO libaom (thumb/exportação), não do player. O teto do
+> player, medido nas gravações reais:
+>
+> | Gravação | 1× | 2× | 4× |
+> |---|---|---|---|
+> | AV1 4K 30 fps | 30 q/s, 0 perdidos | — | 8×: ~243 q/s, quase 0 perdidos |
+> | AV1 4K **120 fps** | 121 q/s, **0 perdidos** | ~240 decod., **~130 perdidos/s** | ~380 decod., ~320 perdidos/s, `readyState` 2 |
+>
+> Dois tetos, e o acelerado de gravação em fps alto bate nos dois: o
+> decoder de hardware entrega **~240 quadros 4K/s**, e a tela (160 Hz)
+> mostra no máximo 160 — tudo que passa disso é decodificado para ser
+> jogado fora. O Chromium decodifica TODO quadro, não tem modo de
+> "desbaste". Por isso player nativo (Media Foundation) ou FFmpeg interno
+> não resolvem: o decode já é na GPU. O que resolve é pedir menos quadros
+> — avanço por seek (abaixo).
+>
+> Armadilha de medição: `requestVideoFrameCallback` dispara no máximo a
+> **metade** da taxa do rAF (80,7/s a 160 Hz, idêntico com e sem overlays)
+> — contá-lo parece quadro perdido e não é. Use `metadata.presentedFrames`
+> e `getVideoPlaybackQuality().droppedVideoFrames`.
+
+A conta que decide (no decode de SOFTWARE nosso): 1× pede 30 quadros/s e
+cabe; **2× pede 60 e já usa 75% do teto**; 3× pede 90 e não cabe; 8× pede
+240.
 
 Três coisas que a investigação derrubou ou descobriu, e que valem mais
 que a conclusão:
@@ -2701,12 +2734,114 @@ servidor é efêmera — nada sobrevive para a sessão seguinte. **Imagem
 continua `no-store`**: a thumb pode ser regerada na mesma sessão com a
 mesma URL.
 
-O conserto de verdade para varredura rápida seria **avanço por seek** em
-vez de reprodução acelerada: pausar e pular o `currentTime` na grade de
-keyframes. A 8× com passo de 2,00 s são 4 quadros/s decodificados em vez
-de 240 — 5% do orçamento em vez de 300%. Detalhe que decide: o Chromium
-**não implementa `fastSeek()`** (verificado), então todo seek é exato e
-alinhar na grade deixa de ser otimização e vira requisito.
+**Implementado: avanço por saltos** (`Player._startTrick` e vizinhos em
+`player.js`). O `<video>` fica pausado e um relógio próprio decide onde a
+reprodução "estaria"; a cada passo busca o keyframe mais recente antes
+desse ponto, um seek por vez (se a GPU atrasar, keyframes são pulados e o
+relógio segue certo). O Chromium **não implementa `fastSeek()`**
+(verificado), então todo seek é exato e alinhar na grade é requisito.
+Medido no WebView2 real, gravação 4K120 com keyframe a cada 1 s:
+
+| alvo do seek | latência até `seeked` |
+|---|---|
+| exatamente no keyframe | ~17 ms |
+| keyframe + ⅓ de quadro (o que usamos) | ~14 ms |
+| meio do GOP | ~200 ms |
+| **4 ms ANTES do keyframe** | **~540 ms** — volta ao keyframe anterior e decodifica o GOP inteiro |
+
+Daí as três regras do motor:
+
+- **A grade vem do backend, nunca adivinhada.** `request_keyframes` →
+  `FFmpegOps.ListVideoKeyframes` lê o índice do MKV (Cues) sem ler pacote:
+  1–6 ms mesmo em 1h28. O demuxer do Matroska **adia os Cues até o
+  primeiro seek** — só abrir o arquivo dá índice vazio, daí o
+  `av_seek_frame(0)` antes do `avformat_index_get_entries_count`. Sem
+  índice (gravação interrompida), a lista vem vazia e o acelerado fica
+  normal. O relógio do Chromium bate com o pts do arquivo (medido: o
+  quadro exibido tem `mediaTime` = keyframe).
+- **Folga POSITIVA de ⅓ de quadro** (`_trickEps`). Mirar o instante exato
+  arrisca cair um tique antes por arredondamento — a linha de 540 ms.
+- **Faixa FIXA, não decisão automática** (`TRICK_MIN_RATE = 8`): abaixo
+  de 8× toca sempre nativo; 8×, 16× e 32× saltam sempre. Acima de 16× o
+  Chromium recusa `playbackRate` (NotSupportedError), então 16×/32× só
+  existem por salto — sem índice, caem no nativo limitado a 16×.
+  *Histórico — o vigia automático que foi REMOVIDO* (não reintroduza sem
+  resolver o que o derrubou): ele media o acelerado e trocava pra saltos
+  quando "travava". Três critérios, três erros, todos vistos no log real:
+  1. **taxa de "perdidos"** do `getVideoPlaybackQuality` — acima da taxa
+     da tela o excedente é descartado de qualquer jeito, então 4K120 em 2×
+     "perde" ~50% mostrando ~120 quadros/s, liso;
+  2. **relógio a 85% do pedido** — 4K120 em 3× anda a ~2,3× mostrando
+     120 q/s: mais devagar, mas LISO, e é o "3× rodava bem" do usuário;
+  3. **buffer vazio após 1 s** — sair do salto recomeça o buffer num ponto
+     novo (arquivo de 205 Mbps), e o vigia via o próprio reabastecimento
+     como engasgo e voltava pro salto em laço, até em 1,5×.
+  Afrouxado (30 q/s exibidos, relógio a 50%, 2 s de assentamento) ainda
+  ficou ruim pro usuário. Faixa fixa é previsível.
+
+**Acelerado nativo de gravação pesada "pula pro fim" — é o Chromium, não
+o player.** Medido com 4K120 a 205 Mbps em 3×, com o `player.js` do
+commit anterior E com o novo (resultado idêntico): o decoder entrega
+~185 q/s dos 360 pedidos, o vídeo atrasa em relação ao áudio
+(`DECODER_UNDERFLOW`), o demuxer continua lendo pra alimentar o áudio e os
+pacotes de vídeo se acumulam até `FFmpegDemuxer: memory limit exceeded` —
+e o Chromium trata isso como **fim de arquivo**: `kEnded`, `currentTime`
+vai pra duração, ~19 s depois de começar. Nenhum evento de erro, nenhum
+`MEDIA_ERR`: só um `ended` legítimo em aparência. O teto do decoder
+depende do BITRATE — a mesma GPU faz 4K30 a 1,6 Mbps em 8× (243 q/s, 0
+perdidos). Pra ver isso: domínio `Media` do CDP (eventos
+`kBufferingStateChanged`/`kEnded` e a mensagem do demuxer).
+
+**A CAUSA é o áudio, e a correção é desligá-lo acima de 2×**
+(`Player._syncMainAudio`). O áudio comanda o relógio; o demuxer lê o
+arquivo pra alimentá-lo e os quadros que o decoder não venceu se acumulam.
+Sem faixa de áudio o demuxer só lê o que o vídeo consome, e o vídeo PARA e
+ESPERA o decoder em vez de "acabar" — o que o usuário prefere a qualquer
+varredura por keyframe abaixo de 8×. Medido pelo caminho real do player
+(4K120, 205 Mbps, 3× por 45 s): 0 `kEnded`, 0 `memory limit`, 9 s de
+paradas, sem volta pra trás; de volta a 1× o áudio religa e toca normal.
+Mesmo limiar das faixas escravas (`AUDIO_MAX_RATE`), que já paravam acima
+de 2×.
+
+- **`audioTracks` não existe no Chromium por padrão** — é o blink feature
+  `AudioVideoTracks`. O `OBSUI.EnableWebViewBlinkFeatures` o liga pela
+  variável `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` antes de criar o
+  ambiente (preservando o que já estiver lá, ex.: a porta de depuração).
+  Sem ele o player cai só na recuperação abaixo.
+- As faixas são do ELEMENTO: src novo volta ao padrão do arquivo, daí o
+  `_syncMainAudio` no `loadedmetadata`.
+
+**Recuperação, se o fim falso acontecer mesmo assim**
+(`Player._recoverFakeEnd`): o `timeupdate` guarda o último ponto são
+(`_goodTime`, que ignora saltos sem seek — o próprio fim falso chega num
+`timeupdate` antes do `ended`). No `ended`, se esse ponto estava a mais de
+`max(2 s, velocidade)` da duração, é fim falso: desliga o áudio desse vídeo
+acima de 1× (`_audioCollapsed`), volta pro ponto e continua **tocando
+normal** — nunca por saltos abaixo de 8×. Fim de verdade em 1×, 2× e seek
+direto pro fim continuam parando no fim. Três armadilhas, todas medidas:
+
+- **Reposicionar COM o áudio ligado não resolve**: depois do 1º fim falso o
+  Chromium voltava a "terminar" a cada ~4 s (74, 83, 92, 101 s…). O
+  estado ruim é do pipeline, o seek não limpa.
+- **Dentro do `ended`, `v.ended` continua `true` mesmo depois de
+  reposicionar**, e `play()` num vídeo terminado recomeça do ZERO (regra do
+  HTML). O `play()` sai no `seeked`, e só se ele assentou onde pedimos: um
+  fim falso chegando no meio do seek fez o `seeked` vir na duração, e o
+  `play()` dali mandou a reprodução pro início. Pelo mesmo motivo o
+  `_startTrick(from)` aceita o ponto explícito.
+- **Todo `seeking` zera o `_goodTime`** e o `seeked` o refaz. Sem isso,
+  arrastar a barra até o fim terminaria num `ended` legítimo com o ponto
+  antigo ainda guardado — e pareceria fim falso.
+
+Armadilha que já mordeu: o evento `play` é **assíncrono**. Trocar de
+velocidade durante o salto chama `play()` e logo depois o motor pausa de
+novo pra saltar; o `play` atrasado chegava e desligava o motor recém-ligado.
+O listener só desliga o motor se o vídeo estiver **de fato** tocando
+(`!v.paused`).
+
+Todo o player lê "tocando" por `Player.isPlaying()` (motor ligado OU vídeo
+tocando), nunca por `v.paused` — no salto o vídeo está pausado mas o
+usuário está vendo a reprodução andar.
 
 ---
 

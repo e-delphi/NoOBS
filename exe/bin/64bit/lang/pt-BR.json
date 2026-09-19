@@ -575,6 +575,7 @@
     "muteShort": "Mutar",
     "volume": "Volume (0–200%)",
     "speed": "Velocidade de execução",
+    "trickHint": "Velocidade de execução — a partir de 8× o vídeo avança por saltos entre quadros-chave, sem som",
     "fullscreen": "Tela cheia (F / duplo clique)",
     "info": {
       "file": "Arquivo",

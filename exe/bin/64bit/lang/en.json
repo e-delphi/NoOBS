@@ -575,6 +575,7 @@
     "muteShort": "Mute",
     "volume": "Volume (0–200%)",
     "speed": "Playback speed",
+    "trickHint": "Playback speed — from 8× up the video skips between keyframes, without sound",
     "fullscreen": "Fullscreen (F / double-click)",
     "info": {
       "file": "File",

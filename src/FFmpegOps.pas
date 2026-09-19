@@ -11,6 +11,7 @@
     RemuxFile          — troca container sem reencodar (MKV->MP4 etc).
     ExtractAudioTracks — separa audio streams em arquivos M4A.
     ExtractFrameJpeg   — extrai 1 frame em timestamp e salva como JPEG.
+    ListVideoKeyframes — tempos dos keyframes, lidos do indice (Cues).
 
   Todas rodam in-process — sem fork de ffmpeg.exe.
   Seguro chamar de worker thread (libav nao tem main-thread requirement).
@@ -53,6 +54,13 @@ function ExtractFrameJpeg(const ASrc, ADstJpeg: string;
 // Faz uma passada linear; ~500ms-2s pra gravacao de 10 min.
 function ComputeAudioPeaks(const ASrc: string; ABuckets: Integer;
   out APeaks: TArray<Single>): Boolean;
+
+// Tempos (segundos, pts) dos keyframes do 1o stream de video, lidos do
+// INDICE do container (Cues no MKV) — nao le pacote nenhum, custa poucos ms
+// mesmo em horas de gravacao. AFps = avg_frame_rate (0 se desconhecido).
+// Retorna False se nao ha indice (gravacao interrompida sem trailer).
+function ListVideoKeyframes(const ASrc: string;
+  out ATimes: TArray<Double>; out AFps: Double): Boolean;
 
 implementation
 
@@ -1188,6 +1196,69 @@ begin
     if Pkt    <> nil then av_packet_free(@Pkt);
     if DecCtx <> nil then avcodec_free_context(@DecCtx);
     if SrcCtx <> nil then avformat_close_input(@SrcCtx);
+  end;
+end;
+
+// =====================================================================
+// ListVideoKeyframes — grade de keyframes pro avanco por saltos do player
+// =====================================================================
+
+function ListVideoKeyframes(const ASrc: string;
+  out ATimes: TArray<Double>; out AFps: Double): Boolean;
+// Sem avformat_find_stream_info de proposito: codecpar/time_base/
+// avg_frame_rate ja vem do cabecalho do MKV, e o find_stream_info
+// decodificaria quadros so pra confirmar o que o indice ja diz.
+var
+  Ctx: AVFormatContext;
+  St, VSt: PAVStream;
+  E: PAVIndexEntry;
+  i, N, Count: Integer;
+  NbStreams: Cardinal;
+  Tb: Double;
+begin
+  Result := False;
+  SetLength(ATimes, 0);
+  AFps := 0;
+  if not FFmpegLibAvailable then Exit;
+  Ctx := nil;
+  try
+    if avformat_open_input(@Ctx, PAnsiChar(ToUtf8(ASrc)), nil, nil) < 0 then Exit;
+    VSt := nil;
+    NbStreams := av_format_context_nb_streams(Ctx);
+    for i := 0 to Integer(NbStreams) - 1 do
+    begin
+      St := GetStreamByIndex(Ctx, Cardinal(i));
+      if (St <> nil) and (St.codecpar <> nil) and
+         (St.codecpar.codec_type = AVMEDIA_TYPE_VIDEO) then
+      begin
+        VSt := St;
+        Break;
+      end;
+    end;
+    if (VSt = nil) or (VSt.time_base.den = 0) then Exit;
+
+    // O MKV adia a leitura dos Cues ate o primeiro seek — sem isto o
+    // indice volta vazio mesmo num arquivo integro.
+    av_seek_frame(Ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
+
+    N := avformat_index_get_entries_count(VSt);
+    if N <= 0 then Exit;
+    Tb := VSt.time_base.num / VSt.time_base.den;
+    SetLength(ATimes, N);
+    Count := 0;
+    for i := 0 to N - 1 do
+    begin
+      E := avformat_index_get_entry(VSt, i);
+      if (E = nil) or ((E.flags_size and AVINDEX_KEYFRAME) = 0) then Continue;
+      ATimes[Count] := E.timestamp * Tb;
+      Inc(Count);
+    end;
+    SetLength(ATimes, Count);
+    if VSt.avg_frame_rate.den > 0 then
+      AFps := VSt.avg_frame_rate.num / VSt.avg_frame_rate.den;
+    Result := Count > 0;
+  finally
+    if Ctx <> nil then avformat_close_input(@Ctx);
   end;
 end;
 

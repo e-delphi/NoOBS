@@ -85,11 +85,23 @@ const Player = {
       }
     });
 
-    v.addEventListener('timeupdate', () => Player.onTimeUpdate());
-    v.addEventListener('loadedmetadata', () => Player.onTimeUpdate());
-    v.addEventListener('play',  () => { Player.updatePlayIcon(); Player.startTimeRaf(); Player.updatePauseOverlay(); });
-    v.addEventListener('pause', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); Player.updatePauseOverlay(); });
-    v.addEventListener('ended', () => { Player.updatePlayIcon(); Player.stopTimeRaf(); Player.updatePauseOverlay(); });
+    v.addEventListener('timeupdate', () => { Player._trackGoodTime(); Player.onTimeUpdate(); });
+    v.addEventListener('loadedmetadata', () => { Player._syncMainAudio(); Player.onTimeUpdate(); });
+    // No avanco por saltos o <video> fica pausado de verdade, mas pro
+    // usuario ele esta tocando — por isso tudo aqui passa por isPlaying().
+    v.addEventListener('play',  () => {
+      // Reproducao nativa retomada por fora do motor de saltos: ele sai.
+      // O evento chega DEPOIS da chamada — se o motor pausou no meio (troca
+      // de velocidade que ja entra saltando), o 'play' e velho: o video ja
+      // esta pausado de novo, e desligar o motor aqui o mataria ao nascer.
+      if (Player.trick && !v.paused) Player._stopTrick();
+      Player._onPlayState();
+    });
+    v.addEventListener('pause', () => Player._onPlayState());
+    v.addEventListener('ended', () => {
+      if (Player._recoverFakeEnd()) return;
+      Player._onPlayState();
+    });
     v.addEventListener('volumechange', () => Player.updateVolUi());
     v.addEventListener('canplay', () => {
       document.getElementById('playerLoading').classList.remove('visible');
@@ -138,8 +150,19 @@ const Player = {
     // trecho ANTIGO durante o gap do seek do <video> e, quando 'seeked'
     // chega e re-sincroniza, da uma "repetida"/eco de alguns ms. Pausados,
     // o 'seeked' reposiciona (currentTime no ponto novo) e retoma limpo.
-    v.addEventListener('seeking', () => Player.pauseAudios());
-    v.addEventListener('seeked', () => Player.syncAudios(true));
+    v.addEventListener('seeking', () => {
+      Player.pauseAudios();
+      Player._onTrickSeeking();
+      // Um seek pro fim (arrastar a barra) termina num 'ended' legitimo;
+      // sem zerar, o ponto antigo faria ele parecer um fim falso.
+      Player._goodTime = null;
+    });
+    v.addEventListener('seeked', () => {
+      Player.syncAudios(true);
+      if (Player.trick) Player.trick.busy = false;
+      // Seek e salto LEGITIMO de posicao: vira o novo ponto conhecido.
+      if (!v.ended) Player._goodTime = v.currentTime;
+    });
     v.addEventListener('play',  () => Player.syncAudios(false));
     v.addEventListener('pause', () => Player.pauseAudios());
     v.addEventListener('ratechange', () => Player.applyRateAudios());
@@ -180,7 +203,7 @@ const Player = {
         // Audio slaves sincronizam via o listener 'seeked' que ja
         // existe (syncAudios(true) forca todos pro novo currentTime).
         const dir  = (e.key === 'ArrowRight') ? +1 : -1;
-        const step = v.paused ? (1/30) : 5;
+        const step = Player.isPlaying() ? 5 : (1/30);
         const dur  = v.duration || 0;
         const next = (v.currentTime || 0) + dir * step;
         v.currentTime = Math.max(0, Math.min(next, dur));
@@ -232,7 +255,7 @@ const Player = {
     if (this.idleTimer) { clearTimeout(this.idleTimer); this.idleTimer = null; }
     const v = document.getElementById('playerVideo');
     // Pausado mantem visivel — so agenda esconder se esta tocando.
-    if (!v || v.paused || v.ended) return;
+    if (!v || !this.isPlaying()) return;
 
     // Em fullscreen, se o cursor esta proximo das bordas (top/left/right),
     // usa delay curto (1s) — usuario provavelmente "parqueou" o mouse
@@ -254,7 +277,7 @@ const Player = {
       const player = document.querySelector('.player');
       const v = document.getElementById('playerVideo');
       // Re-checa estado no fire — pode ter pausado no meio do timer.
-      if (player && v && !v.paused && !v.ended) player.classList.add('idle');
+      if (player && v && Player.isPlaying()) player.classList.add('idle');
     }, ms);
   },
 
@@ -383,7 +406,20 @@ const Player = {
     if (!isFinite(rate) || rate <= 0) return;
     this.playbackSpeed = rate;
     const v = document.getElementById('playerVideo');
-    if (v) { try { v.playbackRate = rate; } catch (e) {} }
+    // Quem estava tocando continua tocando na taxa nova — saltando ou nao,
+    // conforme a faixa da velocidade (_trickRate).
+    const wasPlaying = this.isPlaying();
+    this._stopTrick();
+    // O Chromium recusa playbackRate acima de 16 (NotSupportedError); nas
+    // velocidades de salto o <video> fica pausado e a taxa dele so serve pra
+    // manter as faixas de audio suspensas (_audioSuspended), entao o teto
+    // nao importa.
+    if (v) { try { v.playbackRate = Math.min(rate, 16); } catch (e) {} }
+    this._syncMainAudio();
+    if (wasPlaying && v) {
+      if (this._trickRate()) this._startTrick();
+      else v.play().catch(() => {});
+    }
     // Label: 1× / 0,5× / 1,5× — virgula como separador decimal (pt-BR).
     const lbl = document.getElementById('playerSpeedLabel');
     if (lbl) {
@@ -396,6 +432,241 @@ const Player = {
       o.classList.toggle('selected',
         Math.abs(parseFloat(o.dataset.speed) - rate) < 0.001);
     });
+  },
+
+  // ---- avanco por saltos (pegadinha #61) -------------------------------
+  //
+  // O acelerado de gravacao com muitos quadros (4K a 120 fps) esbarra em
+  // dois tetos que nao dependem de nos: o decoder da GPU entrega ~240
+  // quadros 4K/s e a tela mostra no maximo a taxa dela (160 Hz aqui). O
+  // Chromium decodifica TODO quadro, sem desbaste, entao 2x ja perde metade.
+  //
+  // Saltando, o <video> fica PAUSADO e um relogio proprio decide onde a
+  // reproducao "estaria"; a cada passo buscamos o keyframe mais recente
+  // antes desse ponto. Buscar EXATAMENTE num keyframe custa 1 quadro de
+  // decode; qualquer outro ponto custa todos desde o keyframe anterior. Por
+  // isso a grade vem do backend (indice do MKV) e nao e adivinhada aqui.
+  //
+  // Um seek por vez: se a GPU atrasar, os keyframes do meio sao pulados e o
+  // relogio segue certo — a imagem fica mais picada, nunca atrasada.
+  _kf: null,            // { id, times: [s], fps } do video aberto
+  trick: null,          // estado do motor enquanto salta
+  // Faixa FIXA: abaixo disto toca sempre normal, a partir disto salta
+  // sempre. Existiu um vigia que decidia sozinho medindo quadros exibidos,
+  // relogio e buffer (ver pegadinha #61) — nenhum limiar acertou: ou
+  // trocava com o video liso, ou o proprio reabastecimento ao sair do salto
+  // parecia engasgo. Decisao do usuario, e previsivel.
+  TRICK_MIN_RATE: 8,
+
+  isPlaying() {
+    if (this.trick) return true;
+    const v = document.getElementById('playerVideo');
+    return !!v && !v.paused && !v.ended;
+  },
+  _onPlayState() {
+    this.updatePlayIcon();
+    if (this.isPlaying()) this.startTimeRaf(); else this.stopTimeRaf();
+    this.updatePauseOverlay();
+  },
+  onKeyframes(data) {
+    if (!data || data.id !== this.currentId) return;
+    this._kf = { id: data.id, times: Array.isArray(data.times) ? data.times : [],
+                 fps: +data.fps || 0 };
+    // A grade chegou com o video ja tocando numa velocidade de salto (ela
+    // sobrevive a troca de video sem fechar o player): passa a saltar agora.
+    const v = document.getElementById('playerVideo');
+    if (this._trickRate() && v && !v.paused && !v.ended) this._startTrick();
+  },
+  // Velocidade atual e de salto E ha grade pra saltar. Sem indice (gravacao
+  // interrompida) a velocidade alta cai no acelerado nativo, limitado a 16x.
+  // Abaixo de 8x NUNCA salta, nem depois de um fim falso: decisao do
+  // usuario — travar esperando o decoder e melhor que virar varredura.
+  _trickRate() {
+    return this.playbackSpeed >= this.TRICK_MIN_RATE && this._kfUsable();
+  },
+
+  // ---- fim falso (pegadinha #61) ----------------------------------------
+  //
+  // Gravacao pesada no acelerado nativo (4K120 a 205 Mbps em 3x): o decoder
+  // nao acompanha, os pacotes de video se acumulam no demuxer do Chromium
+  // ate "memory limit exceeded", e ele trata isso como FIM DE ARQUIVO — sem
+  // erro nenhum, so um 'ended' com o currentTime saltando pra duracao. Pro
+  // usuario o player "desiste e vai pro fim".
+  //
+  // Reconhecemos pelo salto: o ultimo ponto conhecido (timeupdate continuo
+  // ou seek) estava longe do fim. Ai voltamos pra ele e o video segue
+  // tocando NORMAL na mesma velocidade. O seek esvazia o buffer do demuxer,
+  // entao a memoria zera e a reproducao continua — com uma parada enquanto
+  // o decoder reabastece, e possivelmente outra ~20 s depois. O usuario
+  // prefere isso a cair em varredura por keyframes abaixo de 8x.
+  _goodTime: null,      // ultimo instante em que a reproducao estava sa
+
+  // ---- audio do <video> desligado acima de 2x (pegadinha #61) ----------
+  //
+  // A CAUSA do fim falso e o audio: ele comanda o relogio, o demuxer le o
+  // arquivo pra alimenta-lo, e os quadros de video que o decoder nao
+  // venceu se acumulam na memoria ate o Chromium desistir. Sem faixa de
+  // audio o demuxer so le o que o video consome — o video PARA e ESPERA o
+  // decoder, em vez de "acabar". Medido em 3x (4K120, 205 Mbps): 60 s sem
+  // nenhum fim falso, paradas de 1 a 4 s. Com audio, fim falso em ~19 s e
+  // depois a cada ~4 s.
+  //
+  // Mesmo limiar das faixas escravas (AUDIO_MAX_RATE): acima de 2x elas ja
+  // param. Exige o AudioVideoTracks, que o OBSUI liga no WebView2; sem ele
+  // `audioTracks` nao existe e sobra so a recuperacao do fim falso.
+  _mainAudioOff: false,     // estado APLICADO no elemento
+  _savedAudio: null,        // enabled de cada faixa antes de desligar
+  _audioCollapsed: false,   // este video ja deu fim falso: sem audio acima de 1x
+  _syncMainAudio() {
+    const v = document.getElementById('playerVideo');
+    const tr = v && v.audioTracks;
+    if (!tr || !tr.length) return false;
+    const off = this.playbackSpeed > this.AUDIO_MAX_RATE ||
+                (this._audioCollapsed && this.playbackSpeed > 1);
+    if (off === this._mainAudioOff) return true;
+    if (off) {
+      this._savedAudio = [];
+      for (let i = 0; i < tr.length; i++) { this._savedAudio.push(tr[i].enabled); tr[i].enabled = false; }
+    } else {
+      for (let i = 0; i < tr.length; i++)
+        tr[i].enabled = this._savedAudio ? !!this._savedAudio[i] : i === 0;
+      this._savedAudio = null;
+    }
+    this._mainAudioOff = off;
+    return true;
+  },
+  _trackGoodTime() {
+    const v = document.getElementById('playerVideo');
+    if (!v || v.ended || v.seeking) return;
+    const t = v.currentTime;
+    // Salto sem seek e o proprio fim falso chegando no timeupdate que
+    // precede o 'ended' — nao pode virar o "ultimo ponto bom".
+    const maxStep = Math.max(3, 3 * (v.playbackRate || 1));
+    if (this._goodTime !== null && t - this._goodTime > maxStep) return;
+    this._goodTime = t;
+  },
+  _recoverFakeEnd() {
+    const v = document.getElementById('playerVideo');
+    if (!v || this.trick || this._goodTime === null) return false;
+    const dur = v.duration;
+    if (!isFinite(dur)) return false;
+    // Fim de verdade: o ultimo ponto bom estava a menos de uns segundos da
+    // duracao (timeupdate sai ~4x/s, entao em 3x cobre ~0,75 s de midia).
+    const gap = dur - this._goodTime;
+    if (gap <= Math.max(2, this.playbackSpeed)) return false;
+    const at = this._goodTime;
+    // O audio e a causa: sem ele o Chromium nao volta a "terminar" (com ele,
+    // depois do 1o fim falso vinha outro a cada ~4 s).
+    if (this.playbackSpeed > 1) this._audioCollapsed = true;
+    const audioOff = this._syncMainAudio() && this._mainAudioOff;
+    Bridge.send('ui_log', { message: 'player: Chromium encerrou em ' +
+      at.toFixed(1) + 's de ' + dur.toFixed(1) + 's a ' + this.playbackSpeed +
+      'x (fim falso) — retomando do mesmo ponto' + (audioOff ? ', sem audio' : '') });
+    // play() SO depois do seek assentar, e so se ele assentou onde pedimos:
+    // dentro do 'ended' o Chromium ainda tem o video como terminado, e play()
+    // num video terminado recomeca do ZERO (regra do HTML). Medido: um fim
+    // falso chegando no meio do seek fez o 'seeked' vir na duracao, e o
+    // play() dali mandou a reproducao pro inicio.
+    v.addEventListener('seeked', () => {
+      if (Player.currentId && v.paused && Math.abs(v.currentTime - at) < 2)
+        v.play().catch(() => {});
+    }, { once: true });
+    v.currentTime = at;
+    return true;
+  },
+  _kfUsable() {
+    return !!this._kf && this._kf.id === this.currentId && this._kf.times.length >= 2;
+  },
+  // Maior keyframe <= t (busca binaria; a lista vem ordenada do indice).
+  _kfAtOrBefore(t) {
+    const a = this._kf.times;
+    if (!a.length || t < a[0]) return null;
+    let lo = 0, hi = a.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (a[mid] <= t) lo = mid; else hi = mid - 1;
+    }
+    return a[lo];
+  },
+  // Folga depois do keyframe: um terco de quadro. Buscar o instante exato
+  // arrisca cair um tique ANTES dele por arredondamento — e ai o Chromium
+  // volta ao keyframe anterior e decodifica o GOP inteiro.
+  _trickEps() {
+    const fps = (this._kf && this._kf.fps) || 30;
+    return 1 / (3 * fps);
+  },
+
+  // `from` = ponto explicito de partida. Existe por causa do fim falso:
+  // DENTRO do evento 'ended' o Chromium continua dizendo ended=true mesmo
+  // depois de reposicionarmos o currentTime, e a regra "no fim, recomeca do
+  // zero" mandava a retomada pro inicio do video (medido: voltou pra 0 s em
+  // vez de 74 s).
+  _startTrick(from) {
+    const v = document.getElementById('playerVideo');
+    if (!v || this.trick || !this._kfUsable()) return;
+    let now;
+    if (typeof from === 'number') now = from;
+    else {
+      if (v.ended) v.currentTime = 0;   // igual ao play() nativo no fim
+      now = v.currentTime;
+    }
+    this.trick = { anchorMedia: now, anchorWall: performance.now(),
+                   rate: this.playbackSpeed, shown: now,
+                   busy: false, selfSeek: false, raf: null };
+    v.pause();
+    this.pauseAudios();
+    const step = () => {
+      if (!this.trick) return;
+      this._trickStep();
+      if (this.trick) this.trick.raf = requestAnimationFrame(step);
+    };
+    this.trick.raf = requestAnimationFrame(step);
+    this._syncTrickUi();
+    this._onPlayState();
+  },
+  _stopTrick() {
+    const t = this.trick;
+    if (!t) return;
+    if (t.raf) cancelAnimationFrame(t.raf);
+    this.trick = null;
+    this._syncTrickUi();
+  },
+  _trickStep() {
+    const t = this.trick;
+    const v = document.getElementById('playerVideo');
+    if (!t || !v || t.busy || v.seeking) return;
+    const target = t.anchorMedia + (performance.now() - t.anchorWall) / 1000 * t.rate;
+    if (isFinite(v.duration) && target >= v.duration) {
+      this._stopTrick();
+      v.currentTime = v.duration;
+      this._onPlayState();
+      return;
+    }
+    const k = this._kfAtOrBefore(target);
+    if (k === null || k <= t.shown + 1e-3) return;
+    t.busy = true;
+    t.selfSeek = true;
+    t.shown = k;
+    v.currentTime = k + this._trickEps();
+  },
+  // Todo seek passa por aqui. O do proprio motor so marca "em voo"; o do
+  // usuario (barra, setas, clique na transcricao) reancora o relogio no
+  // ponto novo, e a reproducao por saltos continua dali.
+  _onTrickSeeking() {
+    const t = this.trick;
+    if (!t) return;
+    t.busy = true;
+    if (t.selfSeek) { t.selfSeek = false; return; }
+    const v = document.getElementById('playerVideo');
+    t.anchorMedia = v.currentTime;
+    t.anchorWall = performance.now();
+    t.shown = v.currentTime;
+  },
+  _syncTrickUi() {
+    const btn = document.getElementById('playerSpeedBtn');
+    if (!btn) return;
+    btn.classList.toggle('trick', !!this.trick);
+    btn.dataset.hint = T(this.trick ? 'player.trickHint' : 'player.speed');
   },
 
   // Calcula display size do canvas composite preservando aspect ratio
@@ -451,7 +722,18 @@ const Player = {
     // (backend pode pular pending pra videos ja prontos no cache).
     Bridge.send('player_state', { open: true });
     const changed = (this.currentId !== id);
+    // Um src novo (outro video, ou o mesmo recarregado pro MP4) comeca
+    // tocando normal; se a velocidade for de salto, ele volta a saltar
+    // quando a grade chegar (onKeyframes) ou o video comecar a tocar.
+    this._stopTrick();
+    this._goodTime = null;
+    // src novo = faixas de audio novas, com o estado padrao do arquivo. A
+    // regra de acima-de-2x e reaplicada no 'loadedmetadata'.
+    this._mainAudioOff = false;
+    this._savedAudio = null;
     if (changed) {
+      this._audioCollapsed = false;
+      this._kf = null;
       this.triedTranscode = false;
       this.infoLoaded = null;
       // Transcricao e legenda sao do video anterior (pegadinha #37).
@@ -494,6 +776,15 @@ const Player = {
     }
     this.currentId = id;
     this.currentMode = mode || 'direct';
+    // Grade de keyframes pro avanco por saltos: sai do indice do MKV em
+    // poucos ms, entao pede sempre — sem ela o acelerado so toca normal.
+    if (changed) Bridge.send('request_keyframes', { id: id });
+    else if (this._trickRate()) {
+      const vv = document.getElementById('playerVideo');
+      vv.addEventListener('playing', () => {
+        if (Player._trickRate() && !Player.trick) Player._startTrick();
+      }, { once: true });
+    }
     // Legenda ligada: a transcricao e pedida ja na abertura, sem esperar
     // o painel lateral (que e justamente o que a legenda dispensa).
     if (changed && (this.captionsOn ||
@@ -554,6 +845,12 @@ const Player = {
   close() {
     const ov = document.getElementById('playerOverlay');
     const v = document.getElementById('playerVideo');
+    this._stopTrick();
+    this._kf = null;
+    this._goodTime = null;
+    this._mainAudioOff = false;
+    this._savedAudio = null;
+    this._audioCollapsed = false;
     try { v.pause(); } catch(e) {}
     v.removeAttribute('src');
     v.load();
@@ -1026,12 +1323,15 @@ const Player = {
 
   togglePlay() {
     const v = document.getElementById('playerVideo');
-    if (v.paused || v.ended) v.play(); else v.pause();
+    if (this.trick) { this._stopTrick(); this._onPlayState(); return; }
+    if (v.paused || v.ended) {
+      if (this._trickRate()) this._startTrick();
+      else v.play();
+    } else v.pause();
   },
   updatePlayIcon() {
-    const v = document.getElementById('playerVideo');
     const ic = document.getElementById('playerPlayIcon');
-    if (v.paused || v.ended)
+    if (!this.isPlaying())
       ic.innerHTML = '<path d="M8 5v14l11-7z"/>';
     else
       ic.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
@@ -1049,7 +1349,7 @@ const Player = {
     const ind = document.getElementById('playerPauseIndicator');
     const bd  = document.getElementById('playerPauseBadge');
     if (!v) return;
-    const isPaused = v.paused || v.ended;
+    const isPaused = !this.isPlaying();
     if (ind) {
       ind.classList.remove('flash');
       if (isPaused) {
@@ -1518,7 +1818,7 @@ const Player = {
     if (this.rafId) return;
     const tick = () => {
       const v = document.getElementById('playerVideo');
-      if (!v || v.paused || v.ended) { this.rafId = null; return; }
+      if (!v || !this.isPlaying()) { this.rafId = null; return; }
       this.onTimeUpdate();
       this.rafId = requestAnimationFrame(tick);
     };
@@ -1539,10 +1839,9 @@ const Player = {
   audioEls: [],                 // <audio> pras tracks 2..N (indice 0 = track 2)
   // Acima desta taxa as faixas escravas PARAM.
   //
-  // Não é economia teórica. Medindo a decodificação do AV1 4K das próprias
-  // gravações, o orçamento é ~80 quadros/s e 2× já pede 60 — não sobra
-  // folga pra mais nada. Cada faixa isolada é um pipeline de mídia a mais
-  // disputando CPU e uma das SEIS conexões que o Chromium abre por host
+  // Não é economia teórica. Cada faixa isolada é um pipeline de mídia a mais
+  // (o vídeo decodifica na GPU, ~240 quadros 4K/s — pegadinha #61 — mas o
+  // áudio é CPU) e uma das SEIS conexões que o Chromium abre por host
   // (medido: exatamente 6), e uma gravação com 5 faixas mais o vídeo já
   // ocupa as seis. Acima de 4× o Chromium silencia o áudio de qualquer
   // jeito, então o que se perde acima de 2× é pouco.

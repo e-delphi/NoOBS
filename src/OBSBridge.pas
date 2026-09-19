@@ -23,6 +23,9 @@
     record_stop          : —
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
+    request_keyframes    : id (filepath) -> keyframes {id, fps, times[]}
+                           (segundos, do indice do MKV; [] sem indice) —
+                           grade do avanco por saltos do player
     open_folder          : id (pasta a navegar; '' = raiz da pasta de
                            gravacao). Toda listagem passa a ser da pasta
                            navegada — ver CurrentBrowseDir
@@ -1776,6 +1779,45 @@ procedure OnTranscribeChanged; forward;
 // TThumbTimerThread
 // ----------------------------------------------------------------------
 
+// Estado de notificacao do shell (Vista+). Declarado localmente com outro
+// nome pra nao depender de a RTL expor (e nao colidir se expuser).
+function ShellUserNotificationState(out AState: Integer): HRESULT; stdcall;
+  external 'shell32.dll' name 'SHQueryUserNotificationState';
+
+const
+  QUNS_BUSY                    = 2;  // app em tela cheia em 1o plano
+  QUNS_RUNNING_D3D_FULL_SCREEN = 3;  // D3D exclusivo (jogo)
+  QUNS_PRESENTATION_MODE       = 4;
+
+// Diz se a captura das thumbs deve parar, e por que (pro log de transicao).
+//
+// A thumb le a tela INTEIRA por GDI (StretchBlt do DC da tela), o que obriga
+// o DWM a copiar a superficie da GPU pra memoria de sistema — com um jogo
+// rodando isso vira engasgo a cada tique e pode tirar o jogo do independent
+// flip. Entao so capturamos quando alguem de fato pode estar olhando:
+//   • player aberto → previews escondidos atras do modal;
+//   • janela escondida (bandeja) ou minimizada → ninguem ve;
+//   • app em tela cheia em primeiro plano → o jogo cobre o NoOBS mesmo sem
+//     ele estar minimizado (o caso que o teste de visibilidade nao pega).
+function ThumbPauseReason: string;
+var
+  Wnd: HWND;
+  State: Integer;
+begin
+  Result := '';
+  if PlayerOpen then Exit('player aberto');
+  Wnd := MainWindowHandle;
+  if Wnd <> 0 then
+  begin
+    if not IsWindowVisible(Wnd) then Exit('janela escondida');
+    if IsIconic(Wnd) then Exit('janela minimizada');
+  end;
+  if Succeeded(ShellUserNotificationState(State)) and
+     (State in [QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN,
+                QUNS_PRESENTATION_MODE]) then
+    Exit('app em tela cheia');
+end;
+
 constructor TThumbTimerThread.Create(AIntervalMs: Cardinal);
 begin
   FIntervalMs := AIntervalMs;
@@ -1786,34 +1828,28 @@ end;
 procedure TThumbTimerThread.Execute;
 var
   Step, Slept: Cardinal;
-  WasSuspended: Boolean;
+  Reason, LastReason: string;
 begin
-  WasSuspended := False;
+  LastReason := '';
   while not Terminated do
   begin
     if Terminated or IsShuttingDown then Break;
 
     // Captura PRIMEIRO, dorme DEPOIS — assim a 1a thumb aparece quase
     // instantaneo (em vez de esperar 500ms antes de qualquer captura).
-    // Suspende enquanto o player de video esta aberto (BitBlt + JPEG
-    // encode e caro e os previews estao escondidos atras do modal).
-    if PlayerOpen then
+    // Suspende quando ninguem pode estar vendo os previews (ThumbPauseReason);
+    // ao voltar, a captura sai no mesmo tique, sem esperar o intervalo.
+    Reason := ThumbPauseReason;
+    if Reason <> LastReason then
     begin
-      if not WasSuspended then
-      begin
-        Log('ThumbThread: SUSPENSO (player aberto)');
-        WasSuspended := True;
-      end;
-    end
-    else
-    begin
-      if WasSuspended then
-      begin
-        Log('ThumbThread: RETOMADO (player fechado)');
-        WasSuspended := False;
-      end;
-      try PushMonitorThumbs; except end;
+      if Reason <> '' then
+        Log('ThumbThread: SUSPENSO (%s)', [Reason])
+      else
+        Log('ThumbThread: RETOMADO (estava: %s)', [LastReason]);
+      LastReason := Reason;
     end;
+    if Reason = '' then
+      try PushMonitorThumbs; except end;
 
     // Sleep em pedacos de 100ms pra terminar rapido no shutdown.
     Slept := 0;
@@ -4321,6 +4357,47 @@ begin
     end).Start;
 end;
 
+procedure HandleRequestKeyframes(const APath: string);
+// Grade de keyframes pro avanco por saltos do player (pegadinha #61). Sem
+// cache: sai do indice do MKV em 1-6 ms, mesmo numa gravacao de 1h28. Se o
+// arquivo nao tem indice (gravacao interrompida), manda a lista vazia e o
+// player continua no acelerado normal.
+begin
+  if APath = '' then Exit;
+  if not IsPathInRecordDir(APath) then Exit;
+  if not TFile.Exists(APath) then Exit;
+  if not FFmpegLibAvailable then Exit;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Times: TArray<Double>;
+      Fps: Double;
+      i: Integer;
+      Obj: TJSONObject;
+      Arr: TJSONArray;
+    begin
+      if IsShuttingDown then Exit;
+      try
+        if not FFmpegOps.ListVideoKeyframes(APath, Times, Fps) then
+          SetLength(Times, 0);
+      except
+        SetLength(Times, 0);
+        Fps := 0;
+      end;
+      if IsShuttingDown then Exit;
+      Obj := TJSONObject.Create;
+      Obj.AddPair('type', 'keyframes');
+      Obj.AddPair('id', APath);
+      Obj.AddPair('fps', TJSONNumber.Create(Round(Fps * 1000) / 1000));
+      Arr := TJSONArray.Create;
+      for i := 0 to High(Times) do
+        Arr.AddElement(TJSONNumber.Create(Round(Times[i] * 1000) / 1000));
+      Obj.AddPair('times', Arr);
+      TThread.Queue(nil, procedure begin PostOwned(Obj); end);
+    end).Start;
+end;
+
 procedure HandleRequestAudioTracks(const APath: string);
 // Extrai todas as audio tracks (uma vez, ~500ms-2s) e devolve URLs.
 // JS cria audio elements sincronizados ao video element pra mixagem
@@ -6631,6 +6708,8 @@ begin
       HandleRequestAudioTracks(GetStrField(Obj, 'id'))
     else if MsgType = 'request_waveform' then
       HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
+    else if MsgType = 'request_keyframes' then
+      HandleRequestKeyframes(GetStrField(Obj, 'id'))
     else if MsgType = 'delete_recording' then
       HandleDeleteRecording(GetStrField(Obj, 'id'))
     else if MsgType = 'set_transcribe_host' then

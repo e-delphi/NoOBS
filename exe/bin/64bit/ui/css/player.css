@@ -997,6 +997,19 @@
     background: rgba(16,185,129,0.18);
     color: var(--success);
   }
+  /* Avanco por saltos ligado (Player._syncTrickUi): a velocidade continua
+     valendo, mas a imagem anda de keyframe em keyframe. Ambar fixo porque a
+     barra do player e sempre escura, nos dois temas. */
+  .player-speed-btn.trick { color: #fbbf24; }
+  .player-speed-btn.trick::after {
+    content: '';
+    display: inline-block;
+    width: 5px; height: 5px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: currentColor;
+    vertical-align: middle;
+  }
   .player-speed-menu {
     position: absolute;
     bottom: calc(100% + 8px);

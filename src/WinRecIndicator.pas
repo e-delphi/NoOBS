@@ -3,7 +3,17 @@
   gravacao.
 
   Uma janelinha overlay (topmost, layered, click-through) que mostra uma
-  bolinha vermelha + o tempo de gravacao (HH:MM:SS). O truque: ela chama
+  bolinha + um tempo. Serve a DOIS estados, um de cada vez (o buffer para
+  enquanto a gravacao manual roda, entao nunca coexistem):
+
+    imRecording — bolinha VERMELHA pulsando + tempo gravado (HH:MM:SS).
+                  Clicar para a gravacao.
+    imBuffer    — bolinha VERDE fixa + quanto o buffer ja guardou, sobre o
+                  teto ("2:13 / 5:00"). Clicar salva o trecho.
+
+  A bolinha do buffer NAO pulsa de proposito: pulsando, os dois estados
+  ficariam quase iguais de canto de olho, e confundir "guardando na RAM"
+  com "gravando em disco" e exatamente o erro caro. O truque: ela chama
   SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE), entao o usuario a ve na
   tela mas a captura de tela (WGC/DXGI do monitor_capture do OBS) a OMITE —
   o desktop atras dela e o que entra na gravacao.
@@ -28,10 +38,14 @@ interface
 type
   TRecCorner = (rcTopLeft, rcTopRight, rcBottomLeft, rcBottomRight);
 
+  // O que o overlay esta mostrando. Ver cabecalho da unit.
+  TIndicatorMode = (imRecording, imBuffer);
+
   // Chamado (na main thread, DENTRO do WndProc do overlay) quando o usuario
-  // CLICA no indicador. O consumidor (OBSBridge) deve parar a gravacao de
-  // forma DIFERIDA (TThread.Queue) — parar sincrono destruiria a janela
-  // dentro do proprio WndProc dela.
+  // CLICA no indicador. O consumidor (OBSBridge) decide o que fazer pelo
+  // estado (parar a gravacao / salvar o trecho) e age de forma DIFERIDA
+  // (TThread.Queue) — agir sincrono destruiria a janela dentro do proprio
+  // WndProc dela.
   TIndicatorClickProc = procedure;
 
 var
@@ -44,12 +58,18 @@ function ParseCorner(const S: string): TRecCorner;
 
 // Mostra o indicador no canto do monitor principal, contando o tempo a
 // partir de AStartTickMs (base GetTickCount, igual ao RecordingStartTickMs
-// do OBSBridge). AOpacityPct = opacidade 20..100. O overlay SEMPRE e
-// clicavel pra parar a gravacao (nao e click-through) — clicar nele chama
-// OnClickStop. Se ja visivel, reposiciona/reaplica. Se o Windows nao suporta
-// exclusao de captura, NAO mostra (e loga).
+// do OBSBridge). AOpacityPct = opacidade 20..100. AMode escolhe o visual
+// (ver TIndicatorMode) e AMaxSec e o teto de tempo do buffer, usado so no
+// imBuffer pra mostrar "guardado / teto". O overlay SEMPRE e clicavel (nao
+// e click-through) — clicar nele chama OnClickStop. Se ja visivel,
+// reposiciona/reaplica, inclusive trocando de modo. Se o Windows nao
+// suporta exclusao de captura, NAO mostra (e loga).
 procedure ShowIndicator(ACorner: TRecCorner; AStartTickMs: Cardinal;
-  AOpacityPct: Integer);
+  AOpacityPct: Integer; AMode: TIndicatorMode = imRecording;
+  AMaxSec: Integer = 0);
+
+// Modo do overlay visivel agora. So faz sentido com IsShowing = True.
+function CurrentMode: TIndicatorMode;
 
 // Aplica a opacidade (20..100) na janela viva — usado pelo slider das
 // Config. em tempo real. No-op se o overlay nao esta visivel.
@@ -71,7 +91,11 @@ const
   TIMER_ID   = 1;
   TICK_MS    = 500;    // pulso da bolinha (1Hz) + reavalia o tempo
   MARGIN_DIP = 24;     // distancia do canto (px logicos, escalados por DPI)
-  W_DIP = 116;         // largura do pill (logica)
+  W_DIP = 116;         // largura do pill (logica) — modo gravacao
+  // O pill do buffer e mais largo: cabe "12:34 / 60:00". Mostrar so o
+  // guardado escondia justamente a informacao que decide se vale salvar
+  // agora ou esperar.
+  W_BUF_DIP = 140;
   H_DIP = 34;          // altura do pill (logica)
 
 // SetWindowDisplayAffinity existe desde o Win7 (a FLAG nova e que exige
@@ -86,6 +110,8 @@ var
   FDotOn: Boolean = True;
   FRegistered: Boolean = False;
   FDpi: Integer = 96;
+  FMode: TIndicatorMode = imRecording;
+  FMaxSec: Integer = 0;
 
 // Opacidade 20..100 -> alpha 51..255 (clampeada; abaixo de 20% seria
 // invisivel demais pra ser util).
@@ -132,6 +158,18 @@ begin
   Secs := (GetTickCount - FStartTick) div 1000;
   Result := Format('%.2d:%.2d:%.2d',
     [Secs div 3600, (Secs div 60) mod 60, Secs mod 60]);
+end;
+
+// Modo buffer: "guardado / teto" (m:ss). O guardado satura no teto — e o
+// que o buffer faz de verdade, descartando o comeco pra caber.
+function HeldStr: string;
+var
+  Secs: Cardinal;
+begin
+  Secs := (GetTickCount - FStartTick) div 1000;
+  if (FMaxSec > 0) and (Secs > Cardinal(FMaxSec)) then Secs := Cardinal(FMaxSec);
+  Result := Format('%d:%.2d / %d:%.2d',
+    [Secs div 60, Secs mod 60, FMaxSec div 60, FMaxSec mod 60]);
 end;
 
 // ---------------------------------------------------------------------
@@ -228,8 +266,11 @@ begin
   FillRect(DC, R, BgBrush);
   DeleteObject(BgBrush);
 
-  // Bolinha: vermelho vivo quando "on", escuro quando "off" (pulso suave).
-  if FDotOn then
+  // Bolinha: vermelha pulsando na gravacao; verde FIXA no buffer (ver
+  // cabecalho — o pulso e o que distingue os dois de canto de olho).
+  if FMode = imBuffer then
+  begin DotR := 16; DotG := 185; DotB := 129; end
+  else if FDotOn then
   begin DotR := 240; DotG := 62; DotB := 62; end
   else
   begin DotR := 110; DotG := 34; DotB := 34; end;
@@ -256,7 +297,7 @@ begin
   OldFont := SelectObject(DC, Fnt);
   SetBkMode(DC, TRANSPARENT);
   SetTextColor(DC, RGB(240, 240, 240));
-  S := ElapsedStr;
+  if FMode = imBuffer then S := HeldStr else S := ElapsedStr;
   R := Rect(Cx + Rad + SX(8), 0, W - SX(6), H);
   DrawText(DC, PChar(S), Length(S), R, DT_SINGLELINE or DT_VCENTER or DT_LEFT);
   SelectObject(DC, OldFont);
@@ -301,7 +342,8 @@ begin
       end;
     WM_TIMER:
       begin
-        FDotOn := not FDotOn;              // pulso
+        // Pulso so na gravacao; no buffer a bolinha fica acesa.
+        if FMode = imBuffer then FDotOn := True else FDotOn := not FDotOn;
         InvalidateRect(Wnd, nil, False);   // repinta (tempo tambem reavalia)
         Result := 0;
       end;
@@ -315,9 +357,10 @@ begin
       end;
     WM_LBUTTONUP:
       begin
-        // Clicar no overlay para a gravacao. O consumidor para DIFERIDO
-        // (TThread.Queue), pra nao destruir esta janela dentro do proprio
-        // WndProc dela.
+        // Clicar no overlay para a gravacao (modo gravacao) ou salva o
+        // trecho (modo buffer) — quem decide e o consumidor, pelo estado.
+        // Ele age DIFERIDO (TThread.Queue), pra nao destruir esta janela
+        // dentro do proprio WndProc dela.
         if Assigned(OnClickStop) then
           try OnClickStop; except end;
         Result := 0;
@@ -368,8 +411,14 @@ begin
   SetLayeredWindowAttributes(FHwnd, 0, OpacityToAlpha(AOpacityPct), LWA_ALPHA);
 end;
 
+// Largura logica do pill no modo atual.
+function ModeWidthDip: Integer;
+begin
+  if FMode = imBuffer then Result := W_BUF_DIP else Result := W_DIP;
+end;
+
 procedure ShowIndicator(ACorner: TRecCorner; AStartTickMs: Cardinal;
-  AOpacityPct: Integer);
+  AOpacityPct: Integer; AMode: TIndicatorMode; AMaxSec: Integer);
 var
   W, H: Integer;
   Rgn: HRGN;
@@ -377,12 +426,22 @@ begin
   FStartTick := AStartTickMs;
   FCorner := ACorner;
   FDotOn := True;
+  FMode := AMode;
+  FMaxSec := AMaxSec;
 
   if FHwnd <> 0 then
   begin
-    // Ja visivel: reposiciona, reaplica opacidade e repinta.
+    // Ja visivel: reposiciona, reaplica opacidade e repinta. Trocar de modo
+    // muda a LARGURA do pill, entao a regiao arredondada tem que ser
+    // refeita junto — senao o novo tamanho vira um pill cortado (a regiao
+    // antiga continua recortando a janela).
     FDpi := SystemDpi;
-    PositionWindow(SX(W_DIP), SX(H_DIP));
+    W := SX(ModeWidthDip);
+    H := SX(H_DIP);
+    SetWindowPos(FHwnd, 0, 0, 0, W, H, SWP_NOMOVE or SWP_NOZORDER or SWP_NOACTIVATE);
+    Rgn := CreateRoundRectRgn(0, 0, W + 1, H + 1, SX(10), SX(10));
+    SetWindowRgn(FHwnd, Rgn, False);
+    PositionWindow(W, H);
     SetOpacity(AOpacityPct);
     InvalidateRect(FHwnd, nil, False);
     Exit;
@@ -390,7 +449,7 @@ begin
 
   EnsureClass;
   FDpi := SystemDpi;
-  W := SX(W_DIP);
+  W := SX(ModeWidthDip);
   H := SX(H_DIP);
 
   // SEM WS_EX_TRANSPARENT: o overlay recebe o clique (clicar = parar). E
@@ -426,8 +485,13 @@ begin
   PositionWindow(W, H);
   SetTimer(FHwnd, TIMER_ID, TICK_MS, nil);
   InvalidateRect(FHwnd, nil, False);
-  Log('WinRecIndicator: overlay mostrado (canto=%d, opac=%d%%).',
-    [Ord(FCorner), AOpacityPct]);
+  Log('WinRecIndicator: overlay mostrado (modo=%d, canto=%d, opac=%d%%).',
+    [Ord(FMode), Ord(FCorner), AOpacityPct]);
+end;
+
+function CurrentMode: TIndicatorMode;
+begin
+  Result := FMode;
 end;
 
 procedure HideIndicator;

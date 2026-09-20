@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (13 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (14 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -103,14 +103,15 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinPreview`        | **Win32**: `EnumDisplayMonitors` + `BitBlt` pra capturar thumb de cada monitor     |
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device, e `IAudioEndpointVolume` pro mudo do endpoint (`ReadInputMutes`) |
 | `WinMicWatch`       | **WASAPI**: sessões de captura (`IAudioSessionManager2`) pra detectar mic em uso por outro app → auto-gravar em chamadas |
+| `WinProcWatch`      | **Win32**: ToolHelp32 em thread própria pra detectar se um programa da lista do usuário está rodando → ligar/desligar o buffer em memória sozinho (pegadinha #62) |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 | `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
-recordings, player, export, settings, widgets) e `js/` (12 módulos: i18n,
+recordings, player, export, settings, widgets) e `js/` (14 módulos: i18n,
 bridge, displays, recordings, folders, record, widgets, hotkey, settings,
-player, export, transcribe, main), além
+player, export, transcribe, replay, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -373,7 +374,23 @@ User clica Exportar → `export_recording`:
     - áudio: stream copy rebaseado pelo mesmo offset do vídeo, ou mixagem
       (adota o frame do decoder como acumulador — pegadinha #51d)
     - progresso pelo pts do vídeo; cancelamento lido a cada pacote
-  • export_progress (limitado a ~4/s) → export_done
+  • export_progress (limitado a ~4/s, com o id da ORIGEM) → export_done
+  • A TELA PODE SER FECHADA no meio: a exportação roda numa worker do
+    backend e não depende dela. O progresso passa pra barra no card da
+    gravação de origem (`Export.attachCardProgress`, desenhada também no
+    `buildRecCard` — a lista se refaz sozinha a qualquer momento). Reabrir
+    a tela durante a exportação é RECUSADO com aviso: ela voltaria como
+    formulário em branco, e estado de exportação em curso não se remonta.
+    Por isso o CANCELAR mora na própria barra do card (×): com a tela
+    fechada e o reabrir recusado, ele seria inalcançável. O rótulo vira
+    "Cancelando…" e trava o botão — o backend só vê a flag no próximo
+    pacote, então ainda chegam progressos no intervalo, e sem a marca
+    `canceling` o texto voltaria pro percentual e pareceria que o clique
+    não pegou.
+  • Enquanto exporta, o ARQUIVO DE ORIGEM não pode ser excluído, renomeado,
+    moldado nem unido — `ExportInUse` no backend recusa, e a UI bloqueia
+    antes (o delete dela é OTIMISTA: tira o card antes da resposta, então
+    sem a guarda o card sumiria da tela e só voltaria no refresh seguinte)
   • Sucesso: o .part é renomeado pro nome final (aí sim COMPLETO) e o
     PushRecordingAdded monta o card. Falha ou cancelamento: o .part é
     apagado e nunca chegou a aparecer na lista.
@@ -2562,7 +2579,13 @@ canvas) e desce quando os controles somem (`.player.idle`). Trocar de vídeo
 sem fechar o player agora zera a transcrição — antes os turnos do anterior
 ficavam até alguém abrir o painel.
 
-**c) Uma por vez não é escolha nossa.** O próprio container serializa as
+**c) Uma por vez não é escolha nossa — e a fila para durante a captura.**
+`SetPaused` segura a fila enquanto há gravação manual ou buffer ligado (ver
+pegadinha #62): a transcrição lê o arquivo inteiro e sobe dezenas de MB, o
+que disputa máquina com quem está capturando. O item em curso termina; só
+os PRÓXIMOS esperam. Nada se perde — a fila é a mesma persistida do item
+**n**, e a etapa vira `paused`.
+ O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
 a fila do outro lado. Uma thread, uma fila.
 
@@ -2843,6 +2866,188 @@ Todo o player lê "tocando" por `Player.isPlaying()` (motor ligado OU vídeo
 tocando), nunca por `v.paused` — no salto o vídeo está pausado mas o
 usuário está vendo a reprodução andar.
 
+### 62. **Buffer em memória: o `replay_buffer` da libobs NÃO esvazia ao salvar — a gente troca a saída**
+
+"Guardar os últimos N minutos na RAM e salvar com um atalho" é a saída
+`replay_buffer` do `obs-ffmpeg` (`obs-ffmpeg-mux.c`), a mesma do Replay
+Buffer do OBS. Settings: `directory`, `format` (modelo do
+`os_generate_formatted_filename`), `extension`, `max_time_sec`,
+`max_size_mb`; proc `save` e `get_last_replay`; sinal `saved`, emitido
+quando a thread de mux TERMINOU de escrever (e só se deu certo). Bindings
+novos em `LibOBS`: `obs_output_get_proc_handler`, `proc_handler_call`,
+`calldata_get_string`, `bfree`. O `calldata_init`/`calldata_free` são
+`static inline` no header — não existem na DLL: o `TObsCallData` nasce
+zerado e o `stack` é liberado com `bfree` depois.
+
+O que NÃO existe e decidiu o desenho:
+
+- **Salvar não esvazia o buffer.** O `save` copia os pacotes guardados pra
+  um arquivo e o buffer segue com tudo dentro — salvar duas vezes seguidas
+  repetiria o trecho. O pedido era o oposto ("o que salvei sai da
+  memória"). Solução em `TOBSEngine.SaveReplay`: **rotação de saída** —
+  cria e inicia uma saída `replay_buffer` NOVA, com os MESMOS encoders
+  (que continuam rodando, sem soluço na captura), e no sinal `saved` da
+  antiga para e libera ela (`GReplaySaving`).
+- **A emenda SOBREPÕE, e é por isso que o `save` é ADIADO.** Duas regras da
+  libobs decidem a emenda, e elas puxam pra lados opostos:
+
+  | | quem decide | onde |
+  |---|---|---|
+  | onde o trecho SEGUINTE começa | 1º keyframe depois do start da saída nova | `obs-output.c:2237` |
+  | onde o trecho ATUAL termina | instante em que o `save` foi pedido | `save_ts`, `obs-ffmpeg-mux.c:1236` |
+
+  Pedindo o `save` junto com a rotação, o keyframe cai DEPOIS do corte e o
+  miolo entre os dois some — era o "perde até 1 s" da primeira versão. Por
+  isso `SaveReplay` **só roda a rotação**, e quem fecha o trecho é o
+  `CommitReplaySave`, chamado pelo `TIMER_REPLAY_SAVE_COMMIT` do Bridge
+  `ReplaySaveCommitDelayMs` depois (`REPLAY_KEYFRAME_SEC` + 250 ms de
+  folga). Nesse instante o keyframe K já entrou na saída nova, e o pedaço
+  `[K, corte]` fica nos DOIS arquivos: **sobreposição de até ~1 s, nunca
+  buraco** — a escolha do usuário. A folga não é enfeite: sem ela um
+  keyframe atrasado por uma fração de segundo traz o buraco de volta.
+- **O keyint de 1 s do buffer é o TETO da sobreposição**, não mais da
+  perda (`OBSEncoder.SetKeyframeSecOverride(REPLAY_KEYFRAME_SEC)` em volta
+  do `BuildCaptureGraph`), independente do `keyframeSec` da gravação.
+- **Plano B, se a saída nova não sobe**: salva na mesma saída (o buffer não
+  esvazia, mas o trecho sai) — e aí o `CommitReplaySave` roda na hora, sem
+  espera: sem rotação não há emenda pra proteger.
+- **Trecho pendente morre se o buffer parar nesses ~1,25 s** (gravação
+  manual começando, ou o usuário desligando o buffer). A janela é curta e o
+  conteúdo do buffer é descartável por definição; não vale complicar o
+  desligamento por ela.
+- **Não há `update` na saída.** `max_time_sec`/`max_size_mb` só são lidos
+  no `start`. Mudar os limites nas Configurações vale a partir da próxima
+  rotação (= próximo trecho salvo) ou do próximo liga. `SetReplayLimits`
+  só guarda os valores pra rotação usar.
+- **O arquivo sai numa pasta temporária** (`%LOCALAPPDATA%\NoOBS\buffer`),
+  nunca direto na `RecordDir`: o `OBSRecordWatch` veria o arquivo nascer
+  vazio (mesma razão do `.part` da #51e). Um worker move pro nome final
+  (`BuildRecordingPath(Now)`), sonda a duração, e na main vêm meta, card,
+  push `replay_saved`, notificação da bandeja e transcrição automática.
+- **A duração do trecho é MEDIDA, não lida do arquivo.** O MKV do
+  `replay_buffer` não traz `Duration` no header, então o `Probe` cairia no
+  `ScanDurationByPackets` — varredura do arquivo inteiro, **9 s medidos num
+  trecho de 5,6 GB**, logo depois de o muxer ter escrito esses mesmos GB, e
+  com o jogo rodando. O tempo que o buffer tinha guardado no instante do
+  "salvar" (`ReplayLastClipSec`, saturado no teto) dá a mesma resposta de
+  graça. O `Probe` só entra se não houver medida. Corolário: esse número é
+  capturado ANTES de o relógio do buffer ser zerado pela rotação — depois
+  dela, o "guardado" já é o do trecho seguinte.
+- **A fila de transcrição fica PAUSADA enquanto se captura** (gravação
+  manual OU buffer ligado, via `SyncTranscribePause` →
+  `OBSTranscribe.SetPaused`). Transcrever lê a gravação inteira do disco
+  para extrair o áudio e sobe dezenas de MB: fazer isso durante o jogo tira
+  da máquina justamente o que a captura precisa. Os itens **não se perdem**
+  — continuam na fila persistida, com a etapa `paused` na tela, e andam
+  quando a captura termina. Sem isso, a transcrição automática
+  (`transcribeOnStop`, ligada por padrão) disparava logo depois de cada
+  trecho salvo, no meio da partida.
+- **O uso de RAM vai pro log** (`LogMemUsage`): nas bordas (ligou, salvou,
+  trecho salvo, parou) e a cada 30 s enquanto guarda
+  (`TIMER_REPLAY_MEM`). O buffer é o único recurso do app que cresce
+  sozinho em memória, e sem registro não há como separar depois do fato
+  "o jogo travou por causa do buffer" de "travou por outra coisa" — foi
+  exatamente o que faltou para fechar o primeiro diagnóstico.
+- **O `saved` pode não vir** (erro de escrita não emite nada) —
+  `TIMER_REPLAY_SAVE_TIMEOUT` (120 s) desiste, derruba a saída velha
+  (`AbortReplaySave`) e avisa.
+
+Regras de convivência:
+
+- **Um de cada vez com a gravação manual.** Os dois montam o mesmo grafo
+  (`BuildCaptureGraph`, que reseta o vídeo com o canvas calculado). Gravar
+  DESCARTA o buffer; ao terminar a gravação ele religa sozinho se
+  `replayEnabled` — e religa por ÚLTIMO no `OnEngineRecordingStopped`,
+  porque montar o grafo reseta o `CurrentLayout` que a meta da gravação
+  recém-terminada ainda lê.
+- **Trocar monitor/webcam descarta o conteúdo** (`RestartReplayForSourceChange`):
+  o canvas muda, e um trecho não pode mudar de resolução no meio. Áudio
+  não: mudo é só `SetSourceMuted`, como na gravação.
+- **O atalho de salvar só é registrado com o buffer ATIVO.** Desligado, a
+  combinação volta a ser dos outros programas (e não pode repetir o atalho
+  de gravar — o Windows aceita um registro por combinação).
+- **O teto de memória é da MÁQUINA, não da lista.** `ReplayMemLimitMb` =
+  RAM instalada − `REPLAY_RAM_RESERVE_MB` (4 GB), e é ele que fecha a lista
+  do seletor (último item = "Máximo (N GB)") e o clamp do `replayMaxMb`.
+  Não é preciosismo: o buffer guarda vídeo comprimido na RAM e a libobs
+  **não trata falta de memória** — `bmalloc` → `bcrash`
+  (`libobs/util/bmem.c:112`) mata o processo, levando o buffer junto. Antes
+  disso o Windows já estaria paginando, que é exatamente o engasgo que o
+  buffer existe pra não causar.
+- **Buffer ativo segura o app acordado**: não hiberna e o fechar vai pra
+  bandeja (`ShouldHideOnClose`), senão o processo sem libobs levaria a
+  memória junto. Quem liga o buffer (ou marca o autostart) abre mão da
+  hibernação — é o preço, e é o esperado de quem liga um buffer.
+- **O watcher de apps é de ESTADO, não de borda — ao contrário do mic.** O
+  `WinProcWatch` dispara também na PRIMEIRA leitura, de propósito: "o jogo
+  está aberto" é um estado, e abrir o NoOBS com o jogo já rodando tem que
+  ligar o buffer. O `WinMicWatch` faz o oposto (pegadinha #47) porque lá a
+  primeira leitura seria uma chamada EM CURSO e re-gravar o que o usuário
+  parou seria errado. Aqui nada se perde ligando: buffer não vira arquivo
+  sozinho.
+  Três regras que vieram junto: só desligamos o que ligamos
+  (`ReplayStartedByAppWatch`, espelho do `RecordingStartedByMicWatch`);
+  desligar na mão com o app aberto SUPRIME o watcher até o app fechar
+  (`ReplayAppSuppressed`), senão o poll seguinte religaria 2 s depois e o
+  botão pareceria quebrado; e esvaziar a lista com o buffer ligado POR ela
+  desliga na hora, senão ele ficaria preso ligado sem ninguém pra desligar.
+  **Lista vazia = recurso desligado**, nunca "qualquer app" (o oposto do
+  default do mic): com o buffer, "qualquer app" seria "sempre". Corolário
+  que já mordeu: o `WinProcWatch.Start` guarda o `GCallback` **antes** das
+  saídas antecipadas. Guardando só no caminho de sucesso, quem abria o app
+  sem lista ficava com `GCallback = nil`, e o `UpdateFilter` de quando o
+  usuário digitava a lista não tinha com o que subir a thread — o recurso
+  só passava a funcionar no próximo arranque. É a #54 de novo: **quem
+  reinicia precisa do estado guardado mesmo quando o start não completou.**
+  A hibernação também vigia (`WM_REPLAY_TRIGGER` → `/start-replay`), como o
+  mic faz com `/start-record-mic` — quem joga deixa o NoOBS hibernando
+  justamente pra ele não pesar, e sem isso o recurso só valeria com a
+  janela aberta.
+  **Todo flag novo de promoção precisa entrar na condição de subir SEM
+  janela** no `OBSUI.Run` (`StartInTray or StartMinimized or
+  FStartRecordRequested or FStartReplayRequested`) **e na instalação do
+  ícone de bandeja**. Já mordeu: o `/start-replay` ficou de fora e abrir o
+  jogo fazia a janela do NoOBS pular na frente — sendo que aqui o usuário
+  não pediu nada ao NoOBS, ele abriu um JOGO; roubar o foco pra anunciar
+  "liguei o buffer" é o oposto do recurso.
+- **O buffer pode subir o libobs ANTES do `TIMER_OBS_WARMUP` — e isso
+  atropelou as caps de encoder.** O watcher de apps roda desde o `DoInit`,
+  com a primeira leitura já valendo, então `StartReplayBuffer` cria o
+  `Engine` antes do warmup. O bloco do warmup inteiro é guardado por
+  `if Engine = nil`, e o `PushEncoderCaps` estava lá dentro: com o buffer
+  ligado por um jogo, as caps **nunca saíam**. Sintoma enganoso, porque não
+  parece ter relação com o buffer: a tela de exportação só oferecia
+  "Automático" (a lista dela vem de `encoder_caps.exportEncoders`) e o
+  seletor de codec das Configurações ficava sem os itens de hardware.
+  Hoje quem empurra é `PushEncoderCapsOnce`, chamado por TODO caminho que
+  sobe o libobs (warmup e buffer), com flag de "uma vez por sessão" porque
+  a detecção cria encoders de teste. **Regra geral: nada essencial pode
+  morar dentro do `if Engine = nil` do warmup** — ele deixou de ser o único
+  caminho de inicialização.
+- **O indicador do buffer é o MESMO overlay da gravação, em outro modo.**
+  `WinRecIndicator` ganhou `TIndicatorMode`: `imRecording` (bolinha vermelha
+  pulsando + tempo gravado, clicar PARA) e `imBuffer` (bolinha verde fixa +
+  "guardado / teto", clicar SALVA). Eles nunca coexistem — o buffer para
+  enquanto a gravação manual roda — então uma janela só basta. Detalhes que
+  mordem: (a) a bolinha do buffer **não pulsa** de propósito, senão os dois
+  estados ficam iguais de canto de olho e confundir "guardando na RAM" com
+  "gravando em disco" é o erro caro; (b) trocar de modo muda a LARGURA do
+  pill, e a `SetWindowRgn` arredondada tem que ser refeita junto, senão a
+  região antiga recorta a janela nova; (c) quem esconde o overlay do buffer
+  checa `CurrentMode` antes, senão apagaria o indicador da gravação.
+  No modo buffer o clique **salva** em vez de parar: parar seria destrutivo
+  (o buffer só existe na RAM) e sem desfazer.
+- **"Ligado agora" e "ligar ao abrir" são coisas DIFERENTES, e por isso são
+  duas chaves.** O botão da tela principal é vontade de SESSÃO
+  (`ReplayWanted`, variável do Bridge, não persiste); o arranque é a
+  preferência `replayAutoStart`, na aba Gravação. Uma chave só faria o
+  botão da tela principal mudar em silêncio o comportamento do próximo
+  arranque — e não haveria como "ligar só agora" nem como "deixar sempre
+  ligado sem ter que reativar". O warmup é o único ponto que converte uma
+  na outra (`replayAutoStart` → `ReplayWanted := True`). O `ReplayWanted`
+  também é quem traz o buffer de volta depois de uma gravação manual,
+  então NÃO o troque por leitura de config nesses pontos.
+
 ---
 
 ## Caches
@@ -2910,6 +3115,14 @@ recuperáveis manualmente).
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |
+| `replayAutoStart`                | `true` / `false` (default `false`) — liga o buffer em memória sozinho no warmup. É a ÚNICA chave do buffer que persiste: o botão da tela principal vale só pra sessão (`ReplayWanted`, pegadinha #62) |
+| `replayMaxSec`                   | `10..3600` (default `300`) — quanto tempo o buffer guarda. Vale a partir da próxima rotação (sem `update` na saída) |
+| `replayMaxMb`                    | `128..(RAM instalada − 4 GB)` (default `2048`) — teto de memória do buffer; o que estourar primeiro (tempo ou memória) descarta o trecho mais antigo. O clamp por RAM (`ReplayMemLimitMb`) vale também pro JSON editado a mão: acima disso a máquina pagina, e no limite a libobs **morre** — o `bmalloc` dela chama `bcrash` em vez de tratar falta de memória (`libobs/util/bmem.c:112`) |
+| `replayHotkey`                   | atalho de salvar o trecho (default `"Ctrl+Shift+F10"`); só registrado com o buffer ativo, e não pode repetir o de gravar |
+| `replayAutoApps`                 | programas que ligam o buffer sozinho, separados por vírgula (ex.: `valorant, cs2`); match por "contém", case-insensitive. **Vazio = recurso desligado** (o `WinProcWatch` nem sobe) — ao contrário do `autoRecordMicApps`, onde vazio = qualquer app (pegadinha #62) |
+| `replayIndicator`                | `true` / `false` (default **`true`**) — indicador do buffer na tela (bolinha verde + guardado/teto), excluído da captura; clicar nele SALVA o trecho |
+| `replayIndicatorCorner`          | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` |
+| `replayIndicatorOpacity`         | `20..100` (default `90`) — opacidade do indicador do buffer, aplicada ao vivo |
 
 ---
 

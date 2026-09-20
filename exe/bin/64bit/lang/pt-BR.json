@@ -43,6 +43,20 @@
     "finalizing": "Finalizando gravação...",
     "sizeHint": "Tamanho já gravado"
   },
+  "replay": {
+    "label": "Buffer em memória",
+    "save": "Salvar trecho",
+    "statusHolding": "Guardando {{held}} de {{max}}",
+    "statusSaving": "Salvando trecho…",
+    "statusPaused": "Pausado durante a gravação",
+    "statusOff": "Desligado · guarda os últimos {{max}}",
+    "saveHint": "Salva o que está no buffer como gravação ({{spec}})",
+    "saveHintNoKey": "Salva o que está no buffer como gravação",
+    "saved": "Trecho salvo",
+    "savedBody": "{{name}} — {{dur}}",
+    "hotkeyConflict": "Esse atalho já é o de iniciar/parar a gravação. Escolha outra combinação.",
+    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})"
+  },
   "recordings": {
     "title": "Gravações",
     "search": "Buscar...",
@@ -100,7 +114,9 @@
     "confirmDeleteFolderEmpty": "Mover a pasta \"{{name}}\" para a Lixeira do Windows?",
     "confirmDeleteFolder_one": "A pasta \"{{name}}\" tem 1 gravação dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?",
     "confirmDeleteFolder_other": "A pasta \"{{name}}\" tem {{count}} gravações dentro. Mover a pasta e tudo que está nela para a Lixeira do Windows?",
-    "transcribe": "Transcrever"
+    "transcribe": "Transcrever",
+    "exporting": "Exportando… {{pct}}%",
+    "cancelExport": "Cancelar exportação"
   },
   "export": {
     "menuItem": "Exportar…",
@@ -181,6 +197,7 @@
     "tabs": {
       "general": "Geral",
       "recording": "Gravação",
+      "replay": "Buffer",
       "files": "Arquivos",
       "devices": "Dispositivos",
       "window": "Janela e bandeja",
@@ -471,7 +488,8 @@
         "aligning": "alinhando palavras",
         "diarizing": "separando falantes",
         "done": "concluído",
-        "waiting": "aguardando o servidor"
+        "waiting": "aguardando o servidor",
+        "paused": "em pausa durante a captura"
       },
       "language": {
         "label": "Idioma da transcrição",
@@ -518,6 +536,25 @@
         "copy": "Copiar",
         "copied": "Copiado"
       }
+    },
+    "replay": {
+      "label": "Buffer em memória",
+      "hint": "Com o buffer ligado (botão na tela principal), o NoOBS guarda os <b>últimos minutos</b> da tela na memória, sem gravar no disco. Quando acontecer algo que valha registrar, aperte o atalho: o trecho vira uma gravação normal e o buffer <b>recomeça vazio</b> — salvar de novo traz só a continuação, com cerca de 1 segundo repetido na emenda pra não perder nada entre um trecho e o outro.",
+      "autoStart": "Ligar o buffer ao abrir o NoOBS",
+      "autoStartHint": "Marcado, o buffer já começa a guardar sozinho a cada vez que o NoOBS abre. Desmarcado, o botão da tela principal liga o buffer só até fechar o app.",
+      "apps": "Ligar sozinho com estes programas",
+      "appsPlaceholder": "ex.: valorant, cs2, League of Legends",
+      "appsHint": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"valorant\" acha \"VALORANT-Win64-Shipping\"). Funciona também com o NoOBS hibernando. Vazio = desligado.",
+      "indicator": "Mostrar indicador do buffer na tela",
+      "indicatorHint": "Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece pra você mas <b>não entra na gravação</b>, e clicar nela salva o trecho. Requer Windows 10 2004+.",
+      "duration": "Tempo guardado",
+      "memory": "Memória máxima",
+      "memoryMax": "Máximo ({{size}})",
+      "memoryHint": "O que acabar primeiro manda: o buffer descarta o trecho mais antigo quando passa do tempo OU da memória. Tela parada ocupa poucos MB por minuto; um jogo em 4K a 120 fps na qualidade máxima chega a ~1,5 GB por minuto. O máximo da lista é o que cabe nesta máquina, sempre deixando 4 GB de RAM livres.",
+      "hotkey": "Atalho para salvar o trecho",
+      "hotkeyHint": "Só fica ativo com o buffer ligado — desligado, a combinação volta a ser dos outros programas.",
+      "seconds": "{{n}} segundos",
+      "minutes": "{{n}} min"
     }
   },
   "devices": {
@@ -648,7 +685,9 @@
     "cutOne": "1 item pronto pra colar em outra pasta.",
     "cutN": "{{count}} itens prontos pra colar em outra pasta.",
     "transcribeFailed": "Falha ao transcrever \"{{name}}\"",
-    "transcribeQueued": "Transcrição na fila"
+    "transcribeQueued": "Transcrição na fila",
+    "exportBusy": "Exportação em andamento",
+    "exportBusyMsg": "Espere a exportação atual terminar (ou cancele) para começar outra."
   },
   "transcript": {
     "trackN": "Faixa {{n}}"
@@ -697,7 +736,11 @@
     "deleteFolderFailed": "Não foi possível excluir a pasta \"{{name}}\".",
     "moveFailed": "Não foi possível mover \"{{file}}\".",
     "moveIntoItself": "Uma pasta não pode ser movida para dentro dela mesma.",
-    "moveWhileRecording": "Não dá pra mover a gravação que está em andamento."
+    "moveWhileRecording": "Não dá pra mover a gravação que está em andamento.",
+    "replayStartFailed": "Não foi possível ligar o buffer em memória: {{error}}",
+    "replaySaveFailed": "Não foi possível salvar o trecho do buffer.",
+    "replayHotkeyConflict": "O atalho do buffer não pode ser o mesmo de iniciar/parar a gravação.",
+    "exportBusyFile": "Esta gravação está sendo exportada agora — espere terminar ou cancele a exportação."
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."

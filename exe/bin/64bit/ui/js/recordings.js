@@ -153,6 +153,9 @@ const RecSelection = {
 function bulkDeleteSelected() {
   const ids = RecSelection.all();
   if (ids.length === 0) return;
+  // O delete da UI e otimista (tira o card antes da resposta): bloqueia
+  // ANTES de perguntar, senao o card sumiria e voltaria sozinho.
+  if (typeof Export !== 'undefined' && Export.blocked(ids)) return;
   Confirm.open({
     title: T('recordings.confirmDeleteTitle'),
     message: ids.length === 1
@@ -181,6 +184,9 @@ function bulkDeleteSelected() {
 function mergeSelectedRecordings() {
   const ids = RecSelection.all();
   if (ids.length < 2) return;
+  // Unir manda os originais pra lixeira no fim — nao pode levar o arquivo
+  // que esta sendo exportado.
+  if (typeof Export !== 'undefined' && Export.blocked(ids)) return;
   Confirm.open({
     title: T('recordings.confirmMergeTitle'),
     message: T('recordings.confirmMergeN', { count: ids.length }),
@@ -374,6 +380,12 @@ function buildRecCard(item) {
   body.ondblclick = (ev) => editName(ev, when, card.dataset.id);
   card.appendChild(thumb);
   card.appendChild(body);
+  // Exportacao em andamento DESTA gravacao: a barra vive aqui, porque a
+  // tela de exportacao pode ser fechada enquanto ela roda. Aplicado no
+  // build (e nao so no push de progresso) pra sobreviver ao rebuild da
+  // lista — o file watcher refaz o grid a qualquer momento.
+  if (typeof Export !== 'undefined' && Export.runningId === item.id)
+    Export.attachCardProgress(card);
   return card;
 }
 
@@ -788,6 +800,11 @@ function editName(event, el, id) {
       .trim()
       .slice(0, 150);
     if (newName === '' || newName === original) {
+      el.textContent = original;
+      finishRecordingsRender(false);
+      return;
+    }
+    if (typeof Export !== 'undefined' && Export.blocked(id)) {
       el.textContent = original;
       finishRecordingsRender(false);
       return;

@@ -216,6 +216,69 @@
   }
   .record-card.recording .record-label { color: var(--text); }
 
+  /* ===== Buffer em memoria (replay.js) =====
+     Rodape do cartao, no MESMO padrao das linhas de dispositivo: nome +
+     linha de info a esquerda, .toggle verde (displays.css) a direita,
+     linha inteira clicavel. Separado do botao de gravar por um fio, como
+     as secoes da barra lateral. O botao de salvar e um .icon-btn comum e
+     so existe com o buffer ativo. */
+  .replay-row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px -6px -6px;
+    padding: 8px 10px 6px;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 7px 7px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s;
+  }
+  .replay-row:hover { background: var(--panel-2); }
+  [data-theme="light"] .replay-row:hover { background: var(--panel-3); }
+  .replay-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .replay-row.selected .toggle { background: var(--success); }
+  .replay-row.selected .toggle::after { transform: translateX(14px); }
+  /* Bolinha de estado: mesma do cabecalho do cartao (.rec-state-dot) —
+     cinza desligado, verde pulsando enquanto guarda. */
+  .replay-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--border-2);
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  .replay-row.active .replay-dot {
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  .replay-meta { flex: 1; min-width: 0; }
+  .replay-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .replay-status {
+    font-size: 10.5px;
+    color: var(--text-3);
+    margin-top: 1px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .replay-row.active .replay-status { color: var(--text-2); }
+  .replay-save-btn { width: 28px; height: 28px; }
+  .replay-save-btn:not(:disabled):hover { color: var(--success); border-color: var(--success); }
+  .replay-save-btn[hidden] { display: none; }
+
   /* ===== Ripple ao iniciar gravacao =====
      Onda radial vermelha que comeca exatamente no centro do botao de
      gravar e expande ate cobrir a tela inteira. Criado via JS

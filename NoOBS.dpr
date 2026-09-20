@@ -53,6 +53,7 @@ uses
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',
   WinMicWatch in 'src\WinMicWatch.pas',
+  WinProcWatch in 'src\WinProcWatch.pas',
   OBSVersion in 'src\OBSVersion.pas',
   OBSUpdate in 'src\OBSUpdate.pas',
   WinPreview in 'src\WinPreview.pas',

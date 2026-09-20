@@ -70,6 +70,8 @@ const Bridge = {
       // Re-renderiza a legenda de faixas (textos compostos em JS, sem
       // data-i18n por terem placeholders dinamicos como "Faixa N").
       try { buildTrackLegend(); } catch (e) {}
+      // Status do buffer em memoria (texto montado em JS com {{held}}).
+      try { Replay.render(); } catch (e) {}
       // Re-render do estado de gravacao pra atualizar label/status do
       // botao de gravar (T('record.start'/'stop'/'statusReady'/...)).
       // Re-aplica estado de gravacao pra atualizar label (T('record.start'/stop'))
@@ -332,8 +334,12 @@ const Bridge = {
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
     waveform_ready(data) { Waveform.onReady(data); },
     keyframes(data) { Player.onKeyframes(data); },
+    // Buffer em memoria (replay.js).
+    replay_state(data) { Replay.applyState(data); },
+    replay_saved(data) { Replay.onSaved(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
-    export_progress(data) { Export.onProgress(data && data.pct); },
+    // O `id` diz em qual card a barra vive (a tela pode estar fechada).
+    export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },
     export_done(data) { Export.onDone(data); },
     recording_state(data) {
       applyRecordingState(data.active, data.elapsed, data.sizeText);

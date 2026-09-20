@@ -66,6 +66,15 @@ procedure Enqueue(const APath: string);
 procedure EnqueueMany(const APaths: TArray<string>);
 // Cancela a fila inteira. O item EM CURSO nao e abortado no meio (a API
 // nao tem cancelamento); ele termina e o resultado e descartado.
+// Segura a fila sem esvazia-la: nenhum item NOVO comeca enquanto pausado
+// (o que ja esta em curso segue ate o fim). Usado pelo OBSBridge enquanto o
+// buffer em memoria esta ligado — transcrever le a gravacao inteira do
+// disco e sobe dezenas de MB, disputando maquina justamente com o jogo que
+// o buffer existe pra nao atrapalhar. Os itens ficam na fila PERSISTIDA; o
+// Bridge solta quando o buffer desliga.
+procedure SetPaused(APaused: Boolean);
+function IsPaused: Boolean;
+
 procedure CancelAll;
 // Para a thread e limpa — chamada no shutdown.
 procedure Shutdown;
@@ -354,6 +363,8 @@ var
   GTrack: Integer = 0;
   GTrackCount: Integer = 1;
   GWaitingServer: Boolean = False;
+  // Fila segurada pelo Bridge (buffer em memoria ligado). Ver SetPaused.
+  GPaused: Boolean = False;
   // O item em curso JA terminou (sucesso, falha ou cancelamento) e so
   // falta a proxima volta do laco tira-lo do estado. Sem esta marca, um
   // fechamento nesse intervalo persistiria o item concluido de novo.
@@ -2371,6 +2382,21 @@ begin
   end;
 end;
 
+procedure SetPaused(APaused: Boolean);
+begin
+  if GPaused = APaused then Exit;
+  GPaused := APaused;
+  if APaused then Log('Transcribe: fila PAUSADA (buffer em memoria ligado).')
+  else Log('Transcribe: fila liberada.');
+  // A tela precisa saber: pausado com itens na fila vira a etapa "paused".
+  NotifyChanged;
+end;
+
+function IsPaused: Boolean;
+begin
+  Result := GPaused;
+end;
+
 procedure TTranscribeThread.Execute;
 var
   Path, Err: string;
@@ -2384,7 +2410,12 @@ begin
     begin
       GLock.Enter;
       try
-        Has := (GQueue <> nil) and (GQueue.Count > 0);
+        // Pausado: NAO pega item novo, mas a fila fica como esta. A etapa
+        // vira 'paused' pra a aba de Transcricao explicar a espera — fila
+        // parada sem motivo aparente se le como defeito.
+        Has := (not GPaused) and (GQueue <> nil) and (GQueue.Count > 0);
+        if GPaused and (GQueue <> nil) and (GQueue.Count > 0) then
+          GStage := 'paused';
         if Has then
         begin
           Path := GQueue[0];

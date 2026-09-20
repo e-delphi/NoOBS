@@ -343,6 +343,9 @@ const RecFolders = {
 
   paste(target) {
     if (!this.clipboard.length) return;
+    // Mover renomeia o arquivo — nao pode acontecer com a exportacao
+    // lendo ele. O recorte fica de pe pra ser colado depois.
+    if (typeof Export !== 'undefined' && Export.blocked(this.clipboard)) return;
     const ids = this.clipboard.slice();
     this.clipboard = [];
     this._clearCutMarks();
@@ -415,6 +418,7 @@ const RecFolders = {
       e.preventDefault();
       const ids = this._dragIds.slice();
       this._dragIds = null;
+      if (typeof Export !== 'undefined' && Export.blocked(ids)) return;
       // Solto: a seleção que existia não descreve mais o que está na
       // tela (os cards vão sumir daqui), então limpa.
       if (typeof RecSelection !== 'undefined') RecSelection.clear();

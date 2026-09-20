@@ -198,6 +198,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\OBSUI.pas"/>
         <DCCReference Include="src\WinAudioMeter.pas"/>
         <DCCReference Include="src\WinMicWatch.pas"/>
+        <DCCReference Include="src\WinProcWatch.pas"/>
         <DCCReference Include="src\OBSVersion.pas"/>
         <DCCReference Include="src\OBSUpdate.pas"/>
         <DCCReference Include="src\WinPreview.pas"/>

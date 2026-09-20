@@ -30,6 +30,12 @@ function DetectEncoderCaps: TEncoderCaps;
 // nenhum encoder estiver disponivel (caso impossivel se obs-x264 carregou).
 function SelectVideoEncoder: obs_encoder_t;
 
+// Forca o intervalo de keyframe dos PROXIMOS encoders criados (segundos;
+// 0 = volta a ler 'recordingKeyframeSec' do config). O buffer em memoria
+// usa 1 s: e o keyframe que decide quanto se perde na emenda entre dois
+// trechos salvos (o buffer novo so comeca no keyframe seguinte).
+procedure SetKeyframeSecOverride(ASec: Integer);
+
 // Retorna a maior dimensao (W ou H) de canvas que o codec preferido
 // pelo user consegue aceitar. Usado pelo OBSEngine pra clampar o
 // bounding antes de obs_reset_video.
@@ -64,6 +70,15 @@ uses
 type
   // Um valor de qualidade por nivel do slider (0..10).
   TQualityTable = array[0..10] of Integer;
+
+var
+  // Ver SetKeyframeSecOverride. Main thread only (como todo o libobs).
+  KeyframeSecOverride: Integer = 0;
+
+procedure SetKeyframeSecOverride(ASec: Integer);
+begin
+  KeyframeSecOverride := ASec;
+end;
 
 const
   // Escala de referencia do controle de qualidade: a do x264 (0..51), a
@@ -541,6 +556,7 @@ begin
     // dao pra dividir/subdividir no player (stream copy so corta em I-frame).
     // Configuravel pelo usuario (1..10s, default 2 = padrao de streaming).
     var KeyframeSec: Integer := GetConfigInt('recordingKeyframeSec', 2);
+    if KeyframeSecOverride > 0 then KeyframeSec := KeyframeSecOverride;
     if KeyframeSec < 1  then KeyframeSec := 1;
     if KeyframeSec > 10 then KeyframeSec := 10;
     obs_data_set_int(Settings, 'keyint_sec', KeyframeSec);

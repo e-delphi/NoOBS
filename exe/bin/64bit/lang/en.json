@@ -43,6 +43,20 @@
     "finalizing": "Finishing recording...",
     "sizeHint": "Recorded so far"
   },
+  "replay": {
+    "label": "Memory buffer",
+    "save": "Save clip",
+    "statusHolding": "Holding {{held}} of {{max}}",
+    "statusSaving": "Saving clip…",
+    "statusPaused": "Paused while recording",
+    "statusOff": "Off · keeps the last {{max}}",
+    "saveHint": "Saves what is in the buffer as a recording ({{spec}})",
+    "saveHintNoKey": "Saves what is in the buffer as a recording",
+    "saved": "Clip saved",
+    "savedBody": "{{name}} — {{dur}}",
+    "hotkeyConflict": "That shortcut is already used to start/stop recording. Pick another combination.",
+    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})"
+  },
   "recordings": {
     "title": "Recordings",
     "search": "Search...",
@@ -100,7 +114,9 @@
     "confirmDeleteFolderEmpty": "Move the folder \"{{name}}\" to the Windows Recycle Bin?",
     "confirmDeleteFolder_one": "The folder \"{{name}}\" has 1 recording inside. Move the folder and everything in it to the Windows Recycle Bin?",
     "confirmDeleteFolder_other": "The folder \"{{name}}\" has {{count}} recordings inside. Move the folder and everything in it to the Windows Recycle Bin?",
-    "transcribe": "Transcribe"
+    "transcribe": "Transcribe",
+    "exporting": "Exporting… {{pct}}%",
+    "cancelExport": "Cancel export"
   },
   "export": {
     "menuItem": "Export…",
@@ -181,6 +197,7 @@
     "tabs": {
       "general": "General",
       "recording": "Recording",
+      "replay": "Buffer",
       "files": "Files",
       "devices": "Devices",
       "window": "Window & tray",
@@ -471,7 +488,8 @@
         "aligning": "aligning words",
         "diarizing": "separating speakers",
         "done": "done",
-        "waiting": "waiting for the server"
+        "waiting": "waiting for the server",
+        "paused": "paused while capturing"
       },
       "language": {
         "label": "Transcription language",
@@ -518,6 +536,25 @@
         "copy": "Copy",
         "copied": "Copied"
       }
+    },
+    "replay": {
+      "label": "Memory buffer",
+      "hint": "With the buffer on (button on the main screen), NoOBS keeps the <b>last few minutes</b> of the screen in memory, without writing to disk. When something worth keeping happens, press the shortcut: the clip becomes a regular recording and the buffer <b>starts over empty</b> — saving again brings only what came after, with about a second repeated at the seam so nothing is lost between clips.",
+      "autoStart": "Turn the buffer on when NoOBS opens",
+      "autoStartHint": "When checked, the buffer starts keeping footage by itself every time NoOBS opens. When unchecked, the button on the main screen turns the buffer on only until the app closes.",
+      "apps": "Turn on by itself with these programs",
+      "appsPlaceholder": "e.g.: valorant, cs2, League of Legends",
+      "appsHint": "Program names separated by commas. While any of them is open the buffer turns on by itself; when they all close, it turns off. Part of the name is enough (\"valorant\" matches \"VALORANT-Win64-Shipping\"). Works with NoOBS hibernating too. Empty = off.",
+      "indicator": "Show the buffer indicator on screen",
+      "indicatorHint": "A green dot with how much is kept, in the corner of the screen. You see it but it <b>does not enter the recording</b>, and clicking it saves the clip. Requires Windows 10 2004+.",
+      "duration": "Time kept",
+      "memory": "Maximum memory",
+      "memoryMax": "Maximum ({{size}})",
+      "memoryHint": "Whichever runs out first wins: the buffer drops the oldest part once it exceeds the time OR the memory. A still screen takes a few MB per minute; a 4K 120 fps game at maximum quality reaches ~1.5 GB per minute. The maximum in the list is what fits on this machine, always leaving 4 GB of RAM free.",
+      "hotkey": "Shortcut to save the clip",
+      "hotkeyHint": "Only active while the buffer is on — when it's off, the combination goes back to other programs.",
+      "seconds": "{{n}} seconds",
+      "minutes": "{{n}} min"
     }
   },
   "devices": {
@@ -648,7 +685,9 @@
     "cutOne": "1 item ready to paste into another folder.",
     "cutN": "{{count}} items ready to paste into another folder.",
     "transcribeFailed": "Could not transcribe \"{{name}}\"",
-    "transcribeQueued": "Transcription queued"
+    "transcribeQueued": "Transcription queued",
+    "exportBusy": "Export in progress",
+    "exportBusyMsg": "Wait for the current export to finish (or cancel it) before starting another."
   },
   "transcript": {
     "trackN": "Track {{n}}"
@@ -697,7 +736,11 @@
     "deleteFolderFailed": "Could not delete the folder \"{{name}}\".",
     "moveFailed": "Could not move \"{{file}}\".",
     "moveIntoItself": "A folder cannot be moved into itself.",
-    "moveWhileRecording": "The recording in progress cannot be moved."
+    "moveWhileRecording": "The recording in progress cannot be moved.",
+    "replayStartFailed": "Could not turn on the memory buffer: {{error}}",
+    "replaySaveFailed": "Could not save the buffer clip.",
+    "replayHotkeyConflict": "The buffer shortcut can't be the same as the start/stop recording one.",
+    "exportBusyFile": "This recording is being exported right now — wait for it to finish or cancel the export."
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."

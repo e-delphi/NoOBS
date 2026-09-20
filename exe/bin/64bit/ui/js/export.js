@@ -49,6 +49,15 @@ const Export = {
   encoders: [],          // [{ id, name, hardware }]
   defaultEncoder: 'auto',
   running: false,
+  // Gravacao sendo exportada e quanto ja foi. Vivem FORA da tela: ela pode
+  // ser fechada no meio, e a barra continua no card da gravacao.
+  runningId: null,
+  pct: 0,
+  // Cancelamento pedido, resposta ainda nao chegou. O backend so ve a flag
+  // no proximo pacote, entao ha um intervalo em que o progresso continua
+  // chegando — sem esta marca o rotulo voltaria de "Cancelando…" pro
+  // percentual e pareceria que o clique nao pegou.
+  canceling: false,
   _loading: false,
 
   // ---- ciclo de vida ------------------------------------------------
@@ -60,7 +69,15 @@ const Export = {
   },
 
   openFor(id) {
-    if (!id || this.running) return;
+    if (!id) return;
+    // Uma de cada vez — o backend tambem recusa a segunda. Antes o clique
+    // era ignorado em silencio; com a tela podendo ser fechada, ficar sem
+    // resposta nenhuma parece defeito.
+    if (this.running) {
+      Toast.show(T('toast.exportBusy'), T('toast.exportBusyMsg'),
+        { warn: true, ttl: 5000 });
+      return;
+    }
     this.currentId = id;
     this._loading = true;
     this.selectedRegions = new Set();
@@ -107,7 +124,11 @@ const Export = {
   },
 
   close() {
-    if (this.running) return;   // durante a exportacao so o Cancelar sai
+    // Fechar NAO cancela: a exportacao roda numa thread do backend, sem
+    // depender da tela. O progresso segue visivel na barra do card da
+    // gravacao (ver attachCardProgress). Reabrir a tela durante a
+    // exportacao nao e permitido — ela voltaria como formulario em branco,
+    // e o estado de uma exportacao em curso nao se remonta.
     const ov = document.getElementById('exportOverlay');
     ov.classList.remove('visible');
     // Solta o arquivo: com o <video> segurando a URL, o servidor HTTP
@@ -1583,24 +1604,126 @@ const Export = {
     if (v) { try { v.pause(); } catch (e) {} }
 
     this.running = true;
+    this.runningId = this.currentId;
+    this.pct = 0;
+    this.canceling = false;
     document.getElementById('exportOverlay').classList.add('running');
     this._syncRunButton();
     this._setProgress(0);
+    // Barra no card ja no inicio: quem fechar a tela no primeiro segundo
+    // tem que encontrar o progresso la.
+    this._syncCardProgress();
     Bridge.send('export_recording', msg);
   },
 
   cancel() {
-    if (!this.running) return;
+    if (!this.running || this.canceling) return;
+    this.canceling = true;
     Bridge.send('cancel_export', {});
     const btn = document.getElementById('exportRunBtn');
     if (btn) btn.disabled = true;   // evita duplo clique no cancelamento
     document.getElementById('exportProgressText').textContent =
       T('export.canceling');
+    // A tela pode estar fechada: o mesmo aviso vai pro card.
+    this._syncCardProgress();
   },
 
-  onProgress(pct) {
+  onProgress(pct, id) {
     if (!this.running) return;
-    this._setProgress(pct);
+    if (id) this.runningId = id;
+    this.pct = Math.max(0, Math.min(100, pct || 0));
+    this._setProgress(this.pct);
+    this._syncCardProgress();
+  },
+
+  // ---- barra no card da gravacao -------------------------------------
+  // A tela de exportacao pode ser fechada no meio; sem isto a exportacao
+  // ficaria rodando invisivel.
+
+  // Guarda de UI pros caminhos que mexem no ARQUIVO de origem (excluir,
+  // renomear, mover, unir). O backend tambem recusa — mas o delete da UI e
+  // OTIMISTA (tira o card antes da resposta), entao sem esta guarda o card
+  // sumiria da tela e so voltaria no proximo refresh da lista.
+  // Recebe um id ou uma lista.
+  blocked(ids) {
+    if (!this.runningId) return false;
+    const list = Array.isArray(ids) ? ids : [ids];
+    if (!list.some(id => id === this.runningId)) return false;
+    Toast.show(T('toast.exportBusy'), T('error.exportBusyFile'),
+      { warn: true, ttl: 6000 });
+    return true;
+  },
+
+  _card() {
+    if (!this.runningId) return null;
+    return document.querySelector(
+      '#recGrid .rec-card[data-id="' + CSS.escape(this.runningId) + '"]');
+  },
+
+  // Cria (uma vez) a barra dentro de um card. Chamada tambem pelo
+  // buildRecCard, porque a lista se refaz sozinha a qualquer momento.
+  attachCardProgress(card) {
+    if (!card || card.querySelector('.rec-export')) return;
+    const box = document.createElement('div');
+    box.className = 'rec-export';
+    const label = document.createElement('div');
+    label.className = 'rec-export-label';
+    // Cancelar AQUI: com a tela fechada este e o unico caminho, e reabrir
+    // a tela durante a exportacao e recusado de proposito.
+    const cancel = document.createElement('button');
+    cancel.className = 'rec-export-cancel';
+    cancel.type = 'button';
+    cancel.dataset.hint = T('recordings.cancelExport');
+    cancel.setAttribute('aria-label', T('recordings.cancelExport'));
+    cancel.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    cancel.onclick = (e) => {
+      // O card inteiro e clicavel (abre o player) — o botao e um alvo
+      // dentro dele, entao o clique para aqui.
+      e.stopPropagation();
+      this.cancel();
+    };
+    const head = document.createElement('div');
+    head.className = 'rec-export-head';
+    head.appendChild(label);
+    head.appendChild(cancel);
+    const bar = document.createElement('div');
+    bar.className = 'rec-export-bar';
+    const fill = document.createElement('div');
+    fill.className = 'rec-export-fill';
+    bar.appendChild(fill);
+    box.appendChild(head);
+    box.appendChild(bar);
+    card.appendChild(box);
+    card.dataset.exporting = 'true';
+    this._paintCard(card);
+  },
+
+  _paintCard(card) {
+    const fill = card.querySelector('.rec-export-fill');
+    const label = card.querySelector('.rec-export-label');
+    const btn = card.querySelector('.rec-export-cancel');
+    if (fill) fill.style.width = this.pct.toFixed(0) + '%';
+    if (label) label.textContent = this.canceling
+      ? T('export.canceling')
+      : T('recordings.exporting', { pct: this.pct.toFixed(0) });
+    if (btn) btn.disabled = this.canceling;
+    card.dataset.exporting = this.canceling ? 'canceling' : 'true';
+  },
+
+  _syncCardProgress() {
+    const card = this._card();
+    if (!card) return;
+    if (!card.querySelector('.rec-export')) this.attachCardProgress(card);
+    else this._paintCard(card);
+  },
+
+  _clearCardProgress() {
+    document.querySelectorAll('#recGrid .rec-card .rec-export')
+      .forEach(el => el.remove());
+    document.querySelectorAll('#recGrid .rec-card[data-exporting]')
+      .forEach(el => delete el.dataset.exporting);
   },
 
   _setProgress(pct) {
@@ -1612,6 +1735,10 @@ const Export = {
 
   onDone(data) {
     this.running = false;
+    this.runningId = null;
+    this.pct = 0;
+    this.canceling = false;
+    this._clearCardProgress();
     const ov = document.getElementById('exportOverlay');
     ov.classList.remove('running');
     const btn = document.getElementById('exportRunBtn');
@@ -1674,7 +1801,9 @@ const Export = {
     document.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Escape') return;
       const o = document.getElementById('exportOverlay');
-      if (o && o.classList.contains('visible') && !this.running) {
+      // Fecha mesmo exportando: a exportacao continua no backend e o
+      // progresso vai pra barra do card.
+      if (o && o.classList.contains('visible')) {
         this.close();
         ev.preventDefault();
       }

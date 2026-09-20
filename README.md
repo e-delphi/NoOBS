@@ -35,7 +35,9 @@ instalar nem configurar nada — só abrir e gravar.
   e sem perda. A exportação recorta trechos,
   escolhe monitores e reduz resolução, com prévia do que está saindo. Para
   enquadrar, é só arrastar as bordas da prévia: o que ficar dentro da
-  moldura é o que vai pro arquivo.
+  moldura é o que vai pro arquivo. Fechou a tela? Ela continua em segundo
+  plano, com a barra de progresso no card da gravação e um botão de
+  cancelar ali mesmo.
 
 - **Organiza em pastas, sem abrir o Explorer.** Crie pastas na própria
   lista, arraste uma gravação pra dentro ou use recortar e colar. Excluir
@@ -45,13 +47,25 @@ instalar nem configurar nada — só abrir e gravar.
   WhatsApp abre o microfone, começa a gravar e para quando a chamada
   acaba. Funciona até com o app hibernando.
 
+- **Guarda os últimos minutos sem gravar no disco.** Ligue o buffer em
+  memória e jogue: quando acontecer algo que valha guardar, um atalho
+  salva o trecho como gravação normal e o buffer recomeça — dá pra salvar
+  vários pedaços seguidos, e a emenda entre eles se sobrepõe em vez de
+  perder um pedaço. Ele liga sozinho quando você abre um jogo da sua
+  lista (mesmo com o NoOBS hibernando), e um indicador discreto mostra
+  quanto já está guardado — clicar nele salva o trecho. O tempo e a
+  memória guardados são seus, com o máximo limitado ao que cabe na
+  máquina.
+
 - **À prova de queda de energia.** Grava em MKV, recuperável quadro a
   quadro. Um travamento não leva a gravação junto.
 
 Também tem tema claro/escuro acompanhando o Windows, interface em
 português, inglês e espanhol, atalho global, ícone na bandeja, início com
 o Windows, player embutido com zoom, velocidade e forma de onda, e
-exclusão sempre pela lixeira.
+exclusão sempre pela lixeira. Enquanto você grava ou o buffer está
+ligado, o NoOBS segura os trabalhos pesados em segundo plano (como a
+transcrição) pra não disputar a máquina com o que está sendo capturado.
 
 ---
 

@@ -242,6 +242,21 @@
     display: flex;
     gap: 8px;
   }
+  /* Dois campos lado a lado dentro de um .settings-field (ex.: os limites
+     de tempo e memoria do buffer, que sao um par). A dica fica fora das
+     colunas, cobrindo a largura toda. */
+  .settings-pair {
+    display: flex;
+    gap: 10px;
+  }
+  .settings-pair-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .settings-pair-col .settings-input { width: 100%; }
   /* Rotulo inline antes de um controle na mesma linha (ex.: "Canto" + o
      dropdown do indicador de gravacao na tela). */
   .settings-inline-label {
@@ -289,6 +304,11 @@
     border-radius: 50%;
     background: #f03e3e;                 /* RGB(240,62,62) — bolinha "on" */
     flex-shrink: 0;
+  }
+  /* Previa do indicador do BUFFER: mesma pilha, bolinha verde — igual ao
+     overlay no modo imBuffer (WinRecIndicator). */
+  .replay-indicator-preview .rec-indicator-preview-dot {
+    background: #10b981;                 /* RGB(16,185,129) */
   }
   .rec-indicator-preview-time {
     font-size: 11px;

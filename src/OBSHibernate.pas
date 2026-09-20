@@ -42,7 +42,8 @@ implementation
 uses
   Winapi.Windows, Winapi.ShellAPI, Winapi.Messages,
   System.SysUtils, System.Classes,
-  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang, WinMicWatch;
+  OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang, WinMicWatch,
+  WinProcWatch;
 
 const
   // MUTEX_NAME e SHOW_MSG_NAME vem de OBSSingleInstance — compartilhados
@@ -57,6 +58,11 @@ const
   // Postada pela thread do WinMicWatch quando o microfone entra em uso —
   // promove a hibernacao pra full pra gravar a chamada.
   WM_MIC_TRIGGER        = WM_USER + 101;
+  // Postada pela thread do WinProcWatch quando um app monitorado (jogo)
+  // aparece — promove a hibernacao pra full pra LIGAR O BUFFER. Sem isso o
+  // recurso so valeria com a janela aberta, e quem joga deixa o NoOBS
+  // hibernando justamente pra ele nao pesar.
+  WM_REPLAY_TRIGGER     = WM_USER + 102;
   ID_TRAY_RECORD        = 9001;
   ID_TRAY_OPEN          = 9002;
   ID_TRAY_QUIT          = 9003;
@@ -263,6 +269,7 @@ begin
   Log('Hibernate: spawn full "%s" args="%s"', [ExePath, AArgs]);
 
   try WinMicWatch.Stop; except end;
+  try WinProcWatch.Stop; except end;
   UnregisterRecordHotkey;
   RemoveTrayIcon;
   if SingleInstanceMutex <> 0 then
@@ -322,6 +329,14 @@ begin
         Exit(0);
       end;
 
+    WM_REPLAY_TRIGGER:
+      begin
+        Log('Hibernate: app monitorado aberto — promovendo a full pra ligar ' +
+          'o buffer (/start-replay).');
+        SpawnFullAndExit('/start-replay');
+        Exit(0);
+      end;
+
     WM_HOTKEY:
       begin
         Log('Hibernate: WM_HOTKEY id=%d', [Integer(WParam)]);
@@ -358,6 +373,7 @@ begin
       begin
         Log('Hibernate: WM_DESTROY.');
         try WinMicWatch.Stop; except end;
+  try WinProcWatch.Stop; except end;
         UnregisterRecordHotkey;
         RemoveTrayIcon;
         PostQuitMessage(0);
@@ -366,6 +382,15 @@ begin
   end;
 
   Result := DefWindowProc(Hwnd, Msg, WParam, LParam);
+end;
+
+procedure HibReplayAppCallback(ARunning: Boolean);
+// Callback do WinProcWatch — roda na THREAD do watcher. So a borda "abriu"
+// interessa: a hibernacao nao tem libobs, ela promove pra full com
+// /start-replay (que liga o buffer la). PostMessage e thread-safe.
+begin
+  if ARunning and (MainWindow <> 0) then
+    PostMessage(MainWindow, WM_REPLAY_TRIGGER, 0, 0);
 end;
 
 procedure HibMicCallback(AInUse: Boolean);
@@ -450,6 +475,13 @@ begin
       GetConfigStr('autoRecordMicExcept', ''), HibMicCallback);
     except on E: Exception do
       Log('Hibernate: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
+
+  // Buffer em memoria automatico: vigia os apps monitorados mesmo
+  // hibernando. Ao ver um abrir, promove pra full com /start-replay. Start
+  // e no-op com a lista vazia.
+  try WinProcWatch.Start(GetConfigStr('replayAutoApps', ''), HibReplayAppCallback);
+  except on E: Exception do
+    Log('Hibernate: falha ao iniciar WinProcWatch: %s', [E.Message]); end;
 
   Log('Hibernate: entrando no GetMessage loop.');
   while GetMessage(Msg, 0, 0, 0) do

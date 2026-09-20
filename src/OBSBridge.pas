@@ -21,6 +21,25 @@
     set_rec_indicator_opacity : opacity (Integer 20..100) — opacidade do overlay
     record_start         : —
     record_stop          : —
+    set_replay_enabled   : enabled (Boolean) — liga/desliga o buffer em memoria
+                           NESTA sessao (nao persiste; quem decide o arranque
+                           e 'replayAutoStart')
+    set_replay_autostart : autoStart (Boolean) — ligar o buffer ao abrir o
+                           NoOBS (persistido em 'replayAutoStart')
+    set_replay_apps      : apps (string, separados por virgula) — programas
+                           que ligam o buffer sozinho quando abrem
+    set_replay_indicator : enabled (Boolean) — indicador do buffer na tela
+    set_replay_indicator_corner  : corner (top-left|top-right|bottom-left|
+                           bottom-right)
+    set_replay_indicator_opacity : opacity (Integer 20..100)
+    save_replay          : — grava o conteudo do buffer e o esvazia
+    set_replay_limits    : maxSec, maxMb (Integer; 0 = nao muda)
+    set_replay_hotkey    : hotkey (string; '' = sem atalho)
+    get_replay_state     : — responde replay_state
+                           (Delphi -> JS: replay_state {enabled, autoStart,
+                           active, saving, sinceMs, maxSec, maxMb,
+                           maxMbLimit, hotkey};
+                           replay_saved {id, name, durationSec})
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
     request_keyframes    : id (filepath) -> keyframes {id, fps, times[]}
@@ -190,6 +209,7 @@ uses
   WinPreview,
   WinAudioMeter,
   WinRecIndicator,
+  WinProcWatch,
   WinWebcam;
 
 const
@@ -235,6 +255,41 @@ const
   // deste prazo pra nao deixar a gravacao "presa".
   TIMER_STOP_TIMEOUT    = 7010;
   STOP_TIMEOUT_MS       = 10_000;
+  // Buffer em memoria: prazo pro sinal "saved" chegar depois de um
+  // "salvar trecho". Generoso de proposito — um buffer de varios GB num
+  // HD mecanico leva dezenas de segundos pra ir pro disco.
+  TIMER_REPLAY_SAVE_TIMEOUT = 7012;
+  REPLAY_SAVE_TIMEOUT_MS    = 120_000;
+  // Buffer em memoria: espera entre a troca de saida e o "save" que fecha o
+  // trecho. E o que faz a emenda entre dois trechos SOBREPOR em vez de
+  // perder um pedaco — o prazo em si vem do Engine (keyframe + folga), que
+  // e quem sabe o keyframe do buffer. Ver TOBSEngine.SaveReplay.
+  TIMER_REPLAY_SAVE_COMMIT  = 7013;
+  // Medicao de RAM enquanto o buffer guarda. O buffer e o unico recurso do
+  // app que cresce sozinho em memoria (video comprimido na RAM), e sem
+  // registro nao ha como separar "o jogo travou por causa do buffer" de
+  // "travou por outra coisa" depois do fato.
+  TIMER_REPLAY_MEM          = 7014;
+  REPLAY_MEM_LOG_MS         = 30_000;
+
+  // Limites do buffer (config 'replayMaxSec' / 'replayMaxMb'). O que
+  // estourar primeiro manda: a libobs descarta do inicio o que passar de
+  // qualquer um dos dois.
+  DEFAULT_REPLAY_MAX_SEC = 300;     // 5 min
+  REPLAY_MIN_SEC         = 10;
+  REPLAY_MAX_SEC         = 3600;
+  DEFAULT_REPLAY_MAX_MB  = 2048;
+  REPLAY_MIN_MB          = 128;
+  REPLAY_MAX_MB          = 32768;
+  // RAM que o teto do buffer NUNCA pode comer. O buffer guarda video
+  // comprimido em memoria e a libobs nao trata falta de memoria: o bmalloc
+  // dela chama bcrash (libobs/util/bmem.c:112) e o processo morre na hora,
+  // levando o buffer junto. Antes disso o Windows ja estaria paginando, que
+  // e justamente o engasgo que o buffer existe pra nao causar.
+  REPLAY_RAM_RESERVE_MB  = 4096;
+  // F10 com Ctrl+Shift: nada comum usa, e um atalho GLOBAL tira a
+  // combinacao de todos os outros apps enquanto o buffer esta ligado.
+  DEFAULT_REPLAY_HOTKEY  = 'Ctrl+Shift+F10';
 
   PFX_MONITOR = 'NoOBS Monitor ';
   PFX_MIC     = 'NoOBS Mic - ';
@@ -278,6 +333,10 @@ const
   // "Break" quando Ctrl esta pressionado). Sem isso, Ctrl+Pause nunca
   // dispara o atalho registrado com VK_PAUSE.
   HK_RECORD_TOGGLE_ALT = 101;
+  // Salvar o trecho do buffer em memoria. So fica registrado com o buffer
+  // LIGADO (ApplyReplayHotkey). O _ALT e o mesmo truque do Ctrl+Pause acima.
+  HK_REPLAY_SAVE       = 102;
+  HK_REPLAY_SAVE_ALT   = 103;
 
 var
   Engine: TOBSEngine = nil;
@@ -305,6 +364,41 @@ var
   ShutdownDone: Boolean = False;
 
   RecordingActive: Boolean = False;
+  // Buffer em memoria rodando (espelho do Engine.IsReplayActive, pro resto
+  // do Bridge nao depender do Engine existir). Exclusivo com a gravacao:
+  // gravar para o buffer, e ele volta quando a gravacao termina se o
+  // ReplayWanted continuar ligado.
+  ReplayActive: Boolean = False;
+  // O usuario QUER o buffer ligado nesta sessao. Diferente de ReplayActive:
+  // durante uma gravacao manual o buffer para, mas a vontade continua — e
+  // e ela que o traz de volta quando a gravacao termina. Nao persiste: o
+  // arranque e decidido pelo 'replayAutoStart' (uma coisa e "ligado agora",
+  // outra e "ligar ao abrir"; num config so, o botao da tela principal
+  // mudaria o comportamento do proximo arranque sem avisar).
+  ReplayWanted: Boolean = False;
+  // Quem ligou o buffer: o watcher de apps (WinProcWatch) ou o usuario. So
+  // desligamos sozinhos o que ligamos sozinhos — mesma regra do
+  // RecordingStartedByMicWatch (pegadinha #47).
+  ReplayStartedByAppWatch: Boolean = False;
+  // Usuario desligou o buffer NA MAO com o app monitorado aberto. Sem isto,
+  // o proximo poll (2 s depois) o religaria e o botao pareceria quebrado.
+  // Zera quando o app monitorado fecha — a supressao vale pra ESTA sessao
+  // do jogo, nao pra sempre.
+  ReplayAppSuppressed: Boolean = False;
+  // Base GetTickCount (Cardinal) pro indicador de tela do buffer, que
+  // trabalha no mesmo relogio do RecordingStartTickMs.
+  ReplayStartTickMs: Cardinal = 0;
+  // Caps de encoder ja detectadas e enviadas nesta sessao (a deteccao cria
+  // encoders de teste, entao roda uma vez so). Ver PushEncoderCapsOnce.
+  EncoderCapsPushed: Boolean = False;
+  // Quanto o buffer tinha guardado no instante do ultimo "salvar" (s). E a
+  // duracao do trecho — medida aqui porque descobri-la lendo o arquivo
+  // custa uma varredura de pacotes (ver OnEngineReplaySaved).
+  ReplayLastClipSec: Integer = 0;
+  // Quando o buffer comecou a guardar — ou quando foi esvaziado pelo
+  // ultimo "salvar trecho". A UI mostra quanto ja tem guardado a partir
+  // disto (limitado ao replayMaxSec).
+  ReplayStartTick: UInt64 = 0;
   // True quando a gravacao atual foi iniciada pelo monitor de microfone
   // (auto-gravacao em chamadas). So essas sao auto-paradas quando o mic e
   // liberado — nunca mata uma gravacao manual.
@@ -2611,7 +2705,9 @@ var
   SrcId, DevName: string;
   UseEndpoint, Eff, Prev: Boolean;
 begin
-  if not RecordingActive then Exit;
+  // O buffer em memoria grava as mesmas fontes: o mudo do endpoint vale
+  // pra ele tambem, senao o trecho salvo sairia com o microfone mutado aberto.
+  if not (RecordingActive or ReplayActive) then Exit;
   if Engine = nil then Exit;
   if MicMuteApplied = nil then Exit;
 
@@ -2869,6 +2965,7 @@ end;
 // Callback do monitor de microfone (WinMicWatch) — definido depois de
 // HandleRecordStart/Stop; forward pra DoInit poder passar a referencia.
 procedure OnMicUseChangedThread(AInUse: Boolean); forward;
+procedure OnReplayAppRunningThread(ARunning: Boolean); forward;
 // Definida bem depois (junto do resto da checagem de versao), mas o DoInit
 // e o tick do TIMER_UPDATE_CHECK ja a chamam aqui em cima.
 procedure MaybeAutoCheckUpdates; forward;
@@ -3092,7 +3189,15 @@ begin
     except on E: Exception do
       Log('AutoRecord: falha ao iniciar WinMicWatch: %s', [E.Message]); end;
 
-  // Clique no indicador de tela (modo "clicar para parar") -> para a gravacao.
+  // Buffer em memoria automatico: liga quando um dos apps monitorados
+  // (jogos, em geral) esta rodando. O Start e no-op com a lista vazia.
+  try WinProcWatch.Start(GetConfigStr('replayAutoApps', ''),
+    OnReplayAppRunningThread);
+  except on E: Exception do
+    Log('Buffer: falha ao iniciar WinProcWatch: %s', [E.Message]); end;
+
+  // Clique no indicador de tela: para a gravacao, ou salva o trecho do
+  // buffer (quem decide e o estado — ver IndicatorClickStop).
   WinRecIndicator.OnClickStop := IndicatorClickStop;
 
   // Checagem de atualizacao: worker thread propria, falha silenciosa, no
@@ -3131,6 +3236,28 @@ end;
 // Comandos vindos do JS
 // =====================================================================
 
+// Buffer em memoria — implementados depois do HandleRecordStop (usam o
+// BuildRecordingPath e a hibernacao), mas a troca de fontes, a gravacao e
+// o dispatch chamam.
+procedure StartReplayBuffer; forward;
+procedure StopReplayBuffer(AArmHibernate: Boolean); forward;
+procedure HandleSaveReplay; forward;
+procedure PushReplayState; forward;
+procedure PushEncoderCapsOnce; forward;
+procedure SyncTranscribePause; forward;
+function  ExportInUse(const APath: string): Boolean; forward;
+
+procedure RestartReplayForSourceChange;
+// Monitor/webcam mudou com o buffer ligado: a cena dele foi montada com as
+// fontes antigas (e o canvas sai delas), entao so recomecando. O que estava
+// guardado e descartado — foi o proprio usuario que mudou o que grava.
+begin
+  if not ReplayActive then Exit;
+  Log('Buffer: fonte de video mudou — recomecando o buffer.');
+  StopReplayBuffer(False);
+  StartReplayBuffer;
+end;
+
 procedure HandleToggleSource(const AId: string; AEnabled: Boolean);
 var
   IsMonitor, IsAudio: Boolean;
@@ -3147,13 +3274,14 @@ begin
   end;
 
   SetSourceEnabled(AId, AEnabled);
+  if IsMonitor then RestartReplayForSourceChange;
 
   // Mic desmarcado nao deve continuar segurado pelo medidor de nivel —
   // senao o Windows segue mostrando o dispositivo "em uso".
   if StartsText(PFX_MIC, AId) then
     try WinAudioMeter.ApplyMicOpenPolicy; except end;
 
-  if RecordingActive and IsAudio and (Engine <> nil) then
+  if (RecordingActive or ReplayActive) and IsAudio and (Engine <> nil) then
     try Engine.SetSourceMuted(AId, not AEnabled); except end;
     // Reaplica a regra combinada na hora. Sem isto, re-habilitar um mic
     // cujo ENDPOINT esta mudo o deixaria audivel ate o proximo tick de
@@ -3203,13 +3331,14 @@ begin
 
   SetSourceHiddenById(AId, AHidden);
   Log('SetSourceHidden: "%s" -> %s', [AId, BoolToStr(AHidden, True)]);
+  if IsMonitor then RestartReplayForSourceChange;
 
   // Mesma regra do toggle: mic oculto nao fica segurado pelo medidor.
   if StartsText(PFX_MIC, AId) then
     try WinAudioMeter.ApplyMicOpenPolicy; except end;
 
   // Gravando + audio: ocultar equivale a desativar, entao muta na hora.
-  if RecordingActive and IsAudio and (Engine <> nil) then
+  if (RecordingActive or ReplayActive) and IsAudio and (Engine <> nil) then
     try Engine.SetSourceMuted(AId, AHidden); except end;
 
   // Audio: ocultar muda o agrupamento de tracks (o calculo ja considera
@@ -3259,7 +3388,11 @@ begin
   Log('OnEngineRecordingStopped: path="%s"', [AOutputPath]);
   // Arquivo integro: libera o botao de gravar.
   PushFinalizing(False);
-  if AOutputPath = '' then Exit;
+  if AOutputPath = '' then
+  begin
+    if ReplayWanted then StartReplayBuffer;
+    Exit;
+  end;
 
   // Persiste layout (canvas + monitores/webcams) + duracao em <hash>.json
   // antes do PushRecordingAdded, pra o ScanSingleRecordingMeta (worker) ja
@@ -3294,6 +3427,11 @@ begin
     try OBSTranscribe.Enqueue(AOutputPath); except
       on E: Exception do Log('Transcricao automatica falhou: %s', [E.Message]);
     end;
+
+  // Buffer em memoria ligado: volta a guardar agora que a gravacao acabou.
+  // Por ULTIMO — montar o buffer refaz a cena e sobrescreve o CurrentLayout
+  // que a meta acima acabou de ler.
+  if ReplayWanted then StartReplayBuffer;
 end;
 
 const
@@ -3418,6 +3556,15 @@ begin
     try Engine.ForceCompleteStop; except end;
   end;
 
+  // Buffer em memoria ligado: gravacao e buffer sao um de cada vez (escolha
+  // do usuario). O que estava guardado e descartado; o buffer volta sozinho
+  // no OnEngineRecordingStopped se o ReplayWanted continuar ligado.
+  if ReplayActive then
+  begin
+    Log('HandleRecordStart: parando o buffer em memoria pra gravar.');
+    StopReplayBuffer(False);
+  end;
+
   T0 := GetTickCount64;
   Log('HandleRecordStart: inicio.');
   PushRefreshBusy(True, 'starting');
@@ -3479,6 +3626,7 @@ begin
       [GetTickCount64 - TStep]);
 
     RecordingActive := True;
+    SyncTranscribePause;
     LastRecordingPath := OutputPath;
     LastRecordingDuration := 0;
     RecordingStartTickMs := GetTickCount;
@@ -3531,6 +3679,7 @@ begin
     on E: Exception do
     begin
       RecordingActive := False;
+      SyncTranscribePause;
       // Reverte os icones caso ja tenhamos trocado pra "recording"
       // antes do erro (defensivo — no-op se nunca trocou).
       try OBSTray.SetTrayRecording(False); except end;
@@ -3539,6 +3688,8 @@ begin
       PushRecordingState;
       Log('HandleRecordStart: FALHOU apos %dms: %s',
         [GetTickCount64 - T0, E.Message]);
+      // A gravacao nao subiu: o buffer que ela derrubou volta.
+      if ReplayWanted then StartReplayBuffer;
     end;
   end;
   PushRefreshBusy(False, 'starting');
@@ -3555,6 +3706,8 @@ begin
     HK_RECORD_TOGGLE, HK_RECORD_TOGGLE_ALT:
       if RecordingActive then HandleRecordStop
       else HandleRecordStart;
+    HK_REPLAY_SAVE, HK_REPLAY_SAVE_ALT:
+      HandleSaveReplay;
   end;
 end;
 
@@ -3567,7 +3720,8 @@ procedure OnWindowHiddenForHibernate;
 //   - Config 'hibernate' desativada (master switch — user prefere
 //     manter full mode em segundo plano)
 begin
-  if RecordingActive then Exit;
+  // Buffer em memoria ligado conta como gravando: hibernar o derrubaria.
+  if RecordingActive or ReplayActive then Exit;
   if MainWindowHandle = 0 then Exit;
   // Default False: hibernar so faz sentido com closeToTray ON (janela
   // some pra bandeja). Sem isso, fechar a janela ja encerra o app e
@@ -3651,6 +3805,7 @@ begin
     OutputPath := Engine.OutputPath;
 
   RecordingActive := False;
+  SyncTranscribePause;
   LastRecordingPath := OutputPath;
   LastRecordingDuration := Elapsed;
   // Restaura icones (remove a bolinha vermelha).
@@ -3731,8 +3886,663 @@ begin
       begin
         Log('RecIndicator: clique no overlay — parando a gravacao.');
         HandleRecordStop;
+      end
+      else if ReplayActive then
+      begin
+        // No modo buffer o overlay nao para nada — ele SALVA. Parar seria
+        // destrutivo (o buffer so existe na RAM) e o usuario nao tem como
+        // desfazer; salvar e a acao que ele quer com o dedo ali.
+        Log('RecIndicator: clique no overlay — salvando o trecho do buffer.');
+        HandleSaveReplay;
       end;
     end);
+end;
+
+// ---------------------------------------------------------------------
+// Buffer em memoria (replay buffer)
+// ---------------------------------------------------------------------
+//
+// Grava continuamente na RAM (saida replay_buffer da libobs) guardando os
+// ultimos replayMaxSec segundos ou replayMaxMb MB. O atalho (replayHotkey)
+// ou o botao salvam o que esta guardado como uma gravacao normal da
+// biblioteca e ESVAZIAM o buffer — salvar de novo logo depois so tem a
+// continuacao. Detalhes do "esvaziar" em TOBSEngine.SaveReplay.
+//
+// Exclusivo com a gravacao manual (escolha do usuario): gravar desliga o
+// buffer (o que estava guardado e descartado) e, ao terminar a gravacao, o
+// buffer volta sozinho se o usuario nao o desligou no meio (ReplayWanted).
+
+function ReplayMaxSecCfg: Integer;
+begin
+  Result := GetConfigInt('replayMaxSec', DEFAULT_REPLAY_MAX_SEC);
+  if Result < REPLAY_MIN_SEC then Result := REPLAY_MIN_SEC
+  else if Result > REPLAY_MAX_SEC then Result := REPLAY_MAX_SEC;
+end;
+
+function ReplayMemLimitMb: Integer;
+// Teto de memoria do buffer NESTA maquina: RAM instalada menos a reserva.
+// Vale pra UI (ultimo item do seletor) e pro clamp do config — um valor
+// editado a mao no JSON tambem passa por aqui.
+var
+  MS: TMemoryStatusEx;
+begin
+  Result := REPLAY_MAX_MB;
+  FillChar(MS, SizeOf(MS), 0);
+  MS.dwLength := SizeOf(MS);
+  if GlobalMemoryStatusEx(MS) then
+    Result := Integer(Int64(MS.ullTotalPhys) div (1024 * 1024)) -
+              REPLAY_RAM_RESERVE_MB;
+  if Result > REPLAY_MAX_MB then Result := REPLAY_MAX_MB;
+  // Maquina com pouca RAM: o minimo ainda vale, senao nao daria pra ligar
+  // o buffer de jeito nenhum.
+  if Result < REPLAY_MIN_MB then Result := REPLAY_MIN_MB;
+end;
+
+function ReplayMaxMbCfg: Integer;
+var
+  Limit: Integer;
+begin
+  Result := GetConfigInt('replayMaxMb', DEFAULT_REPLAY_MAX_MB);
+  Limit := ReplayMemLimitMb;
+  if Result < REPLAY_MIN_MB then Result := REPLAY_MIN_MB
+  else if Result > Limit then Result := Limit;
+end;
+
+function ReplayTempDir: string;
+// Onde a libobs escreve cada trecho antes de ele ir pra pasta de gravacao.
+// FORA da pasta de gravacao de proposito: o OBSRecordWatch veria o .mkv
+// nascer ainda vazio e o card sairia com o tamanho parcial (pegadinha
+// #51e). Daqui o arquivo so sai completo.
+var
+  Base: string;
+begin
+  Base := GetEnvironmentVariable('LOCALAPPDATA');
+  if Base = '' then Base := GetEnvironmentVariable('APPDATA');
+  Result := IncludeTrailingPathDelimiter(Base) + 'NoOBS\buffer';
+  ForceDirectories(Result);
+end;
+
+type
+  // PROCESS_MEMORY_COUNTERS_EX: a versao com PrivateUsage (o "memoria
+  // privada" do gerenciador de tarefas), que e o numero que interessa —
+  // o working set sozinho encolhe quando o Windows apara o processo, que
+  // e justamente o que acontece sob pressao.
+  TProcMemCountersEx = record
+    cb: DWORD;
+    PageFaultCount: DWORD;
+    PeakWorkingSetSize: NativeUInt;
+    WorkingSetSize: NativeUInt;
+    QuotaPeakPagedPoolUsage: NativeUInt;
+    QuotaPagedPoolUsage: NativeUInt;
+    QuotaPeakNonPagedPoolUsage: NativeUInt;
+    QuotaNonPagedPoolUsage: NativeUInt;
+    PagefileUsage: NativeUInt;
+    PeakPagefileUsage: NativeUInt;
+    PrivateUsage: NativeUInt;
+  end;
+
+function GetProcessMemoryInfoEx(Process: THandle;
+  var ppsmemCounters: TProcMemCountersEx; cb: DWORD): BOOL; stdcall;
+  external 'psapi.dll' name 'GetProcessMemoryInfo';
+
+function GbStr(ABytes: UInt64): string;
+begin
+  Result := Format('%.2f GB', [ABytes / (1024 * 1024 * 1024)]);
+end;
+
+procedure LogMemUsage(const AWhen: string);
+// Uma linha por marco do buffer (ligou, salvou, parou) e a cada 30 s
+// enquanto guarda. Barato: duas chamadas de API, sem I/O.
+var
+  PM: TProcMemCountersEx;
+  MS: TMemoryStatusEx;
+  Priv, WS, FreeMb, TotalMb: UInt64;
+begin
+  Priv := 0; WS := 0; FreeMb := 0; TotalMb := 0;
+  FillChar(PM, SizeOf(PM), 0);
+  PM.cb := SizeOf(PM);
+  if GetProcessMemoryInfoEx(GetCurrentProcess, PM, SizeOf(PM)) then
+  begin
+    Priv := PM.PrivateUsage;
+    WS := PM.WorkingSetSize;
+  end;
+  FillChar(MS, SizeOf(MS), 0);
+  MS.dwLength := SizeOf(MS);
+  if GlobalMemoryStatusEx(MS) then
+  begin
+    FreeMb := MS.ullAvailPhys;
+    TotalMb := MS.ullTotalPhys;
+  end;
+  Log('Buffer RAM [%s]: NoOBS privado=%s working set=%s | sistema livre=%s de %s',
+    [AWhen, GbStr(Priv), GbStr(WS), GbStr(FreeMb), GbStr(TotalMb)]);
+end;
+
+procedure SyncTranscribePause;
+// Transcrever le a gravacao INTEIRA do disco (extrair o audio de um arquivo
+// de varios GB) e sobe dezenas de MB pro servidor. Fazer isso enquanto se
+// grava — ou enquanto o buffer guarda, que e quando tem jogo rodando — tira
+// da maquina justamente o que a captura precisa. Entao a fila fica segura
+// nos dois casos e anda quando a captura termina. Os itens NAO se perdem:
+// a fila e persistida em disco (pegadinha #60n).
+begin
+  try OBSTranscribe.SetPaused(RecordingActive or ReplayActive); except end;
+end;
+
+// Mostra o indicador do buffer lendo as prefs dele. Reaproveita o overlay
+// do indicador de gravacao no modo imBuffer — os dois nunca coexistem (o
+// buffer para enquanto a gravacao manual roda).
+procedure ShowReplayIndicatorFromConfig;
+begin
+  if not GetConfigBool('replayIndicator', True) then Exit;
+  try
+    WinRecIndicator.ShowIndicator(
+      WinRecIndicator.ParseCorner(GetConfigStr('replayIndicatorCorner', 'top-right')),
+      ReplayStartTickMs,
+      GetConfigInt('replayIndicatorOpacity', 90),
+      WinRecIndicator.imBuffer,
+      ReplayMaxSecCfg);
+  except
+    on E: Exception do
+      Log('Buffer: falha ao mostrar o indicador: %s', [E.Message]);
+  end;
+end;
+
+// Esconde o overlay SO se ele estiver no modo buffer: no modo gravacao ele
+// e de outro dono, e esconder aqui apagaria o indicador da gravacao.
+procedure HideReplayIndicator;
+begin
+  if not WinRecIndicator.IsShowing then Exit;
+  if WinRecIndicator.CurrentMode <> WinRecIndicator.imBuffer then Exit;
+  try WinRecIndicator.HideIndicator; except end;
+end;
+
+procedure PushReplayState;
+var
+  Obj: TJSONObject;
+  Since: Int64;
+begin
+  Since := 0;
+  if ReplayActive then Since := Int64(GetTickCount64 - ReplayStartTick);
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'replay_state');
+  Obj.AddPair('enabled', TJSONBool.Create(ReplayWanted));
+  Obj.AddPair('autoStart',
+    TJSONBool.Create(GetConfigBool('replayAutoStart', False)));
+  Obj.AddPair('active', TJSONBool.Create(ReplayActive));
+  Obj.AddPair('saving', TJSONBool.Create((Engine <> nil) and Engine.IsReplaySaving));
+  // Ha quanto tempo o buffer esta guardando (ou desde o ultimo "salvar").
+  // A UI desconta localmente a cada segundo e limita ao maxSec.
+  Obj.AddPair('sinceMs', TJSONNumber.Create(Since));
+  Obj.AddPair('maxSec', TJSONNumber.Create(ReplayMaxSecCfg));
+  Obj.AddPair('maxMb', TJSONNumber.Create(ReplayMaxMbCfg));
+  // Teto desta maquina (RAM - reserva): a UI monta o ultimo item do
+  // seletor com ele e nao oferece nada acima.
+  Obj.AddPair('maxMbLimit', TJSONNumber.Create(ReplayMemLimitMb));
+  Obj.AddPair('hotkey', GetConfigStr('replayHotkey', DEFAULT_REPLAY_HOTKEY));
+  // Apps que ligam o buffer sozinho + indicador de tela. Tudo que a aba
+  // Buffer mostra vem deste push, pra a tela nunca divergir do backend.
+  Obj.AddPair('apps', GetConfigStr('replayAutoApps', ''));
+  Obj.AddPair('indicator',
+    TJSONBool.Create(GetConfigBool('replayIndicator', True)));
+  Obj.AddPair('indicatorCorner',
+    GetConfigStr('replayIndicatorCorner', 'top-right'));
+  Obj.AddPair('indicatorOpacity',
+    TJSONNumber.Create(GetConfigInt('replayIndicatorOpacity', 90)));
+  PostOwned(Obj);
+end;
+
+procedure UnregisterReplayHotkey;
+begin
+  UnregisterGlobalHotkey(HK_REPLAY_SAVE);
+  UnregisterGlobalHotkey(HK_REPLAY_SAVE_ALT);
+end;
+
+procedure ApplyReplayHotkey;
+// So registra com o buffer LIGADO: desligado o atalho nao faria nada e
+// ainda tiraria a combinacao de todos os outros apps.
+var
+  Spec, Reason: string;
+  HK: THotkeySpec;
+begin
+  UnregisterReplayHotkey;
+  if not ReplayActive then Exit;
+  Spec := GetConfigStr('replayHotkey', DEFAULT_REPLAY_HOTKEY);
+  if Spec.Trim = '' then
+  begin
+    Log('Buffer: atalho de salvar desativado (config vazia).');
+    Exit;
+  end;
+  HK := ParseHotkey(Spec);
+  if not HK.Valid then
+  begin
+    Log('Buffer: atalho invalido "%s" — ignorado.', [Spec]);
+    Exit;
+  end;
+  if IsReservedHotkey(HK.Modifiers, HK.Vk, Reason) then
+  begin
+    Log('Buffer: atalho "%s" e reservado pelo Windows (%s) — ignorado.',
+      [Spec, Reason]);
+    Exit;
+  end;
+  if RegisterGlobalHotkey(HK_REPLAY_SAVE, HK.Modifiers, HK.Vk) then
+    Log('Buffer: atalho de salvar registrado "%s".', [Spec])
+  else
+    Log('Buffer: RegisterHotKey falhou pra "%s" (outro app, ou o atalho de ' +
+      'gravar, ja usa a combinacao).', [Spec]);
+  // Mesmo alias do atalho de gravar: Ctrl+Pause chega como VK_CANCEL.
+  if (HK.Vk = VK_PAUSE) and ((HK.Modifiers and MOD_CONTROL) <> 0) then
+    RegisterGlobalHotkey(HK_REPLAY_SAVE_ALT, HK.Modifiers, VK_CANCEL);
+end;
+
+procedure FinishReplaySaved(const APath: string; AOk: Boolean;
+  const AErr: string; ADurSec: Integer; const ALayout: TRecordingLayout;
+  const AEncoderId: string);
+// Main thread, com o trecho ja na pasta de gravacao. Faz o que o
+// OnEngineRecordingStopped faz numa gravacao normal: meta, card, aviso e
+// transcricao automatica.
+var
+  Meta: TRecordingMeta;
+  Obj: TJSONObject;
+begin
+  // Aqui o pico do salvamento ja passou (saida antiga liberada, arquivo
+  // fechado): e o ponto que mostra se a RAM do buffer antigo voltou.
+  LogMemUsage('trecho salvo');
+  if not AOk then
+  begin
+    Log('Buffer: nao consegui mover o trecho pra pasta de gravacao: %s', [AErr]);
+    PostError(OBSLang.T('error.replaySaveFailed'));
+    Exit;
+  end;
+
+  Meta := Default(TRecordingMeta);
+  Meta.DurationSec := ADurSec;
+  Meta.Layout := ALayout;
+  DescribeEncoderId(AEncoderId, Meta.Codec, Meta.CodecHw);
+  Meta.Fps := GetConfigInt('recordingFps', 30);
+  Meta.QualityLevel := GetRecordingQualityLevel;
+  try
+    OBSPlayer.SaveRecordingMeta(APath, Meta);
+  except
+    on E: Exception do Log('Buffer: SaveRecordingMeta falhou: %s', [E.Message]);
+  end;
+
+  PushRecordingAdded(APath, ADurSec);
+
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'replay_saved');
+  Obj.AddPair('id', APath);
+  Obj.AddPair('name', ExtractFileName(APath));
+  Obj.AddPair('durationSec', TJSONNumber.Create(ADurSec));
+  PostOwned(Obj);
+  // Com a janela escondida (o caso comum: jogando) o toast da UI nao
+  // aparece; a notificacao da bandeja sim.
+  MaybeNotifyRecord('NoOBS', OBSLang.T('replay.savedNotify',
+    ['min', IntToStr(ADurSec div 60), 'sec', Format('%.2d', [ADurSec mod 60])]));
+
+  if GetConfigBool('transcribeOnStop', True) then
+    try OBSTranscribe.Enqueue(APath); except
+      on E: Exception do Log('Buffer: transcricao automatica falhou: %s', [E.Message]);
+    end;
+end;
+
+procedure OnEngineReplaySaved(const ATempPath: string);
+// Callback do Engine (main thread) quando o trecho terminou de ser escrito
+// na pasta temporaria. Move pra pasta de gravacao em WORKER: se a pasta de
+// gravacao estiver noutro disco o "move" vira copia de ate replayMaxMb.
+var
+  Dest, EncId: string;
+  Layout: TRecordingLayout;
+  EstSec: Integer;
+begin
+  if MainWindowHandle <> 0 then
+  begin
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT);
+  end;
+  PushReplayState;
+  if (ATempPath = '') or not TFile.Exists(ATempPath) then
+  begin
+    Log('Buffer: "saved" sem arquivo ("%s").', [ATempPath]);
+    PostError(OBSLang.T('error.replaySaveFailed'));
+    Exit;
+  end;
+
+  // Nome pelo modelo do usuario, igual a uma gravacao manual, no instante
+  // do "salvar".
+  Dest := BuildRecordingPath(Now);
+  // Lidos AGORA, na main: o layout e o encoder sao os da sessao do buffer,
+  // e um proximo start de gravacao os sobrescreveria.
+  Layout := Engine.CurrentLayout;
+  EncId := Engine.VideoEncoderId;
+  EstSec := ReplayLastClipSec;
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Final, Err: string;
+      Ok: Boolean;
+      Rep: TProbeReport;
+      Dur, N: Integer;
+    begin
+      Ok := False;
+      Err := '';
+      Dur := 0;
+      // O BuildRecordingPath evita colisao com o que JA existe; dois
+      // trechos salvos no mesmo segundo ainda poderiam cair no mesmo nome
+      // se o anterior nao tivesse terminado de mover.
+      Final := Dest;
+      N := 2;
+      while TFile.Exists(Final) do
+      begin
+        Final := ChangeFileExt(Dest, '') + Format(' (%d)', [N]) + ExtractFileExt(Dest);
+        Inc(N);
+      end;
+      try
+        TFile.Move(ATempPath, Final);
+        Ok := True;
+      except
+        on E: Exception do Err := E.Message;
+      end;
+      if Ok then
+      begin
+        // DURACAO SEM LER O ARQUIVO. O MKV do replay_buffer nao traz
+        // Duration no header, entao o Probe cairia no ScanDurationByPackets
+        // — varredura do arquivo INTEIRO (medido: 9 s num trecho de 5,6 GB),
+        // logo depois de o muxer ja ter escrito esses mesmos GB, e com o
+        // jogo rodando. O tempo guardado no instante do "salvar" da a mesma
+        // resposta de graca. So cai no Probe se, por algum motivo, nao
+        // houver medida (0).
+        Dur := EstSec;
+        if Dur <= 0 then
+          try
+            if Probe(Final, Rep) then Dur := Round(Rep.Duration);
+          except end;
+      end;
+      if IsShuttingDown then Exit;
+      TThread.Queue(nil,
+        procedure
+        begin
+          FinishReplaySaved(Final, Ok, Err, Dur, Layout, EncId);
+        end);
+    end).Start;
+end;
+
+procedure StartReplayBuffer;
+begin
+  if ReplayActive or RecordingActive then Exit;
+  // Gravacao ainda finalizando: o OnEngineRecordingStopped chama de novo
+  // quando o arquivo fechar.
+  if (Engine <> nil) and Engine.IsStopping then Exit;
+  try
+    if Engine = nil then
+    begin
+      Engine := TOBSEngine.Create;
+      Engine.OnStopped := OnEngineRecordingStopped;
+    end;
+    Engine.OnReplaySaved := OnEngineReplaySaved;
+    Engine.EnsureInitialized;
+    PushEncoderCapsOnce;
+    OBSEngine.ResetAudioCaptureFault;
+    Engine.BuildAndStartReplay(ReplayTempDir, ReplayMaxSecCfg, ReplayMaxMbCfg);
+    ReplayActive := True;
+    ReplayStartTick := GetTickCount64;
+    ReplayStartTickMs := GetTickCount;
+    ShowReplayIndicatorFromConfig;
+    SyncTranscribePause;
+    LogMemUsage('buffer ligado');
+    // Mede a RAM de tempos em tempos enquanto guarda.
+    if MainWindowHandle <> 0 then
+      SetTimer(MainWindowHandle, TIMER_REPLAY_MEM, REPLAY_MEM_LOG_MS, nil);
+    // Sessao nova = fontes novas (mesma regra do HandleRecordStart).
+    if MicMuteApplied <> nil then MicMuteApplied.Clear;
+    // Buffer ligado = o app tem que ficar acordado pra continuar guardando.
+    if MainWindowHandle <> 0 then
+      KillTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE);
+    ApplyReplayHotkey;
+  except
+    on E: Exception do
+    begin
+      ReplayActive := False;
+      Log('Buffer: falhou ao iniciar: %s', [E.Message]);
+      PostError(OBSLang.T('error.replayStartFailed', ['error', E.Message]));
+    end;
+  end;
+  PushReplayState;
+end;
+
+procedure StopReplayBuffer(AArmHibernate: Boolean);
+begin
+  if MainWindowHandle <> 0 then
+  begin
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT);
+  end;
+  UnregisterReplayHotkey;
+  HideReplayIndicator;
+  if ReplayActive then LogMemUsage('buffer parando');
+  if MainWindowHandle <> 0 then
+    KillTimer(MainWindowHandle, TIMER_REPLAY_MEM);
+  if ReplayActive and (Engine <> nil) then
+    try Engine.StopReplay; except
+      on E: Exception do Log('Buffer: StopReplay levantou: %s', [E.Message]);
+    end;
+  ReplayActive := False;
+  SyncTranscribePause;
+  PushReplayState;
+  // Desligado com a janela escondida: o app volta a poder hibernar.
+  if AArmHibernate and (MainWindowHandle <> 0) and
+     ((not IsWindowVisible(MainWindowHandle)) or IsIconic(MainWindowHandle)) then
+    OnWindowHiddenForHibernate;
+end;
+
+procedure HandleSaveReplay;
+begin
+  if (not ReplayActive) or (Engine = nil) then Exit;
+  if Engine.IsReplaySaving then
+  begin
+    Log('Buffer: salvar ignorado — o trecho anterior ainda esta sendo gravado.');
+    PushReplayState;
+    Exit;
+  end;
+  if Engine.SaveReplay then
+  begin
+    // DURACAO DO TRECHO, medida aqui: e o tempo que o buffer tinha guardado
+    // (saturado no teto, que e o que a libobs mantem). Descobrir isso lendo
+    // o arquivo custa uma varredura de pacotes inteira — 9 s num trecho de
+    // 5,6 GB, com o jogo rodando (ver OnEngineReplaySaved).
+    ReplayLastClipSec := Integer((GetTickCount - ReplayStartTickMs) div 1000);
+    if ReplayLastClipSec > ReplayMaxSecCfg then
+      ReplayLastClipSec := ReplayMaxSecCfg;
+    LogMemUsage('salvando trecho');
+    // O buffer esvaziou: a contagem do que esta guardado recomeca — na UI
+    // e no indicador de tela.
+    ReplayStartTick := GetTickCount64;
+    ReplayStartTickMs := GetTickCount;
+    ShowReplayIndicatorFromConfig;
+    if MainWindowHandle <> 0 then
+    begin
+      SetTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT,
+        REPLAY_SAVE_TIMEOUT_MS, nil);
+      // Trecho ainda aberto de proposito: fecha so depois do keyframe de
+      // abertura da saida nova, pra os dois arquivos se sobreporem.
+      if Engine.IsReplaySaveCommitPending then
+        SetTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT,
+          Engine.ReplaySaveCommitDelayMs, nil);
+    end;
+  end;
+  PushReplayState;
+end;
+
+procedure HandleSetReplayEnabled(AEnabled: Boolean);
+begin
+  ReplayWanted := AEnabled;
+  if not AEnabled then
+  begin
+    // Desligou na mao: se foi o watcher de apps que tinha ligado, ele nao
+    // pode religar enquanto o app seguir aberto.
+    if ReplayStartedByAppWatch then ReplayAppSuppressed := True;
+    ReplayStartedByAppWatch := False;
+  end;
+  Log('Buffer: %s pelo usuario.', [IfThen(AEnabled, 'ligado', 'desligado')]);
+  if AEnabled then
+  begin
+    // Gravando: o buffer entra sozinho quando a gravacao terminar
+    // (OnEngineRecordingStopped). So avisa a UI do estado novo.
+    if RecordingActive then PushReplayState
+    else StartReplayBuffer;
+  end
+  else
+    StopReplayBuffer(True);
+end;
+
+procedure OnReplayAppRunningThread(ARunning: Boolean);
+// Callback do WinProcWatch — roda NA THREAD do watcher. Marshalla pra main
+// (libobs/UI so na main). Regra: liga quando um app monitorado aparece,
+// desliga quando o ultimo fecha — e so desliga o que NOS ligamos.
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if IsShuttingDown then Exit;
+      // Lista pode ter sido esvaziada entre o poll e o Queue.
+      if Trim(GetConfigStr('replayAutoApps', '')) = '' then Exit;
+      if ARunning then
+      begin
+        // Usuario desligou o buffer na mao com o app aberto: respeita ate
+        // o app fechar (senao o proximo poll desfaria o gesto dele).
+        if ReplayAppSuppressed then Exit;
+        if ReplayWanted then Exit;
+        Log('Buffer: app monitorado em execucao — ligando o buffer.');
+        ReplayWanted := True;
+        ReplayStartedByAppWatch := True;
+        if RecordingActive then PushReplayState
+        else StartReplayBuffer;
+      end
+      else
+      begin
+        // O app fechou: a supressao era daquela sessao dele.
+        ReplayAppSuppressed := False;
+        if ReplayWanted and ReplayStartedByAppWatch then
+        begin
+          Log('Buffer: nenhum app monitorado rodando — desligando o buffer.');
+          ReplayWanted := False;
+          StopReplayBuffer(True);
+        end;
+        ReplayStartedByAppWatch := False;
+      end;
+    end);
+end;
+
+procedure HandleSetReplayApps(const AApps: string);
+// Lista de programas que ligam o buffer sozinho. Vazia = recurso desligado
+// (o WinProcWatch nem sobe).
+begin
+  SetConfigStr('replayAutoApps', Trim(AApps));
+  Log('Buffer: apps que ligam o buffer = "%s".', [Trim(AApps)]);
+  try WinProcWatch.UpdateFilter(Trim(AApps)); except
+    on E: Exception do Log('Buffer: UpdateFilter falhou: %s', [E.Message]);
+  end;
+  // Lista esvaziada com o buffer ligado POR ELA: nao ha mais quem desligue
+  // depois, entao desliga agora — senao o buffer ficaria preso ligado.
+  if (Trim(AApps) = '') and ReplayStartedByAppWatch then
+  begin
+    ReplayStartedByAppWatch := False;
+    ReplayWanted := False;
+    StopReplayBuffer(True);
+  end;
+  ReplayAppSuppressed := False;
+  PushReplayState;
+end;
+
+procedure HandleSetReplayIndicator(AEnable: Boolean);
+begin
+  SetConfigBool('replayIndicator', AEnable);
+  Log('Buffer: indicador de tela = %s.', [BoolToStr(AEnable, True)]);
+  if AEnable then
+  begin
+    if ReplayActive then ShowReplayIndicatorFromConfig;
+  end
+  else
+    HideReplayIndicator;
+  PushReplayState;
+end;
+
+procedure HandleSetReplayIndicatorCorner(const ACorner: string);
+begin
+  SetConfigStr('replayIndicatorCorner', ACorner);
+  // Reposiciona na hora se estiver na tela (o ShowIndicator reaproveita a
+  // janela existente).
+  if ReplayActive then ShowReplayIndicatorFromConfig;
+  PushReplayState;
+end;
+
+procedure HandleSetReplayIndicatorOpacity(AOpacity: Integer);
+begin
+  if AOpacity < 20 then AOpacity := 20
+  else if AOpacity > 100 then AOpacity := 100;
+  SetConfigInt('replayIndicatorOpacity', AOpacity);
+  // Slider ao vivo: aplica na janela viva, sem recriar.
+  if WinRecIndicator.IsShowing and
+     (WinRecIndicator.CurrentMode = WinRecIndicator.imBuffer) then
+    try WinRecIndicator.SetOpacity(AOpacity); except end;
+end;
+
+procedure HandleSetReplayAutoStart(AAutoStart: Boolean);
+// "Ligar o buffer ao abrir o NoOBS". Preferencia de ARRANQUE, separada do
+// liga/desliga da tela principal: marcar aqui nao liga o buffer agora, e
+// desligar o buffer agora nao desmarca isto. Quem grava jogo deixa marcado
+// e esquece; quem usa de vez em quando liga na hora.
+begin
+  SetConfigBool('replayAutoStart', AAutoStart);
+  Log('Buffer: iniciar junto com o app = %s.',
+    [IfThen(AAutoStart, 'sim', 'nao')]);
+  PushReplayState;
+end;
+
+procedure HandleSetReplayLimits(AMaxSec, AMaxMb: Integer);
+begin
+  if AMaxSec > 0 then SetConfigInt('replayMaxSec', AMaxSec);
+  if AMaxMb > 0 then SetConfigInt('replayMaxMb', AMaxMb);
+  // Clamp pela leitura (ReplayMaxSecCfg/MbCfg), como o resto do config.
+  if ReplayActive and (Engine <> nil) then
+    Engine.SetReplayLimits(ReplayMaxSecCfg, ReplayMaxMbCfg);
+  PushReplayState;
+end;
+
+procedure HandleSetReplayHotkey(const ASpec: string);
+// Mesma regra do HandleSetHotkey, com uma a mais: nao pode ser a mesma
+// combinacao do atalho de gravar (RegisterHotKey recusaria a segunda).
+var
+  HK: THotkeySpec;
+  Normalized, Reason: string;
+begin
+  Normalized := ASpec.Trim;
+  if Normalized <> '' then
+  begin
+    HK := ParseHotkey(Normalized);
+    if not HK.Valid then
+    begin
+      Log('HandleSetReplayHotkey: spec invalido "%s" — ignorado.', [Normalized]);
+      Exit;
+    end;
+    if IsReservedHotkey(HK.Modifiers, HK.Vk, Reason) then
+    begin
+      Log('HandleSetReplayHotkey: "%s" reservado (%s) — ignorado.',
+        [Normalized, Reason]);
+      Exit;
+    end;
+    Normalized := FormatHotkey(HK.Modifiers, HK.Vk);
+    if SameText(Normalized, GetConfigStr('hotkey', 'Pause/Break')) then
+    begin
+      Log('HandleSetReplayHotkey: "%s" ja e o atalho de gravar — ignorado.',
+        [Normalized]);
+      PostError(OBSLang.T('error.replayHotkeyConflict'));
+      Exit;
+    end;
+  end;
+  SetConfigStr('replayHotkey', Normalized);
+  ApplyReplayHotkey;
+  PushReplayState;
 end;
 
 // ---------------------------------------------------------------------
@@ -3907,6 +4717,11 @@ var
   Obj: TJSONObject;
 begin
   if (AOldPath = '') or (ANewName = '') then Exit;
+  if ExportInUse(AOldPath) then
+  begin
+    PostError(OBSLang.T('error.exportBusyFile'));
+    Exit;
+  end;
   if not IsPathInRecordDir(AOldPath) then
   begin
     Log('HandleRenameRecording: path fora da pasta de gravacao, ignorado: %s',
@@ -4578,6 +5393,9 @@ begin
   Obj.AddPair('languagePref', GetConfigStr('language', ''));
   Obj.AddPair('availableLanguages', OBSLang.GetAvailableLanguages);
   PostOwned(Obj);
+  // Buffer em memoria: estado + limites + atalho viajam num push proprio,
+  // o mesmo que a tela principal recebe a cada mudanca.
+  PushReplayState;
 end;
 
 procedure HandleSetAutostart(AEnable: Boolean);
@@ -4991,6 +5809,11 @@ var
   PathCopy: string;
 begin
   if APath = '' then Exit;
+  if ExportInUse(APath) then
+  begin
+    PostError(OBSLang.T('error.exportBusyFile'));
+    Exit;
+  end;
   if not IsPathInRecordDir(APath) then
   begin
     Log('HandleDeleteRecording: path fora da pasta de gravacao, ignorado: %s',
@@ -5335,6 +6158,12 @@ begin
          SameText(Src, LastRecordingPath) then
       begin
         PostError(OBSLang.T('error.moveWhileRecording'));
+        Continue;
+      end;
+      // Exportacao em andamento: o FFmpegExport esta lendo este arquivo.
+      if ExportInUse(Src) then
+      begin
+        PostError(OBSLang.T('error.exportBusyFile'));
         Continue;
       end;
     end;
@@ -6137,6 +6966,14 @@ begin
       PostError(OBSLang.T('error.fileNotFound'));
       Exit;
     end;
+    // Unir MOVE os originais pra lixeira no fim — nao pode levar junto o
+    // arquivo que a exportacao esta lendo.
+    if ExportInUse(Path) then
+    begin
+      PushMergeDone(False);
+      PostError(OBSLang.T('error.exportBusyFile'));
+      Exit;
+    end;
     Paths[i] := Path;
     try Inc(TotalSize, TFile.GetSize(Path)); except end;
   end;
@@ -6253,6 +7090,11 @@ var
   // Uma exportacao por vez. O botao fica desabilitado na UI, mas o guard
   // aqui e a garantia de verdade (mensagem forjada, duplo clique, etc).
   ExportBusy: Boolean = False;
+  // Gravacao de ORIGEM da exportacao em curso. Vazio quando nao ha
+  // exportacao. Serve pra dois fins: a UI desenha a barra no card certo, e
+  // os caminhos que mexem no arquivo (excluir, renomear, mover, unir)
+  // recusam enquanto ele esta sendo lido. Ver ExportInUse.
+  ExportSourcePath: string = '';
   // Lido pela thread de exportacao a cada pacote. 0 = segue, 1 = aborta.
   ExportCancelFlag: Integer = 0;
   ExportLastPushTick: Cardinal = 0;
@@ -6262,12 +7104,25 @@ const
   // centenas de mensagens por segundo e a fila do WebView engasga.
   EXPORT_PROGRESS_MS = 250;
 
+function ExportInUse(const APath: string): Boolean;
+// True se APath e a gravacao que esta sendo exportada agora. Quem for
+// excluir/renomear/mover o arquivo tem que perguntar antes: o FFmpegExport
+// esta lendo esse mesmo arquivo do comeco ao fim, e mexer nele no meio
+// quebra a exportacao (no melhor caso; no pior deixa um .part orfao e a
+// gravacao na lixeira).
+begin
+  Result := ExportBusy and (ExportSourcePath <> '') and
+            SameText(APath, ExportSourcePath);
+end;
+
 procedure PushExportProgress(APct: Double);
 var Obj: TJSONObject;
 begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'export_progress');
   Obj.AddPair('pct', TJSONNumber.Create(APct));
+  // Id da ORIGEM: com a tela fechada, a barra vive no card dela.
+  Obj.AddPair('id', ExportSourcePath);
   PostOwned(Obj);
 end;
 
@@ -6279,6 +7134,8 @@ begin
   Obj.AddPair('ok', TJSONBool.Create(AOk));
   Obj.AddPair('canceled', TJSONBool.Create(ACanceled));
   Obj.AddPair('path', APath);
+  // Card da origem: e nele que a UI apaga a barra de progresso.
+  Obj.AddPair('sourceId', ExportSourcePath);
   PostOwned(Obj);
 end;
 
@@ -6554,6 +7411,7 @@ begin
   end;
 
   ExportBusy := True;
+  ExportSourcePath := SrcPath;
   TInterlocked.Exchange(ExportCancelFlag, 0);
   ExportLastPushTick := 0;
   PushExportProgress(0);
@@ -6622,8 +7480,14 @@ begin
       TThread.Queue(nil,
         procedure
         begin
+          // ExportSourcePath so e limpo DEPOIS dos pushes abaixo: e ele
+          // que diz a UI em qual card apagar a barra (PushExportDone).
           ExportBusy := False;
-          if IsShuttingDown then Exit;
+          if IsShuttingDown then
+          begin
+            ExportSourcePath := '';
+            Exit;
+          end;
           case Res of
             erOk:
               begin
@@ -6644,6 +7508,7 @@ begin
               PostError(OBSLang.T('error.exportFailed'));
             end;
           end;
+          ExportSourcePath := '';
         end);
     end).Start;
 end;
@@ -6788,6 +7653,26 @@ begin
       HandleSetFilenamePattern(GetStrField(Obj, 'pattern'))
     else if MsgType = 'set_hotkey' then
       HandleSetHotkey(GetStrField(Obj, 'hotkey'))
+    else if MsgType = 'set_replay_enabled' then
+      HandleSetReplayEnabled(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'save_replay' then
+      HandleSaveReplay
+    else if MsgType = 'set_replay_apps' then
+      HandleSetReplayApps(GetStrField(Obj, 'apps'))
+    else if MsgType = 'set_replay_indicator' then
+      HandleSetReplayIndicator(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_replay_indicator_corner' then
+      HandleSetReplayIndicatorCorner(GetStrField(Obj, 'corner'))
+    else if MsgType = 'set_replay_indicator_opacity' then
+      HandleSetReplayIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
+    else if MsgType = 'set_replay_autostart' then
+      HandleSetReplayAutoStart(GetBoolField(Obj, 'autoStart'))
+    else if MsgType = 'set_replay_limits' then
+      HandleSetReplayLimits(GetIntField(Obj, 'maxSec', 0), GetIntField(Obj, 'maxMb', 0))
+    else if MsgType = 'set_replay_hotkey' then
+      HandleSetReplayHotkey(GetStrField(Obj, 'hotkey'))
+    else if MsgType = 'get_replay_state' then
+      PushReplayState
     else if MsgType = 'validate_hotkey' then
       HandleValidateHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'set_autostart' then
@@ -6991,8 +7876,9 @@ end;
 
 procedure PushEncoderCaps;
 // Detecta encoders disponiveis e envia pra UI: quais codecs sao
-// suportados + logo do vendor do GPU. UI usa pra habilitar opcoes
-// no select e mostrar o icone (AMD/NVIDIA/INTEL).
+// suportados + logo do vendor do GPU (e a lista de encoders da EXPORTACAO,
+// que e outra: libavcodec, nao libobs — pegadinha #51). UI usa pra
+// habilitar opcoes nos selects e mostrar o icone (AMD/NVIDIA/INTEL).
 var
   Caps: TEncoderCaps;
   Obj, ExpObj: TJSONObject;
@@ -7052,6 +7938,25 @@ begin
     [BoolToStr(Caps.Av1Hw, True), BoolToStr(Caps.HevcHw, True),
      BoolToStr(Caps.H264Hw, True), BoolToStr(Caps.H264Sw, True),
      BoolToStr(Caps.Av1Sw, True), VendorStr]);
+end;
+
+procedure PushEncoderCapsOnce;
+// Empurra as caps UMA vez por sessao, de qualquer caminho que suba o
+// libobs. Existe porque o warmup NAO e mais o unico: o watcher de apps
+// (WinProcWatch) pode ligar o buffer antes do TIMER_OBS_WARMUP disparar —
+// e como o warmup so age com `Engine = nil`, ele pulava o bloco inteiro e
+// as caps NUNCA saiam. Sintoma: a tela de exportacao so oferecia
+// "Automatico" (a lista vem de encoder_caps.exportEncoders) e o seletor de
+// codec das Configuracoes ficava sem os itens de hardware.
+begin
+  if EncoderCapsPushed then Exit;
+  if (Engine = nil) or (not Engine.IsInitialized) then Exit;
+  try
+    PushEncoderCaps;
+    EncoderCapsPushed := True;
+  except
+    on E: Exception do Log('EncoderCaps: falha ao detectar: %s', [E.Message]);
+  end;
 end;
 
 procedure OnTimer(ATimerId: UINT_PTR);
@@ -7119,10 +8024,6 @@ begin
         Engine.OnStopped := OnEngineRecordingStopped;
         Engine.EnsureInitialized;
         Log('libobs: warmup pronto — proxima gravacao sera instantanea.');
-        // Apos warmup, libobs ja conhece os encoders. Detecta + envia
-        // pra UI poder mostrar logo do GPU e habilitar/desabilitar
-        // opcoes no select de codec.
-        PushEncoderCaps;
       except
         on E: Exception do
         begin
@@ -7132,6 +8033,11 @@ begin
         end;
       end;
     end;
+
+    // FORA do if acima de proposito: o Engine pode ter sido criado ANTES
+    // deste timer (watcher de apps ligando o buffer), e ai o bloco nao
+    // roda — mas as caps continuam tendo que sair.
+    PushEncoderCapsOnce;
 
     // /start-record: o hibernate spawnou esse processo apos o user
     // apertar a hotkey de gravacao. Dispara o start agora que libobs
@@ -7146,6 +8052,21 @@ begin
         RecordingStartedByMicWatch := True;
       HandleRecordStart;
     end;
+
+    // "Ligar o buffer ao abrir o NoOBS": e aqui que a preferencia vira
+    // vontade da sessao. Se o /start-record acima disparou uma gravacao, o
+    // buffer espera ela terminar (OnEngineRecordingStopped).
+    // /start-replay: a hibernacao viu um app monitorado abrir e promoveu
+    // este processo so pra isso. Marca como "ligado pelo watcher" pra ele
+    // desligar sozinho quando o app fechar, igual ao caminho do full.
+    if OBSUI.StartReplayRequested then
+    begin
+      ReplayWanted := True;
+      ReplayStartedByAppWatch := True;
+    end
+    else if GetConfigBool('replayAutoStart', False) then
+      ReplayWanted := True;
+    if ReplayWanted and (not RecordingActive) then StartReplayBuffer;
   end
   else if ATimerId = TIMER_HIBERNATE_IDLE then
   begin
@@ -7156,6 +8077,13 @@ begin
     if RecordingActive then
     begin
       Log('TIMER_HIBERNATE_IDLE: gravando, hibernacao adiada.');
+      Exit;
+    end;
+    // Sem re-armar: o StopReplayBuffer arma de novo quando o buffer desligar
+    // com a janela escondida.
+    if ReplayActive then
+    begin
+      Log('TIMER_HIBERNATE_IDLE: buffer em memoria ligado, hibernacao adiada.');
       Exit;
     end;
     // Transcricao em curso: hibernar mata o processo que ACOMPANHA o
@@ -7201,6 +8129,33 @@ begin
     if Engine <> nil then
       try Engine.ForceCompleteStop; except on E: Exception do
         Log('ForceCompleteStop falhou: %s', [E.Message]); end;
+  end
+  else if ATimerId = TIMER_REPLAY_MEM then
+  begin
+    if ReplayActive then LogMemUsage('guardando')
+    else KillTimer(MainWindowHandle, TIMER_REPLAY_MEM);
+  end
+  else if ATimerId = TIMER_REPLAY_SAVE_COMMIT then
+  begin
+    // A saida nova ja abriu no keyframe dela: fechar o trecho anterior
+    // agora deixa o pedaco entre esse keyframe e este instante nos DOIS
+    // arquivos (sobreposicao), em vez de sumir.
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT);
+    if Engine <> nil then
+      try Engine.CommitReplaySave; except on E: Exception do
+        Log('CommitReplaySave falhou: %s', [E.Message]); end;
+  end
+  else if ATimerId = TIMER_REPLAY_SAVE_TIMEOUT then
+  begin
+    // O "saved" do trecho nunca chegou (erro de escrita no disco — a
+    // libobs nao emite o sinal nesse caso). Solta a saida antiga pra o
+    // proximo "salvar" nao ficar bloqueado pra sempre.
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
+    if Engine <> nil then
+      try Engine.AbortReplaySave; except on E: Exception do
+        Log('AbortReplaySave falhou: %s', [E.Message]); end;
+    PostError(OBSLang.T('error.replaySaveFailed'));
+    PushReplayState;
   end;
  except
    // Barreira: timers rodam via WM_TIMER no WindowProc. Uma excecao
@@ -7234,8 +8189,13 @@ begin
   // Atalhos globais — libera a combinacao pra outros apps usarem.
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE_ALT);
+  UnregisterGlobalHotkey(HK_REPLAY_SAVE);
+  UnregisterGlobalHotkey(HK_REPLAY_SAVE_ALT);
   if MainWindowHandle <> 0 then
   begin
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT);
+    KillTimer(MainWindowHandle, TIMER_REPLAY_MEM);
     KillTimer(MainWindowHandle, TIMER_RECORDING_TICK);
     KillTimer(MainWindowHandle, TIMER_AUDIO_REFRESH);
     KillTimer(MainWindowHandle, TIMER_MONITOR_REFRESH);
@@ -7269,6 +8229,9 @@ begin
 
   try WinMicWatch.Stop; except end;
   Log('Shutdown: MicWatch ok');
+
+  try WinProcWatch.Stop; except end;
+  Log('Shutdown: ProcWatch ok');
 
   try OBSAudioWatch.Stop; except end;
   Log('Shutdown: AudioWatch ok');
@@ -7306,9 +8269,10 @@ function ShouldHideOnClose: Boolean;
 // ou fechar de verdade. Regras:
 //   - 'closeToTray' ON: user pediu pra app ficar rodando na bandeja
 //   - Gravando: nunca interromper a gravacao por engano
+//   - Buffer em memoria ligado: fechar jogaria fora o que esta guardado
 //   - Caso contrario: fecha normal
 begin
-  Result := GetConfigBool('closeToTray', True) or RecordingActive;
+  Result := GetConfigBool('closeToTray', True) or RecordingActive or ReplayActive;
 end;
 
 // Toggle de gravacao usado pelo menu do tray (item "Iniciar/Parar

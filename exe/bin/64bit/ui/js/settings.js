@@ -224,6 +224,8 @@ const Settings = {
     document.getElementById('settingsFilenamePattern').value = this.currentFilenamePattern || '';
     this._renderFilenamePreview();
     this._loadHotkeyIntoUi(this.currentHotkey || '');
+    // Buffer em memoria: limites + atalho de salvar (estado vive no Replay).
+    if (typeof Replay !== 'undefined') Replay.loadIntoSettings();
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
@@ -961,6 +963,12 @@ const Settings = {
     if (body) body.scrollTop = 0;
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
+    // Aba Buffer: o estado (limites, teto de RAM, apps, indicador) e do
+    // backend — pede na hora de mostrar e redesenha com o que ja se tem.
+    if (name === 'replay' && typeof Replay !== 'undefined') {
+      Replay.loadIntoSettings();
+      Bridge.send('get_replay_state');
+    }
     // Idem pro perfil de auto-gravacao: ao entrar na aba Comportamento,
     // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
     // hot-plug que ocorreu enquanto o usuario estava em outra aba).
@@ -1122,6 +1130,9 @@ const Settings = {
         // Aplica os defaults IMEDIATAMENTE (nao ha botao Salvar).
         this.commit();
         this._commitHotkey();
+        // Buffer em memoria: limites e atalho de salvar voltam ao padrao. O
+        // liga/desliga fica como esta — ele vive na tela principal, nao aqui.
+        if (typeof Replay !== 'undefined') Replay.restoreDefaults();
         // Re-sincroniza a aba visivel: os campos de outras abas estao com
         // display:none na hora do reset, e alguns controles (fill dos
         // sliders, hints) so recalculam direito quando visiveis.
@@ -1165,10 +1176,14 @@ const Settings = {
     return o;
   },
 
+  // Os helpers de atalho abaixo recebem o PREFIXO dos ids do construtor
+  // (<prefixo>Ctrl/Shift/Alt/Win/Key/Preview). Padrao = o atalho de gravar;
+  // o buffer em memoria usa 'settingsReplayHotkey' (Replay em replay.js).
+
   // Constroi as opcoes do dropdown de tecla principal. Roda 1x quando
   // o modal abre (ou no _loadHotkeyIntoUi inicial).
-  _buildHotkeyKeyDropdown() {
-    const sel = document.getElementById('settingsHotkeyKey');
+  _buildHotkeyKeyDropdown(prefix = 'settingsHotkey') {
+    const sel = document.getElementById(prefix + 'Key');
     if (!sel) return;
     // Preserva selecao atual se ja foi construido antes (re-abrir modal).
     const prevValue = sel.value;
@@ -1193,33 +1208,33 @@ const Settings = {
 
   // Le checkboxes + dropdown e monta a spec final no formato canonico
   // do backend: Ctrl+Shift+Alt+Win+Tecla.
-  _readHotkeyFromUi() {
+  _readHotkeyFromUi(prefix = 'settingsHotkey') {
     const parts = [];
-    if (document.getElementById('settingsHotkeyCtrl').checked)  parts.push('Ctrl');
-    if (document.getElementById('settingsHotkeyShift').checked) parts.push('Shift');
-    if (document.getElementById('settingsHotkeyAlt').checked)   parts.push('Alt');
-    if (document.getElementById('settingsHotkeyWin').checked)   parts.push('Win');
-    const key = document.getElementById('settingsHotkeyKey').value;
+    if (document.getElementById(prefix + 'Ctrl').checked)  parts.push('Ctrl');
+    if (document.getElementById(prefix + 'Shift').checked) parts.push('Shift');
+    if (document.getElementById(prefix + 'Alt').checked)   parts.push('Alt');
+    if (document.getElementById(prefix + 'Win').checked)   parts.push('Win');
+    const key = document.getElementById(prefix + 'Key').value;
     if (key) parts.push(key);
     return parts.join('+');
   },
 
   // Carrega uma spec ("Ctrl+Shift+F9" / "Pause" / "") nos controles.
-  _loadHotkeyIntoUi(spec) {
+  _loadHotkeyIntoUi(spec, prefix = 'settingsHotkey') {
     const parts = (spec || '').split('+').map(s => s.trim()).filter(Boolean);
-    document.getElementById('settingsHotkeyCtrl').checked  = parts.includes('Ctrl');
-    document.getElementById('settingsHotkeyShift').checked = parts.includes('Shift');
-    document.getElementById('settingsHotkeyAlt').checked   = parts.includes('Alt');
-    document.getElementById('settingsHotkeyWin').checked   = parts.includes('Win');
+    document.getElementById(prefix + 'Ctrl').checked  = parts.includes('Ctrl');
+    document.getElementById(prefix + 'Shift').checked = parts.includes('Shift');
+    document.getElementById(prefix + 'Alt').checked   = parts.includes('Alt');
+    document.getElementById(prefix + 'Win').checked   = parts.includes('Win');
     const main = parts.find(p => !isHotkeyModifier(p)) || '';
-    this._buildHotkeyKeyDropdown();
-    document.getElementById('settingsHotkeyKey').value = main;
-    this._updateHotkeyPreview();
+    this._buildHotkeyKeyDropdown(prefix);
+    document.getElementById(prefix + 'Key').value = main;
+    this._updateHotkeyPreview(prefix);
   },
 
-  _updateHotkeyPreview() {
-    const spec = this._readHotkeyFromUi();
-    const el = document.getElementById('settingsHotkeyPreview');
+  _updateHotkeyPreview(prefix = 'settingsHotkey') {
+    const spec = this._readHotkeyFromUi(prefix);
+    const el = document.getElementById(prefix + 'Preview');
     if (!el) return;
     // Bundle traz HTML simples nesses 2 hints (code/b). T() faz interpolacao
     // {{spec}} pro atalho atual; o noKey nao tem var.

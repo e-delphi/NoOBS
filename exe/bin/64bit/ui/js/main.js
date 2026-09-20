@@ -65,6 +65,8 @@ function applyRecordingState(active, elapsedSec, sizeText) {
     stopRecordingAnimation();
   }
   updateRecordButtonAvailability();
+  // A linha do buffer diz "pausado" enquanto a gravacao manual roda.
+  if (typeof Replay !== 'undefined') Replay.render();
 }
 
 // Habilita/desabilita o botao de gravar com base na presenca de algum
@@ -192,6 +194,7 @@ try {
 // mas com pastas o conjunto de ações muda por alvo e ainda depende de
 // haver ou não um recorte pendente.
 function confirmDeleteOneRecording(id) {
+  if (typeof Export !== 'undefined' && Export.blocked(id)) return;
   const card = document.querySelector(
     `#recGrid .rec-card[data-id="${cssEscape(id)}"]`);
   const name = card ? (card.querySelector('.when')?.textContent || id) : id;

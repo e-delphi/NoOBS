@@ -25,6 +25,12 @@ type
   // adicionar o card / salvar meta. Equivale ao RecordingStop do OBS.
   TOBSStoppedProc = procedure(const AOutputPath: string);
 
+  // Callback de "trecho do buffer em memoria gravado em disco" — MAIN
+  // thread, depois do sinal "saved" da saida replay_buffer. ATempPath e o
+  // arquivo que a libobs escreveu na pasta temporaria do buffer ('' se nao
+  // deu pra saber o caminho); quem recebe move pro destino final.
+  TOBSReplaySavedProc = procedure(const ATempPath: string);
+
   TOBSEngine = class
   private
     FInitialized: Boolean;
@@ -56,8 +62,28 @@ type
     // ID do encoder de video que esta gravacao REALMENTE usou (o fallback
     // pode ter escolhido outro que o pedido). Vira meta do arquivo.
     FVideoEncoderId: string;
+    // ---- buffer em memoria (replay_buffer) ----
+    // Sessao de buffer ativa: a cena e os encoders sao os mesmos da gravacao
+    // (BuildCaptureGraph), mas a saida guarda os pacotes na RAM em vez de
+    // escrever arquivo. GOutput e a saida CORRENTE; GReplaySaving e a que
+    // esta gravando um trecho em disco (ver SaveReplay).
+    FReplayActive: Boolean;
+    FReplayDir: string;
+    FReplayMaxSec: Integer;
+    FReplayMaxMb: Integer;
+    FReplaySeq: Integer;          // numera as saidas (nome + arquivo unicos)
+    FReplaySavedHandler: Pointer; // signal_handler_t da saida que esta salvando
+    FReplaySaveSince: UInt64;
+    // Rotacao feita, "save" ainda nao pedido: e essa espera que faz os dois
+    // trechos se SOBREPOREM em vez de ter buraco (ver SaveReplay).
+    FReplaySaveCommitPending: Boolean;
+    FOnReplaySaved: TOBSReplaySavedProc;
     procedure ResolvePaths;
     procedure LoadModules;
+    procedure BuildCaptureGraph(AAutoProfile: Boolean);
+    function  CreateReplayOutput: Pointer;
+    procedure DropSavingReplay;
+    procedure OnReplaySavedSignal;     // main thread (via TThread.Queue)
     procedure ReleaseRecordingObjects;
     procedure ConnectStopSignal;
     procedure DisconnectStopSignal;
@@ -89,8 +115,39 @@ type
     // COLD_START_AUDIO_SETTLE_MS em OBSBridge).
     function  IsInitialized: Boolean;
     procedure SetSourceMuted(const ASourceName: string; AMuted: Boolean);
+    // ---- buffer em memoria ----
+    // Monta a mesma cena da gravacao manual, com uma saida replay_buffer que
+    // guarda os ultimos AMaxSec segundos (ou AMaxMb MB, o que estourar
+    // primeiro) na RAM. ADir = pasta onde cada trecho salvo nasce (depois o
+    // Bridge move pra pasta de gravacao). Exclusivo com a gravacao manual.
+    procedure BuildAndStartReplay(const ADir: string; AMaxSec, AMaxMb: Integer);
+    // Grava o conteudo do buffer em disco e ESVAZIA o buffer: sobe uma saida
+    // nova na hora e manda a antiga salvar. Retorna False se o buffer nao
+    // esta ativo ou se o trecho anterior ainda esta sendo gravado.
+    // ATENCAO: nao termina aqui — quem fecha o trecho e o CommitReplaySave,
+    // que o Bridge chama ReplaySaveCommitDelayMs depois. E essa espera que
+    // faz os trechos se sobreporem em vez de perderem um GOP.
+    function  SaveReplay: Boolean;
+    // Manda a saida antiga gravar o que guardou. Idempotente e so age com
+    // uma rotacao pendente. Main thread.
+    procedure CommitReplaySave;
+    function  IsReplaySaveCommitPending: Boolean;
+    // Quanto esperar entre a rotacao e o "save" (ms).
+    function  ReplaySaveCommitDelayMs: Cardinal;
+    // Para e libera tudo (sincrono; nao salva nada). Main thread.
+    procedure StopReplay;
+    // Desiste de um trecho cujo "saved" nunca chegou (timeout do Bridge).
+    procedure AbortReplaySave;
+    // Limites novos. A replay_buffer so le max_time/max_size no start, entao
+    // valem a partir da PROXIMA saida — o proximo "salvar trecho" (que cria
+    // uma) ou religar o buffer. A saida corrente segue com os antigos.
+    procedure SetReplayLimits(AMaxSec, AMaxMb: Integer);
+    function  IsReplayActive: Boolean;
+    function  IsReplaySaving: Boolean;
+    function  ReplaySaveElapsedMs: UInt64;
     procedure Teardown;
     property Initialized: Boolean read FInitialized;
+    property OnReplaySaved: TOBSReplaySavedProc read FOnReplaySaved write FOnReplaySaved;
     property OutputPath: string read FOutputPath;
     property CurrentLayout: TRecordingLayout read FCurrentLayout;
     property VideoEncoderId: string read FVideoEncoderId;
@@ -139,6 +196,20 @@ const
   // Nome do sinal de output emitido quando a gravacao terminou de fato
   // (ver output_signals[] em obs-output.c). ASCII puro.
   SIG_STOP: AnsiString = 'stop';
+  // Sinal do replay_buffer (obs-ffmpeg-mux.c): o trecho pedido por "save"
+  // terminou de ser gravado em disco. Nao vem em caso de erro de escrita.
+  SIG_SAVED: AnsiString = 'saved';
+  // Keyframe do BUFFER (so dele; a gravacao manual segue o config do
+  // usuario). E o teto da sobreposicao entre dois trechos salvos: a saida
+  // nova so abre no proximo keyframe, e o trecho anterior so fecha depois
+  // dele. 1 s mantem a repeticao curta sem inchar o arquivo (tela parada
+  // custa pouco por keyframe). Ver SaveReplay.
+  REPLAY_KEYFRAME_SEC = 1;
+  // Folga sobre o keyframe antes de fechar o trecho. Cobre o atraso entre
+  // o obs_output_start e o 1o keyframe entrar de fato na fila da saida nova;
+  // sem ela, um keyframe atrasado por uma fracao de segundo deixaria o
+  // trecho seguinte comecando DEPOIS do corte — de novo com buraco.
+  REPLAY_SAVE_COMMIT_MARGIN_MS = 250;
 
 
 type
@@ -155,6 +226,10 @@ var
   VerboseShutdownLog: Boolean = False;
   GScene: obs_scene_t;
   GOutput: obs_output_t;
+  // Buffer em memoria: a saida ANTIGA, que esta gravando um trecho em disco
+  // enquanto GOutput (a nova) ja guarda o que vem depois. nil = nenhum
+  // trecho em gravacao.
+  GReplaySaving: obs_output_t;
   GVideoEncoder: obs_encoder_t;
   GAudioEncoders: TArray<obs_encoder_t>;
   GSources: TArray<TSourceEntry>;
@@ -199,6 +274,18 @@ begin
     procedure
     begin
       TOBSEngine(data).OnStopSignal;
+    end);
+end;
+
+procedure ReplaySavedThunk(data: Pointer; cd: calldata_t); cdecl;
+// Sinal "saved" do replay_buffer — emitido pela thread de mux dele, depois
+// que o arquivo esta completo. Mesma regra do StopSignalThunk: so marshala.
+begin
+  if data = nil then Exit;
+  TThread.Queue(nil,
+    procedure
+    begin
+      TOBSEngine(data).OnReplaySavedSignal;
     end);
 end;
 
@@ -534,6 +621,7 @@ begin
   if not FInitialized then
   begin
     GOutput := nil;
+    GReplaySaving := nil;
     GVideoEncoder := nil;
     SetLength(GAudioEncoders, 0);
     SetLength(GSources, 0);
@@ -549,7 +637,10 @@ begin
   for i := 0 to 63 do
     try obs_set_output_source(Cardinal(i), nil); except end;
 
-  // Ordem: output -> encoders -> sources -> scene
+  // Ordem: output -> encoders -> sources -> scene. As DUAS saidas do
+  // buffer (a corrente e a que ainda grava um trecho) antes dos encoders
+  // que elas compartilham.
+  DropSavingReplay;
   if GOutput <> nil then
   begin
     try obs_output_release(GOutput); except end;
@@ -575,8 +666,11 @@ begin
   end;
 end;
 
-procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string;
-  AAutoProfile: Boolean = False);
+procedure TOBSEngine.BuildCaptureGraph(AAutoProfile: Boolean);
+// Passos 1 a 7 da montagem: canvas, cena, fontes de monitor/webcam/audio e
+// encoders. Comum a gravacao em arquivo e ao buffer em memoria — so a SAIDA
+// muda. Nao limpa nada em caso de erro: quem chama envolve em try/except e
+// chama ReleaseRecordingObjects.
 
   // Resolvedor de "este dispositivo entra na gravacao?". Na gravacao manual
   // e o GetSourceActive de sempre; na auto-gravacao, tambem exige o device
@@ -619,16 +713,9 @@ var
   AudioName: AnsiString;
   Enabled: Boolean;
   AudioChannel: Cardinal;
-  OutputSettings: obs_data_t;
   AEncSettings: obs_data_t;
   TrackNames: TArray<string>;
 begin
-  if FRecording then
-    raise Exception.Create('Ja esta gravando.');
-
-  ReleaseRecordingObjects;
-
- try
   // 1. Inventario de monitores (Win32 — mesmo indexador da UI).
   Log('-- Inventario --');
   Monitors := MonitorsFromWinPreview;
@@ -1027,6 +1114,21 @@ begin
     obs_encoder_set_audio(GAudioEncoders[i], obs_get_audio);
     Log('   Track %d: %s', [i + 1, TrackNames[i]]);
   end;
+end;
+
+procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string;
+  AAutoProfile: Boolean = False);
+var
+  i: Integer;
+  OutputSettings: obs_data_t;
+begin
+  if FRecording or FReplayActive then
+    raise Exception.Create('Ja esta gravando.');
+
+  ReleaseRecordingObjects;
+
+ try
+  BuildCaptureGraph(AAutoProfile);
 
   // 8. Output (ffmpeg_muxer = gravacao em arquivo).
   Log('-- Output --');
@@ -1068,6 +1170,301 @@ begin
    ReleaseRecordingObjects;
    raise;
  end;
+end;
+
+// -----------------------------------------------------------------------
+// Buffer em memoria (replay_buffer)
+// -----------------------------------------------------------------------
+
+function TOBSEngine.CreateReplayOutput: Pointer;
+// Cria E inicia uma saida replay_buffer sobre os encoders ja montados. Cada
+// saida recebe numero proprio no nome do arquivo: duas podem coexistir (a
+// que grava o trecho e a nova), e sem o numero dois saves no mesmo segundo
+// gerariam o mesmo nome. Levanta excecao se nao der pra criar/iniciar.
+var
+  S: obs_data_t;
+  Out: obs_output_t;
+  i: Integer;
+  Err: string;
+begin
+  Inc(FReplaySeq);
+  S := MakeSettings;
+  SetStr(S, 'directory', ToAnsi(FReplayDir));
+  // Codigos de data do os_generate_formatted_filename (%CCYY etc.). O
+  // Bridge renomeia pelo modelo do usuario ao mover pra pasta de gravacao.
+  SetStr(S, 'format', ToAnsi(Format('NoOBS-buffer-%d %%CCYY-%%MM-%%DD %%hh-%%mm-%%ss',
+    [FReplaySeq])));
+  SetStr(S, 'extension', 'mkv');
+  SetBool(S, 'allow_spaces', True);
+  SetInt(S, 'max_time_sec', FReplayMaxSec);
+  SetInt(S, 'max_size_mb', FReplayMaxMb);
+  SetStr(S, 'muxer_settings', '');
+  Out := obs_output_create('replay_buffer',
+    PAnsiChar(ToAnsi(Format('NoOBS Buffer %d', [FReplaySeq]))), S, nil);
+  obs_data_release(S);
+  if Out = nil then
+    raise Exception.Create('obs_output_create(replay_buffer) falhou.');
+
+  obs_output_set_video_encoder(Out, GVideoEncoder);
+  for i := 0 to High(GAudioEncoders) do
+    obs_output_set_audio_encoder(Out, GAudioEncoders[i], NativeUInt(i));
+
+  if not obs_output_start(Out) then
+  begin
+    Err := FromAnsi(obs_output_get_last_error(Out));
+    try obs_output_release(Out); except end;
+    raise Exception.CreateFmt('obs_output_start(replay_buffer) falhou: %s', [Err]);
+  end;
+  Log('Buffer: saida %d iniciada (%ds / %d MB em %s).',
+    [FReplaySeq, FReplayMaxSec, FReplayMaxMb, FReplayDir]);
+  Result := Out;
+end;
+
+procedure TOBSEngine.BuildAndStartReplay(const ADir: string;
+  AMaxSec, AMaxMb: Integer);
+begin
+  if FRecording or FReplayActive then
+    raise Exception.Create('Ja esta gravando.');
+
+  ReleaseRecordingObjects;
+  FReplayDir := ADir;
+  FReplayMaxSec := AMaxSec;
+  FReplayMaxMb := AMaxMb;
+
+  try
+    // Keyframe curto SO no buffer: e ele que decide quanto os dois trechos
+    // salvos se sobrepoem na emenda (ver SaveReplay).
+    OBSEncoder.SetKeyframeSecOverride(REPLAY_KEYFRAME_SEC);
+    try
+      BuildCaptureGraph(False);
+    finally
+      OBSEncoder.SetKeyframeSecOverride(0);
+    end;
+    GOutput := CreateReplayOutput;
+    FReplayActive := True;
+    Log('Buffer em memoria iniciado.');
+  except
+    ReleaseRecordingObjects;
+    raise;
+  end;
+end;
+
+function TOBSEngine.SaveReplay: Boolean;
+// "Salvou, esvazia": o replay_buffer do OBS NAO limpa o buffer ao salvar
+// (replay_buffer_save copia os pacotes e mantem a fila inteira), e nao ha
+// procedimento pra esvaziar. Entao troca de saida: uma NOVA comeca a guardar
+// agora e a ANTIGA grava o que tinha e e descartada no "saved".
+//
+// A EMENDA ENTRE DOIS TRECHOS SE SOBREPOE, nunca perde (escolha do usuario).
+// Duas regras da libobs decidem isso:
+//   • a saida nova descarta video ate o 1o KEYFRAME (obs-output.c:2237),
+//     entao o trecho seguinte comeca nesse keyframe K;
+//   • o "save" corta no INSTANTE em que foi pedido (save_ts em
+//     obs-ffmpeg-mux.c:1236), entao o trecho salvo termina ali.
+// Pedindo o save junto com a rotacao, K cairia DEPOIS do corte e o miolo
+// sumiria. Por isso a rotacao e o save sao separados: sobe a saida nova
+// agora e so ReplaySaveCommitDelayMs depois (keyframe + folga) o
+// CommitReplaySave fecha o trecho — quando K ja passou. O pedaco [K, corte]
+// fica nos DOIS arquivos: sobreposicao de ate ~1 keyframe, nunca buraco.
+var
+  NewOut: obs_output_t;
+begin
+  Result := False;
+  if (not FReplayActive) or (GOutput = nil) then Exit;
+  // Pelo relogio do save, nao por GReplaySaving: no plano B (sem saida
+  // nova) GReplaySaving fica nil com um trecho ainda em gravacao.
+  if FReplaySaveSince <> 0 then
+  begin
+    Log('Buffer: save ignorado — o trecho anterior ainda esta sendo gravado.');
+    Exit;
+  end;
+
+  NewOut := nil;
+  try
+    NewOut := CreateReplayOutput;
+  except
+    on E: Exception do
+      Log('Buffer: nao consegui abrir a saida nova (%s) — salvando sem esvaziar.',
+        [E.Message]);
+  end;
+
+  if NewOut <> nil then
+  begin
+    GReplaySaving := GOutput;
+    GOutput := NewOut;
+  end
+  else
+    // Sem saida nova o buffer nao esvazia, mas o trecho ainda sai: melhor
+    // que perder o momento que o usuario pediu pra guardar.
+    GReplaySaving := GOutput;
+
+  FReplaySavedHandler := obs_output_get_signal_handler(GReplaySaving);
+  if FReplaySavedHandler <> nil then
+    signal_handler_connect(FReplaySavedHandler, PAnsiChar(SIG_SAVED),
+      @ReplaySavedThunk, Self);
+
+  FReplaySaveSince := GetTickCount64;
+  // Sem saida nova, GReplaySaving e a propria GOutput: o DropSavingReplay
+  // do "saved" nao pode derruba-la. O sinal continua conectado nela
+  // (FReplaySavedHandler) e o OnReplaySavedSignal le o caminho da GOutput.
+  if NewOut = nil then GReplaySaving := nil;
+
+  FReplaySaveCommitPending := True;
+  if NewOut = nil then
+    // Sem rotacao nao ha emenda pra proteger — fecha o trecho agora.
+    CommitReplaySave
+  else
+    Log('Buffer: saida nova no ar; o trecho fecha em %d ms (sobreposicao).',
+      [ReplaySaveCommitDelayMs]);
+  Result := True;
+end;
+
+procedure TOBSEngine.CommitReplaySave;
+// Fecha o trecho: pede o "save" pra saida ANTIGA, que grava tudo que guardou
+// ate agora. Chamado pelo TIMER_REPLAY_SAVE_COMMIT do Bridge (ou na hora, no
+// plano B). A partir daqui e o sinal "saved" que manda.
+var
+  Target: obs_output_t;
+  CD: TObsCallData;
+begin
+  if not FReplaySaveCommitPending then Exit;
+  FReplaySaveCommitPending := False;
+  // No plano B (sem rotacao) quem guarda o trecho e a propria saida corrente.
+  Target := GReplaySaving;
+  if Target = nil then Target := GOutput;
+  if Target = nil then Exit;
+  FillChar(CD, SizeOf(CD), 0);
+  proc_handler_call(obs_output_get_proc_handler(Target),
+    PAnsiChar(AnsiString('save')), calldata_t(@CD));
+  if (CD.stack <> nil) and not CD.fixed then bfree(CD.stack);
+  Log('Buffer: gravando trecho em disco.');
+end;
+
+function TOBSEngine.IsReplaySaveCommitPending: Boolean;
+begin
+  Result := FReplaySaveCommitPending;
+end;
+
+function TOBSEngine.ReplaySaveCommitDelayMs: Cardinal;
+// Um intervalo de keyframe (o do buffer, REPLAY_KEYFRAME_SEC) mais uma folga
+// pra garantir que o keyframe de abertura da saida nova ja passou. E o teto
+// da sobreposicao entre dois trechos.
+begin
+  Result := Cardinal(REPLAY_KEYFRAME_SEC) * 1000 + REPLAY_SAVE_COMMIT_MARGIN_MS;
+end;
+
+procedure TOBSEngine.DropSavingReplay;
+// Desliga e libera a saida que acabou de gravar um trecho (ou que desistimos
+// de esperar). Idempotente. obs_output_release se auto-sincroniza (espera a
+// saida parar), entao liberar logo apos o stop e seguro (pegadinha #41).
+begin
+  if FReplaySavedHandler <> nil then
+  begin
+    try
+      signal_handler_disconnect(FReplaySavedHandler, PAnsiChar(SIG_SAVED),
+        @ReplaySavedThunk, Self);
+    except end;
+    FReplaySavedHandler := nil;
+  end;
+  if GReplaySaving = nil then Exit;
+  try obs_output_stop(GReplaySaving); except end;
+  try obs_output_release(GReplaySaving); except end;
+  GReplaySaving := nil;
+end;
+
+procedure TOBSEngine.OnReplaySavedSignal;
+// Main thread. O trecho esta completo no disco: pega o caminho pelo
+// get_last_replay, derruba a saida antiga e entrega o arquivo ao Bridge.
+var
+  Src: obs_output_t;
+  CD: TObsCallData;
+  P: PAnsiChar;
+  Path: string;
+begin
+  if FShuttingDown then Exit;
+  // Sem saida nova (SaveReplay caiu no plano B), quem salvou foi a propria
+  // GOutput — ela continua viva e o caminho sai dela.
+  Src := GReplaySaving;
+  if Src = nil then Src := GOutput;
+  if Src = nil then Exit;
+
+  Path := '';
+  FillChar(CD, SizeOf(CD), 0);
+  P := nil;
+  try
+    if proc_handler_call(obs_output_get_proc_handler(Src),
+         PAnsiChar(AnsiString('get_last_replay')), calldata_t(@CD)) and
+       calldata_get_string(calldata_t(@CD), PAnsiChar(AnsiString('path')), @P) and
+       (P <> nil) then
+      Path := FromAnsi(P);
+  finally
+    if (CD.stack <> nil) and not CD.fixed then bfree(CD.stack);
+  end;
+  // A libobs devolve com '/' (dstr_replace no generate_filename).
+  Path := StringReplace(Path, '/', '\', [rfReplaceAll]);
+
+  // Desconecta o "saved" e derruba a saida antiga (no plano B nao ha
+  // antiga: so desconecta, a GOutput segue guardando).
+  DropSavingReplay;
+  FReplaySaveCommitPending := False;
+  Log('Buffer: trecho gravado em %d ms: %s',
+    [GetTickCount64 - FReplaySaveSince, Path]);
+  FReplaySaveSince := 0;
+  if Assigned(FOnReplaySaved) then
+    try FOnReplaySaved(Path); except on E: Exception do
+      Log('OnReplaySaved levantou: %s', [E.Message]); end;
+end;
+
+procedure TOBSEngine.AbortReplaySave;
+begin
+  if FReplaySaveSince = 0 then Exit;
+  // Rotacao sem "save": o trecho nunca foi pedido, so a saida velha some.
+  FReplaySaveCommitPending := False;
+  Log('Buffer: "saved" nao chegou em %d ms — desistindo do trecho.',
+    [GetTickCount64 - FReplaySaveSince]);
+  // Desconecta o sinal mesmo no plano B (GReplaySaving nil), e derruba a
+  // saida antiga se houver uma.
+  DropSavingReplay;
+  FReplaySaveSince := 0;
+end;
+
+procedure TOBSEngine.StopReplay;
+begin
+  if not FReplayActive then Exit;
+  FReplayActive := False;
+  FReplaySaveSince := 0;
+  if FReplaySaveCommitPending then
+    // Parou dentro da janela de sobreposicao (ver SaveReplay): o trecho
+    // pedido nunca chegou a ser fechado. Nao ha o que salvar — mas fica
+    // dito, senao o "salvar" do usuario sumiria sem rastro.
+    Log('Buffer: parado antes de fechar o trecho pedido — trecho perdido.');
+  FReplaySaveCommitPending := False;
+  // ReleaseRecordingObjects derruba as duas saidas (DropSavingReplay +
+  // GOutput) antes dos encoders que elas compartilham.
+  ReleaseRecordingObjects;
+  Log('Buffer em memoria parado.');
+end;
+
+procedure TOBSEngine.SetReplayLimits(AMaxSec, AMaxMb: Integer);
+begin
+  FReplayMaxSec := AMaxSec;
+  FReplayMaxMb := AMaxMb;
+end;
+
+function TOBSEngine.IsReplayActive: Boolean;
+begin
+  Result := FReplayActive;
+end;
+
+function TOBSEngine.IsReplaySaving: Boolean;
+begin
+  Result := FReplaySaveSince <> 0;
+end;
+
+function TOBSEngine.ReplaySaveElapsedMs: UInt64;
+begin
+  if FReplaySaveSince = 0 then Exit(0);
+  Result := GetTickCount64 - FReplaySaveSince;
 end;
 
 procedure TOBSEngine.ConnectStopSignal;
@@ -1303,6 +1700,11 @@ begin
     FRecording := False;
     FStopping := False;
   end;
+  // Buffer em memoria: nada a salvar ao fechar (o conteudo e descartavel
+  // por definicao). As duas saidas caem no ReleaseRecordingObjects abaixo.
+  FReplayActive := False;
+  FReplaySaveSince := 0;
+  FReplaySaveCommitPending := False;
 
   // LIBERA OS OBJETOS ANTES DO obs_shutdown — ordem do proprio OBS Studio,
   // cujo frontend e explicito: "any obs data must be released before
@@ -1364,6 +1766,7 @@ begin
       Watchdog.Free;
     end;
     GOutput := nil;
+    GReplaySaving := nil;
     GVideoEncoder := nil;
     SetLength(GAudioEncoders, 0);
     SetLength(GSources, 0);

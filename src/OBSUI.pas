@@ -132,6 +132,11 @@ function StartRecordRequested: Boolean;
 // pra ser auto-parada quando o mic for liberado.
 function StartRecordRequestedByMic: Boolean;
 
+// True se o exe foi lancado com /start-replay — a hibernacao detectou um dos
+// apps monitorados (WinProcWatch) abrindo e spawnou o full pra LIGAR O
+// BUFFER. OBSBridge consulta no fim do warmup.
+function StartReplayRequested: Boolean;
+
 // Sai do modo full e re-spawna o exe em /hibernate. Chamado pelo
 // OBSBridge quando o idle timer (1min sem janela visivel) dispara.
 // Fluxo: spawna NoOBS.exe /hibernate + DestroyWindow (-> WM_DESTROY ->
@@ -258,6 +263,9 @@ var
   // Subcaso: o /start-record veio do monitor de microfone (WinMicWatch na
   // hibernacao), nao da hotkey. Marca a gravacao como auto (auto-para).
   FStartRecordMic: Boolean = False;
+  // /start-replay: a hibernacao viu um app monitorado abrir e promoveu o
+  // processo pra full so pra ligar o buffer em memoria.
+  FStartReplayRequested: Boolean = False;
 
   SetPreferredAppMode:    TSetPreferredAppMode    = nil;
   AllowDarkModeForWindow: TAllowDarkModeForWindow = nil;
@@ -717,6 +725,11 @@ end;
 function StartRecordRequestedByMic: Boolean;
 begin
   Result := FStartRecordMic;
+end;
+
+function StartReplayRequested: Boolean;
+begin
+  Result := FStartReplayRequested;
 end;
 
 procedure SpawnHibernateAndExit;
@@ -1457,6 +1470,9 @@ begin
   // /start-record-mic CONTEM /start-record (entao FStartRecordRequested ja e
   // True); o sufixo -mic so diferencia a origem: monitor de mic, nao hotkey.
   FStartRecordMic := Pos('/start-record-mic', CmdLine) > 0;
+  FStartReplayRequested := Pos('/start-replay', CmdLine) > 0;
+  if FStartReplayRequested then
+    Log('OBSUI.Run: /start-replay detectado — buffer ligara apos o warmup.');
   if FStartRecordRequested then
     Log('OBSUI.Run: /start-record detectado (mic=%s) — gravacao iniciara apos warmup.',
       [BoolToStr(FStartRecordMic, True)]);
@@ -1544,13 +1560,19 @@ begin
   //                          Windows e configurou app pra bandeja).
   //   FStartRecordRequested — hibernate spawnou esse processo via hotkey
   //                          de gravar; sobe pra gravar sem mostrar UI.
+  //   FStartReplayRequested — hibernate viu um app monitorado abrir e
+  //                          spawnou pra ligar o buffer. Aqui o usuario
+  //                          nem pediu nada: ele abriu um JOGO. Mostrar a
+  //                          janela seria tirar o foco do jogo pra dizer
+  //                          "liguei o buffer" — o oposto do recurso.
   //
   // Truque do off-screen: WebView2 nao inicializa corretamente quando o
   // parent HWND nunca foi mostrado — render fica preto/quebrado. Por
   // isso mostramos a janela off-screen (-32000,-32000), com
   // WS_EX_TOOLWINDOW pra nao aparecer na taskbar/Alt+Tab, e damos
   // SW_HIDE depois que o WebView2 termina init.
-  if StartInTray or StartMinimized or FStartRecordRequested then
+  if StartInTray or StartMinimized or FStartRecordRequested or
+     FStartReplayRequested then
   begin
     // WebView2 nao inicializa corretamente quando o parent HWND nunca
     // foi mostrado durante o setup — rendering fica preto/quebrado.
@@ -1559,7 +1581,7 @@ begin
     //  2) Posiciona off-screen.
     //  3) SW_SHOWNOACTIVATE — WebView2 ve o parent visivel e inicializa OK.
     //  4) Apos init terminar (TControllerHandler) — divergem aqui:
-    //     • StartInTray / FStartRecordRequested → SW_HIDE
+    //     • StartInTray / start-record / start-replay → SW_HIDE
     //       (PendingHideAfterWebViewReady)
     //     • StartMinimized                       → SW_SHOWMINNOACTIVE
     //       (PendingMinimizeAfterWebViewReady) restaurando position +
@@ -1581,10 +1603,10 @@ begin
     ShowWindow(Wnd, SW_SHOWNOACTIVATE);
     UpdateWindow(Wnd);
 
-    // Tray icon so faz sentido se closeToTray=ON ou start-record. Pro
-    // StartMinimized (closeToTray=OFF) o app fica acessivel via taskbar
-    // sem precisar do icone de bandeja.
-    if StartInTray or FStartRecordRequested then
+    // Tray icon so faz sentido se closeToTray=ON, start-record ou
+    // start-replay. Pro StartMinimized (closeToTray=OFF) o app fica
+    // acessivel via taskbar sem precisar do icone de bandeja.
+    if StartInTray or FStartRecordRequested or FStartReplayRequested then
       OBSTray.InstallTrayIcon(Wnd, CurrentWindowTitle);
   end
   else

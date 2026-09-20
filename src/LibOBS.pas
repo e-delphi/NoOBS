@@ -34,7 +34,22 @@ type
   video_t          = type Pointer;
   audio_t          = type Pointer;
   signal_handler_t = type Pointer;
+  proc_handler_t   = type Pointer;
   calldata_t       = type Pointer;
+
+  // struct calldata (callback/calldata.h), pra quem CHAMA um procedimento e
+  // precisa de um calldata proprio. calldata_t acima e o PONTEIRO (e assim
+  // que os callbacks o recebem). Zerado = calldata_init (que e inline no C).
+  // Se o procedimento gravar algo (ex.: get_last_replay), 'stack' vem
+  // alocado pelo bmalloc da obs.dll e TEM que voltar por bfree
+  // (calldata_free tambem e inline).
+  TObsCallData = record
+    stack:    Pointer;
+    size:     NativeUInt;
+    capacity: NativeUInt;
+    fixed:    ByteBool;
+    _pad:     array[0..6] of Byte;
+  end;
 
 // Callback de sinal do libobs (callback/signal.h):
 //   typedef void (*signal_callback_t)(void *data, calldata_t *cd);
@@ -404,6 +419,27 @@ procedure signal_handler_connect(handler: signal_handler_t; const signal: PAnsiC
 procedure signal_handler_disconnect(handler: signal_handler_t; const signal: PAnsiChar;
   callback: TOBSSignalCallback; data: Pointer);
   cdecl; external 'obs.dll' delayed;
+
+// -----------------------------------------------------------------------
+// Procedimentos do output (callback/proc.h). O replay_buffer registra
+// "save" (grava o buffer em arquivo, assincrono — conclui no sinal
+// "saved") e "get_last_replay" (out string path).
+// -----------------------------------------------------------------------
+
+function obs_output_get_proc_handler(output: obs_output_t): proc_handler_t;
+  cdecl; external 'obs.dll' delayed;
+
+function proc_handler_call(handler: proc_handler_t; const name: PAnsiChar;
+  params: calldata_t): ByteBool; cdecl; external 'obs.dll' delayed;
+
+// Exportada (as outras calldata_get_* sao inline no C). 'str' aponta pra
+// dentro do stack do calldata — copie antes de liberar.
+function calldata_get_string(data: calldata_t; const name: PAnsiChar;
+  str: PPAnsiChar): ByteBool; cdecl; external 'obs.dll' delayed;
+
+// Alocador da obs.dll (util/bmem.h). Memoria alocada pela obs.dll volta
+// por aqui, nunca pelo FreeMem do Delphi.
+procedure bfree(ptr: Pointer); cdecl; external 'obs.dll' delayed;
 
 // -----------------------------------------------------------------------
 // Properties (enumeracao de monitor_id, device_id, etc.)

@@ -338,6 +338,9 @@
       <button type="button" class="settings-tab" data-tab="recording"
               onclick="Settings.showTab('recording')"
               data-i18n="settings.tabs.recording">Gravação</button>
+      <button type="button" class="settings-tab" data-tab="replay"
+              onclick="Settings.showTab('replay')"
+              data-i18n="settings.tabs.replay">Buffer</button>
       <button type="button" class="settings-tab" data-tab="files"
               onclick="Settings.showTab('files')"
               data-i18n="settings.tabs.files">Arquivos</button>
@@ -555,6 +558,123 @@
         </div>
         <div class="settings-hint" id="settingsKeyframeHint">
           A cada 2 segundos — bom equilíbrio entre pontos de corte e tamanho.
+        </div>
+      </div>
+
+      <!-- Aba Buffer: tudo do buffer em memoria mora aqui (o liga/desliga
+           do dia a dia fica na tela principal). -->
+      <div class="settings-field" data-panel="replay">
+        <label data-i18n="settings.replay.label">Buffer em memória</label>
+        <div class="settings-hint" data-i18n-html="settings.replay.hint">
+          Com o buffer ligado, o NoOBS guarda os últimos minutos da tela na
+          memória, sem gravar no disco. Quando acontecer algo que valha
+          registrar, aperte o atalho: o trecho vira uma gravação normal e o
+          buffer recomeça vazio — salvar de novo traz só a continuação, com
+          cerca de 1 segundo repetido na emenda pra não perder nada.
+        </div>
+      </div>
+      <div class="settings-field" data-panel="replay">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsReplayAutoStart"
+                 onchange="Replay.onAutoStartChange(this.checked)">
+          <span data-i18n="settings.replay.autoStart">Ligar o buffer ao abrir o NoOBS</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.replay.autoStartHint">
+          Marcado, o buffer já começa a guardar sozinho a cada vez que o
+          NoOBS abre. Desmarcado, o botão da tela principal liga o buffer
+          só até fechar o app.
+        </div>
+      </div>
+      <!-- Os dois limites do buffer na MESMA linha: sao um par ("o que
+           acabar primeiro manda"), e a dica abaixo vale pros dois. -->
+      <div class="settings-field" data-panel="replay">
+        <div class="settings-pair">
+          <div class="settings-pair-col">
+            <label for="settingsReplayMaxSec" data-i18n="settings.replay.duration">Tempo guardado</label>
+            <select class="settings-input" id="settingsReplayMaxSec"
+                    onchange="Replay.onLimitsChange()"></select>
+          </div>
+          <div class="settings-pair-col">
+            <label for="settingsReplayMaxMb" data-i18n="settings.replay.memory">Memória máxima</label>
+            <select class="settings-input" id="settingsReplayMaxMb"
+                    onchange="Replay.onLimitsChange()"></select>
+          </div>
+        </div>
+        <div class="settings-hint" data-i18n="settings.replay.memoryHint">
+          O que acabar primeiro manda: o buffer descarta o trecho mais antigo
+          quando passa do tempo OU da memória. Tela parada ocupa poucos MB por
+          minuto; um jogo em 4K a 120 fps na qualidade máxima chega a ~1,5 GB
+          por minuto. O máximo da lista é o que cabe nesta máquina, sempre
+          deixando 4 GB de RAM livres.
+        </div>
+      </div>
+      <div class="settings-field" data-panel="replay">
+        <label for="settingsReplayApps" data-i18n="settings.replay.apps">Ligar sozinho com estes programas</label>
+        <input type="text" class="settings-input" id="settingsReplayApps"
+               data-i18n-placeholder="settings.replay.appsPlaceholder"
+               placeholder="ex.: valorant, cs2, League of Legends"
+               oninput="Replay.onAppsInput(this.value)"
+               onchange="Replay.onAppsChange(this.value)">
+        <div class="settings-hint" data-i18n="settings.replay.appsHint">
+          Nomes de programas separados por vírgula. Quando um deles estiver
+          aberto, o buffer liga sozinho; quando todos fecharem, ele desliga.
+          Basta um pedaço do nome ("valorant" acha "VALORANT-Win64-Shipping").
+          Funciona também com o NoOBS hibernando. Vazio = desligado.
+        </div>
+      </div>
+      <div class="settings-field" data-panel="replay">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsReplayIndicator"
+                 onchange="Replay.onIndicatorChange(this.checked)">
+          <span data-i18n="settings.replay.indicator">Mostrar indicador do buffer na tela</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.replay.indicatorHint">
+          Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece
+          pra você mas <b>não entra na gravação</b>, e clicar nela salva o
+          trecho. Requer Windows 10 2004+.
+        </div>
+        <div id="settingsReplayIndicatorWrap">
+          <div class="settings-input-row">
+            <label class="settings-inline-label"
+                   data-i18n="settings.recIndicator.cornerLabel">Canto</label>
+            <select class="settings-input" id="settingsReplayIndicatorCorner"
+                    onchange="Replay.onIndicatorCornerChange(this.value)">
+              <option value="top-left" data-i18n="settings.recIndicator.corners.topLeft">Superior esquerdo</option>
+              <option value="top-right" data-i18n="settings.recIndicator.corners.topRight">Superior direito</option>
+              <option value="bottom-left" data-i18n="settings.recIndicator.corners.bottomLeft">Inferior esquerdo</option>
+              <option value="bottom-right" data-i18n="settings.recIndicator.corners.bottomRight">Inferior direito</option>
+            </select>
+          </div>
+          <div class="settings-input-row rec-indicator-opacity-row">
+            <label class="settings-inline-label"
+                   data-i18n="settings.recIndicator.opacityLabel">Opacidade</label>
+            <input type="range" id="settingsReplayIndicatorOpacity" min="20" max="100" step="5"
+                   oninput="Replay.onIndicatorOpacityInput()">
+            <span class="rec-indicator-preview replay-indicator-preview" id="replayIndicatorPreview" aria-hidden="true">
+              <span class="rec-indicator-preview-dot"></span>
+              <span class="rec-indicator-preview-time">2:13 / 5:00</span>
+            </span>
+            <span class="settings-inline-label" id="settingsReplayIndicatorOpacityValue">90%</span>
+          </div>
+        </div>
+      </div>
+      <div class="settings-field" data-panel="replay">
+        <label data-i18n="settings.replay.hotkey">Atalho para salvar o trecho</label>
+        <div class="hotkey-builder">
+          <div class="hotkey-mods">
+            <label class="hotkey-mod"><input type="checkbox" id="settingsReplayHotkeyCtrl"  onchange="Replay.onHotkeyChange()"><span data-i18n="settings.hotkey.ctrl">Ctrl</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsReplayHotkeyShift" onchange="Replay.onHotkeyChange()"><span data-i18n="settings.hotkey.shift">Shift</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsReplayHotkeyAlt"   onchange="Replay.onHotkeyChange()"><span data-i18n="settings.hotkey.alt">Alt</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsReplayHotkeyWin"   onchange="Replay.onHotkeyChange()"><span data-i18n="settings.hotkey.win">Win</span></label>
+          </div>
+          <span class="hotkey-plus">+</span>
+          <select class="settings-input hotkey-key" id="settingsReplayHotkeyKey"
+                  onchange="Replay.onHotkeyChange()"></select>
+        </div>
+        <div class="settings-hint" id="settingsReplayHotkeyPreview"></div>
+        <div class="settings-hint" data-i18n="settings.replay.hotkeyHint">
+          Só fica ativo com o buffer ligado — desligado, a combinação volta
+          a ser dos outros programas.
         </div>
       </div>
       <div class="settings-field" data-panel="files">
@@ -1240,6 +1360,32 @@
             <span class="icon"></span>
           </button>
           <div class="record-label" id="recordLabel" data-i18n="record.start">Iniciar gravação</div>
+
+          <!-- Buffer em memoria (replay.js). Mesmo padrao das linhas de
+               dispositivo (.source-item + .toggle verde): clicar na linha
+               liga/desliga; o botao de salvar so aparece com o buffer ativo
+               (o atalho faz o mesmo). -->
+          <div class="replay-row" id="replayRow" role="switch" aria-checked="false"
+               tabindex="0" onclick="Replay.toggle()"
+               onkeydown="if(event.key===' '||event.key==='Enter'){event.preventDefault();Replay.toggle();}">
+            <span class="replay-dot"></span>
+            <div class="replay-meta">
+              <div class="replay-name" data-i18n="replay.label">Buffer em memória</div>
+              <div class="replay-status" id="replayStatus"></div>
+            </div>
+            <button class="icon-btn replay-save-btn" id="replaySaveBtn" hidden
+                    onclick="event.stopPropagation(); Replay.save()"
+                    data-i18n-aria="replay.save" aria-label="Salvar trecho">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+            </button>
+            <div class="toggle"></div>
+          </div>
         </div>
       </div>
 
@@ -1382,6 +1528,7 @@
 <script src="js/player.js"></script>
 <script src="js/export.js"></script>
 <script src="js/transcribe.js"></script>
+<script src="js/replay.js"></script>
 <script src="js/main.js"></script>
 
 </body>

@@ -1435,15 +1435,32 @@ begin
   // WebView2, FFmpeg, watchers ficam sem inicializar enquanto o user
   // nao interagir. Se 'hibernate' esta OFF no config, cai no caso
   // abaixo: inicia full mas com janela escondida na bandeja.
+  //
+  // EXCECAO: "ligar o buffer ao abrir o NoOBS" (replayAutoStart). O buffer
+  // precisa do libobs vivo, e a hibernacao existe justamente pra NAO ter
+  // libobs — entao o redirecionamento faria a preferencia nunca valer no
+  // boot, que e exatamente quando ela mais importa (o usuario nao vai
+  // abrir a janela pra "ligar o que ja estava ligado"). Com ela marcada o
+  // app sobe FULL, escondido na bandeja, e o warmup liga o buffer. Quem
+  // paga o preco entende: buffer ligado ja impedia hibernar de qualquer
+  // jeito (pegadinha #62).
+  //
+  // A lista de programas (replayAutoApps) NAO entra aqui de proposito: la
+  // a hibernacao vigia sozinha e promove pra full quando o jogo abre
+  // (WM_REPLAY_TRIGGER), que e o caminho leve e o comportamento desejado.
   if IsAutostartLaunch and
      GetConfigBool('closeToTray', True) and
-     GetConfigBool('hibernate', True) then
+     GetConfigBool('hibernate', True) and
+     (not GetConfigBool('replayAutoStart', False)) then
   begin
     Log('OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra OBSHibernate.Run.');
     OBSHibernate.Run;
     Log('OBSUI.Run: OBSHibernate.Run retornou — saindo.');
     Exit;
   end;
+  if IsAutostartLaunch and GetConfigBool('replayAutoStart', False) then
+    Log('OBSUI.Run: /autostart com buffer automatico ligado — subindo FULL ' +
+      'escondido na bandeja (hibernacao nao tem libobs pra guardar).');
 
   // Comportamento esperado de /autostart em TODOS os casos:
   //   closeToTray=ON  + hibernate=ON  → modo hibernate (tratado acima)

@@ -3037,6 +3037,21 @@ Regras de convivência:
   checa `CurrentMode` antes, senão apagaria o indicador da gravação.
   No modo buffer o clique **salva** em vez de parar: parar seria destrutivo
   (o buffer só existe na RAM) e sem desfazer.
+- **No BOOT, `/autostart` desvia pra hibernação — e isso atropelava o
+  `replayAutoStart`.** O `OBSUI.Run` redireciona `/autostart` +
+  `closeToTray` + `hibernate` direto pro `OBSHibernate.Run`, que existe
+  justamente pra NÃO ter libobs. Resultado: "ligar o buffer ao abrir o
+  NoOBS" só valia quando o usuário abria a janela na mão — ou seja, nunca
+  no caso que a opção existe pra cobrir. Hoje o redirecionamento tem uma
+  exceção: com `replayAutoStart` ligado o app sobe **full, escondido na
+  bandeja**, e o warmup liga o buffer. Não é regressão de leveza: buffer
+  ligado já impedia hibernar de qualquer jeito.
+  A lista de programas (`replayAutoApps`) **não** entra nessa exceção de
+  propósito — lá a hibernação vigia sozinha e promove pra full quando o
+  jogo abre (`WM_REPLAY_TRIGGER`), que é o caminho leve.
+  Regra geral: **toda preferência que precisa do libobs vivo no arranque
+  tem que ser consultada ANTES do desvio pra hibernação** — o desvio
+  acontece no `OBSUI.Run`, muito antes do `OBSBridge.DoInit`.
 - **"Ligado agora" e "ligar ao abrir" são coisas DIFERENTES, e por isso são
   duas chaves.** O botão da tela principal é vontade de SESSÃO
   (`ReplayWanted`, variável do Bridge, não persiste); o arranque é a
@@ -3115,7 +3130,7 @@ recuperáveis manualmente).
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |
-| `replayAutoStart`                | `true` / `false` (default `false`) — liga o buffer em memória sozinho no warmup. É a ÚNICA chave do buffer que persiste: o botão da tela principal vale só pra sessão (`ReplayWanted`, pegadinha #62) |
+| `replayAutoStart`                | `true` / `false` (default `false`) — liga o buffer em memória sozinho no warmup. É a ÚNICA chave do buffer que persiste: o botão da tela principal vale só pra sessão (`ReplayWanted`, pegadinha #62). Ligada, ela também **cancela o desvio pra hibernação** do `/autostart` no boot — senão o app subiria sem libobs e a preferência nunca valeria (pegadinha #62) |
 | `replayMaxSec`                   | `10..3600` (default `300`) — quanto tempo o buffer guarda. Vale a partir da próxima rotação (sem `update` na saída) |
 | `replayMaxMb`                    | `128..(RAM instalada − 4 GB)` (default `2048`) — teto de memória do buffer; o que estourar primeiro (tempo ou memória) descarta o trecho mais antigo. O clamp por RAM (`ReplayMemLimitMb`) vale também pro JSON editado a mão: acima disso a máquina pagina, e no limite a libobs **morre** — o `bmalloc` dela chama `bcrash` em vez de tratar falta de memória (`libobs/util/bmem.c:112`) |
 | `replayHotkey`                   | atalho de salvar o trecho (default `"Ctrl+Shift+F10"`); só registrado com o buffer ativo, e não pode repetir o de gravar |

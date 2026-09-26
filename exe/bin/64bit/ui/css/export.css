@@ -183,6 +183,77 @@ select.export-input {
   padding: 12px;
 }
 .export-preview-video.ready .export-preview-msg { display: none; }
+
+/* ---- Telas escolhidas: composicao desenhada na previa ----
+   O canvas (Export._drawCompose) cobre o quadro, que ganha a proporcao da
+   composicao. O video segue tocando por baixo, invisivel — e dele que sai
+   o som. `visibility`, e nao `display`: sem layout o video nao decodifica
+   quadro nenhum e o canvas ficaria preto. */
+.export-compose {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: none;
+  cursor: pointer;
+}
+.export-preview-video.composed .export-compose { display: block; }
+.export-preview-video.composed video { visibility: hidden; }
+
+/* ---- So audio ("Nenhuma" tela) ----
+   A previa continua tocando (e por ela que se acha o ponto de corte de
+   ouvido), apagada e com o aviso do que vai sair. */
+.export-audio-badge {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  z-index: 5;
+}
+.export-preview-video.audio-only .export-audio-badge { display: flex; }
+.export-preview-video.audio-only video,
+.export-preview-video.audio-only .export-compose { opacity: 0.22; }
+
+/* ---- Legenda (CC) sobre a previa ----
+   Fora do quadro: o zoom do recorte nao a aumenta. Tamanho, largura e
+   distancia da borda vem do JS (_layoutCaption), proporcionais ao quadro
+   — as mesmas fracoes da legenda gravada (ExportCaptions.pas), e a mesma
+   fonte (Segoe UI negrito), pra previa mostrar o que o arquivo tera. */
+.export-caption {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  text-align: center;
+  pointer-events: none;
+}
+.export-caption[hidden] { display: none; }
+.export-caption-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: #fff;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-weight: 700;
+  line-height: 1.33;
+  overflow-wrap: anywhere;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 0 4px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.7);
+}
+.export-caption-measure { visibility: hidden; top: 0; bottom: auto !important; }
+.export-caption-measure .export-caption-text {
+  display: block;
+  -webkit-line-clamp: unset;
+}
 /* Com recorte, o palco é superfície de trabalho e não cartão: o canto
    arredondado cortava a alça encostada na beirada (o `overflow: hidden`
    segue o raio). Sem recorte disponível o arredondado volta. */
@@ -489,6 +560,20 @@ select.export-input {
     var(--panel-3) 0 6px,
     var(--panel-2) 6px 12px);
 }
+/* Com a intensidade do audio desenhada por cima, o rotulo de duracao da
+   parte brigaria com as barras — o total mantido ja aparece ao lado. */
+.export-timeline.has-wave .export-part { color: transparent; }
+
+/* Intensidade do audio (Export._renderWave). Cobre so a janela visivel e
+   acompanha a rolagem pelo `left`, dai o absolute. */
+.export-wave {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* Trecho sob o cursor: realce sutil pra ligar a barra ao botao de
    incluir/tirar, que age justamente nele. */
 .export-part.at-cursor { box-shadow: inset 0 0 0 1px var(--border-2); }
@@ -560,42 +645,6 @@ select.export-input {
 .export-check.checked { border-color: var(--success); background: var(--accent-bg); }
 .export-check.disabled { opacity: 0.4; cursor: not-allowed; }
 .export-check.disabled input { cursor: not-allowed; }
-
-/* ---- Previa da composicao ----
-   Encolhe pro tamanho do conteudo (inline-flex + width via JS) em vez de
-   esticar pela coluna inteira: uma caixa larga e baixa nao lembra em nada
-   o arranjo real dos monitores. As dimensoes de cada item vem em PIXELS do
-   _renderPreview, calculadas da proporcao verdadeira da composicao. */
-.export-preview {
-  display: inline-flex;
-  gap: 3px;
-  align-items: center;
-  margin-top: 9px;
-  padding: 6px;
-  background: var(--panel-2);
-  border: 1px solid var(--border-2);
-  border-radius: 7px;
-  max-width: 100%;
-  overflow: hidden;
-}
-.export-preview-item {
-  background: var(--thumb-bg);
-  border: 1px solid var(--border-2);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  color: var(--text-3);
-  overflow: hidden;
-  white-space: nowrap;
-  flex: none;
-}
-.export-preview-empty {
-  padding: 10px 14px;
-  font-size: 11px;
-  color: var(--text-3);
-}
 
 /* ---- Alternador Qualidade / Tamanho ---- */
 .export-tabs {
@@ -708,6 +757,17 @@ select.export-input {
 .export-icon-btn .ico-muted { display: none; }
 .export-icon-btn.muted .ico-sound { display: none; }
 .export-icon-btn.muted .ico-muted { display: block; }
+/* CC: texto em vez de icone; aceso com a legenda ligada. */
+.export-cc-btn { font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+.export-cc-btn.active {
+  background: var(--accent-bg);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+/* Campo que so vale com video, com "Nenhuma" tela escolhida. */
+.export-video-opt.disabled { opacity: 0.45; }
+.export-video-opt.disabled .export-check { cursor: not-allowed; }
 
 /* Zoom: mesma centralizacao por flex do botao de icone — com text-align
    o glifo fica na mao do avanco da fonte e sai levemente do centro. */

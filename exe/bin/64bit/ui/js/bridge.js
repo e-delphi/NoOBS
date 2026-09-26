@@ -66,6 +66,9 @@ const Bridge = {
       try { Export._syncQualityValue(); } catch (e) {}
       // Rotulos e legenda do redimensionamento sao montados em JS.
       try { Export._renderScale(); } catch (e) {}
+      // Lista de telas ("Tela inteira", "Nenhuma") e textos da legenda sao
+      // montados em JS.
+      try { if (Export.currentId) { Export._renderRegions(); Export._syncCaptionUi(); } } catch (e) {}
       try { Displays.render(); } catch (e) {}
       // Re-renderiza a legenda de faixas (textos compostos em JS, sem
       // data-i18n por terem placeholders dinamicos como "Faixa N").
@@ -236,7 +239,12 @@ const Bridge = {
     transcribe_health(data)  { Transcribe.onHealth(data); },
     transcribe_setup(data)   { TranscribeSetup.apply(data); },
     local_asr_state(data)    { LocalAsr.apply(data); },
-    transcript(data)         { Player.applyTranscript(data); },
+    // A tela de exportacao pede a transcricao pra legenda da previa; quem
+    // estiver esperando por ESTE id fica com ela (os dois nunca abrem juntos).
+    transcript(data) {
+      if (Export.isWaitingFor(data && data.id)) { Export.onTranscript(data); return; }
+      Player.applyTranscript(data);
+    },
     transcript_search(data)  { onTranscriptSearchResult(data); },
     update_result(data) { Updates.applyResult(data); },
     record_dir_picked(data) { Settings.setPickedPath(data.path); },
@@ -335,7 +343,12 @@ const Bridge = {
       else Player.renderInfo(data);
     },
     audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
-    waveform_ready(data) { Waveform.onReady(data); },
+    // A versao em alta resolucao (hi) e da linha do tempo da exportacao;
+    // a comum, do player.
+    waveform_ready(data) {
+      if (data && data.hi) { Export.onWaveform(data); return; }
+      Waveform.onReady(data);
+    },
     keyframes(data) { Player.onKeyframes(data); },
     // Buffer em memoria (replay.js).
     replay_state(data) { Replay.applyState(data); },

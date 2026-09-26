@@ -35,9 +35,12 @@ instalar nem configurar nada — só abrir e gravar.
   e sem perda. A exportação recorta trechos,
   escolhe monitores e reduz resolução, com prévia do que está saindo. Para
   enquadrar, é só arrastar as bordas da prévia: o que ficar dentro da
-  moldura é o que vai pro arquivo. Fechou a tela? Ela continua em segundo
-  plano, com a barra de progresso no card da gravação e um botão de
-  cancelar ali mesmo.
+  moldura é o que vai pro arquivo. A linha do tempo mostra a intensidade
+  do áudio pra acertar o corte, dá pra exportar só o áudio, e a
+  transcrição pode sair gravada no vídeo como legenda. O arquivo
+  exportado mantém os monitores, as faixas e a transcrição da gravação.
+  Fechou a tela? Ela continua em segundo plano, com a barra de progresso
+  no card da gravação e um botão de cancelar ali mesmo.
 
 - **Organiza em pastas, sem abrir o Explorer.** Crie pastas na própria
   lista, arraste uma gravação pra dentro ou use recortar e colar. Excluir

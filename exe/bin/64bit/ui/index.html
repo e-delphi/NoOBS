@@ -65,6 +65,19 @@
     <div class="export-body">
      <div class="export-content">
 
+      <!-- Telas: vem PRIMEIRO porque decide o que a previa logo abaixo
+           mostra. A escolha e aplicada direto na previa (composicao
+           desenhada num canvas), entao nao ha mais miniatura do arranjo.
+           "Nenhuma" exporta so o audio. Montado em JS (_renderRegions). -->
+      <div class="export-field" id="exportRegionsField">
+        <label data-i18n="export.regions">Telas</label>
+        <div class="export-checks" id="exportRegions"></div>
+        <div class="export-hint" data-i18n="export.regionsHint">
+          A prévia abaixo já mostra o resultado: as telas escolhidas ficam
+          lado a lado, sem espaço vazio. "Nenhuma" exporta só o áudio.
+        </div>
+      </div>
+
       <!-- Cortes: previa + linha do tempo -->
       <div class="export-field">
         <label data-i18n="export.range">Trechos</label>
@@ -80,6 +93,11 @@
           <div class="export-frame" id="exportFrame">
             <video id="exportVideo" preload="metadata"
                    onclick="Export.onPreviewClick()"></video>
+            <!-- Telas escolhidas: a composicao lado a lado e desenhada aqui
+                 a partir do video (Export._drawCompose), do jeito que o
+                 arquivo vai sair. O quadro ganha a proporcao da composicao. -->
+            <canvas class="export-compose" id="exportCompose"
+                    onclick="Export.onPreviewClick()"></canvas>
             <!-- Moldura de recorte. Montada em JS (Export._renderCrop) —
                  as alças e as faixas de sombra dependem do retângulo atual.
                  O quadro tem a proporção EXATA da gravação, então o
@@ -88,6 +106,18 @@
           </div>
           <div class="export-preview-msg" id="exportVideoMsg"
                data-i18n="export.previewLoading">Carregando prévia…</div>
+          <!-- Legenda (CC) fora do quadro: o zoom do recorte nao a aumenta,
+               igual ao player. Tamanho e posicao sao proporcionais ao
+               quadro (Export._layoutCaption), os mesmos da legenda queimada. -->
+          <div class="export-caption" id="exportCaption" hidden>
+            <div class="export-caption-text" id="exportCaptionText"></div>
+          </div>
+          <div class="export-caption export-caption-measure" aria-hidden="true">
+            <div class="export-caption-text" id="exportCaptionMeasure"></div>
+          </div>
+          <div class="export-audio-badge" data-i18n="export.audioOnlyBadge">
+            Só o áudio será exportado
+          </div>
         </div>
 
         <div class="export-crop-bar" id="exportCropBar">
@@ -149,6 +179,11 @@
           <input type="range" class="export-volume" id="exportVolume"
                  min="0" max="100" step="1" value="100"
                  data-i18n-hint="export.volume" data-hint="Volume">
+          <!-- Legenda na previa: SO a legenda sobre o video (nada de painel
+               lateral aqui). Mostra o que a legenda queimada vai gravar. -->
+          <button class="export-btn export-btn-sm export-icon-btn export-cc-btn"
+                  id="exportCcBtn" onclick="Export.toggleCaptions()"
+                  data-i18n-hint="export.captionsShow" data-hint="Mostrar legenda">CC</button>
           <div class="export-footer-spacer"></div>
           <span class="export-hint" style="margin:0" data-i18n="export.playHint">
             Espaço toca/pausa
@@ -162,6 +197,10 @@
         <div class="export-timeline-scroll" id="exportTimelineScroll">
           <div class="export-timeline" id="exportTimeline">
             <div class="export-parts" id="exportParts"></div>
+            <!-- Intensidade do audio, como no player. Desenhada so na janela
+                 visivel (a linha do tempo pode ter milhares de telas de
+                 largura no zoom maximo) — ver Export._renderWave. -->
+            <canvas class="export-wave" id="exportWave"></canvas>
             <div class="export-cuts" id="exportCuts"></div>
             <div class="export-playhead" id="exportPlayhead"></div>
           </div>
@@ -204,21 +243,9 @@
         </div>
       </div>
 
-      <!-- Monitores / regioes -->
-      <div class="export-field" id="exportRegionsField">
-        <label data-i18n="export.regions">Monitores</label>
-        <div class="export-checks" id="exportRegions"></div>
-        <div class="export-preview" id="exportPreview"></div>
-        <div class="export-hint" data-i18n="export.regionsHint">
-          As regiões escolhidas ficam lado a lado, sem espaço vazio de uma
-          que tenha sido deixada de fora. Escolher um monitor aqui desfaz
-          o recorte feito na prévia — são dois jeitos de dizer a mesma
-          coisa, e o último gesto vale.
-        </div>
-      </div>
-
-      <!-- Resolucao + encoder -->
-      <div class="export-field">
+      <!-- Resolucao + encoder. `export-video-opt` = campo que so vale com
+           video: sem nenhuma tela escolhida ele fica desativado. -->
+      <div class="export-field export-video-opt">
         <div class="export-row">
           <div class="export-col">
             <label data-i18n="export.resolution">Resolução</label>
@@ -235,14 +262,14 @@
       <!-- Redimensionamento: so aparece quando ha REDUCAO de resolucao.
            Em 1:1 o swscale nem reamostra, entao a escolha nao mudaria nem
            a imagem nem o tempo — oferecer ali seria um controle inerte. -->
-      <div class="export-field" id="exportScaleField">
+      <div class="export-field export-video-opt" id="exportScaleField">
         <label data-i18n="export.scale">Redimensionamento</label>
         <select class="export-input" id="exportScale"></select>
         <div class="export-hint" id="exportScaleHint"></div>
       </div>
 
       <!-- Taxa de quadros -->
-      <div class="export-field" id="exportFpsField">
+      <div class="export-field export-video-opt" id="exportFpsField">
         <label data-i18n="export.fps">Quadros por segundo</label>
         <div class="export-row">
           <input type="range" class="export-quality-slider" id="exportFps"
@@ -256,7 +283,7 @@
       </div>
 
       <!-- Qualidade -->
-      <div class="export-field">
+      <div class="export-field export-video-opt">
         <label data-i18n="export.quality">Qualidade</label>
         <div class="export-row">
           <!-- ATENCAO: o value do input NAO e o CRF, e a POSICAO — a barra
@@ -278,6 +305,18 @@
           <input type="checkbox" id="exportMixAudio">
           <span data-i18n="export.mixAudio">Juntar as faixas em uma só</span>
         </label>
+      </div>
+
+      <!-- Legenda queimada: a transcricao desenhada nos quadros. So existe
+           com transcricao e com video. -->
+      <div class="export-field export-video-opt" id="exportCaptionsField">
+        <label data-i18n="export.captions">Legenda</label>
+        <label class="export-check" id="exportBurnWrap">
+          <input type="checkbox" id="exportBurnCaptions"
+                 onchange="Export.onBurnChange(this.checked)">
+          <span data-i18n="export.burnCaptions">Gravar a legenda no vídeo</span>
+        </label>
+        <div class="export-hint" id="exportCaptionsHint"></div>
       </div>
 
       <!-- Nome + formato -->

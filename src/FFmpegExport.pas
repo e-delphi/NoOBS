@@ -18,7 +18,9 @@
     - controlar a qualidade por CRF (0..51, escala do x264), sempre em
       modo de bitrate VARIAVEL (VBR de qualidade constante);
     - manter as faixas de audio escolhidas (stream copy) ou mixa-las
-      numa faixa so.
+      numa faixa so;
+    - exportar SO o audio (NoVideo), sem decodificar nem encodar video;
+    - queimar a transcricao como legenda nos quadros (ExportCaptions).
 
   Container de saida: MP4 (default, mais compativel pra compartilhar) ou
   MKV, a escolha do usuario. A pegadinha #10 (MKV por causa de queda de
@@ -37,7 +39,8 @@ interface
 
 uses
   System.SysUtils,
-  NoOBSTypes;
+  NoOBSTypes,
+  ExportCaptions;
 
 type
   TExportResult = (erOk, erCanceled, erNoEncoder, erError);
@@ -93,6 +96,17 @@ type
     Segments: TExportSegmentArray;
     AudioStreams: TArray<Integer>;  // indices de stream DO SOURCE
     MixAudio: Boolean;          // junta as escolhidas numa faixa so
+    // Titulo da faixa misturada (vira o nome dela no player e em editores
+    // externos). Vazio = sem titulo.
+    MixTitle: string;
+    // So o audio: nenhum stream de video na saida, e o video da origem nem
+    // e decodificado. Regioes, resolucao, fps, encoder e qualidade sao
+    // ignorados. Origem sem video (uma exportacao so de audio reexportada)
+    // cai aqui sozinha.
+    NoVideo: Boolean;
+    // Legenda queimada: turnos da transcricao no relogio da ORIGEM. Vazio =
+    // sem legenda. Ignorado com NoVideo.
+    Captions: TCaptionTurnArray;
   end;
 
   // Chamado com o percentual 0..100 conforme a exportacao anda. Roda na
@@ -126,6 +140,17 @@ function ListExportEncoders(const ACaps: TEncoderCaps): TExportEncoderArray;
 // algo utilizavel — cai pro libx264 quando nada mais serve.
 function ResolveExportEncoder(const APref: string;
   const ACaps: TEncoderCaps): AnsiString;
+
+// Layout de monitores do ARQUIVO EXPORTADO. Cada regiao do layout original
+// que aparece na saida vira uma regiao nova nas coordenadas da saida:
+// recortada pelo que entrou (monitor escolhido ou recorte livre), deslocada
+// pra onde a composicao a pos e escalada pela reducao de resolucao. E o que
+// deixa o player do arquivo exportado continuar oferecendo "ver so o
+// monitor X". Mesma composicao do ExportVideo (BuildCompRegions), entao as
+// duas contas nunca divergem. False = nao ha o que calcular.
+function ComputeExportLayout(const ASrc: TRecordingLayout;
+  const ARegions: TRecordingRegionArray; ATargetHeight: Integer;
+  out ALayout: TRecordingLayout): Boolean;
 
 // Exporta. Ver o cabecalho da unit. ACancelFlag pode ser nil.
 function ExportVideo(const AOpts: TExportOptions; AProgress: TExportProgress;
@@ -513,6 +538,47 @@ begin
     ARegs[i].DstY := EvenDown((AOutH - ARegs[i].DstH) div 2);
 
   Result := (AOutW >= 2) and (AOutH >= 2);
+end;
+
+function ComputeExportLayout(const ASrc: TRecordingLayout;
+  const ARegions: TRecordingRegionArray; ATargetHeight: Integer;
+  out ALayout: TRecordingLayout): Boolean;
+var
+  Regs: TCompRegionArray;
+  OutW, OutH, i, k, ix, iy, ix2, iy2: Integer;
+  Sx, Sy: Double;
+  R: TRecordingRegion;
+begin
+  ALayout := Default(TRecordingLayout);
+  Result := False;
+  if (ASrc.CanvasW <= 0) or (ASrc.CanvasH <= 0) then Exit;
+  if not BuildCompRegions(ARegions, ASrc.CanvasW, ASrc.CanvasH, ATargetHeight,
+           Regs, OutW, OutH) then Exit;
+  ALayout.CanvasW := OutW;
+  ALayout.CanvasH := OutH;
+  for i := 0 to High(Regs) do
+  begin
+    if (Regs[i].SrcW <= 0) or (Regs[i].SrcH <= 0) then Continue;
+    Sx := Regs[i].DstW / Regs[i].SrcW;
+    Sy := Regs[i].DstH / Regs[i].SrcH;
+    for k := 0 to High(ASrc.Regions) do
+    begin
+      // Intersecao do monitor original com o pedaco que entrou.
+      ix := Max(ASrc.Regions[k].X, Regs[i].SrcX);
+      iy := Max(ASrc.Regions[k].Y, Regs[i].SrcY);
+      ix2 := Min(ASrc.Regions[k].X + ASrc.Regions[k].W, Regs[i].SrcX + Regs[i].SrcW);
+      iy2 := Min(ASrc.Regions[k].Y + ASrc.Regions[k].H, Regs[i].SrcY + Regs[i].SrcH);
+      // Sobra de poucos pixels (arredondamento par nas bordas) nao e monitor.
+      if (ix2 - ix < 8) or (iy2 - iy < 8) then Continue;
+      R := ASrc.Regions[k];
+      R.X := Regs[i].DstX + Round((ix - Regs[i].SrcX) * Sx);
+      R.Y := Regs[i].DstY + Round((iy - Regs[i].SrcY) * Sy);
+      R.W := Round((ix2 - ix) * Sx);
+      R.H := Round((iy2 - iy) * Sy);
+      ALayout.Regions := ALayout.Regions + [R];
+    end;
+  end;
+  Result := True;
 end;
 
 procedure FillFrameBlack(AFrame: PAVFrame; AW, AH: Integer);
@@ -906,6 +972,10 @@ var
   Crf, Attempt, ScaleFlags: Integer;
   LastPctStep: Integer;
   Canceled, Failed, SetupDone: Boolean;
+  // So audio: sem stream de video na saida (pedido, ou origem sem video).
+  AudioOnly: Boolean;
+  PktSec: Double;
+  Burner: TCaptionBurner;
 
   procedure ReportProgress(ASec: Double);
   // ASec = posicao dentro do trecho corrente, no tempo do ORIGINAL. O que
@@ -1147,6 +1217,10 @@ var
       Src := Frame;
 
     for k := 0 to High(Regs) do BlitRegion(Regs[k], Src, OutFrame);
+    // Legenda por CIMA da composicao, no relogio da ORIGEM — os turnos da
+    // transcricao estao nele, e os cortes nao importam aqui.
+    if Burner <> nil then
+      Burner.BlendAt(PtsToSec(Frame.pts, VideoTb), OutFrame);
     // Emenda na linha do tempo de saida: posicao dentro do trecho mais o
     // que ja foi escrito pelos trechos anteriores.
     // O pts do quadro esta na time_base da ORIGEM; o encoder espera na
@@ -1262,6 +1336,13 @@ begin
   TotalSec := 0;
   LastEncPts := Low(Int64);
   PtsCollisionLogged := False;
+  Burner := nil;
+  AudioOnly := AOpts.NoVideo;
+  VideoTb.num := 1;
+  VideoTb.den := 1000;
+  OutW := 0;
+  OutH := 0;
+  EncTb := VideoTb;
   // SegStartSec/SegEndSec/SegStartTs sao lidos pelas rotinas aninhadas
   // (HandleMixPacket, ComposeAndEncode) e precisam de valor mesmo antes do
   // 1o trecho. SegEndTs so e usado depois de atribuido no laco.
@@ -1292,15 +1373,28 @@ begin
     end;
     if VIdx < 0 then
     begin
-      Log('Export: arquivo sem stream de video.');
+      // Origem so de audio (uma exportacao so de audio reexportada): nao ha
+      // o que compor, e o caminho de so audio serve inteiro.
+      if not AudioOnly then
+        Log('Export: origem sem stream de video — exportando so o audio.');
+      AudioOnly := True;
+    end;
+    VStream := nil;
+    if VIdx >= 0 then
+    begin
+      VStream := GetStreamByIndex(SrcCtx, Cardinal(VIdx));
+      VideoTb := VStream.time_base;
+      if VideoTb.den <= 0 then Exit;
+    end;
+    if AudioOnly and (Length(AOpts.AudioStreams) = 0) then
+    begin
+      Log('Export: so audio pedido sem nenhuma faixa de audio.');
       Exit;
     end;
-    VStream := GetStreamByIndex(SrcCtx, Cardinal(VIdx));
-    VideoTb := VStream.time_base;
-    if VideoTb.den <= 0 then Exit;
 
     Fps := 30;
-    if (VStream.avg_frame_rate.den > 0) and (VStream.avg_frame_rate.num > 0) then
+    if (VStream <> nil) and (VStream.avg_frame_rate.den > 0) and
+       (VStream.avg_frame_rate.num > 0) then
       Fps := Max(1, Round(VStream.avg_frame_rate.num /
                           VStream.avg_frame_rate.den));
 
@@ -1326,6 +1420,8 @@ begin
     Log('Export: %d trecho(s), %.1fs de saida.',
       [Length(AOpts.Segments), TotalSec]);
 
+    if not AudioOnly then
+    begin
     // ---- composicao ----
     if not BuildCompRegions(AOpts.Regions,
              VStream.codecpar.width, VStream.codecpar.height,
@@ -1474,6 +1570,24 @@ begin
       '(qualidade constante, tentativa %d)',
       [string(AOpts.EncoderName), OutW, OutH, OutFps, Fps, Crf, Attempt]);
 
+    // Legenda queimada: sabe-se o tamanho de saida so agora. Falhar aqui
+    // (GDI indisponivel, algo estranho na fonte) nao derruba a exportacao:
+    // o video sai sem a legenda e o log diz por que.
+    if Length(AOpts.Captions) > 0 then
+      try
+        Burner := TCaptionBurner.Create(OutW, OutH, AOpts.Captions);
+        if Burner.ChunkCount = 0 then FreeAndNil(Burner);
+      except
+        on E: Exception do
+        begin
+          Log('Export: legenda desligada — %s', [E.Message]);
+          FreeAndNil(Burner);
+        end;
+      end;
+    end   // if not AudioOnly
+    else
+      Log('Export: so audio (%d faixa(s)).', [Length(AOpts.AudioStreams)]);
+
     // ---- faixas de audio selecionadas ----
     for i := 0 to High(AOpts.AudioStreams) do
     begin
@@ -1505,10 +1619,13 @@ begin
       Exit;
     end;
 
-    OutVStream := avformat_new_stream(OutCtx, nil);
-    if OutVStream = nil then Exit;
-    if avcodec_parameters_from_context(OutVStream.codecpar, EncCtx) < 0 then Exit;
-    OutVStream.time_base := EncTb;
+    if not AudioOnly then
+    begin
+      OutVStream := avformat_new_stream(OutCtx, nil);
+      if OutVStream = nil then Exit;
+      if avcodec_parameters_from_context(OutVStream.codecpar, EncCtx) < 0 then Exit;
+      OutVStream.time_base := EncTb;
+    end;
 
     if DoMix then
     begin
@@ -1562,6 +1679,9 @@ begin
         if avcodec_parameters_from_context(OutMixStream.codecpar, MixCtx) < 0 then
           Exit;
         OutMixStream.time_base := MixTb;
+        if AOpts.MixTitle <> '' then
+          av_dict_set(@OutMixStream.metadata, 'title',
+            PAnsiChar(ToUtf8(AOpts.MixTitle)), 0);
         // Um decoder por faixa selecionada.
         for i := 0 to High(Tracks) do
         begin
@@ -1628,14 +1748,17 @@ begin
     if (Pkt = nil) or (EncPkt = nil) or (Frame = nil) or
        (OutFrame = nil) or (AccFrame = nil) then Exit;
 
-    OutFrame.format := AV_PIX_FMT_YUV420P;
-    OutFrame.width  := OutW;
-    OutFrame.height := OutH;
-    Rc := av_frame_get_buffer(OutFrame, 0);
-    if Rc < 0 then
+    if not AudioOnly then
     begin
-      Log('Export: av_frame_get_buffer falhou (%s).', [AvErrStr(Rc)]);
-      Exit;
+      OutFrame.format := AV_PIX_FMT_YUV420P;
+      OutFrame.width  := OutW;
+      OutFrame.height := OutH;
+      Rc := av_frame_get_buffer(OutFrame, 0);
+      if Rc < 0 then
+      begin
+        Log('Export: av_frame_get_buffer falhou (%s).', [AvErrStr(Rc)]);
+        Exit;
+      end;
     end;
 
     // ---- um passe por trecho, emendando na saida ----
@@ -1651,18 +1774,23 @@ begin
     // Posiciona no keyframe anterior ao inicio do trecho. O
     // avcodec_flush_buffers e obrigatorio: sem ele o decoder tentaria
     // continuar a partir de referencias que nao valem mais aqui.
-    if SegStartTs > 0 then
+    if (SegStartTs > 0) and (VIdx >= 0) then
       av_seek_frame(SrcCtx, VIdx, SegStartTs, AVSEEK_FLAG_BACKWARD)
+    else if SegStartSec > 0 then
+      // Sem video: stream -1 = tempo em AV_TIME_BASE (microssegundos).
+      av_seek_frame(SrcCtx, -1, Round(SegStartSec * 1000000), AVSEEK_FLAG_BACKWARD)
     else
       av_seek_frame(SrcCtx, -1, 0, AVSEEK_FLAG_BACKWARD);
-    avcodec_flush_buffers(DecCtx);
+    if DecCtx <> nil then avcodec_flush_buffers(DecCtx);
     for i := 0 to High(Tracks) do
     begin
       if Tracks[i].DecCtx <> nil then avcodec_flush_buffers(Tracks[i].DecCtx);
       Tracks[i].Done := False;
     end;
 
-    VideoDone := False;
+    // So audio: o "video" ja nasce terminado, e o fim do trecho passa a ser
+    // decidido so pelas faixas.
+    VideoDone := AudioOnly;
     while av_read_frame(SrcCtx, Pkt) = 0 do
     begin
       if IsCanceled(ACancelFlag) then
@@ -1704,6 +1832,9 @@ begin
           begin
             if Tracks[i].SrcIdx <> Pkt.stream_index then Continue;
             if Tracks[i].Done then Break;
+            // Posicao ANTES do rebase abaixo: e o relogio da origem, o
+            // mesmo do ReportProgress.
+            PktSec := PtsToSec(Pkt.pts, Tracks[i].SrcTb);
             if (Pkt.pts <> AV_NOPTS_VALUE) and
                (PtsToSec(Pkt.pts, Tracks[i].SrcTb) >= SegEndSec) then
             begin
@@ -1742,6 +1873,9 @@ begin
                 Failed := True;
               end;
             end;
+            // Sem video quem anda o progresso e a 1a faixa.
+            if AudioOnly and (i = 0) and (PktSec >= 0) then
+              ReportProgress(PktSec);
             Break;
           end;
           if Failed then Break;
@@ -1760,7 +1894,7 @@ begin
     //
     // Depois de um send(nil) o decoder fica em modo dreno; quem o devolve
     // pra vida e o avcodec_flush_buffers no topo do proximo trecho.
-    if not VideoDone then
+    if (not VideoDone) and (DecCtx <> nil) then
     begin
       avcodec_send_packet(DecCtx, nil);
       PumpDecoder;
@@ -1783,8 +1917,11 @@ begin
 
     // ---- flush dos encoders ----
     // O acumulador de audio ja foi fechado na borda de cada trecho.
-    avcodec_send_frame(EncCtx, nil);
-    DrainEncoder(EncCtx, OutVStream, EncTb);
+    if EncCtx <> nil then
+    begin
+      avcodec_send_frame(EncCtx, nil);
+      DrainEncoder(EncCtx, OutVStream, EncTb);
+    end;
     if DoMix then
     begin
       avcodec_send_frame(MixCtx, nil);
@@ -1804,6 +1941,7 @@ begin
     if Assigned(AProgress) then AProgress(100);
     Result := erOk;
   finally
+    Burner.Free;
     for i := 0 to High(Regs) do
       if Regs[i].Sws <> nil then
         try sws_freeContext(Regs[i].Sws); except end;

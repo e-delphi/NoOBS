@@ -203,16 +203,27 @@ begin
   // Abre em APPEND: se o arquivo do dia ja existe (reabertura no mesmo dia),
   // continua no fim; senao cria. Assim varias sessoes do mesmo dia convivem
   // no mesmo arquivo em vez de sobrescrever.
-  try
-    if FileExists(LogPath) then
-    begin
-      LogStream := TFileStream.Create(LogPath, fmOpenReadWrite or fmShareDenyWrite);
-      LogStream.Seek(Int64(0), soEnd);
-    end
-    else
-      LogStream := TFileStream.Create(LogPath, fmCreate or fmShareDenyWrite);
-  except
-    FreeAndNil(LogStream);
+  // COM RETRY: a hibernacao que o /autostart abre roda no processo SEM
+  // /hibernate, entao grava no arquivo comum do dia — e ao abrir o modo
+  // completo ainda o segura por alguns ms enquanto encerra. Desistindo na
+  // 1a tentativa, o modo completo rodava a sessao INTEIRA sem log (medido:
+  // a hibernacao fechou 45 ms depois de lancar o completo, e o dia ficou
+  // sem uma linha da transcricao que falhou).
+  for var Attempt := 1 to 30 do
+  begin
+    try
+      if FileExists(LogPath) then
+      begin
+        LogStream := TFileStream.Create(LogPath, fmOpenReadWrite or fmShareDenyWrite);
+        LogStream.Seek(Int64(0), soEnd);
+      end
+      else
+        LogStream := TFileStream.Create(LogPath, fmCreate or fmShareDenyWrite);
+    except
+      FreeAndNil(LogStream);
+    end;
+    if LogStream <> nil then Break;
+    Sleep(100);
   end;
 
   if LogStream <> nil then

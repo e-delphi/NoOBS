@@ -35,6 +35,15 @@ const Export = {
   layout: null,          // { canvasW, canvasH, regions: [...] }
   audioStreams: [],      // [{ index, title, channels }]
   selectedRegions: null, // Set<number> — vazio = todas
+  noVideo: false,        // "Nenhuma" tela: so o audio sai
+  _composeRaf: 0,        // laco que desenha a composicao na previa
+  turns: null,           // turnos da transcricao (null = ainda nao chegou)
+  transcribed: false,    // transcrita, mesmo que sem fala nenhuma
+  captionsOn: false,     // legenda (CC) sobre a previa
+  _capCache: null,       // { key, chunks } — blocos do turno no ar
+  _capText: '',
+  wavePeaks: null,       // intensidade do audio, resolucao alta
+  _waveMax: 1,
   crop: null,            // {x,y,w,h} em pixels da ORIGEM; null = quadro inteiro
   _cropDrag: null,       // gesto de recorte em curso
   cropZoom: 1,           // zoom da prévia (1..12) — precisão do recorte
@@ -81,6 +90,15 @@ const Export = {
     this.currentId = id;
     this._loading = true;
     this.selectedRegions = new Set();
+    this.noVideo = false;
+    this.turns = null;
+    this.transcribed = false;
+    this._capCache = null;
+    this.wavePeaks = null;
+    this.captionsOn = this._loadCaptionsPref();
+    const burn = document.getElementById('exportBurnCaptions');
+    if (burn) burn.checked = false;
+    this._setCaptionText('');
     this.crop = null;
     this.resetCropZoom();
     this.selectedAudio = new Set();
@@ -104,8 +122,11 @@ const Export = {
     // Zera o que depende do arquivo enquanto o probe nao volta.
     document.getElementById('exportRegions').innerHTML = '';
     document.getElementById('exportAudio').innerHTML = '';
-    document.getElementById('exportPreview').innerHTML = '';
     document.getElementById('exportParts').innerHTML = '';
+    const stage0 = document.getElementById('exportStage');
+    if (stage0) stage0.classList.remove('composed', 'audio-only');
+    this._renderWave();
+    this._syncCaptionUi();
     document.getElementById('exportRunBtn').disabled = true;
     const wrap = document.querySelector('.export-preview-video');
     if (wrap) wrap.classList.remove('ready');
@@ -121,6 +142,9 @@ const Export = {
     // e a URL do arquivo pra previa — a mesma que o player usa.
     Bridge.send('request_video_info', { id: id });
     Bridge.send('play_recording', { id: id });
+    // Transcricao pra legenda na previa e pra oferecer a legenda gravada.
+    // A resposta ('transcript') vem pra ca enquanto esta tela espera o id.
+    Bridge.send('request_transcript', { id: id });
   },
 
   close() {
@@ -146,6 +170,8 @@ const Export = {
     this.crop = null;
     this._cropDrag = null;
     this.resetCropZoom();
+    this._stopCompose();
+    this._setCaptionText('');
     this.currentId = null;
   },
 
@@ -203,11 +229,14 @@ const Export = {
     // Proporção da caixa ANTES de desenhar a moldura: o retângulo é
     // posicionado em % da caixa, e a conversão só fecha se a caixa tiver
     // a proporção da origem.
-    this._syncStageAspect();
+    this._syncVideoMode();
+    this._renderCompose();
     this._renderCrop();
     this._syncCropInfo();
-    this._renderPreview();
     this._syncQualityValue();
+    this._requestWave();
+    this._renderWave();
+    this._syncCaptionUi();
     document.getElementById('exportRunBtn').disabled = false;
   },
 
@@ -306,6 +335,7 @@ const Export = {
       sc.scrollLeft = (anchor / this.durationSec) * (view * next) - anchorOffset;
     }
     this._renderTicks();
+    this._renderWave();
     this._syncPlayhead();
   },
 
@@ -492,6 +522,7 @@ const Export = {
         cuts.appendChild(c);
       }
     });
+    this._renderWave();
     this._syncPlayhead();
   },
 
@@ -501,6 +532,7 @@ const Export = {
   _setPlaySec(sec, keepView) {
     this.playSec = Math.max(0, Math.min(this.durationSec, sec));
     this._syncPlayhead();
+    this._syncCaption();
     if (!keepView) this._scrollPlayheadIntoView();
   },
 
@@ -728,13 +760,17 @@ const Export = {
     sc.addEventListener('scroll', () => {
       if (pending) return;
       pending = true;
-      requestAnimationFrame(() => { pending = false; this._renderTicks(); });
+      requestAnimationFrame(() => {
+        pending = false;
+        this._renderTicks();
+        this._renderWave();
+      });
     });
 
     // Reajusta a regua quando a janela muda de largura (o passo depende
     // da largura util).
     window.addEventListener('resize', () => {
-      if (this.currentId) { this._applyZoom(); this._renderTicks(); }
+      if (this.currentId) { this._applyZoom(); this._renderTicks(); this._renderWave(); }
     });
 
     document.getElementById('exportPlayTime').addEventListener('change', () => {
@@ -788,53 +824,79 @@ const Export = {
     return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
   },
 
-  // ---- regioes -------------------------------------------------------
+  // ---- telas (regioes) ----------------------------------------------
+  //
+  // Vem ANTES dos trechos na tela porque decide o que a previa mostra: a
+  // escolha e aplicada direto nela (_drawCompose), sem miniatura do
+  // arranjo. Tres jeitos de responder "o que sai de imagem":
+  //   Tela inteira — o canvas gravado (com o recorte da previa, se houver);
+  //   uma ou mais telas — lado a lado, sem o buraco das que ficaram fora;
+  //   Nenhuma — so o audio (campos de video desativados).
 
   _renderRegions() {
     const field = document.getElementById('exportRegionsField');
     const box = document.getElementById('exportRegions');
     box.innerHTML = '';
-    // Gravacao antiga sem <hash>.json: nao ha layout, exporta o canvas
-    // inteiro e a secao nem aparece (mesmo criterio do player).
-    if (!this.layout) { field.style.display = 'none'; return; }
     field.style.display = '';
+    const regs = (this.layout && this.layout.regions) || [];
 
+    // Uma tela so = "Tela inteira" e a propria tela: listar as duas seria
+    // oferecer a mesma coisa duas vezes.
     box.appendChild(this._mkCheck(
-      T('export.allRegions'), this.selectedRegions.size === 0,
-      () => { this.selectedRegions.clear(); this._afterRegionChange(); }));
+      regs.length > 1 ? T('export.allRegions') : T('export.fullScreen'),
+      !this.noVideo && this.selectedRegions.size === 0,
+      () => {
+        this.selectedRegions.clear();
+        this.noVideo = false;
+        this._afterRegionChange();
+      }));
 
-    this.layout.regions.forEach((r, i) => {
-      box.appendChild(this._mkCheck(
-        r.name || T('export.regionN', { n: i + 1 }),
-        this.selectedRegions.has(i),
-        () => {
-          if (this.selectedRegions.has(i)) this.selectedRegions.delete(i);
-          else this.selectedRegions.add(i);
-          this._afterRegionChange();
-        }));
-    });
+    if (regs.length > 1) {
+      regs.forEach((r, i) => {
+        box.appendChild(this._mkCheck(
+          r.name || T('export.regionN', { n: i + 1 }),
+          !this.noVideo && this.selectedRegions.has(i),
+          () => {
+            this.noVideo = false;
+            if (this.selectedRegions.has(i)) this.selectedRegions.delete(i);
+            else this.selectedRegions.add(i);
+            this._afterRegionChange();
+          }));
+      });
+    }
+
+    // Sem faixa de audio, "nenhuma tela" deixaria o arquivo vazio.
+    box.appendChild(this._mkCheck(
+      T('export.noScreen'), this.noVideo,
+      () => {
+        this.noVideo = !this.noVideo;
+        if (this.noVideo) this.selectedRegions.clear();
+        this._afterRegionChange();
+      },
+      this.audioStreams.length === 0));
   },
 
   _afterRegionChange() {
-    // Recorte e escolha de monitor são dois jeitos de dizer que parte do
-    // canvas sai — o último gesto vale. Mexer nos monitores desfaz o
-    // recorte (e some com a moldura, via _cropAvailable).
+    // Recorte e escolha de tela são dois jeitos de dizer que parte do
+    // canvas sai — o último gesto vale. Mexer nas telas desfaz o recorte.
     this.crop = null;
     this._renderRegions();
+    this._syncVideoMode();
+    this._renderCompose();
     this._renderCrop();
     this._syncCropInfo();
     this._renderResolutions();
-    this._renderPreview();
     // Tirar uma regiao muda a composicao, e com ela o "esta reduzindo?".
     this._renderScale();
+    this._syncCaptionUi();
+    this._syncCaption();
   },
 
   // Tamanho nativo da composicao — mesma regra do backend
   // (BuildCompRegions): soma das larguras x maior altura.
   _composedSize() {
-    // Sem monitores escolhidos, o que sai é o RECORTE — que por padrão é
-    // o quadro inteiro, então este caminho continua valendo pra quem
-    // nunca tocou na moldura.
+    // Sem telas escolhidas, o que sai é o RECORTE — que por padrão é o
+    // quadro inteiro.
     if (!this.layout || this.selectedRegions.size === 0) {
       const c = this._cropRect();
       return { w: c.w || this.srcW, h: c.h || this.srcH };
@@ -854,53 +916,359 @@ const Export = {
     return out;
   },
 
-  // Desenha o arranjo final em ESCALA — a proporcao de cada monitor e a
-  // largura total saem do tamanho real, entao a previa mostra de fato
-  // como as regioes vao se encaixar. Antes era tudo em %, o que esticava
-  // a caixa pela coluna inteira e achatava os monitores.
-  _renderPreview() {
-    const box = document.getElementById('exportPreview');
-    box.innerHTML = '';
-    box.style.width = '';
+  // ---- so audio -------------------------------------------------------
 
-    let regs = this._orderedRegions();
-    let full = false;
-    if (regs.length === 0) {
-      // "Todos": uma caixa so, com a proporcao do canvas inteiro.
-      if (!this.srcW || !this.srcH) {
-        const d = document.createElement('div');
-        d.className = 'export-preview-empty';
-        d.textContent = T('export.previewFull');
-        box.appendChild(d);
-        return;
-      }
-      const c = this._cropRect();
-      regs = [{ w: c.w, h: c.h }];
-      full = !this._hasCrop();
-    }
-
-    const PREF_H = 88;          // altura confortavel da previa
-    const CHROME = 14 + regs.length * 3;   // padding + gaps
-    const totalW = regs.reduce((a, r) => a + r.w, 0) || 1;
-    const maxH = regs.reduce((a, r) => Math.max(a, r.h), 1);
-
-    // Nao pode passar da largura util da coluna; quando passa, a altura
-    // cede junto pra manter a proporcao.
-    const avail = Math.max(160, (box.parentElement
-      ? box.parentElement.clientWidth : 660) - CHROME);
-    let scale = PREF_H / maxH;
-    if (totalW * scale > avail) scale = avail / totalW;
-
-    regs.forEach(r => {
-      const d = document.createElement('div');
-      d.className = 'export-preview-item';
-      d.style.width = Math.max(8, Math.round(r.w * scale)) + 'px';
-      d.style.height = Math.max(8, Math.round(r.h * scale)) + 'px';
-      // Rotulo so cabe em caixa razoavel — senao vira sopa de letrinha.
-      if (r.w * scale >= 62) d.textContent = full
-        ? T('export.previewFull') : `${r.w}×${r.h}`;
-      box.appendChild(d);
+  // Sem tela: os campos que so valem com imagem ficam desativados (o
+  // backend os ignora de qualquer jeito). A legenda gravada tem regra
+  // propria (_syncCaptionUi), porque tambem depende da transcricao.
+  _syncVideoMode() {
+    const off = this.noVideo;
+    const stage = document.getElementById('exportStage');
+    if (stage) stage.classList.toggle('audio-only', off);
+    document.querySelectorAll('#exportOverlay .export-video-opt').forEach(el => {
+      el.classList.toggle('disabled', off);
+      if (el.id === 'exportCaptionsField') return;
+      el.querySelectorAll('input, select').forEach(i => { i.disabled = off; });
     });
+  },
+
+  // ---- composicao na previa ------------------------------------------
+  //
+  // Com telas escolhidas a previa mostra o que o arquivo vai ter: cada
+  // tela e copiada do video pra um canvas, lado a lado na ordem do X e
+  // centralizada na vertical — a mesma conta do BuildCompRegions. O video
+  // continua tocando por baixo (invisivel), e e dele que sai o som.
+
+  _composeOn() {
+    return !this.noVideo && !!this.layout &&
+           !!this.selectedRegions && this.selectedRegions.size > 0;
+  },
+
+  // Proporcao do quadro da previa: a da composicao quando ha telas
+  // escolhidas, senao a da gravacao.
+  _stageDims() {
+    if (this._composeOn()) return this._composedSize();
+    return { w: this.srcW, h: this.srcH };
+  },
+
+  _renderCompose() {
+    const stage = document.getElementById('exportStage');
+    const on = this._composeOn();
+    if (stage) stage.classList.toggle('composed', on);
+    // Sem recorte com telas escolhidas (_cropAvailable): o zoom da previa
+    // so existe pra posicionar a moldura.
+    if (on && this.cropZoom > 1.001) this.resetCropZoom();
+    this._syncStageAspect();
+    if (on) this._startCompose(); else this._stopCompose();
+  },
+
+  _startCompose() {
+    if (this._composeRaf) return;
+    const tick = () => {
+      this._composeRaf = 0;
+      if (!this.currentId || !this._composeOn()) return;
+      this._drawCompose();
+      this._composeRaf = requestAnimationFrame(tick);
+    };
+    this._composeRaf = requestAnimationFrame(tick);
+  },
+
+  _stopCompose() {
+    if (this._composeRaf) cancelAnimationFrame(this._composeRaf);
+    this._composeRaf = 0;
+  },
+
+  _drawCompose() {
+    const v = document.getElementById('exportVideo');
+    const cv = document.getElementById('exportCompose');
+    if (!v || !cv || v.readyState < 2) return;
+    const regs = this._orderedRegions();
+    if (regs.length === 0) return;
+    const comp = this._composedSize();
+    // Resolucao do canvas = a da tela (a previa nao precisa de mais que
+    // isso), nunca acima da composicao.
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.max(2, Math.round(Math.min((cv.clientWidth || 640) * dpr, comp.w)));
+    const H = Math.max(2, Math.round(W * comp.h / comp.w));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const ctx = cv.getContext('2d');
+    const s = W / comp.w;
+    // Coordenadas do layout sao do canvas gravado; o video pode ter sido
+    // gravado noutro tamanho (clamp do encoder, pegadinha #7).
+    const kx = (v.videoWidth || this.srcW) / ((this.layout && this.layout.canvasW) || this.srcW);
+    const ky = (v.videoHeight || this.srcH) / ((this.layout && this.layout.canvasH) || this.srcH);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    let x = 0;
+    regs.forEach(r => {
+      const dw = r.w * s, dh = r.h * s;
+      try {
+        ctx.drawImage(v, r.x * kx, r.y * ky, r.w * kx, r.h * ky,
+                      x, (H - dh) / 2, dw, dh);
+      } catch (e) {}
+      x += dw;
+    });
+  },
+
+  // ---- intensidade do audio na linha do tempo ------------------------
+  //
+  // Mesma leitura do player (pico por fatia, curva raiz quadrada, barras
+  // de ~2px), mas em RESOLUCAO ALTA: a linha do tempo aproxima ate ~2 s
+  // por tela, e as 2000 barras do player virariam blocos. O backend guarda
+  // essa versao numa chave de cache propria (hi).
+  //
+  // O canvas cobre so a janela VISIVEL e e redesenhado ao rolar/aproximar,
+  // como a regua: no zoom maximo a linha do tempo tem milhares de telas de
+  // largura, e nenhum canvas desse tamanho existe.
+
+  _requestWave() {
+    if (!this.currentId || !(this.durationSec > 0) || this.audioStreams.length === 0) return;
+    // ~40 ms por barra, com teto: 150 mil numeros ja sao ~1 MB de mensagem.
+    const buckets = Math.max(2000, Math.min(150000, Math.round(this.durationSec * 25)));
+    Bridge.send('request_waveform', { id: this.currentId, buckets: buckets, hi: true });
+  },
+
+  onWaveform(data) {
+    if (!data || !data.hi || data.id !== this.currentId || !Array.isArray(data.peaks)) return;
+    let max = 0;
+    const peaks = data.peaks.map(p => {
+      const v = (typeof p === 'number' && isFinite(p) && p >= 0) ? p : 0;
+      if (v > max) max = v;
+      return v;
+    });
+    this.wavePeaks = peaks;
+    this._waveMax = Math.max(max, 0.0001);
+    this._renderWave();
+  },
+
+  _isKeptAt(sec) {
+    const p = (this.parts || []).find(x => sec >= x.start && sec < x.end);
+    return p ? p.keep : true;
+  },
+
+  _renderWave() {
+    const cv = document.getElementById('exportWave');
+    const sc = document.getElementById('exportTimelineScroll');
+    const tl = document.getElementById('exportTimeline');
+    if (!cv || !sc || !tl) return;
+    const peaks = this.wavePeaks;
+    const on = !!(peaks && peaks.length && this.durationSec > 0);
+    tl.classList.toggle('has-wave', on);
+    if (!on) { cv.style.display = 'none'; return; }
+    cv.style.display = '';
+    const view = sc.clientWidth || 1;
+    const total = tl.clientWidth || view;   // largura com o zoom
+    const hCss = tl.clientHeight || 46;
+    const dpr = window.devicePixelRatio || 1;
+    cv.style.left = sc.scrollLeft + 'px';
+    cv.style.width = view + 'px';
+    cv.style.height = hCss + 'px';
+    const W = Math.max(1, Math.round(view * dpr));
+    const H = Math.max(1, Math.round(hCss * dpr));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    const css = getComputedStyle(document.documentElement);
+    const keepColor = (css.getPropertyValue('--success').trim() || '#10b981');
+    const dropColor = (css.getPropertyValue('--text-3').trim() || '#71717a');
+    const n = peaks.length;
+    const step = 2 * dpr;               // mesma densidade do player
+    const barW = Math.max(1, step * 0.7);
+    for (let x = 0; x < W; x += step) {
+      const f0 = (sc.scrollLeft + x / dpr) / total;
+      const f1 = (sc.scrollLeft + (x + step) / dpr) / total;
+      if (f0 >= 1) break;
+      let i0 = Math.max(0, Math.floor(f0 * n));
+      let i1 = Math.min(n, Math.ceil(f1 * n));
+      if (i1 <= i0) i1 = Math.min(n, i0 + 1);
+      let m = 0;
+      for (let i = i0; i < i1; i++) if (peaks[i] > m) m = peaks[i];
+      // Raiz quadrada: fala com AGC fica toda com a mesma altura na escala
+      // linear. Minimo de 1px pra o silencio ainda ser uma linha.
+      const bh = Math.max(dpr, Math.sqrt(m / this._waveMax) * H * 0.82);
+      const kept = this._isKeptAt(((f0 + f1) / 2) * this.durationSec);
+      ctx.globalAlpha = kept ? 0.85 : 0.45;
+      ctx.fillStyle = kept ? keepColor : dropColor;
+      ctx.fillRect(x, (H - bh) / 2, barW, bh);
+    }
+    ctx.globalAlpha = 1;
+  },
+
+  // ---- legenda (CC) na previa ----------------------------------------
+  //
+  // SO a legenda sobre o video — o painel lateral de transcricao e do
+  // player. Mostra exatamente o que a legenda gravada vai por no arquivo:
+  // mesmo corte em blocos de duas linhas, mesmo tamanho em relacao ao
+  // quadro (4,5% da altura), mesma posicao (6% acima da borda). O backend
+  // faz as mesmas contas no tamanho real da saida (ExportCaptions.pas).
+
+  _loadCaptionsPref() {
+    // Preferencia de VISUALIZACAO, por maquina: nao vai pro config.json.
+    try { return localStorage.getItem('noobs.export.captions') === '1'; }
+    catch (e) { return false; }
+  },
+
+  _saveCaptionsPref() {
+    try { localStorage.setItem('noobs.export.captions', this.captionsOn ? '1' : '0'); }
+    catch (e) {}
+  },
+
+  _hasTurns() {
+    return Array.isArray(this.turns) && this.turns.length > 0;
+  },
+
+  onTranscript(data) {
+    if (!data || data.id !== this.currentId) return;
+    this.transcribed = !!data.transcribed;
+    this.turns = Array.isArray(data.turns) ? data.turns : [];
+    this._capCache = null;
+    this._syncCaptionUi();
+    this._syncCaption();
+  },
+
+  toggleCaptions() {
+    this.captionsOn = !this.captionsOn;
+    this._saveCaptionsPref();
+    this._syncCaptionUi();
+    this._syncCaption();
+  },
+
+  // Quem vai gravar a legenda quer ver como ela sai: marcar liga a CC.
+  onBurnChange(on) {
+    if (on && !this.captionsOn) {
+      this.captionsOn = true;
+      this._saveCaptionsPref();
+    }
+    this._syncCaptionUi();
+    this._syncCaption();
+  },
+
+  _syncCaptionUi() {
+    const has = this._hasTurns();
+    const btn = document.getElementById('exportCcBtn');
+    if (btn) {
+      btn.disabled = !has || this.noVideo;
+      btn.classList.toggle('active', this.captionsOn && has && !this.noVideo);
+      btn.dataset.hint = !has ? T('export.captionsNone')
+        : (this.captionsOn ? T('export.captionsHide') : T('export.captionsShow'));
+    }
+    const cb = document.getElementById('exportBurnCaptions');
+    const wrap = document.getElementById('exportBurnWrap');
+    const can = has && !this.noVideo;
+    if (cb) {
+      cb.disabled = !can;
+      if (!can) cb.checked = false;
+    }
+    if (wrap) {
+      wrap.classList.toggle('disabled', !can);
+      wrap.classList.toggle('checked', !!(cb && cb.checked));
+    }
+    const hint = document.getElementById('exportCaptionsHint');
+    if (hint) {
+      hint.textContent = (this.turns === null) ? T('export.captionsLoading')
+        : has ? T('export.captionsHint')
+        : this.transcribed ? T('player.transcriptNoSpeech')
+        : T('export.captionsNeedTranscript');
+    }
+    this._layoutCaption();
+    if (!(this.captionsOn && can)) this._setCaptionText('');
+  },
+
+  // Tamanho e posicao da legenda proporcionais ao QUADRO da previa — as
+  // mesmas fracoes que o ExportCaptions usa no quadro de saida.
+  _layoutCaption() {
+    const frame = document.getElementById('exportFrame');
+    const stage = document.getElementById('exportStage');
+    if (!frame || !stage) return;
+    const fh = frame.offsetHeight, fw = frame.offsetWidth;
+    if (!fh || !fw) return;
+    const pad = parseFloat(getComputedStyle(stage).paddingTop) || 0;
+    const font = Math.max(9, fh * 0.045);
+    const w = Math.min(fw * 0.86, font * 32);
+    const key = Math.round(font * 10) + '|' + Math.round(w);
+    if (this._capLayoutKey === key) return;
+    this._capLayoutKey = key;
+    document.querySelectorAll('#exportStage .export-caption').forEach(el => {
+      el.style.fontSize = font.toFixed(2) + 'px';
+      el.style.width = w.toFixed(1) + 'px';
+      el.style.bottom = (pad + fh * 0.06).toFixed(1) + 'px';
+    });
+    this._capCache = null;
+  },
+
+  _setCaptionText(txt) {
+    if (txt === this._capText) return;
+    this._capText = txt;
+    const box = document.getElementById('exportCaption');
+    const el = document.getElementById('exportCaptionText');
+    if (!box || !el) return;
+    el.textContent = txt;
+    box.hidden = !txt;
+  },
+
+  // Turno no ar: com turnos sobrepostos (faixas isoladas) vale o que
+  // COMECOU POR ULTIMO — a regra do player e da legenda gravada.
+  _activeTurn(t) {
+    const turns = this.turns;
+    if (!turns) return -1;
+    let best = -1;
+    for (let i = 0; i < turns.length; i++) {
+      const tr = turns[i];
+      if (t >= tr.start && t < tr.end &&
+          (best < 0 || tr.start >= turns[best].start)) best = i;
+    }
+    return best;
+  },
+
+  // Guloso palavra a palavra contra a regua invisivel, fechando o bloco
+  // quando passaria de duas linhas. Mesma regra do Player._captionChunks.
+  _captionChunks(idx) {
+    const turn = this.turns && this.turns[idx];
+    const ruler = document.getElementById('exportCaptionMeasure');
+    if (!turn || !ruler) return [];
+    const key = idx + '|' + (this._capLayoutKey || '');
+    if (this._capCache && this._capCache.key === key) return this._capCache.chunks;
+
+    const words = String(turn.text || '').split(/\s+/).filter(Boolean);
+    const lh = parseFloat(getComputedStyle(ruler).lineHeight) || 20;
+    const maxH = lh * 2 + lh * 0.5;
+    const texts = [];
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      ruler.textContent = next;
+      if (cur && ruler.offsetHeight > maxH) { texts.push(cur); cur = w; }
+      else cur = next;
+    }
+    if (cur) texts.push(cur);
+    ruler.textContent = '';
+
+    const start = turn.start || 0;
+    const dur = Math.max(0, (turn.end || start) - start);
+    const total = texts.reduce((n, s) => n + s.length, 0) || 1;
+    let acc = 0;
+    const chunks = texts.map(text => {
+      const a = start + dur * acc / total;
+      acc += text.length;
+      return { text, start: a, end: start + dur * acc / total };
+    });
+    this._capCache = { key, chunks };
+    return chunks;
+  },
+
+  _syncCaption() {
+    if (!this.captionsOn || this.noVideo || !this._hasTurns()) {
+      this._setCaptionText('');
+      return;
+    }
+    const idx = this._activeTurn(this.playSec);
+    if (idx < 0) { this._setCaptionText(''); return; }
+    const chunks = this._captionChunks(idx);
+    if (chunks.length === 0) { this._setCaptionText(''); return; }
+    let pick = chunks[0];
+    for (const ch of chunks) { if (this.playSec >= ch.start) pick = ch; else break; }
+    this._setCaptionText(pick.text);
   },
 
   // ---- recorte (crop) -------------------------------------------------
@@ -920,14 +1288,17 @@ const Export = {
     const stage = document.getElementById('exportStage');
     const frame = document.getElementById('exportFrame');
     if (!stage || !frame) return;
-    if (!(this.srcW > 0 && this.srcH > 0)) {
+    // Com telas escolhidas, a proporcao e a da COMPOSICAO — e o que a
+    // previa desenha (_drawCompose).
+    const dims = this._stageDims();
+    if (!(dims.w > 0 && dims.h > 0)) {
       frame.style.removeProperty('aspect-ratio');
       stage.style.removeProperty('max-width');
       return;
     }
     // A proporção vai no QUADRO. O palco só o envolve, com a folga das
     // alças em volta — daí ele não poder ter proporção própria.
-    frame.style.aspectRatio = this.srcW + ' / ' + this.srcH;
+    frame.style.aspectRatio = dims.w + ' / ' + dims.h;
     // O teto de ALTURA vira teto de LARGURA. Se a altura fosse limitada
     // direto, numa gravação larga (dois monitores lado a lado) só a
     // largura seria cortada pelo container e a caixa ficaria com
@@ -941,18 +1312,21 @@ const Export = {
     // repetido aqui: se um dia ela mudar lá, esta conta acompanha.
     const gut = parseFloat(getComputedStyle(stage).paddingLeft) || 0;
     stage.style.maxWidth =
-      Math.round(maxH * (this.srcW / this.srcH) + gut * 2) + 'px';
+      Math.round(maxH * (dims.w / dims.h) + gut * 2) + 'px';
     // A folga do deslocamento sai do tamanho do stage: se ele encolheu, o
     // pan atual pode ter ficado além do limite novo.
     this._clampPan();
     this._stageTransform();
+    // O quadro mudou de tamanho: a legenda e proporcional a ele.
+    this._layoutCaption();
+    this._syncCaption();
   },
 
   // Com monitores escolhidos não há recorte: a prévia mostra o canvas
   // inteiro, mas a saída é a composição deles lado a lado — desenhar uma
   // moldura ali diria uma coisa e o arquivo sairia outra.
   _cropAvailable() {
-    return !!this.currentId && this.srcW > 0 && this.srcH > 0 &&
+    return !!this.currentId && this.srcW > 0 && this.srcH > 0 && !this.noVideo &&
            (!this.selectedRegions || this.selectedRegions.size === 0);
   },
 
@@ -987,7 +1361,6 @@ const Export = {
   _afterCropChange() {
     this._renderCrop();
     this._renderResolutions();
-    this._renderPreview();
     // Recortar muda o tamanho da composição, e com ele o "está reduzindo?"
     // que decide se o campo de redimensionamento aparece.
     this._renderScale();
@@ -1567,22 +1940,45 @@ const Export = {
     btn.textContent = this.running ? T('common.cancel') : T('export.action');
   },
 
+  // A transcricao so acompanha o arquivo se o audio dele ainda for o que
+  // foi transcrito: a mistura (faixa 1), ou TODAS as isoladas. Tirando uma
+  // faixa isolada, a transcricao falaria de quem nao esta mais no arquivo.
+  _audioIsComplete() {
+    const mix = this._mixIndex();
+    if (this.selectedAudio.has(mix)) return true;
+    const isolated = this.audioStreams.filter(s => s.index !== mix).length;
+    const picked = [...this.selectedAudio].filter(i => i !== mix).length;
+    return isolated > 0 && picked === isolated;
+  },
+
   run() {
     if (this.running || !this.currentId) return;
     const segs = this.keptSegments();
     if (segs.length === 0 || this.keptDuration() <= 0) return;
+    // Sem tela e sem faixa nenhuma o arquivo sairia vazio.
+    if (this.noVideo && this.selectedAudio.size === 0) {
+      Toast.show(T('toast.errorTitle'), T('error.exportNothing'), { warn: true, ttl: 5000 });
+      return;
+    }
+    const burn = document.getElementById('exportBurnCaptions');
 
     const msg = {
       id: this.currentId,
       name: document.getElementById('exportName').value,
       segments: segs.map(s => ({ startMs: Math.round(s.start * 1000),
                                  endMs: Math.round(s.end * 1000) })),
-      regions: [...this.selectedRegions],
+      regions: this.noVideo ? [] : [...this.selectedRegions],
+      // Nenhuma tela: so o audio. O backend ignora resolucao/encoder/etc.
+      noVideo: this.noVideo,
+      // Legenda gravada no video: os turnos o backend le do cache.
+      burnCaptions: !this.noVideo && !!(burn && burn.checked) && this._hasTurns(),
+      // A transcricao vai junto pro arquivo novo (remapeada pelos cortes).
+      keepTranscript: this._audioIsComplete(),
       // Retângulo em coordenadas da ORIGEM. Vai só quando há recorte de
       // fato: o backend trata a presença do campo como "substitui as
       // regiões", então mandar o quadro inteiro seria dizer a mesma coisa
       // por um caminho mais frágil.
-      crop: this._hasCrop() ? { ...this.crop } : null,
+      crop: (!this.noVideo && this._hasCrop()) ? { ...this.crop } : null,
       targetHeight: +document.getElementById('exportResolution').value || 0,
       fps: this._targetFps(),
       encoder: document.getElementById('exportEncoder').value || 'auto',

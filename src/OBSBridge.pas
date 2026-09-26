@@ -88,7 +88,17 @@
                            resolucao), audioStreams (array de
                            INDICES de stream do arquivo), mixTrackIndex
                            (indice da faixa de mix, pra regra de exclusao),
-                           mixAudio (Boolean)
+                           mixAudio (Boolean), noVideo (Boolean — nenhuma
+                           tela: so o audio sai, e regioes/resolucao/
+                           encoder/qualidade sao ignorados), burnCaptions
+                           (Boolean — queima a transcricao como legenda;
+                           os turnos vem do cache, nao da UI),
+                           keepTranscript (Boolean — o audio escolhido
+                           ainda e o transcrito, entao a transcricao vai
+                           junto pro arquivo novo, remapeada pelos cortes)
+    request_waveform     : id, buckets, hi (Boolean — resolucao alta pra
+                           linha do tempo da exportacao, cache proprio;
+                           responde waveform_ready com hi)
     cancel_export        : — (aborta a exportacao em andamento)
     set_transcribe_host  : host (base do servidor; a ROTA e fixa)
     set_transcribe_language: language ('app' = idioma do NoOBS, 'auto' =
@@ -213,6 +223,7 @@ uses
   FFmpegLib,
   FFmpegOps,
   FFmpegExport,
+  ExportCaptions,
   NoOBSTypes,
   OBSEncoder,
   OBSAudioTracks,
@@ -5423,11 +5434,19 @@ begin
     end).Start;
 end;
 
-procedure HandleRequestWaveform(const APath: string; ABuckets: Integer);
+procedure HandleRequestWaveform(const APath: string; ABuckets: Integer;
+  AHi: Boolean);
 // Calcula peaks da 1a faixa de audio via libav (em worker thread) e
 // envia pra UI como JSON. UI renderiza as barras embaixo do seek bar.
 // O resultado e cacheado no <hash>.json (chave 'waveform') — decodar o
 // audio inteiro custa ~500ms-2s, entao reaberturas vem do cache.
+//
+// AHi = a linha do tempo da EXPORTACAO, que aproxima ate ~2 s por tela e
+// precisa de muito mais resolucao que as 2000 barras do player. Cache em
+// chave PROPRIA: numa chave so, player e exportacao se revezariam
+// invalidando o cache um do outro (ele guarda UM numero de buckets).
+var
+  CacheKey: string;
 begin
   if APath = '' then Exit;
   if not IsPathInRecordDir(APath) then Exit;
@@ -5435,7 +5454,9 @@ begin
   // Clamp dos dois lados: < 1 → 100 (default); teto pra uma mensagem
   // forjada nao pedir um array de bilhoes de buckets (OOM).
   if ABuckets <= 0 then ABuckets := 100
-  else if ABuckets > 20000 then ABuckets := 20000;
+  else if (not AHi) and (ABuckets > 20000) then ABuckets := 20000
+  else if ABuckets > 150000 then ABuckets := 150000;
+  if AHi then CacheKey := 'waveformHi' else CacheKey := 'waveform';
 
   TThread.CreateAnonymousThread(
     procedure
@@ -5453,7 +5474,7 @@ begin
       if IsShuttingDown then Exit;
 
       // Cache hit? (so reusa se o numero de buckets bate com o pedido).
-      CachedStr := OBSPlayer.LoadMetaSubObjectJson(APath, 'waveform');
+      CachedStr := OBSPlayer.LoadMetaSubObjectJson(APath, CacheKey);
       if CachedStr <> '' then
       begin
         Cached := TJSONObject.ParseJSONValue(CachedStr);
@@ -5489,13 +5510,17 @@ begin
       Obj.AddPair('type', 'waveform_ready');
       Obj.AddPair('id', APath);
       Obj.AddPair('buckets', TJSONNumber.Create(ABuckets)); // pra validar o cache
+      Obj.AddPair('hi', TJSONBool.Create(AHi));
       Arr := TJSONArray.Create;
+      // Arredondado a 3 casas: a alta resolucao sao ate 150 mil numeros, e
+      // o Single cru sai com 9 digitos — o triplo de bytes no postMessage
+      // pra uma precisao que a barra de 2 px nunca mostra.
       for i := 0 to High(Peaks) do
-        Arr.AddElement(TJSONNumber.Create(Peaks[i]));
+        Arr.AddElement(TJSONNumber.Create(Round(Peaks[i] * 1000) / 1000));
       Obj.AddPair('peaks', Arr);
 
       // Cacheia no <hash>.json pra acelerar reaberturas.
-      OBSPlayer.SaveMetaSubObjectJson(APath, 'waveform', Obj.ToJSON);
+      OBSPlayer.SaveMetaSubObjectJson(APath, CacheKey, Obj.ToJSON);
       TThread.Queue(nil, procedure begin PostOwned(Obj); end);
     end).Start;
 end;
@@ -7609,6 +7634,64 @@ begin
   TInterlocked.Exchange(ExportCancelFlag, 1);
 end;
 
+procedure DescribeExportEncoder(const AName: string; out AFamily: string;
+  out AHardware: Boolean);
+// Selo de codec pro arquivo EXPORTADO. O OBSEncoder.DescribeEncoderId e
+// pros IDs do libobs; aqui o nome e do libavcodec, onde a regra de
+// software e o prefixo 'lib' (libx264, libsvtav1).
+var
+  N: string;
+begin
+  N := LowerCase(AName);
+  if Pos('av1', N) > 0 then AFamily := 'AV1'
+  else if (Pos('hevc', N) > 0) or (Pos('265', N) > 0) then AFamily := 'HEVC'
+  else if (Pos('264', N) > 0) then AFamily := 'H.264'
+  else AFamily := '';
+  AHardware := Copy(N, 1, 3) <> 'lib';
+end;
+
+function LoadCaptionTurns(const APath: string): TCaptionTurnArray;
+// Turnos da transcricao pra legenda queimada. So os turnos (tempo e
+// texto); os segmentos com palavras nao interessam aqui.
+var
+  Body, Txt: string;
+  Root, V: TJSONValue;
+  Arr: TJSONArray;
+  T: TJSONObject;
+  C: TCaptionTurn;
+  i: Integer;
+begin
+  Result := nil;
+  if not OBSTranscribe.HasTranscript(APath) then Exit;
+  try
+    Body := TFile.ReadAllText(OBSTranscribe.TranscriptPath(APath), TEncoding.UTF8);
+  except
+    Exit;
+  end;
+  Root := TJSONObject.ParseJSONValue(Body);
+  try
+    if not (Root is TJSONObject) then Exit;
+    V := TJSONObject(Root).GetValue('turns');
+    if not (V is TJSONArray) then Exit;
+    Arr := TJSONArray(V);
+    for i := 0 to Arr.Count - 1 do
+    begin
+      if not (Arr.Items[i] is TJSONObject) then Continue;
+      T := TJSONObject(Arr.Items[i]);
+      Txt := '';
+      C := Default(TCaptionTurn);
+      T.TryGetValue<string>('text', Txt);
+      T.TryGetValue<Double>('start', C.StartSec);
+      T.TryGetValue<Double>('end', C.EndSec);
+      C.Text := Trim(Txt);
+      if (C.Text = '') or (C.EndSec <= C.StartSec) then Continue;
+      Result := Result + [C];
+    end;
+  finally
+    Root.Free;
+  end;
+end;
+
 procedure HandleExportRecording(AObj: TJSONObject);
 // Exporta um trecho da gravacao com re-encode. Roda em worker (pode levar
 // minutos). Valida pasta, arquivo e espaco antes de comecar.
@@ -7628,6 +7711,10 @@ var
   AudioSel: TArray<Integer>;
   MixTrackIdx: Integer;
   HasFirst, HasOther: Boolean;
+  // O que o arquivo exportado herda da gravacao (pegadinha #51h).
+  SrcMeta, OutMeta: TRecordingMeta;
+  HasSrcMeta, KeepTranscript: Boolean;
+  SegStarts, SegEnds: TArray<Double>;
 begin
   if AObj = nil then Exit;
 
@@ -7662,6 +7749,12 @@ begin
 
   Opts := Default(TExportOptions);
   Opts.SrcPath  := SrcPath;
+  // Meta da origem (layout de monitores, fps). Lida uma vez: serve pras
+  // regioes, pro layout do arquivo exportado e pro selo de fps.
+  SrcMeta := Default(TRecordingMeta);
+  HasSrcMeta := OBSPlayer.LoadRecordingMeta(SrcPath, SrcMeta);
+  // So o audio: nenhuma tela escolhida na exportacao.
+  Opts.NoVideo := GetBoolField(AObj, 'noVideo', False);
 
   // Trechos que o usuario decidiu manter, em ordem. A UI manda pares de
   // milissegundos; aqui so entram os validos e o total tem que ser > 0.
@@ -7710,8 +7803,8 @@ begin
   RegionIdx := GetIntArrayField(AObj, 'regions');
   if Length(RegionIdx) > 0 then
   begin
-    if OBSPlayer.LoadRecordingMeta(SrcPath, Meta) and
-       (Length(Meta.Layout.Regions) > 0) then
+    Meta := SrcMeta;
+    if HasSrcMeta and (Length(Meta.Layout.Regions) > 0) then
     begin
       for i := 0 to High(RegionIdx) do
       begin
@@ -7778,6 +7871,54 @@ begin
     for i := 0 to High(AudioSel) do
       if AudioSel[i] >= 0 then
         Opts.AudioStreams := Opts.AudioStreams + [AudioSel[i]];
+  // Sem tela e sem som nao ha o que exportar.
+  if Opts.NoVideo and (Length(Opts.AudioStreams) = 0) then
+  begin
+    PushExportDone(False, False, '');
+    PostError(OBSLang.T('error.exportNothing'));
+    Exit;
+  end;
+  // Nome da faixa misturada, no idioma de quem exporta — e o que o player
+  // e os editores externos mostram na lista de faixas.
+  Opts.MixTitle := OBSLang.T('export.mixTrackTitle');
+
+  // Legenda queimada: os turnos vem do cache da transcricao, nunca da UI.
+  if GetBoolField(AObj, 'burnCaptions', False) and (not Opts.NoVideo) then
+  begin
+    Opts.Captions := LoadCaptionTurns(SrcPath);
+    Log('Export: legenda queimada com %d turno(s).', [Length(Opts.Captions)]);
+  end;
+
+  // A transcricao so acompanha o arquivo se o AUDIO dele ainda for o que
+  // foi transcrito: a mistura, ou todas as faixas isoladas. Com uma faixa
+  // tirada, a transcricao falaria de quem nao esta mais no arquivo. Quem
+  // sabe quantas faixas existem e a UI, que manda a conclusao.
+  KeepTranscript := GetBoolField(AObj, 'keepTranscript', True);
+  SetLength(SegStarts, Length(Opts.Segments));
+  SetLength(SegEnds, Length(Opts.Segments));
+  for i := 0 to High(Opts.Segments) do
+  begin
+    SegStarts[i] := Opts.Segments[i].StartSec;
+    SegEnds[i] := Opts.Segments[i].EndSec;
+  end;
+
+  // Meta do arquivo exportado: o layout de monitores recalculado pro que
+  // entrou (recorte, monitores escolhidos, reducao de resolucao), o selo
+  // do codec usado e a duracao. Sem isto a exportacao perdia tudo e o
+  // player do arquivo novo nao oferecia mais "ver so o monitor X".
+  OutMeta := Default(TRecordingMeta);
+  OutMeta.DurationSec := Round(TotalSec);
+  OutMeta.QualityLevel := -1;   // CRF da exportacao nao e o nivel 0..10
+  if not Opts.NoVideo then
+  begin
+    if HasSrcMeta then
+      ComputeExportLayout(SrcMeta.Layout, Opts.Regions, Opts.TargetHeight,
+        OutMeta.Layout);
+    DescribeExportEncoder(string(Opts.EncoderName), OutMeta.Codec,
+      OutMeta.CodecHw);
+    OutMeta.Fps := Opts.TargetFps;
+    if (OutMeta.Fps <= 0) and HasSrcMeta then OutMeta.Fps := SrcMeta.Fps;
+  end;
 
   // Container: MP4 (default, mais compativel) ou MKV. O muxer vai
   // explicito pro FFmpegExport — nada e deduzido da extensao.
@@ -7886,6 +8027,17 @@ begin
           if TFile.Exists(Opts.DstPath) then TFile.Delete(Opts.DstPath);
         except end;
 
+      // Transcricao herdada, no relogio do arquivo novo. Aqui na worker:
+      // e leitura e escrita de arquivo, e numa gravacao longa o JSON com
+      // palavras passa de megabytes.
+      if (Res = erOk) and KeepTranscript then
+        try
+          if OBSTranscribe.ExportTranscript(SrcPath, FinalPath, SegStarts, SegEnds) then
+            Log('Export: transcricao levada pro arquivo exportado.');
+        except
+          on E: Exception do Log('Export: transcricao nao copiada: %s', [E.Message]);
+        end;
+
       TThread.Queue(nil,
         procedure
         begin
@@ -7901,7 +8053,22 @@ begin
             erOk:
               begin
                 try GarbageCollectCache(ListRecordingsRecursive(RecordDir)); except end;
-                PushRecordingAdded(FinalPath, 0);
+                // Meta ANTES do card: o PushRecordingAdded le layout e
+                // duracao dela. Nomes de falante vao depois (o
+                // SaveRecordingMeta reescreve o <hash>.json inteiro).
+                try OBSPlayer.SaveRecordingMeta(FinalPath, OutMeta); except end;
+                if KeepTranscript then
+                  try
+                    var Names := LoadSpeakerNames(SrcPath);
+                    try
+                      if (Names <> nil) and (Names.Count > 0) then
+                        OBSPlayer.SaveMetaSubObjectJson(FinalPath,
+                          SPEAKERS_META_KEY, Names.ToJSON);
+                    finally
+                      Names.Free;
+                    end;
+                  except end;
+                PushRecordingAdded(FinalPath, OutMeta.DurationSec);
                 PushExportDone(True, False, FinalPath);
               end;
             erCanceled:
@@ -7981,7 +8148,8 @@ begin
     else if MsgType = 'request_audio_tracks' then
       HandleRequestAudioTracks(GetStrField(Obj, 'id'))
     else if MsgType = 'request_waveform' then
-      HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'))
+      HandleRequestWaveform(GetStrField(Obj, 'id'), GetIntField(Obj, 'buckets'),
+        GetBoolField(Obj, 'hi', False))
     else if MsgType = 'request_keyframes' then
       HandleRequestKeyframes(GetStrField(Obj, 'id'))
     else if MsgType = 'delete_recording' then

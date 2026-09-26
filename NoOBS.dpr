@@ -29,6 +29,7 @@ uses
   FFmpegLib in 'src\FFmpegLib.pas',
   FFmpegOps in 'src\FFmpegOps.pas',
   FFmpegExport in 'src\FFmpegExport.pas',
+  ExportCaptions in 'src\ExportCaptions.pas',
   LibOBS in 'src\LibOBS.pas',
   OBSEngine in 'src\OBSEngine.pas',
   OBSAudioTracks in 'src\OBSAudioTracks.pas',

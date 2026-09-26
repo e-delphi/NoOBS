@@ -193,8 +193,19 @@ const
   // --- servidor ---
   SERVER_START_TIMEOUT_MS = 90000;
   HEALTH_TIMEOUT_MS       = 2000;
-  // Um bloco de 60 s leva ~2 s na GPU; na CPU pode passar de um minuto.
-  REQUEST_TIMEOUT_MS      = 15 * 60 * 1000;
+  // Espera por UM pedido. Um bloco de 60 s leva ~5 s na GPU; 3 min so
+  // estoura com o servidor travado — e ai vale reiniciar e repetir
+  // (REQUEST_RETRIES), nao esperar 15 min. Na CPU o bloco pode passar de um
+  // minuto de verdade.
+  REQUEST_TIMEOUT_GPU_MS  = 3 * 60 * 1000;
+  REQUEST_TIMEOUT_CPU_MS  = 15 * 60 * 1000;
+  // Conexao + envio dos ~2 MB do bloco pra 127.0.0.1. Estourar isto e o
+  // servidor vivo mas sem aceitar pedido (visto numa gravacao de 2 h com o
+  // buffer do OBS usando a mesma placa).
+  SEND_TIMEOUT_MS         = 30000;
+  // Servidor travado: derruba, sobe de novo e repete o MESMO bloco ate
+  // tantas vezes antes de desistir da gravacao.
+  REQUEST_RETRIES         = 2;
   // Ocioso por mais que isto, o servidor cai e libera a memoria de video.
   // Subir de novo custa ~3 s + carregar os modelos na 1a requisicao.
   IDLE_STOP_MS            = 3 * 60 * 1000;
@@ -1440,6 +1451,14 @@ begin
   Result := Buf;
 end;
 
+function RequestTimeoutMs: Integer;
+begin
+  if SameText(GetConfigStr('localAsrBackend', 'vulkan'), 'cpu') then
+    Result := REQUEST_TIMEOUT_CPU_MS
+  else
+    Result := REQUEST_TIMEOUT_GPU_MS;
+end;
+
 function HttpPostLocal(const ARoute, AContentType: string; const ABody: TBytes;
   out AStatus: Integer; out AResponse: string): string;
 // POST no servidor local pelo WinHTTP DIRETO. O THTTPClient nao serve aqui:
@@ -1455,14 +1474,14 @@ var
   Buf: TBytes;
   Resp: TBytesStream;
 
-  function Fail(const AWhat: string): string;
+  function Fail(const AWhat: string; ALimitMs: Integer): string;
   var
     Err: DWORD;
   begin
     Err := GetLastError;
     if Err = 12002 then
-      Result := Format('%s: sem resposta em %d s (WinHTTP 12002)',
-        [AWhat, REQUEST_TIMEOUT_MS div 1000])
+      Result := Format('%s: tempo esgotado (%d s, WinHTTP 12002)',
+        [AWhat, ALimitMs div 1000])
     else
       Result := Format('%s: WinHTTP %d', [AWhat, Err]);
   end;
@@ -1474,23 +1493,26 @@ begin
   Conn := nil;
   Req := nil;
   Session := WinHttpOpen('NoOBS', WINHTTP_ACCESS_TYPE_NO_PROXY, nil, nil, 0);
-  if Session = nil then Exit(Fail('WinHttpOpen'));
+  if Session = nil then Exit(Fail('WinHttpOpen', 0));
   Resp := TBytesStream.Create;
   try
     // Resolucao/conexao curtas (e 127.0.0.1); envio de ~2 MB; recebimento
-    // e espera pela resposta com o teto de REQUEST_TIMEOUT_MS.
-    WinHttpSetTimeouts(Session, 5000, 5000, 60000, REQUEST_TIMEOUT_MS);
+    // e espera pela resposta com o teto do RequestTimeoutMs. A CONEXAO
+    // acontece dentro do WinHttpSendRequest: e ali que estoura um servidor
+    // vivo que parou de aceitar pedidos.
+    WinHttpSetTimeouts(Session, 5000, SEND_TIMEOUT_MS, SEND_TIMEOUT_MS, RequestTimeoutMs);
     Conn := WinHttpConnect(Session, '127.0.0.1', INTERNET_PORT(GPort), 0);
-    if Conn = nil then Exit(Fail('WinHttpConnect'));
+    if Conn = nil then Exit(Fail('WinHttpConnect', SEND_TIMEOUT_MS));
     Req := WinHttpOpenRequest(Conn, 'POST', PChar(ARoute), nil, nil, nil, 0);
-    if Req = nil then Exit(Fail('WinHttpOpenRequest'));
-    Timeout := REQUEST_TIMEOUT_MS;
+    if Req = nil then Exit(Fail('WinHttpOpenRequest', SEND_TIMEOUT_MS));
+    Timeout := RequestTimeoutMs;
     WinHttpSetOption(Req, WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT, @Timeout, SizeOf(Timeout));
     Headers := 'Content-Type: ' + AContentType;
     if not WinHttpSendRequest(Req, PChar(Headers), DWORD(Length(Headers)),
       Pointer(ABody), DWORD(Length(ABody)), DWORD(Length(ABody)), 0) then
-      Exit(Fail('WinHttpSendRequest'));
-    if not WinHttpReceiveResponse(Req, nil) then Exit(Fail('WinHttpReceiveResponse'));
+      Exit(Fail('WinHttpSendRequest', SEND_TIMEOUT_MS));
+    if not WinHttpReceiveResponse(Req, nil) then
+      Exit(Fail('WinHttpReceiveResponse', RequestTimeoutMs));
     Code := 0;
     CodeLen := SizeOf(Code);
     if WinHttpQueryHeaders(Req, WINHTTP_QUERY_STATUS_CODE or WINHTTP_QUERY_FLAG_NUMBER,
@@ -1499,11 +1521,13 @@ begin
     while True do
     begin
       Avail := 0;
-      if not WinHttpQueryDataAvailable(Req, @Avail) then Exit(Fail('WinHttpQueryDataAvailable'));
+      if not WinHttpQueryDataAvailable(Req, @Avail) then
+        Exit(Fail('WinHttpQueryDataAvailable', RequestTimeoutMs));
       if Avail = 0 then Break;
       SetLength(Buf, Avail);
       Got := 0;
-      if not WinHttpReadData(Req, Buf[0], Avail, @Got) then Exit(Fail('WinHttpReadData'));
+      if not WinHttpReadData(Req, Buf[0], Avail, @Got) then
+        Exit(Fail('WinHttpReadData', RequestTimeoutMs));
       if Got = 0 then Break;
       Resp.WriteBuffer(Buf[0], Got);
     end;
@@ -1517,7 +1541,7 @@ begin
 end;
 
 function PostAudio(const ARoute: string; const AFields: array of string;
-  const AWav: TBytes; out AObj: TJSONObject): string;
+  const AWav: TBytes; out AObj: TJSONObject; out ATransport: Boolean): string;
 // POST multipart com o bloco em WAV. AFields = pares nome, valor (valor
 // vazio nao vai). '' = ok com o JSON em AObj (do caller liberar). O corpo e
 // montado aqui (texto em UTF-8) e sai pelo HttpPostLocal.
@@ -1537,6 +1561,7 @@ var
 
 begin
   AObj := nil;
+  ATransport := False;
   Boundary := '----NoOBS' + IntToHex(Random(MaxInt), 8) + IntToHex(Random(MaxInt), 8);
   Payload := TBytesStream.Create;
   try
@@ -1561,7 +1586,12 @@ begin
     Payload.Free;
   end;
   if Err <> '' then
+  begin
+    // Nem chegou resposta: conexao recusada, tempo esgotado. E o servidor,
+    // nao o bloco — quem chama pode reinicia-lo e tentar de novo.
+    ATransport := True;
     Exit(OBSLang.T('error.localAsr.request', ['error', Err]));
+  end;
   if (Status <> 200) and (Pos(NO_SPEECH_TEXT, Body) > 0) then
     Exit(NO_SPEECH_MARK);
   if Status <> 200 then
@@ -1576,6 +1606,36 @@ begin
   AObj := TJSONObject(Json);
   GLastUse := GetTickCount64;
   Result := '';
+end;
+
+function PostChunk(const ARoute: string; const AFields: array of string;
+  const AWav: TBytes; out AObj: TJSONObject; ACancel: TLocalAsrCancel): string;
+// PostAudio com recuperacao: se o servidor nao responde (travou — visto com
+// o buffer do OBS disputando a placa numa gravacao de 2 h), derruba, sobe de
+// novo e repete o MESMO bloco, ate REQUEST_RETRIES vezes. Sem isso um
+// travamento perdia a gravacao inteira. CANCELED_MARK se cancelaram durante
+// a subida.
+var
+  Attempt: Integer;
+  Transport: Boolean;
+  Err: string;
+begin
+  Result := '';
+  for Attempt := 0 to REQUEST_RETRIES do
+  begin
+    Result := PostAudio(ARoute, AFields, AWav, AObj, Transport);
+    if (not Transport) or (Attempt = REQUEST_RETRIES) or GShuttingDown then Exit;
+    Log('LocalAsr: servidor sem resposta (%s) — reiniciando e repetindo o bloco (%d de %d).',
+      [Result, Attempt + 1, REQUEST_RETRIES]);
+    GServerLock.Enter;
+    try
+      StopServerLocked;
+    finally
+      GServerLock.Leave;
+    end;
+    Err := EnsureServer(ACancel);
+    if Err <> '' then Exit(Err);
+  end;
 end;
 
 function LangCode(const ALang: string): string;
@@ -2037,8 +2097,9 @@ begin
     begin
       if Stop then begin ACanceled := True; Exit(''); end;
       Report('transcribing', TRANSCRIBE_SHARE * i / n);
-      Err := PostAudio('/v1/audio/transcriptions/details',
-        ['model', ASR_MODEL_ID, 'language', ReqLang], ChunkWav(Chunks[i]), Obj);
+      Err := PostChunk('/v1/audio/transcriptions/details',
+        ['model', ASR_MODEL_ID, 'language', ReqLang], ChunkWav(Chunks[i]), Obj, ACancel);
+      if Err = CANCELED_MARK then begin ACanceled := True; Exit(''); end;
       if Err = NO_SPEECH_MARK then
       begin
         // Bloco sem fala reconhecivel: fica vazio e o arquivo segue.
@@ -2071,9 +2132,10 @@ begin
         Chunks[i].Words := TJSONArray.Create
       else if Name <> '' then
       begin
-        Err := PostAudio('/v1/audio/alignments',
+        Err := PostChunk('/v1/audio/alignments',
           ['model', ALIGN_MODEL_ID, 'language', Name, 'text', Chunks[i].Text],
-          ChunkWav(Chunks[i]), Obj);
+          ChunkWav(Chunks[i]), Obj, ACancel);
+        if Err = CANCELED_MARK then begin ACanceled := True; Exit(''); end;
         if Err <> '' then Exit(Err);
         try
           Chunks[i].Words := AttachTimes(Chunks[i].Text,

@@ -92,7 +92,8 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets, AvErrStr) |
 | `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `MergeFiles`, `SpliceContinuation` (buffer + gravação que continuou dele, pegadinha #62), `ExtractAudioTracks`, `ExtractFrameJpeg` |
-| `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas) |
+| `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas + só áudio) e `ComputeExportLayout` (layout de monitores do arquivo exportado) |
+| `ExportCaptions`    | Legenda **gravada** no vídeo exportado: corta os turnos em blocos de 2 linhas na fonte/largura da saída, rasteriza com GDI e mistura direto nos planos YUV 4:2:0 (pegadinha #51i) |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
@@ -306,6 +307,30 @@ User seleciona UMA gravação e clica em Exportar (ou botão direito → Exporta
     escolhidos a moldura some (`_cropAvailable`): a prévia mostra o canvas
     inteiro mas a saída é a composição deles lado a lado, então desenhar
     uma moldura ali diria uma coisa e o arquivo sairia outra.
+  • TELAS vêm ANTES dos trechos: a escolha é aplicada DIRETO na prévia —
+    com telas escolhidas o `<video>` fica invisível (`visibility`, não
+    `display`: sem layout ele não decodifica) e um canvas desenha a
+    composição lado a lado (`_drawCompose`, mesma conta do
+    `BuildCompRegions`); o quadro ganha a proporção da COMPOSIÇÃO. Não há
+    mais miniatura do arranjo. "Nenhuma (só áudio)" liga o `noVideo`: a
+    prévia fica apagada com aviso, os campos `.export-video-opt`
+    (resolução, encoder, escala, fps, qualidade, legenda) são desativados e
+    o backend nem decodifica o vídeo. Uma tela só = "Tela inteira" (não
+    lista a mesma coisa duas vezes).
+  • A linha do tempo mostra a INTENSIDADE DO ÁUDIO (`_renderWave`), a mesma
+    leitura do player (pico por fatia, raiz quadrada, barras de ~2px), mas
+    em resolução ALTA (`request_waveform` com `hi`, ~25 barras/s, teto 150
+    mil) e numa chave de cache própria (`waveformHi`) — numa chave só,
+    player e exportação se revezariam invalidando um ao outro. O canvas
+    cobre só a janela VISÍVEL e acompanha a rolagem pelo `left`, como a
+    régua: no zoom máximo a linha do tempo tem milhares de telas de largura.
+    Trecho tirado fica cinza.
+  • CC na prévia (SÓ a legenda, nada de painel): mesmos blocos de 2 linhas
+    do player, fonte a 4,5% da ALTURA do quadro e 6% acima da borda — as
+    frações que o `ExportCaptions` usa na saída, pra a prévia mostrar o que
+    a legenda gravada vai pôr no arquivo. Marcar "Gravar a legenda no
+    vídeo" liga o CC. Os turnos vêm do `request_transcript` (o `bridge.js`
+    entrega à exportação quando ela espera aquele id).
   • A tela monta: linha do tempo de cortes, regiões do Layout, resoluções
     (nunca acima da origem), encoders vindos de encoder_caps.exportEncoders,
     faixas de áudio e o controle de qualidade (CRF 0..51, sem estimativa de
@@ -396,6 +421,9 @@ User clica Exportar → `export_recording`:
   • Sucesso: o .part é renomeado pro nome final (aí sim COMPLETO) e o
     PushRecordingAdded monta o card. Falha ou cancelamento: o .part é
     apagado e nunca chegou a aparecer na lista.
+  • O arquivo exportado HERDA o que a gravação tinha (pegadinha #51h):
+    layout de monitores recalculado, transcrição remapeada pelos cortes,
+    nomes de falante, títulos das faixas.
 ```
 
 ---
@@ -1610,6 +1638,58 @@ Corolário: **o muxer vai sempre explícito** no
 do nome do arquivo — com o `.part` no caminho, a dedução por extensão
 escolheria o formato errado.
 
+**h) O arquivo exportado HERDA a meta — senão uma troca de codec perdia
+tudo.** Antes, exportar só pra mudar de codec gerava um arquivo "novo" pro
+app: sem layout de monitores (o player não oferecia mais "ver só o monitor
+X"), sem transcrição, sem nomes de falante. O `HandleExportRecording` agora
+grava pro arquivo final:
+
+- **Layout** por `ComputeExportLayout`: cada monitor original é
+  intersectado com o que entrou (tela escolhida ou recorte livre),
+  deslocado pra onde a composição o pôs e escalado pela redução de
+  resolução. Usa o MESMO `BuildCompRegions` do `ExportVideo`, então layout
+  e imagem nunca divergem. Sobra de menos de 8 px (arredondamento par nas
+  bordas) não vira monitor.
+- **Transcrição** por `OBSTranscribe.ExportTranscript`: turnos, segmentos
+  e palavras remapeados pro relógio do arquivo novo (trechos mantidos
+  emendados sem buraco, a mesma linha do tempo que a exportação produz);
+  o que cai fora dos trechos sai, o que atravessa um corte fica aparado, e
+  o `.txt` da busca é remontado dos turnos que ficaram. SÓ vai se o áudio
+  ainda for o transcrito — a mistura, ou TODAS as isoladas (`keepTranscript`,
+  a UI decide porque é ela que sabe quantas faixas existem). Tirando uma
+  isolada, a transcrição falaria de quem não está mais no arquivo.
+- **Nomes de falante** (sub-objeto `speakers`) copiados DEPOIS do
+  `SaveRecordingMeta`, que reescreve o `<hash>.json` inteiro.
+- **Faixas**: os títulos já iam por `CopyStreamTag`; a faixa MISTURADA
+  ganhou título próprio (`export.mixTrackTitle`, no idioma de quem exporta).
+- Selo de codec por `DescribeExportEncoder` — o `DescribeEncoderId` é pros
+  IDs do libobs e marcaria o `libsvtav1` como hardware. Aqui software é o
+  prefixo `lib`. `quality` fica -1: o CRF da exportação não é o nível 0..10.
+
+**i) Legenda GRAVADA no vídeo (`ExportCaptions`): GDI + mistura em YUV.**
+O projeto não binda libavfilter/libass, e o texto é simples (sem estilo por
+palavra), então: fonte Segoe UI negrito a 4,5% da ALTURA da saída (pela
+altura, senão num canvas de dois monitores a letra dobraria), largura máxima
+`min(86% da largura, 32 letras)`, 6% acima da borda — as proporções da
+`.player-caption`. Cada turno é partido em blocos de até 2 linhas medidos
+com `DrawText(DT_CALCRECT)` no tamanho REAL da saída, com o tempo dividido
+pelos caracteres (a regra do `Player._captionChunks`). Três detalhes:
+
+- **`ANTIALIASED_QUALITY`, não ClearType.** A cobertura é lida de UM canal
+  do DIB; o ClearType rasteriza cada canal num subpixel diferente e as
+  bordas sairiam serrilhadas.
+- **Contorno = cobertura dilatada** (máximo num quadrado de raio ~1/14 da
+  letra, separável), a ~90% de opacidade. Mistura direto nos planos: Y com
+  o alfa por pixel, U/V puxados pro neutro (128) com o alfa MÉDIO do bloco
+  2x2 — bloco com lado/offset par, senão o croma desalinha (#51c).
+- **Só o bloco corrente fica rasterizado.** A legenda anda em ordem;
+  guardar todos custaria centenas de MB numa transcrição longa. Turnos
+  sobrepostos: vale o que COMEÇOU por último (a regra do player, #60p), com
+  busca binária sobre os blocos ORDENADOS por início.
+
+Falhar ao criar o GDI não derruba a exportação: o vídeo sai sem legenda e
+o log diz por quê. E os turnos vêm do cache (`LoadCaptionTurns`), nunca da UI.
+
 **Bônus, e é o erro mais fácil de cometer:** as caps de encoder do
 `OBSEncoder.DetectEncoderCaps` são do **libobs** (`av1_texture_amf`,
 `obs_nvenc_*`). A exportação usa **libavcodec**, que tem outros nomes
@@ -2629,7 +2709,12 @@ gravado precisa. A lógica é a da Transcritor API (versão Windows,
   (espera pela resposta depois do envio), que o Windows fixa em 90 s. Um
   bloco lento (GPU disputada com a gravação) virava "Error sending data:
   (12002)" e a gravação inteira falhava. `HttpPostLocal` fala WinHTTP
-  direto, com 15 min.
+  direto: 3 min por pedido na GPU (um bloco leva ~5 s), 15 min na CPU.
+- **Servidor travado se recupera sozinho.** Numa gravação de 2 h com o
+  buffer do OBS usando a mesma placa, o servidor ficou VIVO mas parou de
+  aceitar pedidos (12002 já no `WinHttpSendRequest`, onde a conexão
+  acontece; caído daria 12029 na hora). `PostChunk` derruba, sobe de novo
+  e repete o MESMO bloco até 2 vezes antes de desistir da gravação.
 - **Reamostrador próprio**, validado em Python antes (mesma conta):
   sinc janelado (Blackman), 8 cruzamentos por lado, simétrico = sem atraso
   de fase. Um atraso deslocaria TODAS as palavras. O swresample das DLLs

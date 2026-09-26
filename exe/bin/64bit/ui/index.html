@@ -585,6 +585,19 @@
           só até fechar o app.
         </div>
       </div>
+      <div class="settings-field" data-panel="replay">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsReplayIntoRecording"
+                 onchange="Replay.onIntoRecordingChange(this.checked)">
+          <span data-i18n="settings.replay.intoRecording">Gravar a partir do que o buffer guardou</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.replay.intoRecordingHint">
+          Marcado, iniciar uma gravação com o buffer ligado aproveita o que
+          ele já guardou: o arquivo começa por esse trecho e continua sem
+          interrupção. Desmarcado, o que estava no buffer é descartado e a
+          gravação começa do zero.
+        </div>
+      </div>
       <!-- Os dois limites do buffer na MESMA linha: sao um par ("o que
            acabar primeiro manda"), e a dica abaixo vale pros dois. -->
       <div class="settings-field" data-panel="replay">
@@ -909,7 +922,41 @@
         </div>
       </div>
       <!-- ===== Transcricao ===== -->
+      <!-- ONDE transcrever: nesta máquina (OBSLocalAsr: Qwen3 + audio.cpp na
+           GPU, instalado por aqui mesmo, sem Docker) ou num servidor da
+           Transcritor API. O quadro de instalação é montado em JS (LocalAsr)
+           a partir do local_asr_state; o do servidor some no modo local. -->
       <div class="settings-field" data-panel="transcribe">
+        <label data-i18n="settings.transcribe.engine.label">Onde transcrever</label>
+        <div class="engine-options">
+          <label class="settings-check-row">
+            <input type="radio" name="transcribeEngine" value="local"
+                   id="settingsTranscribeEngineLocal" onchange="LocalAsr.onEngineChange()">
+            <span data-i18n="settings.transcribe.engine.local">Nesta máquina, na placa de vídeo</span>
+          </label>
+          <label class="settings-check-row">
+            <input type="radio" name="transcribeEngine" value="server"
+                   id="settingsTranscribeEngineServer" onchange="LocalAsr.onEngineChange()">
+            <span data-i18n="settings.transcribe.engine.server">Num servidor (Docker ou outro computador)</span>
+          </label>
+        </div>
+        <div class="settings-hint" data-i18n="settings.transcribe.engine.hint">
+          Nesta máquina é mais rápido e marca cada palavra com mais precisão,
+          mas não separa quem falou — gravando com faixas isoladas, o falante
+          continua vindo do nome do dispositivo. O servidor (Transcritor API)
+          separa os falantes.
+        </div>
+        <div class="local-asr" id="localAsrBox" hidden>
+          <div class="local-asr-status" id="localAsrStatus"></div>
+          <div class="transcribe-bar" id="localAsrBar" hidden><div class="transcribe-fill" id="localAsrFill"></div></div>
+          <div class="local-asr-detail" id="localAsrDetail"></div>
+          <div class="ts-actions" id="localAsrActions"></div>
+        </div>
+      </div>
+
+      <hr class="settings-divider" data-panel="transcribe">
+      <div class="settings-field" data-panel="transcribe">
+       <div id="transcribeServerBox">
         <label data-i18n="settings.transcribe.host">Servidor de transcrição</label>
         <div class="settings-input-row">
           <input type="text" class="settings-input" id="settingsTranscribeHost"
@@ -941,6 +988,7 @@
           </div>
           <div class="transcribe-setup-body" id="transcribeSetupBody"></div>
         </div>
+       </div>
       </div>
 
       <hr class="settings-divider" data-panel="transcribe">

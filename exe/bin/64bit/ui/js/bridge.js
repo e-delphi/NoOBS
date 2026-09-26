@@ -98,6 +98,8 @@ const Bridge = {
       // Diagnóstico e seletor de idioma da transcrição: textos montados
       // em JS, e o "Idioma do NoOBS (…)" muda de nome com a interface.
       try { TranscribeSetup.rerender(); } catch (e) {}
+      // Quadro do motor local: textos (e tamanhos formatados) em JS.
+      try { LocalAsr.render(); } catch (e) {}
       try { Settings._fillTranscribeLangs(); } catch (e) {}
       // A fila tem o selo "agora" e o title do botão de remover, os
       // dois traduzidos em tempo de render. Fora do render() de
@@ -233,6 +235,7 @@ const Bridge = {
     transcribe_queue(data)   { Transcribe.applyQueue(data); },
     transcribe_health(data)  { Transcribe.onHealth(data); },
     transcribe_setup(data)   { TranscribeSetup.apply(data); },
+    local_asr_state(data)    { LocalAsr.apply(data); },
     transcript(data)         { Player.applyTranscript(data); },
     transcript_search(data)  { onTranscriptSearchResult(data); },
     update_result(data) { Updates.applyResult(data); },

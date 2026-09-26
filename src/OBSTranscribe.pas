@@ -41,6 +41,13 @@
      fila do outro lado. Uma thread, uma fila — e o cancelamento aborta
      ate o item em voo, via DELETE /jobs/{id}.
 
+  4. DOIS MOTORES. 'server' (padrao) e a Transcritor API acima, num
+     container ou em outra maquina. 'local' e o OBSLocalAsr: Qwen3 +
+     audio.cpp na GPU desta maquina, instalado pela aba de Transcricao,
+     sem Docker. A escolha e a chave `transcribeEngine`; tudo o que vem
+     depois do RunJob (turnos, eco, cache) nao sabe qual motor rodou —
+     os dois devolvem o MESMO JSON. O local nao separa falantes.
+
   O resultado vai pra dois arquivos no cache:
     <hash>.transcript.json  resposta inteira (turnos, segmentos, palavras)
     <hash>.txt              so o texto puro, pra BUSCA
@@ -61,17 +68,25 @@ type
 
 // Enfileira uma gravacao. Ignora silenciosamente se ja esta na fila ou
 // se ja tem transcricao (use Retranscribe pra refazer).
-procedure Enqueue(const APath: string);
-// Enfileira varias de uma vez (botao "transcrever pendentes").
-procedure EnqueueMany(const APaths: TArray<string>);
+// AManual = o USUARIO pediu (menu da gravacao, "transcrever pendentes"). So
+// a transcricao automatica espera o fim da captura; o que foi pedido a mao
+// roda mesmo com gravacao ou buffer ligado (ver SetPaused). Pedir a mao um
+// item que ja estava na fila como automatico o promove a manual.
+procedure Enqueue(const APath: string; AManual: Boolean = False);
+// Enfileira varias de uma vez. AManual vale pra todas; AManualPaths marca
+// uma a uma (restauracao da fila salva, que guarda quem era manual).
+procedure EnqueueMany(const APaths: TArray<string>; AManual: Boolean = False;
+  const AManualPaths: TArray<string> = nil);
 // Cancela a fila inteira. O item EM CURSO nao e abortado no meio (a API
 // nao tem cancelamento); ele termina e o resultado e descartado.
-// Segura a fila sem esvazia-la: nenhum item NOVO comeca enquanto pausado
-// (o que ja esta em curso segue ate o fim). Usado pelo OBSBridge enquanto o
-// buffer em memoria esta ligado — transcrever le a gravacao inteira do
-// disco e sobe dezenas de MB, disputando maquina justamente com o jogo que
-// o buffer existe pra nao atrapalhar. Os itens ficam na fila PERSISTIDA; o
-// Bridge solta quando o buffer desliga.
+// Segura os itens AUTOMATICOS sem esvaziar a fila: nenhum automatico NOVO
+// comeca enquanto pausado (o que ja esta em curso segue ate o fim). Usado
+// pelo OBSBridge enquanto grava ou o buffer em memoria esta ligado —
+// transcrever le a gravacao inteira do disco e sobe dezenas de MB,
+// disputando maquina com o que esta sendo capturado. Itens pedidos A MAO
+// (Enqueue com AManual) NAO esperam: ali o usuario escolheu gastar a
+// maquina agora. Os itens ficam na fila PERSISTIDA; o Bridge solta quando
+// a captura termina.
 procedure SetPaused(APaused: Boolean);
 function IsPaused: Boolean;
 
@@ -168,6 +183,11 @@ procedure NudgeQueue;
 // espera). Quem restaura e o Bridge, que filtra o que nao faz mais
 // sentido (arquivo sumiu, ja transcrito, so na nuvem) antes do EnqueueMany.
 function LoadSavedQueue: TArray<string>;
+// Os que, dentre eles, tinham sido pedidos a mao — pra restauracao nao
+// rebaixar um pedido do usuario a automatico (que esperaria a captura).
+function LoadSavedManualPaths: TArray<string>;
+// Item pedido a mao? (a lista da aba de Transcricao marca os que esperam)
+function IsManual(const APath: string): Boolean;
 
 // Idioma que vai pra API ('' = deixar a API detectar). Ver o comentario
 // na implementacao: detectar e o que fazia a transcricao sair TRADUZIDA.
@@ -196,6 +216,16 @@ type
 // segundos: chame SO de worker thread.
 function DiagnoseSetup(const AHost: string): TTranscribeSetup;
 
+// Motor escolhido: True = OBSLocalAsr (GPU desta maquina), False = o
+// servidor da Transcritor API (transcribeHost).
+function UseLocalEngine: Boolean;
+
+// Roda um programa de console sem janela; codigo de saida (-1 = nao rodou
+// ou estourou o tempo) e stdout+stderr em AOutput. Exportada pro
+// OBSLocalAsr detectar a GPU com o audiocpp_cli.
+function RunHidden(const AExe, AArgs: string; ATimeoutMs: Cardinal;
+  out AOutput: string): Integer;
+
 implementation
 
 uses
@@ -221,6 +251,7 @@ uses
   OBSProbe,
   OBSConfig,
   OBSPlayer,
+  OBSLocalAsr,
   FFmpegOps;
 
 const
@@ -319,6 +350,11 @@ const
   // aviso vermelho ficava na tela meio minuto depois do Docker subir.
   SERVER_RETRY_MS = 10000;
 
+  // Sentinela de "motor LOCAL escolhido mas ainda nao instalado". Mesmo
+  // tratamento do servidor fora do ar: o item espera na fila (persistida)
+  // e anda sozinho quando a instalacao termina (o Bridge chama NudgeQueue).
+  LOCAL_MISSING_MARK = #1'localmissing';
+
   QUEUE_FILE = 'transcribe-queue.json';
 
   // Timeouts do diagnostico. O `docker info` e o mais lento: com o Docker
@@ -363,8 +399,15 @@ var
   GTrack: Integer = 0;
   GTrackCount: Integer = 1;
   GWaitingServer: Boolean = False;
-  // Fila segurada pelo Bridge (buffer em memoria ligado). Ver SetPaused.
+  // Fila segurada pelo Bridge (gravacao ou buffer ligado). Ver SetPaused.
   GPaused: Boolean = False;
+  // Caminhos (minusculos) pedidos A MAO — rodam mesmo com a fila pausada.
+  // Um conjunto a parte em vez de mudar o tipo da GQueue: ela e lida em
+  // muitos lugares como lista de caminhos, e a marca so interessa a quem
+  // escolhe o proximo item. Sai daqui quando o item termina de verdade
+  // (nao quando a worker o pega: servidor fora do ar devolve o item pra
+  // fila, e ele tem que voltar ainda manual).
+  GManual: TDictionary<string, Boolean> = nil;
   // O item em curso JA terminou (sucesso, falha ou cancelamento) e so
   // falta a proxima volta do laco tira-lo do estado. Sem esta marca, um
   // fechamento nesse intervalo persistiria o item concluido de novo.
@@ -380,6 +423,11 @@ begin
   if Result = '' then Result := DEFAULT_HOST;
   while (Result <> '') and (Result[Length(Result)] = '/') do
     Delete(Result, Length(Result), 1);
+end;
+
+function UseLocalEngine: Boolean;
+begin
+  Result := SameText(GetConfigStr('transcribeEngine', 'server'), 'local');
 end;
 
 function TranscriptPath(const APath: string): string;
@@ -538,8 +586,8 @@ procedure SaveQueue;
 // worker) podiam tirar o snapshot numa ordem e escrever na outra, e o
 // arquivo terminaria com o estado VELHO.
 var
-  Items: TArray<string>;
-  Arr: TJSONArray;
+  Items, Manual: TArray<string>;
+  Arr, ManArr: TJSONArray;
   Obj: TJSONObject;
   i: Integer;
   Tmp, Dst: string;
@@ -548,6 +596,7 @@ begin
   SaveLock.Enter;
   try
     SetLength(Items, 0);
+    SetLength(Manual, 0);
     GLock.Enter;
     try
       if GRunning and (not GCurrentFinished) and (GCurrentPath <> '') then
@@ -555,6 +604,10 @@ begin
       if GQueue <> nil then
         for i := 0 to GQueue.Count - 1 do
           Items := Items + [GQueue[i]];
+      if GManual <> nil then
+        for i := 0 to High(Items) do
+          if GManual.ContainsKey(LowerCase(Items[i])) then
+            Manual := Manual + [Items[i]];
     finally
       GLock.Leave;
     end;
@@ -563,8 +616,13 @@ begin
     try
       Arr := TJSONArray.Create;
       for i := 0 to High(Items) do Arr.Add(Items[i]);
+      ManArr := TJSONArray.Create;
+      for i := 0 to High(Manual) do ManArr.Add(Manual[i]);
       Obj.AddPair('version', TJSONNumber.Create(1));
       Obj.AddPair('items', Arr);
+      // Chave a mais, mesma versao: um arquivo antigo sem ela so restaura
+      // tudo como automatico, que era o comportamento de antes.
+      Obj.AddPair('manual', ManArr);
       Dst := QueueFilePath;
       Tmp := Dst + '.tmp';
       try
@@ -586,7 +644,7 @@ begin
   end;
 end;
 
-function LoadSavedQueue: TArray<string>;
+function ReadSavedQueueArray(const AKey: string): TArray<string>;
 var
   Body: string;
   Root, V: TJSONValue;
@@ -607,7 +665,7 @@ begin
   Root := TJSONObject.ParseJSONValue(Body);
   try
     if not (Root is TJSONObject) then Exit;
-    V := TJSONObject(Root).GetValue('items');
+    V := TJSONObject(Root).GetValue(AKey);
     if not (V is TJSONArray) then Exit;
     Arr := TJSONArray(V);
     for i := 0 to Arr.Count - 1 do
@@ -615,6 +673,28 @@ begin
         Result := Result + [Arr.Items[i].Value];
   finally
     Root.Free;
+  end;
+end;
+
+function LoadSavedQueue: TArray<string>;
+begin
+  Result := ReadSavedQueueArray('items');
+end;
+
+function LoadSavedManualPaths: TArray<string>;
+begin
+  Result := ReadSavedQueueArray('manual');
+end;
+
+function IsManual(const APath: string): Boolean;
+begin
+  Result := False;
+  if (GLock = nil) or (GManual = nil) then Exit;
+  GLock.Enter;
+  try
+    Result := GManual.ContainsKey(LowerCase(APath));
+  finally
+    GLock.Leave;
   end;
 end;
 
@@ -785,6 +865,7 @@ begin
     Idx := IndexInQueue(APath);
     if Idx < 0 then Exit;
     GQueue.Delete(Idx);
+    if GManual <> nil then GManual.Remove(LowerCase(APath));
     Inc(GQueueRev);
     // O total do lote conta o que VAI rodar. Sem descontar, a linha de
     // progresso ficaria presa em "6 de 7" com a fila vazia.
@@ -1130,6 +1211,44 @@ begin
     Result.RestartPolicy := LowerCase(Trim(Outp));
 end;
 
+function ServerDiarizes: Boolean;
+// A Transcritor API tem duas versoes: o container (WhisperX), que separa
+// falantes, e a nativa do Windows (Qwen3 + audio.cpp, na GPU), que nao
+// separa e RECUSA diarization=true com HTTP 400. O /health da nativa diz o
+// motor ("engine": "audiocpp"); o container 2.0 nao manda o campo. Entao:
+// sem "engine", ou "whisperx", pede a separacao; qualquer outro, nao.
+// Na duvida (health sem resposta) pede, que e o comportamento de sempre —
+// se o servidor recusar, o motivo aparece no envio.
+var
+  Http: TNetHTTPClient;
+  Resp: IHTTPResponse;
+  Json: TJSONValue;
+  Engine: string;
+begin
+  Result := True;
+  Http := TNetHTTPClient.Create(nil);
+  try
+    Http.ConnectionTimeout := HEALTH_TIMEOUT_MS;
+    Http.ResponseTimeout := HEALTH_TIMEOUT_MS;
+    try
+      Resp := Http.Get(HostBase + HEALTH_PATH);
+    except
+      Exit;
+    end;
+    if (Resp = nil) or (Resp.StatusCode <> 200) then Exit;
+    Json := TJSONObject.ParseJSONValue(Resp.ContentAsString(TEncoding.UTF8));
+    try
+      if (Json is TJSONObject) and
+         TJSONObject(Json).TryGetValue<string>('engine', Engine) then
+        Result := SameText(Engine, 'whisperx');
+    finally
+      Json.Free;
+    end;
+  finally
+    Http.Free;
+  end;
+end;
+
 function SubmitJob(const AAudioPath: string; out AJobId: string): string;
 // POST /jobs — devolve na hora um identificador (HTTP 202), sem esperar a
 // transcricao. O upload e a unica parte demorada aqui, e ele e rapido
@@ -1159,7 +1278,13 @@ begin
       if Lang = '' then Log('Transcribe: idioma: deteccao automatica.')
       else Log('Transcribe: idioma: %s', [Lang]);
       // Separacao por falante — e o que torna o painel do player util.
-      Data.AddField('diarization', 'true');
+      // So quando o servidor sabe fazer: a versao nativa recusa com 400
+      // (ver ServerDiarizes). Sem ela, faixas isoladas ainda levam o nome
+      // do dispositivo como falante (LabelTrackSpeakers).
+      if ServerDiarizes then
+        Data.AddField('diarization', 'true')
+      else
+        Log('Transcribe: servidor sem separacao por falante; enviando sem diarizacao.');
       // Alinhamento por palavra. O padrao da API ja e true, mas vai
       // EXPLICITO porque o TurnsFromWords depende dele: sem os
       // `segments[].words` o recorte de turnos cai no `turns` cru da API,
@@ -1437,6 +1562,51 @@ begin
   Result := False;
 end;
 
+function RunLocal(const AAudioPath: string; ATrack, ATrackCount: Integer;
+  AStartTick: Cardinal; var AEstPerTrackSec: Integer; out ABody: string): string;
+// O RunJob do motor LOCAL (OBSLocalAsr). Mesmas regras de progresso do
+// caminho da API: fracao do CONJUNTO de faixas e "faltam" somando as
+// faixas que nem comecaram, pela regua da primeira que terminou.
+var
+  Canceled: Boolean;
+  Est: Integer;
+begin
+  Est := AEstPerTrackSec;
+  Result := OBSLocalAsr.Transcribe(AAudioPath, ResolveTranscribeLanguage,
+    procedure(const AStage: string; AFraction: Double)
+    var
+      ElapsedSec, TrackEta: Integer;
+      Total: Double;
+    begin
+      ElapsedSec := Integer((GetTickCount - AStartTick) div 1000);
+      TrackEta := -1;
+      // Extrapolar antes de 10% chuta demais (a decodificacao e rapida e
+      // distorce a conta) — mesma regra da API.
+      if AFraction >= 0.1 then
+        TrackEta := Round(ElapsedSec * (1 - AFraction) / AFraction);
+      if (TrackEta >= 0) and (Est > 0) then
+        Inc(TrackEta, (ATrackCount - ATrack - 1) * Est);
+      if ATrackCount <= 1 then Total := AFraction
+      else Total := (ATrack + AFraction) / ATrackCount;
+      SetStage(AStage, Total, TrackEta);
+    end,
+    function: Boolean
+    begin
+      Result := CancelRequested or ShuttingDown;
+    end,
+    ABody, Canceled);
+  if Canceled then
+  begin
+    if ShuttingDown then Exit(OBSLang.T('error.transcribe.shuttingDown'));
+    Exit(CANCELED_MARK);
+  end;
+  if Result <> '' then Exit;
+  if AEstPerTrackSec <= 0 then
+    AEstPerTrackSec := Integer((GetTickCount - AStartTick) div 1000);
+  if ATrackCount <= 1 then SetStage('done', 1, -1)
+  else SetStage('done', (ATrack + 1) / ATrackCount, -1);
+end;
+
 function RunJob(const AAudioPath: string; ATrack, ATrackCount: Integer;
   var AEstPerTrackSec: Integer; out ABody: string): string;
 // Sobe UM arquivo de audio e acompanha ate o fim. '' = sucesso (JSON em
@@ -1464,6 +1634,16 @@ begin
   ABody := '';
   StartTick := GetTickCount;
   SetTrack(ATrack, ATrackCount);
+
+  if UseLocalEngine then
+  begin
+    // Motor local: mesmo contrato (JSON da API em ABody); progresso e ETA
+    // calculados aqui — nao ha servidor que os mande.
+    Result := RunLocal(AAudioPath, ATrack, ATrackCount, StartTick,
+      AEstPerTrackSec, ABody);
+    Exit;
+  end;
+
   SetStage('uploading', Overall(0), -1);
   Result := SubmitJob(AAudioPath, JobId);
   if Result <> '' then Exit;
@@ -2221,8 +2401,18 @@ begin
   // (2) o erro que chegava era o do WinINet no meio do upload ("Error
   // sending data: (12152)..."), que nao tem como ser lido como
   // "o container nao esta rodando". O /health e barato e local.
-  SetStage('checking', 0, -1);
-  HealthErr := CheckHealth(HostBase);
+  // Motor LOCAL: nao ha servidor pra pingar; o que falta, se falta, e a
+  // instalacao. O servidor local sobe sozinho dentro do RunLocal.
+  if UseLocalEngine then
+  begin
+    if not OBSLocalAsr.IsInstalled then Exit(LOCAL_MISSING_MARK);
+    HealthErr := '';
+  end
+  else
+  begin
+    SetStage('checking', 0, -1);
+    HealthErr := CheckHealth(HostBase);
+  end;
   if HealthErr <> '' then
   begin
     // Uma linha por queda, nao uma a cada tentativa.
@@ -2232,7 +2422,7 @@ begin
     // espera e tenta de novo depois. A frase pra tela sai de la.
     Exit(SERVER_DOWN_MARK);
   end;
-  ServerBackUp;
+  if not UseLocalEngine then ServerBackUp;
 
   // GRAVACAO SEM AUDIO nenhum (so monitores, nenhum microfone marcado):
   // nao ha o que transcrever. Sem este atalho o ExtractAudioTracks
@@ -2328,7 +2518,7 @@ begin
           // Voltando, a API reaproveita o job se o audio reenviado for
           // identico (o id e o hash dele); se nao for, refaz do zero.
           if (Result <> CANCELED_MARK) and (not ShuttingDown) and
-             (CheckHealth(HostBase) <> '') then
+             (not UseLocalEngine) and (CheckHealth(HostBase) <> '') then
             Result := SERVER_DOWN_MARK;
           Exit;
         end;
@@ -2386,7 +2576,8 @@ procedure SetPaused(APaused: Boolean);
 begin
   if GPaused = APaused then Exit;
   GPaused := APaused;
-  if APaused then Log('Transcribe: fila PAUSADA (buffer em memoria ligado).')
+  if APaused then
+    Log('Transcribe: automaticas PAUSADAS (captura em andamento; pedidas a mao seguem).')
   else Log('Transcribe: fila liberada.');
   // A tela precisa saber: pausado com itens na fila vira a etapa "paused".
   NotifyChanged;
@@ -2398,9 +2589,25 @@ begin
 end;
 
 procedure TTranscribeThread.Execute;
+
+  // Proximo item a rodar, ou -1. Pausado, pula os automaticos e pega o
+  // primeiro pedido a mao, na ordem da fila. Caller segura o GLock.
+  function NextIndex: Integer;
+  var
+    k: Integer;
+  begin
+    Result := -1;
+    if (GQueue = nil) or (GQueue.Count = 0) then Exit;
+    if not GPaused then Exit(0);
+    if GManual = nil then Exit;
+    for k := 0 to GQueue.Count - 1 do
+      if GManual.ContainsKey(LowerCase(GQueue[k])) then Exit(k);
+  end;
+
 var
   Path, Err: string;
   Has: Boolean;
+  Idx: Integer;
   Handles: array[0..1] of THandle;
 begin
   while not Terminated do
@@ -2410,16 +2617,18 @@ begin
     begin
       GLock.Enter;
       try
-        // Pausado: NAO pega item novo, mas a fila fica como esta. A etapa
-        // vira 'paused' pra a aba de Transcricao explicar a espera — fila
-        // parada sem motivo aparente se le como defeito.
-        Has := (not GPaused) and (GQueue <> nil) and (GQueue.Count > 0);
-        if GPaused and (GQueue <> nil) and (GQueue.Count > 0) then
+        // Pausado: NAO pega item AUTOMATICO novo, mas a fila fica como
+        // esta; pedido a mao passa na frente. So com automaticos parados a
+        // etapa vira 'paused', pra a aba de Transcricao explicar a espera —
+        // fila parada sem motivo aparente se le como defeito.
+        Idx := NextIndex;
+        Has := Idx >= 0;
+        if (not Has) and GPaused and (GQueue <> nil) and (GQueue.Count > 0) then
           GStage := 'paused';
         if Has then
         begin
-          Path := GQueue[0];
-          GQueue.Delete(0);
+          Path := GQueue[Idx];
+          GQueue.Delete(Idx);
           Inc(GQueueRev);
           GRunning := True;
           GCurrentFinished := False;
@@ -2462,6 +2671,9 @@ begin
     if Path = '' then
     begin
       NotifyChanged;
+      // Fila vazia: o servidor local, se de pe, cai depois de ocioso por
+      // alguns minutos e devolve a memoria de video (ver OBSLocalAsr).
+      OBSLocalAsr.StopIfIdle;
       if WaitForSingleObject(StopEvent, 400) = WAIT_OBJECT_0 then Break;
       Continue;
     end;
@@ -2482,7 +2694,7 @@ begin
     // FRENTE da espera, sem contar como falha nem soltar aviso de erro por
     // item, e tenta de novo daqui a SERVER_RETRY_MS — ou antes, se alguem
     // chamar NudgeQueue (um teste de servidor que deu certo).
-    if (Err = SERVER_DOWN_MARK) and not Terminated then
+    if ((Err = SERVER_DOWN_MARK) or (Err = LOCAL_MISSING_MARK)) and not Terminated then
     begin
       GLock.Enter;
       try
@@ -2493,7 +2705,8 @@ begin
         GCurrentPath := '';
         GCurrentName := '';
         GCurrentStartTick := 0;
-        GStage := 'waiting';
+        if Err = LOCAL_MISSING_MARK then GStage := 'waitingInstall'
+        else GStage := 'waiting';
         GProgress := -1;
         GEta := -1;
         if not GWaitingServer then
@@ -2501,9 +2714,17 @@ begin
           GWaitingServer := True;
           // Nome vazio de proposito: nao e a gravacao que falhou, e o
           // servidor. E e por ele que a limpeza abaixo reconhece a frase.
-          GLastError := OBSLang.T('error.transcribe.serverDown', ['host', HostBase]);
+          if Err = LOCAL_MISSING_MARK then
+          begin
+            GLastError := OBSLang.T('error.localAsr.notInstalled');
+            Log('Transcribe: motor local nao instalado — fila em espera.');
+          end
+          else
+          begin
+            GLastError := OBSLang.T('error.transcribe.serverDown', ['host', HostBase]);
+            Log('Transcribe: servidor fora do ar — fila em espera.');
+          end;
           GLastErrorName := '';
-          Log('Transcribe: servidor fora do ar — fila em espera.');
         end;
       finally
         GLock.Leave;
@@ -2520,6 +2741,9 @@ begin
     GLock.Enter;
     try
       GCurrentFinished := True;
+      // Terminou de verdade (sucesso, falha ou cancelamento): a marca de
+      // manual morre aqui, nao quando a worker pegou o item.
+      if GManual <> nil then GManual.Remove(LowerCase(Path));
       // Passou do /health: o servidor voltou. Tira a frase de espera da
       // tela — so ela (nome vazio), nunca a falha real de uma gravacao.
       if GWaitingServer then
@@ -2555,6 +2779,7 @@ procedure EnsureStarted;
 begin
   if GLock = nil then GLock := TCriticalSection.Create;
   if GQueue = nil then GQueue := TList<string>.Create;
+  if GManual = nil then GManual := TDictionary<string, Boolean>.Create;
   if StopEvent = 0 then StopEvent := CreateEvent(nil, True, False, nil);
   if WakeEvent = 0 then WakeEvent := CreateEvent(nil, False, False, nil);
   if SaveLock = nil then SaveLock := TCriticalSection.Create;
@@ -2596,28 +2821,50 @@ begin
   GLastErrorName := '';
 end;
 
-procedure Enqueue(const APath: string);
+procedure Enqueue(const APath: string; AManual: Boolean);
+var
+  Promoted: Boolean;
 begin
   if APath = '' then Exit;
   EnsureStarted;
+  Promoted := False;
   GLock.Enter;
   try
-    if AlreadyQueued(APath) then Exit;
-    ResetBatchIfIdle;
-    GQueue.Add(APath);
-    Inc(GBatchTotal);
-    Inc(GQueueRev);
+    if AlreadyQueued(APath) then
+    begin
+      // Ja estava esperando como automatico e o usuario pediu a mao: vira
+      // manual, e com a captura em andamento passa a rodar.
+      if AManual and not GManual.ContainsKey(LowerCase(APath)) then
+      begin
+        GManual.AddOrSetValue(LowerCase(APath), True);
+        Inc(GQueueRev);
+        Promoted := True;
+      end;
+    end
+    else
+    begin
+      ResetBatchIfIdle;
+      GQueue.Add(APath);
+      if AManual then GManual.AddOrSetValue(LowerCase(APath), True);
+      Inc(GBatchTotal);
+      Inc(GQueueRev);
+      Promoted := True;
+    end;
   finally
     GLock.Leave;
   end;
-  Log('Transcribe: enfileirado "%s" (fila=%d)', [APath, QueueLength]);
+  if not Promoted then Exit;
+  Log('Transcribe: enfileirado "%s"%s (fila=%d)',
+    [APath, IfThen(AManual, ' a pedido do usuario', ''), QueueLength]);
   SaveQueue;
   NotifyChanged;
 end;
 
-procedure EnqueueMany(const APaths: TArray<string>);
+procedure EnqueueMany(const APaths: TArray<string>; AManual: Boolean;
+  const AManualPaths: TArray<string>);
 var
-  i, Added: Integer;
+  i, j, Added: Integer;
+  IsMan: Boolean;
 begin
   if Length(APaths) = 0 then Exit;
   EnsureStarted;
@@ -2628,8 +2875,26 @@ begin
     for i := 0 to High(APaths) do
     begin
       if APaths[i] = '' then Continue;
-      if AlreadyQueued(APaths[i]) then Continue;
+      IsMan := AManual;
+      if not IsMan then
+        for j := 0 to High(AManualPaths) do
+          if SameText(AManualPaths[j], APaths[i]) then
+          begin
+            IsMan := True;
+            Break;
+          end;
+      if AlreadyQueued(APaths[i]) then
+      begin
+        if IsMan and not GManual.ContainsKey(LowerCase(APaths[i])) then
+        begin
+          GManual.AddOrSetValue(LowerCase(APaths[i]), True);
+          Inc(GQueueRev);
+          Inc(Added);
+        end;
+        Continue;
+      end;
       GQueue.Add(APaths[i]);
+      if IsMan then GManual.AddOrSetValue(LowerCase(APaths[i]), True);
       Inc(GBatchTotal);
       Inc(GQueueRev);
       Inc(Added);
@@ -2637,7 +2902,8 @@ begin
   finally
     GLock.Leave;
   end;
-  Log('Transcribe: %d item(ns) enfileirado(s).', [Added]);
+  Log('Transcribe: %d item(ns) enfileirado(s)%s.',
+    [Added, IfThen(AManual, ' a pedido do usuario', '')]);
   if Added > 0 then SaveQueue;
   NotifyChanged;
 end;
@@ -2648,6 +2914,7 @@ begin
   GLock.Enter;
   try
     if GQueue <> nil then GQueue.Clear;
+    if GManual <> nil then GManual.Clear;
     Inc(GQueueRev);
     // Agora o item EM CURSO tambem para: a API ganhou DELETE /jobs/{id}.
     // A worker ve esta flag na proxima consulta (no maximo 1s), manda o
@@ -2677,6 +2944,9 @@ begin
   // interrompido como terminado e o tiraria do arquivo da fila.
   GShuttingDown := True;
   OnChanged := nil;
+  // Antes de esperar a worker: matar o servidor local derruba o POST em
+  // voo na hora, e a worker sai sem precisar ser abandonada.
+  OBSLocalAsr.Shutdown;
   if Worker <> nil then
   begin
     Worker.Terminate;
@@ -2707,6 +2977,7 @@ begin
     WakeEvent := 0;
   end;
   if GQueue <> nil then FreeAndNil(GQueue);
+  if GManual <> nil then FreeAndNil(GManual);
   if GLock <> nil then FreeAndNil(GLock);
   if SaveLock <> nil then FreeAndNil(SaveLock);
 end;

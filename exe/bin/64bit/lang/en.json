@@ -55,7 +55,8 @@
     "saved": "Clip saved",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "That shortcut is already used to start/stop recording. Pick another combination.",
-    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})"
+    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})",
+    "prefixFileSuffix": "buffer"
   },
   "recordings": {
     "title": "Recordings",
@@ -489,7 +490,9 @@
         "diarizing": "separating speakers",
         "done": "done",
         "waiting": "waiting for the server",
-        "paused": "paused while capturing"
+        "paused": "automatic ones paused while capturing",
+        "starting": "starting the local engine",
+        "waitingInstall": "waiting for the local engine to be installed"
       },
       "language": {
         "label": "Transcription language",
@@ -535,6 +538,40 @@
         "containerRestartTip": "To make it come back on its own when the computer restarts, also run:",
         "copy": "Copy",
         "copied": "Copied"
+      },
+      "engine": {
+        "label": "Where to transcribe",
+        "local": "On this computer, using the graphics card",
+        "server": "On a server (Docker or another computer)",
+        "hint": "On this computer it is faster and times each word more precisely, but it does not tell speakers apart — when recording with isolated tracks, the speaker still comes from the device name. The server (Transcritor API) separates speakers."
+      },
+      "local": {
+        "missing": "The local engine is not installed yet.",
+        "missingHow": "The download is about {{size}} (the audio.cpp engine and the Qwen3 models) and happens only once. It needs a graphics card with a Vulkan driver — AMD, NVIDIA or Intel. No Docker, nothing else to install.",
+        "install": "Download and install",
+        "installing": "Installing: {{stage}}",
+        "progress": "{{done}} of {{total}}",
+        "resumeHint": "If the connection drops or you cancel, what was already downloaded is kept and the download resumes where it stopped.",
+        "cancel": "Cancel",
+        "ready": "Ready — transcribing on the {{device}}.",
+        "readyCpu": "Ready — transcribing on the CPU. No graphics card with Vulkan was found, so it will be much slower.",
+        "readyHow": "Uses {{size}} in %LOCALAPPDATA%\\NoOBS\\asr. The engine only runs while there is something in the queue and frees the video memory a few minutes later.",
+        "remove": "Remove",
+        "removeConfirm": "Confirm removal",
+        "removeBusy": "The local engine cannot be removed while installing or transcribing.",
+        "error": "The installation failed: {{error}}",
+        "retry": "Try again",
+        "stages": {
+          "engine": "downloading the engine",
+          "asr": "downloading the transcription model",
+          "align": "downloading the alignment model",
+          "verifying": "checking the downloaded file",
+          "extracting": "unpacking the engine",
+          "detecting": "looking for the graphics card",
+          "engineMirror": "downloading the engine (Google Drive)",
+          "asrMirror": "downloading the transcription model (Google Drive)",
+          "alignMirror": "downloading the alignment model (Google Drive)"
+        }
       }
     },
     "replay": {
@@ -542,6 +579,8 @@
       "hint": "With the buffer on (button on the main screen), NoOBS keeps the <b>last few minutes</b> of the screen in memory, without writing to disk. When something worth keeping happens, press the shortcut: the clip becomes a regular recording and the buffer <b>starts over empty</b> — saving again brings only what came after, with about a second repeated at the seam so nothing is lost between clips.",
       "autoStart": "Turn the buffer on when NoOBS opens",
       "autoStartHint": "When checked, the buffer starts keeping footage by itself every time NoOBS opens. When unchecked, the button on the main screen turns the buffer on only until the app closes.",
+      "intoRecording": "Record from what the buffer has kept",
+      "intoRecordingHint": "When checked, starting a recording with the buffer on reuses what it has already kept: the file starts with that footage and continues without a break. When unchecked, whatever was in the buffer is discarded and the recording starts from scratch.",
       "apps": "Turn on by itself with these programs",
       "appsPlaceholder": "e.g.: valorant, cs2, League of Legends",
       "appsHint": "Program names separated by commas. While any of them is open the buffer turns on by itself; when they all close, it turns off. Part of the name is enough (\"valorant\" matches \"VALORANT-Win64-Shipping\"). Works with NoOBS hibernating too. Empty = off.",
@@ -739,8 +778,20 @@
     "moveWhileRecording": "The recording in progress cannot be moved.",
     "replayStartFailed": "Could not turn on the memory buffer: {{error}}",
     "replaySaveFailed": "Could not save the buffer clip.",
+    "replayIntoRecordingFailed": "Could not include what the buffer had kept. The recording continues, just without that footage.",
+    "replayIntoRecordingSplit": "Could not join the buffer footage with the recording. Both were saved as separate files.",
     "replayHotkeyConflict": "The buffer shortcut can't be the same as the start/stop recording one.",
-    "exportBusyFile": "This recording is being exported right now — wait for it to finish or cancel the export."
+    "exportBusyFile": "This recording is being exported right now — wait for it to finish or cancel the export.",
+    "localAsr": {
+      "download": "Could not download {{file}}: {{error}}",
+      "checksum": "The file {{file}} arrived corrupted (SHA-256 mismatch) and was discarded. Please try again.",
+      "extract": "Could not unpack the engine: {{error}}",
+      "noVulkan": "The engine could not start on this computer. It needs a graphics card with an up-to-date Vulkan driver (AMD, NVIDIA or Intel).",
+      "notInstalled": "Transcription on this computer is not installed yet. Install it in Settings → Transcription, or choose a server.",
+      "serverStart": "The local transcription engine did not start. Details are in {{log}}",
+      "request": "The local transcription engine returned an error: {{error}}",
+      "decode": "Could not read the recording's audio."
+    }
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."

@@ -55,7 +55,16 @@ instalar nem configurar nada — só abrir e gravar.
   lista (mesmo com o NoOBS hibernando), e um indicador discreto mostra
   quanto já está guardado — clicar nele salva o trecho. O tempo e a
   memória guardados são seus, com o máximo limitado ao que cabe na
-  máquina.
+  máquina. Começou a gravar com o buffer ligado? A gravação já sai com o
+  que ele tinha guardado, emendada sem perder nem repetir um quadro.
+
+- **Transcreve e legenda na sua placa de vídeo.** Instala com um clique
+  na aba de Transcrição, sem Docker: o NoOBS baixa o motor e os modelos
+  (~3,7 GB, uma vez só) e transcreve na GPU — AMD, NVIDIA ou Intel. Cada
+  palavra sai marcada no instante exato em que foi dita, e números por
+  extenso viram algarismos. Com faixas isoladas, cada fala leva o nome do
+  dispositivo de onde veio. Prefere um servidor? A Transcritor API (Docker
+  ou outro computador) continua como opção, e separa os falantes.
 
 - **À prova de queda de energia.** Grava em MKV, recuperável quadro a
   quadro. Um travamento não leva a gravação junto.

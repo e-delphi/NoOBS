@@ -31,6 +31,13 @@ type
   // deu pra saber o caminho); quem recebe move pro destino final.
   TOBSReplaySavedProc = procedure(const ATempPath: string);
 
+  // Callback do trecho do buffer que virou o COMECO de uma gravacao
+  // (StartRecordingFromReplay) — MAIN thread. ATempPath = '' se o trecho nao
+  // saiu (erro de escrita, timeout, parada a forca). ALeadMs = quanto tempo
+  // antes do fim do trecho a gravacao comecou: e o que desempata a emenda
+  // (FFmpegOps.SpliceContinuation).
+  TOBSReplayPrefixProc = procedure(const ATempPath: string; ALeadMs: Integer);
+
   TOBSEngine = class
   private
     FInitialized: Boolean;
@@ -78,6 +85,17 @@ type
     // trechos se SOBREPOREM em vez de ter buraco (ver SaveReplay).
     FReplaySaveCommitPending: Boolean;
     FOnReplaySaved: TOBSReplaySavedProc;
+    // ---- gravacao que CONTINUA o buffer (StartRecordingFromReplay) ----
+    // O "save" em curso e o comeco de uma gravacao, nao um trecho avulso:
+    // o "saved" vai pro FOnReplayPrefixSaved.
+    FPrefixMode: Boolean;
+    // A gravacao ja parou mas o trecho do buffer ainda esta sendo escrito:
+    // o FinalizeStop esperou (FPrefixStopInvokeCb guarda o que ele ia fazer).
+    FPrefixAwaitStop: Boolean;
+    FPrefixStopInvokeCb: Boolean;
+    FRecStartTick: UInt64;
+    FPrefixLeadMs: Integer;
+    FOnReplayPrefixSaved: TOBSReplayPrefixProc;
     procedure ResolvePaths;
     procedure LoadModules;
     procedure BuildCaptureGraph(AAutoProfile: Boolean);
@@ -88,7 +106,11 @@ type
     procedure ConnectStopSignal;
     procedure DisconnectStopSignal;
     procedure OnStopSignal;            // main thread (via TThread.Queue)
-    procedure FinalizeStop(AInvokeCallback: Boolean); // main thread
+    // AWaitPrefix: com o trecho do buffer ainda sendo escrito, so libera a
+    // saida da gravacao e deixa o resto pro "saved" (ver FPrefixAwaitStop).
+    procedure FinalizeStop(AInvokeCallback: Boolean;
+      AWaitPrefix: Boolean = False); // main thread
+    procedure EndPrefix(const APath: string);
   public
     constructor Create;
     destructor Destroy; override;
@@ -121,6 +143,17 @@ type
     // primeiro) na RAM. ADir = pasta onde cada trecho salvo nasce (depois o
     // Bridge move pra pasta de gravacao). Exclusivo com a gravacao manual.
     procedure BuildAndStartReplay(const ADir: string; AMaxSec, AMaxMb: Integer);
+    // Comeca uma gravacao em arquivo SEM remontar a captura: pendura uma saida
+    // ffmpeg_muxer nos MESMOS encoders do buffer e manda o buffer salvar o que
+    // tem. Os dois arquivos saem com os mesmos pacotes na regiao em comum, e
+    // o Bridge os emenda no fim (FFmpegOps.SpliceContinuation). O "save" e
+    // adiado igual ao SaveReplay (CommitReplaySave), pra o trecho do buffer
+    // terminar DEPOIS do 1o keyframe da gravacao — sobreposicao, nunca buraco.
+    // Retorna False (e nao mexe em nada) se nao der: o Bridge cai no caminho
+    // normal, que descarta o buffer.
+    function  StartRecordingFromReplay(const AOutputPath: string): Boolean;
+    // Trecho do buffer que vai virar comeco da gravacao ainda sendo escrito.
+    function  IsPrefixSaving: Boolean;
     // Grava o conteudo do buffer em disco e ESVAZIA o buffer: sobe uma saida
     // nova na hora e manda a antiga salvar. Retorna False se o buffer nao
     // esta ativo ou se o trecho anterior ainda esta sendo gravado.
@@ -148,6 +181,8 @@ type
     procedure Teardown;
     property Initialized: Boolean read FInitialized;
     property OnReplaySaved: TOBSReplaySavedProc read FOnReplaySaved write FOnReplaySaved;
+    property OnReplayPrefixSaved: TOBSReplayPrefixProc read FOnReplayPrefixSaved
+      write FOnReplayPrefixSaved;
     property OutputPath: string read FOutputPath;
     property CurrentLayout: TRecordingLayout read FCurrentLayout;
     property VideoEncoderId: string read FVideoEncoderId;
@@ -1249,6 +1284,94 @@ begin
   end;
 end;
 
+function TOBSEngine.StartRecordingFromReplay(const AOutputPath: string): Boolean;
+var
+  S: obs_data_t;
+  RecOut: obs_output_t;
+  i: Integer;
+  Err: string;
+begin
+  Result := False;
+  if FRecording or (not FReplayActive) or (GOutput = nil) then Exit;
+  // Um trecho avulso ainda sendo gravado ocupa o GReplaySaving e o sinal
+  // "saved" — nao cabem os dois ao mesmo tempo. Cai no caminho normal.
+  if FReplaySaveSince <> 0 then
+  begin
+    Log('Buffer: trecho anterior ainda sendo gravado — gravacao nao continua o buffer.');
+    Exit;
+  end;
+
+  // Mesma saida do BuildAndStartRecording, sobre os encoders que ja existem.
+  // Ela so abre no proximo keyframe (obs-output.c:2237), por isso o "save"
+  // do buffer espera (ver SaveReplay).
+  S := MakeSettings;
+  SetStr(S, 'path', ToAnsi(AOutputPath));
+  SetStr(S, 'muxer_settings', '');
+  RecOut := obs_output_create('ffmpeg_muxer', 'NoOBS Recording', S, nil);
+  obs_data_release(S);
+  if RecOut = nil then
+  begin
+    Log('Buffer: obs_output_create(ffmpeg_muxer) falhou — gravacao nao continua o buffer.');
+    Exit;
+  end;
+  obs_output_set_video_encoder(RecOut, GVideoEncoder);
+  for i := 0 to High(GAudioEncoders) do
+    obs_output_set_audio_encoder(RecOut, GAudioEncoders[i], NativeUInt(i));
+  Log('-- StartRecording (continuando o buffer) -> %s --', [AOutputPath]);
+  if not obs_output_start(RecOut) then
+  begin
+    Err := FromAnsi(obs_output_get_last_error(RecOut));
+    try obs_output_release(RecOut); except end;
+    Log('Buffer: obs_output_start da gravacao falhou (%s) — caminho normal.', [Err]);
+    Exit;
+  end;
+
+  // A saida do buffer vira a "que esta salvando": o mesmo trilho do
+  // SaveReplay, so que o "saved" dela e o comeco desta gravacao.
+  GReplaySaving := GOutput;
+  GOutput := RecOut;
+  FReplaySavedHandler := obs_output_get_signal_handler(GReplaySaving);
+  if FReplaySavedHandler <> nil then
+    signal_handler_connect(FReplaySavedHandler, PAnsiChar(SIG_SAVED),
+      @ReplaySavedThunk, Self);
+  FReplaySaveSince := GetTickCount64;
+  FReplaySaveCommitPending := True;
+  FPrefixMode := True;
+  FPrefixAwaitStop := False;
+  FRecStartTick := GetTickCount64;
+  FPrefixLeadMs := 0;
+  FReplayActive := False;
+
+  FOutputPath := AOutputPath;
+  FRecording := True;
+  FStopping := False;
+  ConnectStopSignal;
+  Log('Gravacao iniciada continuando o buffer (o trecho guardado fecha em %d ms).',
+    [ReplaySaveCommitDelayMs]);
+  Result := True;
+end;
+
+function TOBSEngine.IsPrefixSaving: Boolean;
+begin
+  Result := FPrefixMode and (FReplaySaveSince <> 0);
+end;
+
+procedure TOBSEngine.EndPrefix(const APath: string);
+// O trecho do comeco da gravacao se resolveu (salvo ou perdido). Avisa o
+// Bridge e, se a gravacao ja tinha parado esperando por ele, conclui o stop.
+begin
+  if not FPrefixMode then Exit;
+  FPrefixMode := False;
+  if Assigned(FOnReplayPrefixSaved) then
+    try FOnReplayPrefixSaved(APath, FPrefixLeadMs); except on E: Exception do
+      Log('OnReplayPrefixSaved levantou: %s', [E.Message]); end;
+  if FPrefixAwaitStop then
+  begin
+    FPrefixAwaitStop := False;
+    FinalizeStop(FPrefixStopInvokeCb);
+  end;
+end;
+
 function TOBSEngine.SaveReplay: Boolean;
 // "Salvou, esvazia": o replay_buffer do OBS NAO limpa o buffer ao salvar
 // (replay_buffer_save copia os pacotes e mantem a fila inteira), e nao ha
@@ -1329,6 +1452,10 @@ var
 begin
   if not FReplaySaveCommitPending then Exit;
   FReplaySaveCommitPending := False;
+  // Quanto a gravacao ja andou quando o trecho fechou: a emenda usa isso pra
+  // saber onde, no fim do trecho, a gravacao comecou.
+  if FPrefixMode then
+    FPrefixLeadMs := Integer(GetTickCount64 - FRecStartTick);
   // No plano B (sem rotacao) quem guarda o trecho e a propria saida corrente.
   Target := GReplaySaving;
   if Target = nil then Target := GOutput;
@@ -1410,6 +1537,11 @@ begin
   Log('Buffer: trecho gravado em %d ms: %s',
     [GetTickCount64 - FReplaySaveSince, Path]);
   FReplaySaveSince := 0;
+  if FPrefixMode then
+  begin
+    EndPrefix(Path);
+    Exit;
+  end;
   if Assigned(FOnReplaySaved) then
     try FOnReplaySaved(Path); except on E: Exception do
       Log('OnReplaySaved levantou: %s', [E.Message]); end;
@@ -1426,6 +1558,8 @@ begin
   // saida antiga se houver uma.
   DropSavingReplay;
   FReplaySaveSince := 0;
+  // Era o comeco de uma gravacao: ela segue, so sem o que o buffer tinha.
+  EndPrefix('');
 end;
 
 procedure TOBSEngine.StopReplay;
@@ -1497,10 +1631,11 @@ procedure TOBSEngine.OnStopSignal;
 // liberar e notificar o Bridge.
 begin
   if FShuttingDown then Exit;
-  FinalizeStop(True);
+  FinalizeStop(True, True);
 end;
 
-procedure TOBSEngine.FinalizeStop(AInvokeCallback: Boolean);
+procedure TOBSEngine.FinalizeStop(AInvokeCallback: Boolean;
+  AWaitPrefix: Boolean);
 // Main thread. Libera os objetos da gravacao e (opcional) chama o
 // callback OnStopped. Idempotente via FStopping — o sinal "stop" e o
 // timeout do Bridge podem ambos chamar; so o primeiro age.
@@ -1508,6 +1643,38 @@ var
   P: string;
 begin
   if not FStopping then Exit;
+  if IsPrefixSaving then
+  begin
+    if AWaitPrefix then
+    begin
+      // A gravacao acabou, mas o trecho do buffer que e o COMECO dela ainda
+      // esta sendo escrito. Liberar tudo agora derrubaria a saida do buffer
+      // no meio (ReleaseRecordingObjects -> DropSavingReplay). Solta so a
+      // saida da gravacao — o arquivo dela ja esta completo — e deixa o resto
+      // pro "saved" (EndPrefix). FStopping continua True: pro Bridge a
+      // gravacao ainda esta finalizando, e ele nao monta nada por cima.
+      if FPrefixAwaitStop then Exit;
+      FPrefixAwaitStop := True;
+      FPrefixStopInvokeCb := AInvokeCallback;
+      DisconnectStopSignal;
+      if GOutput <> nil then
+      begin
+        try obs_output_release(GOutput); except end;
+        GOutput := nil;
+      end;
+      Log('Gravacao parada; esperando o trecho do buffer terminar de ser gravado.');
+      Exit;
+    end;
+    // Forcado (timeout ou shutdown): desiste do trecho — a gravacao sai sem ele.
+    Log('Gravacao finalizada a forca com o trecho do buffer ainda em gravacao — trecho perdido.');
+    FPrefixAwaitStop := False;
+    FReplaySaveCommitPending := False;
+    DropSavingReplay;
+    FReplaySaveSince := 0;
+    // FPrefixAwaitStop ja zerado: o EndPrefix so avisa, nao conclui de novo.
+    EndPrefix('');
+  end;
+  FPrefixAwaitStop := False;
   FStopping := False;
   FRecording := False;
   P := FOutputPath;
@@ -1527,6 +1694,9 @@ begin
   if (not FRecording) or FStopping then Exit;
   FStopping := True;
   FStoppingSince := GetTickCount64;
+  // Parou antes de o trecho do buffer fechar (primeiro ~1 s): fecha agora,
+  // senao ele so fecharia depois de a saida da gravacao ja ter parado.
+  if FPrefixMode and FReplaySaveCommitPending then CommitReplaySave;
   Log('Parando gravacao (assincrono)...');
   try obs_output_stop(GOutput); except on E: Exception do
     Log('obs_output_stop levantou: %s', [E.Message]); end;

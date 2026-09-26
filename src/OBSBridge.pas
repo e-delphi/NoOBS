@@ -26,6 +26,9 @@
                            e 'replayAutoStart')
     set_replay_autostart : autoStart (Boolean) — ligar o buffer ao abrir o
                            NoOBS (persistido em 'replayAutoStart')
+    set_replay_into_recording : enabled (Boolean) — gravar com o buffer ligado
+                           poe o que ele guardou no COMECO da gravacao
+                           (persistido em 'replayIntoRecording')
     set_replay_apps      : apps (string, separados por virgula) — programas
                            que ligam o buffer sozinho quando abrem
     set_replay_indicator : enabled (Boolean) — indicador do buffer na tela
@@ -37,7 +40,7 @@
     set_replay_hotkey    : hotkey (string; '' = sem atalho)
     get_replay_state     : — responde replay_state
                            (Delphi -> JS: replay_state {enabled, autoStart,
-                           active, saving, sinceMs, maxSec, maxMb,
+                           intoRecording, active, saving, sinceMs, maxSec, maxMb,
                            maxMbLimit, hotkey};
                            replay_saved {id, name, durationSec})
     rename_recording     : id (filepath), newName
@@ -96,6 +99,14 @@
                            container, servidor); responde transcribe_setup
     transcribe_setup_action: action ('openDockerSite' | 'startDockerDesktop')
                            — alvos FIXOS no Delphi, nunca vindos da UI
+    set_transcribe_engine: engine ('server' = Transcritor API no
+                           transcribeHost | 'local' = OBSLocalAsr na GPU)
+    local_asr_install    : — baixa e instala o motor local (~3,7 GB)
+    local_asr_cancel     : — interrompe a instalacao (o baixado fica pra
+                           retomar)
+    local_asr_remove     : — apaga motor e modelos; recusado durante
+                           instalacao ou transcricao (removeRefused)
+    get_local_asr_state  : — pede local_asr_state
     transcribe_recording : id (filepath) — enfileira uma
     transcribe_pending   : — enfileira TODAS as ainda nao transcritas
     cancel_transcribe    : — limpa a fila (o item em voo termina)
@@ -138,6 +149,10 @@
                            na ordem de execucao, item em curso primeiro.
                            So sai quando a COMPOSICAO muda (QueueRevision)
     transcribe_health    : ok, error
+    local_asr_state      : status ('missing' | 'installing' | 'ready' |
+                           'error'), stage (etapa da instalacao), done,
+                           total (bytes), error, device (GPU; '' = CPU),
+                           engine ('server' | 'local'), removeRefused
     transcribe_setup     : seq, serverOk, serverError, isLocal, port, wslOk,
                            dockerInstalled, dockerRunning, canStartDocker,
                            containerId, containerImage, containerState,
@@ -206,6 +221,7 @@ uses
   OBSAutostart,
   OBSTray,
   OBSTranscribe,
+  OBSLocalAsr,
   WinPreview,
   WinAudioMeter,
   WinRecIndicator,
@@ -395,6 +411,19 @@ var
   // duracao do trecho — medida aqui porque descobri-la lendo o arquivo
   // custa uma varredura de pacotes (ver OnEngineReplaySaved).
   ReplayLastClipSec: Integer = 0;
+  // ---- gravacao que CONTINUA o buffer (replayIntoRecording) ----
+  // A gravacao em curso (caminho do arquivo) que herdou o buffer. O que o
+  // buffer guardou sai num arquivo separado (RecPrefixPath, na pasta
+  // temporaria) e e emendado no comeco dela quando ela termina.
+  RecPrefixFor: string = '';
+  // O trecho do buffer ainda esta sendo escrito.
+  RecPrefixPending: Boolean = False;
+  RecPrefixPath: string = '';
+  // Quanto a gravacao ja tinha andado quando o trecho fechou (ms) — desempata
+  // a emenda em tela parada (FFmpegOps.SpliceContinuation).
+  RecPrefixLeadMs: Integer = 0;
+  // Quanto o buffer tinha guardado (s). O relogio da gravacao comeca daqui.
+  RecPrefixSec: Integer = 0;
   // Quando o buffer comecou a guardar — ou quando foi esvaziado pelo
   // ultimo "salvar trecho". A UI mostra quanto ja tem guardado a partir
   // disto (limitado ao replayMaxSec).
@@ -1868,6 +1897,7 @@ procedure PushSettings; forward;
 // Definida junto do resto da transcricao (~5200), mas o DoInit registra
 // o callback bem antes.
 procedure OnTranscribeChanged; forward;
+procedure OnLocalAsrChanged; forward;
 
 // ----------------------------------------------------------------------
 // TThumbTimerThread
@@ -3007,7 +3037,10 @@ begin
   // O EnqueueMany regrava o arquivo, entao os descartados saem dele aqui.
   // Se TODOS forem descartados nada e regravado e eles ficam no arquivo
   // ate a proxima mudanca da fila — inofensivo, o filtro roda de novo.
-  if Length(Keep) > 0 then OBSTranscribe.EnqueueMany(Keep);
+  // Quem tinha sido pedido a mao volta manual: senao, restaurado com a
+  // captura ligada, ele passaria a esperar como se fosse automatico.
+  if Length(Keep) > 0 then
+    OBSTranscribe.EnqueueMany(Keep, False, OBSTranscribe.LoadSavedManualPaths);
 end;
 
 procedure DoInit;
@@ -3172,6 +3205,8 @@ begin
   // Fila de transcricao: so registra o callback. A thread sobe sozinha
   // no primeiro Enqueue — sem transcricao pedida, nada roda.
   try OBSTranscribe.SetOnChanged(OnTranscribeChanged); except end;
+  // Motor local: so o callback. Nada sobe nem baixa sem o usuario pedir.
+  try OBSLocalAsr.SetOnChanged(OnLocalAsrChanged); except end;
 
   // A fila sobrevive a reinicio: o que estava pendente volta agora. Com
   // itens a restaurar a worker sobe ja (e testa o servidor primeiro — se
@@ -3241,6 +3276,7 @@ end;
 // o dispatch chamam.
 procedure StartReplayBuffer; forward;
 procedure StopReplayBuffer(AArmHibernate: Boolean); forward;
+function  ContinueReplayIntoRecording(const AOutputPath: string): Boolean; forward;
 procedure HandleSaveReplay; forward;
 procedure PushReplayState; forward;
 procedure PushEncoderCapsOnce; forward;
@@ -3375,6 +3411,173 @@ end;
 // settings (mais abaixo) mas e chamada pelo Handle{Start,Stop}.
 procedure MaybeNotifyRecord(const ATitle, AMessage: string); forward;
 
+procedure DropRecordingCache(const APath: string);
+// A emenda troca o CONTEUDO do arquivo sem trocar o nome: thumb, duracao, MP4
+// remuxado e faixas extraidas que ja existissem seriam do arquivo sem o
+// comeco. O cache e por hash do path (pegadinha #55), entao o nome igual
+// faria o player servir o velho. A meta (<hash>.json) e reescrita logo depois.
+var
+  Dir, H, F: string;
+begin
+  Dir := OBSPlayer.CacheRootDir;
+  if not TDirectory.Exists(Dir) then Exit;
+  H := OBSPlayer.HashName(APath);
+  try
+    for F in TDirectory.GetFiles(Dir, H + '*') do
+      if not SameText(ExtractFileExt(F), '.json') then
+        try TFile.Delete(F); except end;
+  except
+    on E: Exception do Log('DropRecordingCache: %s', [E.Message]);
+  end;
+end;
+
+procedure FinishSplicedRecording(const ARecPath, AKeptPath: string;
+  AOk: Boolean; ADurSec, APrefixSec: Integer; const AMeta: TRecordingMeta);
+// Main thread, com a emenda resolvida. Faz o que o OnEngineRecordingStopped
+// faz numa gravacao comum — meta, card, transcricao — pra gravacao e, quando
+// a emenda nao deu, tambem pro trecho do buffer que ficou ao lado.
+var
+  Meta: TRecordingMeta;
+begin
+  if AOk then DropRecordingCache(ARecPath);
+  Meta := AMeta;
+  Meta.DurationSec := ADurSec;
+  try OBSPlayer.SaveRecordingMeta(ARecPath, Meta); except
+    on E: Exception do Log('SaveRecordingMeta falhou: %s', [E.Message]);
+  end;
+  PushRecordingAdded(ARecPath, ADurSec);
+  if GetConfigBool('transcribeOnStop', True) then
+    try OBSTranscribe.Enqueue(ARecPath); except
+      on E: Exception do Log('Transcricao automatica falhou: %s', [E.Message]);
+    end;
+
+  if AOk then Exit;
+  PostError(OBSLang.T('error.replayIntoRecordingSplit'));
+  if AKeptPath = '' then Exit;
+  Meta.DurationSec := APrefixSec;
+  try OBSPlayer.SaveRecordingMeta(AKeptPath, Meta); except end;
+  PushRecordingAdded(AKeptPath, APrefixSec);
+  if GetConfigBool('transcribeOnStop', True) then
+    try OBSTranscribe.Enqueue(AKeptPath); except end;
+end;
+
+procedure FinishRecordingWithPrefix(const ARecPath, APrefixPath: string;
+  ALeadMs: Integer);
+// Emenda o trecho do buffer (APrefixPath, na pasta temporaria) com a gravacao
+// que continuou dele. Em WORKER: e uma copia de pacotes do arquivo inteiro,
+// na velocidade do disco (FFmpegOps.SpliceContinuation). Escreve num '.part'
+// ao lado e so troca pelo nome final no fim — a lista nunca ve arquivo pela
+// metade (pegadinha #51e). Se a emenda nao achar o ponto de encontro, NAO
+// emenda as cegas: o trecho vira uma gravacao propria, ao lado — nada se perde.
+var
+  Meta: TRecordingMeta;
+  EstSec, PrefixSec: Integer;
+  Suffix: string;
+begin
+  // Lidos AGORA, na main: logo depois o buffer religa e remonta a cena, o
+  // que sobrescreve o CurrentLayout.
+  Meta := Default(TRecordingMeta);
+  if Engine <> nil then
+  begin
+    Meta.Layout := Engine.CurrentLayout;
+    DescribeEncoderId(Engine.VideoEncoderId, Meta.Codec, Meta.CodecHw);
+  end;
+  Meta.Fps := GetConfigInt('recordingFps', 30);
+  Meta.QualityLevel := GetRecordingQualityLevel;
+  EstSec := LastRecordingDuration;
+  PrefixSec := RecPrefixSec;
+  Suffix := OBSLang.T('replay.prefixFileSuffix');
+  Log('Buffer: emendando o comeco guardado em "%s".', [ARecPath]);
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Part, Info, Kept, Base: string;
+      Ok, Replaced: Boolean;
+      Rep: TProbeReport;
+      Dur, Attempt, N: Integer;
+      T0: UInt64;
+    begin
+      T0 := GetTickCount64;
+      Part := ARecPath + '.part';
+      Kept := '';
+      Info := '';
+      Replaced := False;
+      try
+        if TFile.Exists(Part) then TFile.Delete(Part);
+        Ok := FFmpegOps.SpliceContinuation(APrefixPath, ARecPath, Part,
+          ALeadMs, Info);
+      except
+        on E: Exception do
+        begin
+          Ok := False;
+          Info := E.Message;
+        end;
+      end;
+      if Ok then
+      begin
+        // A gravacao pode estar aberta por um instante (previa da biblioteca
+        // gerando thumb). Insiste um pouco antes de desistir.
+        for Attempt := 1 to 20 do
+        begin
+          if MoveFileEx(PChar(Part), PChar(ARecPath),
+               MOVEFILE_REPLACE_EXISTING or MOVEFILE_WRITE_THROUGH) then
+          begin
+            Replaced := True;
+            Break;
+          end;
+          Sleep(250);
+        end;
+        if not Replaced then
+          Info := 'nao consegui substituir o arquivo da gravacao (em uso)';
+      end;
+
+      if Replaced then
+        try TFile.Delete(APrefixPath); except end
+      else
+      begin
+        try if TFile.Exists(Part) then TFile.Delete(Part); except end;
+        // O trecho do buffer vira uma gravacao propria, ao lado da outra.
+        Base := ChangeFileExt(ARecPath, '') + ' (' + Suffix + ')';
+        Kept := Base + '.mkv';
+        N := 2;
+        while TFile.Exists(Kept) do
+        begin
+          Kept := Format('%s %d.mkv', [Base, N]);
+          Inc(N);
+        end;
+        try
+          TFile.Move(APrefixPath, Kept);
+        except
+          on E: Exception do
+          begin
+            Log('Buffer: nao consegui guardar o trecho ao lado: %s', [E.Message]);
+            Kept := '';
+          end;
+        end;
+      end;
+
+      Dur := 0;
+      if Replaced then
+        try
+          if Probe(ARecPath, Rep) then Dur := Round(Rep.Duration);
+        except end;
+      if Dur <= 0 then
+        if Replaced then Dur := EstSec
+        else Dur := EstSec - PrefixSec;
+      if Dur < 0 then Dur := 0;
+      Log('Buffer: emenda %s em %d ms (%s).',
+        [IfThen(Replaced, 'ok', 'NAO feita — arquivos separados'),
+         GetTickCount64 - T0, Info]);
+      if IsShuttingDown then Exit;
+      TThread.Queue(nil,
+        procedure
+        begin
+          FinishSplicedRecording(ARecPath, Kept, Replaced, Dur, PrefixSec, Meta);
+        end);
+    end).Start;
+end;
+
 procedure OnEngineRecordingStopped(const AOutputPath: string);
 // Callback registrado em Engine.OnStopped. Roda na MAIN thread quando o
 // output emitiu "stop" — gravacao terminou de verdade, arquivo completo.
@@ -3392,6 +3595,27 @@ begin
   begin
     if ReplayWanted then StartReplayBuffer;
     Exit;
+  end;
+
+  // Gravacao que continuou o buffer: o comeco dela esta noutro arquivo. O
+  // engine so chega aqui depois de o trecho do buffer se resolver (salvo ou
+  // perdido — TOBSEngine.FinalizeStop espera), entao o estado ja e o final.
+  if SameText(AOutputPath, RecPrefixFor) then
+  begin
+    RecPrefixFor := '';
+    RecPrefixPending := False;
+    if RecPrefixPath <> '' then
+    begin
+      FinishRecordingWithPrefix(AOutputPath, RecPrefixPath, RecPrefixLeadMs);
+      RecPrefixPath := '';
+      // O card sai no fim da emenda. O buffer religa JA: a emenda so le
+      // arquivos, nao depende do libobs.
+      if ReplayWanted then StartReplayBuffer;
+      Exit;
+    end;
+    // Sem o trecho: o relogio da gravacao contava o que viria do buffer.
+    Dec(LastRecordingDuration, RecPrefixSec);
+    if LastRecordingDuration < 0 then LastRecordingDuration := 0;
   end;
 
   // Persiste layout (canvas + monitores/webcams) + duracao em <hash>.json
@@ -3514,7 +3738,7 @@ procedure HandleRecordStart;
 var
   OutputPath: string;
   T0, TStep: UInt64;
-  ColdStart: Boolean;
+  ColdStart, ContinueReplay: Boolean;
 begin
   if RecordingActive then Exit;
 
@@ -3556,10 +3780,17 @@ begin
     try Engine.ForceCompleteStop; except end;
   end;
 
-  // Buffer em memoria ligado: gravacao e buffer sao um de cada vez (escolha
-  // do usuario). O que estava guardado e descartado; o buffer volta sozinho
-  // no OnEngineRecordingStopped se o ReplayWanted continuar ligado.
-  if ReplayActive then
+  // Buffer em memoria ligado: por padrao o que ele guardou vira o COMECO
+  // desta gravacao (replayIntoRecording) — ela se pendura nos mesmos
+  // encoders e os dois arquivos sao emendados no fim. Fora disso (opcao
+  // desligada, ou auto-gravacao por microfone, que usa OUTRO perfil de
+  // dispositivos e portanto outra cena), gravacao e buffer sao um de cada
+  // vez: o que estava guardado e descartado, e o buffer volta sozinho no
+  // OnEngineRecordingStopped se o ReplayWanted continuar ligado.
+  ContinueReplay := ReplayActive and (Engine <> nil) and
+    GetConfigBool('replayIntoRecording', True) and
+    (not RecordingStartedByMicWatch);
+  if ReplayActive and not ContinueReplay then
   begin
     Log('HandleRecordStart: parando o buffer em memoria pra gravar.');
     StopReplayBuffer(False);
@@ -3604,7 +3835,15 @@ begin
     // chamar HandleRecordStart; nos manuais fica False (zerado no ultimo
     // HandleRecordStop). Entao ele e exatamente "esta gravacao e automatica?"
     // — o gatilho pra usar o perfil de auto-gravacao (aba Comportamento).
-    Engine.BuildAndStartRecording(OutputPath, RecordingStartedByMicWatch);
+    RecPrefixSec := 0;
+    if ContinueReplay and not ContinueReplayIntoRecording(OutputPath) then
+    begin
+      ContinueReplay := False;
+      Log('HandleRecordStart: nao deu pra continuar o buffer — descartando-o.');
+      StopReplayBuffer(False);
+    end;
+    if not ContinueReplay then
+      Engine.BuildAndStartRecording(OutputPath, RecordingStartedByMicWatch);
     // Captura de audio falhou em agendar? As fontes existem e nao estao
     // mutadas, mas nao recebem amostra nenhuma — a gravacao sairia muda e
     // o usuario so descobriria assistindo depois. Avisa AGORA, enquanto da
@@ -3629,7 +3868,9 @@ begin
     SyncTranscribePause;
     LastRecordingPath := OutputPath;
     LastRecordingDuration := 0;
-    RecordingStartTickMs := GetTickCount;
+    // Continuando o buffer, o relogio ja comeca no que ele tinha guardado:
+    // e o que o arquivo final vai ter (tempo na tela, indicador e duracao).
+    RecordingStartTickMs := GetTickCount - Cardinal(RecPrefixSec) * 1000;
     // Snapshot dos monitores no inicio da gravacao — usado pelo
     // PushMonitorThumbs pra manter os slots de preview fixos durante
     // a gravacao mesmo se o user desplugar/replugar monitor.
@@ -4021,9 +4262,11 @@ procedure SyncTranscribePause;
 // Transcrever le a gravacao INTEIRA do disco (extrair o audio de um arquivo
 // de varios GB) e sobe dezenas de MB pro servidor. Fazer isso enquanto se
 // grava — ou enquanto o buffer guarda, que e quando tem jogo rodando — tira
-// da maquina justamente o que a captura precisa. Entao a fila fica segura
-// nos dois casos e anda quando a captura termina. Os itens NAO se perdem:
-// a fila e persistida em disco (pegadinha #60n).
+// da maquina justamente o que a captura precisa. Entao a transcricao
+// AUTOMATICA fica segura nos dois casos e anda quando a captura termina.
+// O que o usuario pediu a mao roda mesmo assim — ali ele escolheu gastar a
+// maquina agora (OBSTranscribe.Enqueue com AManual). Os itens NAO se
+// perdem: a fila e persistida em disco (pegadinha #60n).
 begin
   try OBSTranscribe.SetPaused(RecordingActive or ReplayActive); except end;
 end;
@@ -4068,8 +4311,13 @@ begin
   Obj.AddPair('enabled', TJSONBool.Create(ReplayWanted));
   Obj.AddPair('autoStart',
     TJSONBool.Create(GetConfigBool('replayAutoStart', False)));
+  Obj.AddPair('intoRecording',
+    TJSONBool.Create(GetConfigBool('replayIntoRecording', True)));
   Obj.AddPair('active', TJSONBool.Create(ReplayActive));
-  Obj.AddPair('saving', TJSONBool.Create((Engine <> nil) and Engine.IsReplaySaving));
+  // O trecho que vira comeco da gravacao nao e um "salvar" do usuario: nao
+  // acende o estado de salvando no botao do buffer.
+  Obj.AddPair('saving', TJSONBool.Create((Engine <> nil) and
+    Engine.IsReplaySaving and not Engine.IsPrefixSaving));
   // Ha quanto tempo o buffer esta guardando (ou desde o ultimo "salvar").
   // A UI desconta localmente a cada segundo e limita ao maxSec.
   Obj.AddPair('sinceMs', TJSONNumber.Create(Since));
@@ -4267,6 +4515,34 @@ begin
     end).Start;
 end;
 
+procedure OnEngineReplayPrefixSaved(const ATempPath: string; ALeadMs: Integer);
+// Callback do Engine (main thread): o trecho do buffer que e o comeco da
+// gravacao em curso terminou de ser escrito — ou nao saiu. A emenda so
+// acontece quando a gravacao termina (OnEngineRecordingStopped).
+begin
+  if MainWindowHandle <> 0 then
+  begin
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
+    KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT);
+  end;
+  RecPrefixPending := False;
+  RecPrefixLeadMs := ALeadMs;
+  if (ATempPath <> '') and TFile.Exists(ATempPath) then
+  begin
+    RecPrefixPath := ATempPath;
+    Log('Buffer: comeco da gravacao pronto (%s; a gravacao comecou %d ms ' +
+      'antes do fim dele).', [ATempPath, ALeadMs]);
+  end
+  else
+  begin
+    RecPrefixPath := '';
+    Log('Buffer: o trecho guardado nao saiu — a gravacao segue sem ele.');
+    PostError(OBSLang.T('error.replayIntoRecordingFailed'));
+  end;
+  LogMemUsage('buffer incorporado');
+  PushReplayState;
+end;
+
 procedure StartReplayBuffer;
 begin
   if ReplayActive or RecordingActive then Exit;
@@ -4280,6 +4556,7 @@ begin
       Engine.OnStopped := OnEngineRecordingStopped;
     end;
     Engine.OnReplaySaved := OnEngineReplaySaved;
+    Engine.OnReplayPrefixSaved := OnEngineReplayPrefixSaved;
     Engine.EnsureInitialized;
     PushEncoderCapsOnce;
     OBSEngine.ResetAudioCaptureFault;
@@ -4333,6 +4610,47 @@ begin
   if AArmHibernate and (MainWindowHandle <> 0) and
      ((not IsWindowVisible(MainWindowHandle)) or IsIconic(MainWindowHandle)) then
     OnWindowHiddenForHibernate;
+end;
+
+function ContinueReplayIntoRecording(const AOutputPath: string): Boolean;
+// A gravacao que comeca agora herda o que o buffer guardou (o engine faz a
+// parte da libobs: TOBSEngine.StartRecordingFromReplay). Aqui e o lado do
+// Bridge: o buffer deixa de existir pra UI (atalho, indicador, medicao de
+// RAM), como no StopReplayBuffer — MAS sem derrubar a saida dele nem os
+// timers do "salvar": e ela que vai gravar o comeco do arquivo.
+var
+  HeldSec: Integer;
+begin
+  Result := False;
+  if (not ReplayActive) or (Engine = nil) then Exit;
+  HeldSec := Integer((GetTickCount - ReplayStartTickMs) div 1000);
+  if HeldSec > ReplayMaxSecCfg then HeldSec := ReplayMaxSecCfg;
+  if not Engine.StartRecordingFromReplay(AOutputPath) then Exit;
+
+  RecPrefixFor := AOutputPath;
+  RecPrefixPending := True;
+  RecPrefixPath := '';
+  RecPrefixLeadMs := 0;
+  RecPrefixSec := HeldSec;
+
+  UnregisterReplayHotkey;
+  HideReplayIndicator;
+  LogMemUsage('buffer virando gravacao');
+  ReplayActive := False;
+  if MainWindowHandle <> 0 then
+  begin
+    KillTimer(MainWindowHandle, TIMER_REPLAY_MEM);
+    SetTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT,
+      REPLAY_SAVE_TIMEOUT_MS, nil);
+    // Mesmo motivo do HandleSaveReplay: o trecho fecha so depois do 1o
+    // keyframe da gravacao, pra os dois arquivos se sobreporem.
+    if Engine.IsReplaySaveCommitPending then
+      SetTimer(MainWindowHandle, TIMER_REPLAY_SAVE_COMMIT,
+        Engine.ReplaySaveCommitDelayMs, nil);
+  end;
+  PushReplayState;
+  Log('Buffer: %d s guardados viram o comeco da gravacao.', [HeldSec]);
+  Result := True;
 end;
 
 procedure HandleSaveReplay;
@@ -4496,6 +4814,16 @@ begin
   SetConfigBool('replayAutoStart', AAutoStart);
   Log('Buffer: iniciar junto com o app = %s.',
     [IfThen(AAutoStart, 'sim', 'nao')]);
+  PushReplayState;
+end;
+
+procedure HandleSetReplayIntoRecording(AEnabled: Boolean);
+// "Gravar continua do buffer". Vale a partir da proxima gravacao; a que
+// estiver em curso ja decidiu no start.
+begin
+  SetConfigBool('replayIntoRecording', AEnabled);
+  Log('Buffer: gravacao comeca pelo buffer = %s.',
+    [IfThen(AEnabled, 'sim', 'nao')]);
   PushReplayState;
 end;
 
@@ -5323,6 +5651,8 @@ begin
   // Titulo da janela (default 'NoOBS') e modelo do nome do arquivo de saida.
   Obj.AddPair('windowTitle', GetConfigStr('windowTitle', 'NoOBS'));
   Obj.AddPair('transcribeHost', OBSTranscribe.HostBase);
+  if OBSTranscribe.UseLocalEngine then Obj.AddPair('transcribeEngine', 'local')
+  else Obj.AddPair('transcribeEngine', 'server');
   // '' no config (nunca mexido) e o mesmo que 'app': a UI recebe sempre um
   // valor que existe no seletor.
   var TrLang := LowerCase(Trim(GetConfigStr('transcribeLanguage', '')));
@@ -6506,6 +6836,83 @@ begin
   Log('TranscribeOnStop: %s', [BoolToStr(AEnable, True)]);
 end;
 
+var
+  // Ultimo status visto do motor local, pra acordar a fila SO na
+  // transicao pra pronto (e nao a cada tique do download).
+  LastLocalAsrReady: Boolean = False;
+
+procedure PushLocalAsrState(ARemoveRefused: Boolean = False);
+var
+  S: TLocalAsrState;
+  Obj: TJSONObject;
+  St: string;
+begin
+  S := OBSLocalAsr.GetState;
+  case S.Status of
+    lasInstalling: St := 'installing';
+    lasReady:      St := 'ready';
+    lasError:      St := 'error';
+  else
+    St := 'missing';
+  end;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'local_asr_state');
+  Obj.AddPair('status', St);
+  Obj.AddPair('stage', S.Stage);
+  Obj.AddPair('done', TJSONNumber.Create(S.BytesDone));
+  Obj.AddPair('total', TJSONNumber.Create(S.BytesTotal));
+  Obj.AddPair('error', S.Error);
+  Obj.AddPair('device', S.Device);
+  if OBSTranscribe.UseLocalEngine then Obj.AddPair('engine', 'local')
+  else Obj.AddPair('engine', 'server');
+  Obj.AddPair('removeRefused', TJSONBool.Create(ARemoveRefused));
+  PostOwned(Obj);
+end;
+
+procedure OnLocalAsrChanged;
+// Callback do OBSLocalAsr — ja chega na main thread.
+var
+  Ready: Boolean;
+begin
+  if IsShuttingDown then Exit;
+  PushLocalAsrState;
+  // Acabou de instalar: a fila que esperava pelo motor anda agora, sem
+  // aguardar o proximo ciclo de 10 s. (A instalacao ja trocou o motor
+  // pra 'local' — quem instala quer usar.)
+  Ready := OBSLocalAsr.GetState.Status = lasReady;
+  if Ready and not LastLocalAsrReady then OBSTranscribe.NudgeQueue;
+  LastLocalAsrReady := Ready;
+end;
+
+procedure HandleSetTranscribeEngine(const AEngine: string);
+begin
+  if (AEngine <> 'server') and (AEngine <> 'local') then
+  begin
+    Log('TranscribeEngine: valor recusado "%s"', [AEngine]);
+    Exit;
+  end;
+  SetConfigStr('transcribeEngine', AEngine);
+  Log('TranscribeEngine: %s', [AEngine]);
+  // Fila parada esperando o motor anterior: tenta ja com o novo.
+  OBSTranscribe.NudgeQueue;
+  PushLocalAsrState;
+end;
+
+procedure HandleLocalAsrRemove;
+begin
+  // Apagar 3,7 GB leva alguns segundos: fora da main.
+  TThread.CreateAnonymousThread(
+    procedure
+    begin
+      if not OBSLocalAsr.Uninstall then
+        TThread.Queue(nil,
+          procedure
+          begin
+            if not IsShuttingDown then PushLocalAsrState(True);
+          end);
+    end).Start;
+end;
+
 procedure HandleCheckTranscribeSetup(const AHost: string; ASeq: Integer);
 // Diagnostico em worker: roda wsl.exe/docker.exe e pode levar segundos
 // (docker info com o Docker Desktop subindo). O `seq` volta junto pra
@@ -6609,7 +7016,8 @@ procedure HandleTranscribeRecording(const APath: string);
 begin
   if not IsPathInRecordDir(APath) then Exit;
   if not TFile.Exists(APath) then Exit;
-  OBSTranscribe.Enqueue(APath);
+  // Pedido pelo menu da gravacao: roda mesmo com gravacao ou buffer ligado.
+  OBSTranscribe.Enqueue(APath, True);
 end;
 
 procedure HandleTranscribePending;
@@ -6617,7 +7025,8 @@ var
   Cloud: Integer;
 begin
   Cloud := 0;
-  OBSTranscribe.EnqueueMany(TranscribablePaths(Cloud));
+  // Botao "transcrever pendentes": tambem e pedido do usuario.
+  OBSTranscribe.EnqueueMany(TranscribablePaths(Cloud), True);
 end;
 
 procedure HandleCancelTranscribe;
@@ -7590,6 +7999,16 @@ begin
         GetIntField(Obj, 'seq', 0))
     else if MsgType = 'transcribe_setup_action' then
       HandleTranscribeSetupAction(GetStrField(Obj, 'action'))
+    else if MsgType = 'set_transcribe_engine' then
+      HandleSetTranscribeEngine(GetStrField(Obj, 'engine'))
+    else if MsgType = 'local_asr_install' then
+      OBSLocalAsr.StartInstall
+    else if MsgType = 'local_asr_cancel' then
+      OBSLocalAsr.CancelInstall
+    else if MsgType = 'local_asr_remove' then
+      HandleLocalAsrRemove
+    else if MsgType = 'get_local_asr_state' then
+      PushLocalAsrState
     else if MsgType = 'transcribe_recording' then
       HandleTranscribeRecording(GetStrField(Obj, 'id'))
     else if MsgType = 'transcribe_pending' then
@@ -7667,6 +8086,8 @@ begin
       HandleSetReplayIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
     else if MsgType = 'set_replay_autostart' then
       HandleSetReplayAutoStart(GetBoolField(Obj, 'autoStart'))
+    else if MsgType = 'set_replay_into_recording' then
+      HandleSetReplayIntoRecording(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_replay_limits' then
       HandleSetReplayLimits(GetIntField(Obj, 'maxSec', 0), GetIntField(Obj, 'maxMb', 0))
     else if MsgType = 'set_replay_hotkey' then
@@ -8151,10 +8572,20 @@ begin
     // libobs nao emite o sinal nesse caso). Solta a saida antiga pra o
     // proximo "salvar" nao ficar bloqueado pra sempre.
     KillTimer(MainWindowHandle, TIMER_REPLAY_SAVE_TIMEOUT);
-    if Engine <> nil then
+    // Trecho que era o comeco de uma gravacao: o AbortReplaySave avisa pelo
+    // OnEngineReplayPrefixSaved, que da o aviso certo (a gravacao segue).
+    if (Engine <> nil) and Engine.IsPrefixSaving then
+    begin
       try Engine.AbortReplaySave; except on E: Exception do
         Log('AbortReplaySave falhou: %s', [E.Message]); end;
-    PostError(OBSLang.T('error.replaySaveFailed'));
+    end
+    else
+    begin
+      if Engine <> nil then
+        try Engine.AbortReplaySave; except on E: Exception do
+          Log('AbortReplaySave falhou: %s', [E.Message]); end;
+      PostError(OBSLang.T('error.replaySaveFailed'));
+    end;
     PushReplayState;
   end;
  except

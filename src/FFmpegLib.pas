@@ -377,6 +377,9 @@ procedure av_packet_free(pkt: PPAVPacket{var PAVPacket}); cdecl;
 procedure av_packet_unref(pkt: PAVPacket); cdecl; external LIB_AVCODEC delayed;
 procedure av_packet_rescale_ts(pkt: PAVPacket; tb_src, tb_dst: AVRational); cdecl;
   external LIB_AVCODEC delayed;
+// Copia nova do pacote (referencia os mesmos dados; libera com av_packet_free).
+function av_packet_clone(src: PAVPacket): PAVPacket; cdecl;
+  external LIB_AVCODEC delayed;
 
 // av_frame_* sao da libavutil, NAO libavcodec — vivem em avutil-59.dll.
 // Erro classico: declarar em LIB_AVCODEC e tomar C06D007F na 1a call.

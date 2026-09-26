@@ -1039,6 +1039,49 @@
   .ts-cmd .settings-btn { flex: none; }
   .ts-actions { margin: 6px 0; }
 
+  /* ===== Onde transcrever + motor local =====
+     Os rádios usam a mesma aparência dos checkboxes do app. O quadro do
+     motor local tem a moldura do diagnóstico do servidor — é o equivalente
+     dele no modo local: diz o que falta e oferece o botão que resolve. */
+  .engine-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 6px;
+  }
+  .settings-check-row input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--success);
+    cursor: pointer;
+    margin: 0;
+  }
+  #transcribeServerBox[hidden],
+  .local-asr[hidden],
+  .local-asr [hidden] { display: none; }
+  .local-asr {
+    margin-top: 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .local-asr-status {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .local-asr-status.ok   { color: var(--success); }
+  .local-asr-status.fail { color: var(--danger-2); overflow-wrap: anywhere; }
+  .local-asr .transcribe-bar { margin: 8px 0 2px; }
+  .local-asr-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .local-asr .settings-btn.danger { color: var(--danger-2); }
+
   /* ===== Fila de transcrição =====
      Lista arrastável. As linhas têm altura confortável de propósito: o
      alvo de arrasto é o item inteiro, e uma tira de 20px seria briga com

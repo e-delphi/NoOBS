@@ -194,6 +194,8 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\OBSSingleInstance.pas"/>
         <DCCReference Include="src\OBSStartupCheck.pas"/>
         <DCCReference Include="src\OBSTranscribe.pas"/>
+        <DCCReference Include="src\OBSLocalAsr.pas"/>
+        <DCCReference Include="src\OBSNumbersPt.pas"/>
         <DCCReference Include="src\OBSTray.pas"/>
         <DCCReference Include="src\OBSUI.pas"/>
         <DCCReference Include="src\WinAudioMeter.pas"/>

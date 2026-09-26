@@ -55,7 +55,8 @@
     "saved": "Trecho salvo",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "Esse atalho já é o de iniciar/parar a gravação. Escolha outra combinação.",
-    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})"
+    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})",
+    "prefixFileSuffix": "buffer"
   },
   "recordings": {
     "title": "Gravações",
@@ -489,7 +490,9 @@
         "diarizing": "separando falantes",
         "done": "concluído",
         "waiting": "aguardando o servidor",
-        "paused": "em pausa durante a captura"
+        "paused": "automáticas em pausa durante a captura",
+        "starting": "iniciando o motor local",
+        "waitingInstall": "aguardando a instalação do motor local"
       },
       "language": {
         "label": "Idioma da transcrição",
@@ -535,6 +538,40 @@
         "containerRestartTip": "Para ele voltar sozinho quando o computador reiniciar, execute também:",
         "copy": "Copiar",
         "copied": "Copiado"
+      },
+      "engine": {
+        "label": "Onde transcrever",
+        "local": "Nesta máquina, na placa de vídeo",
+        "server": "Num servidor (Docker ou outro computador)",
+        "hint": "Nesta máquina é mais rápido e marca cada palavra com mais precisão, mas não separa quem falou — gravando com faixas isoladas, o falante continua vindo do nome do dispositivo. O servidor (Transcritor API) separa os falantes."
+      },
+      "local": {
+        "missing": "O motor local ainda não está instalado.",
+        "missingHow": "O download tem cerca de {{size}} (o motor audio.cpp e os modelos Qwen3) e é feito uma vez só. Precisa de uma placa de vídeo com driver Vulkan — AMD, NVIDIA ou Intel. Sem Docker e sem instalar mais nada.",
+        "install": "Baixar e instalar",
+        "installing": "Instalando: {{stage}}",
+        "progress": "{{done}} de {{total}}",
+        "resumeHint": "Se a conexão cair ou você cancelar, o que já foi baixado fica guardado e o download continua de onde parou.",
+        "cancel": "Cancelar",
+        "ready": "Pronto — transcrevendo na {{device}}.",
+        "readyCpu": "Pronto — transcrevendo na CPU. Nenhuma placa com Vulkan foi encontrada, então vai ser bem mais lento.",
+        "readyHow": "Ocupa {{size}} em %LOCALAPPDATA%\\NoOBS\\asr. O motor só roda enquanto há transcrição na fila e libera a memória de vídeo alguns minutos depois.",
+        "remove": "Remover",
+        "removeConfirm": "Confirmar remoção",
+        "removeBusy": "Não dá para remover o motor local durante uma instalação ou transcrição.",
+        "error": "A instalação falhou: {{error}}",
+        "retry": "Tentar de novo",
+        "stages": {
+          "engine": "baixando o motor",
+          "asr": "baixando o modelo de transcrição",
+          "align": "baixando o modelo de alinhamento",
+          "verifying": "conferindo o arquivo baixado",
+          "extracting": "descompactando o motor",
+          "detecting": "procurando a placa de vídeo",
+          "engineMirror": "baixando o motor (Google Drive)",
+          "asrMirror": "baixando o modelo de transcrição (Google Drive)",
+          "alignMirror": "baixando o modelo de alinhamento (Google Drive)"
+        }
       }
     },
     "replay": {
@@ -542,6 +579,8 @@
       "hint": "Com o buffer ligado (botão na tela principal), o NoOBS guarda os <b>últimos minutos</b> da tela na memória, sem gravar no disco. Quando acontecer algo que valha registrar, aperte o atalho: o trecho vira uma gravação normal e o buffer <b>recomeça vazio</b> — salvar de novo traz só a continuação, com cerca de 1 segundo repetido na emenda pra não perder nada entre um trecho e o outro.",
       "autoStart": "Ligar o buffer ao abrir o NoOBS",
       "autoStartHint": "Marcado, o buffer já começa a guardar sozinho a cada vez que o NoOBS abre. Desmarcado, o botão da tela principal liga o buffer só até fechar o app.",
+      "intoRecording": "Gravar a partir do que o buffer guardou",
+      "intoRecordingHint": "Marcado, iniciar uma gravação com o buffer ligado aproveita o que ele já guardou: o arquivo começa por esse trecho e continua sem interrupção. Desmarcado, o que estava no buffer é descartado e a gravação começa do zero.",
       "apps": "Ligar sozinho com estes programas",
       "appsPlaceholder": "ex.: valorant, cs2, League of Legends",
       "appsHint": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"valorant\" acha \"VALORANT-Win64-Shipping\"). Funciona também com o NoOBS hibernando. Vazio = desligado.",
@@ -739,8 +778,20 @@
     "moveWhileRecording": "Não dá pra mover a gravação que está em andamento.",
     "replayStartFailed": "Não foi possível ligar o buffer em memória: {{error}}",
     "replaySaveFailed": "Não foi possível salvar o trecho do buffer.",
+    "replayIntoRecordingFailed": "Não foi possível incluir o que o buffer guardou. A gravação continua, só sem esse trecho.",
+    "replayIntoRecordingSplit": "Não foi possível juntar o trecho do buffer com a gravação. Os dois ficaram salvos como arquivos separados.",
     "replayHotkeyConflict": "O atalho do buffer não pode ser o mesmo de iniciar/parar a gravação.",
-    "exportBusyFile": "Esta gravação está sendo exportada agora — espere terminar ou cancele a exportação."
+    "exportBusyFile": "Esta gravação está sendo exportada agora — espere terminar ou cancele a exportação.",
+    "localAsr": {
+      "download": "Não foi possível baixar {{file}}: {{error}}",
+      "checksum": "O arquivo {{file}} chegou corrompido (o SHA-256 não confere) e foi descartado. Tente de novo.",
+      "extract": "Não foi possível descompactar o motor: {{error}}",
+      "noVulkan": "O motor não abriu nesta máquina. Ele precisa de uma placa de vídeo com driver Vulkan atualizado (AMD, NVIDIA ou Intel).",
+      "notInstalled": "A transcrição nesta máquina ainda não foi instalada. Instale em Configurações → Transcrição, ou escolha um servidor.",
+      "serverStart": "O motor de transcrição local não iniciou. Os detalhes estão em {{log}}",
+      "request": "O motor de transcrição local respondeu com erro: {{error}}",
+      "decode": "Não foi possível ler o áudio da gravação."
+    }
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."

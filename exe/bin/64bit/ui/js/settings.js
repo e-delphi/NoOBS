@@ -237,6 +237,7 @@ const Settings = {
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
     document.getElementById('settingsTranscribeHost').value = this.currentTranscribeHost || '';
+    LocalAsr.setEngine(this.currentTranscribeEngine || 'server');
     this._fillTranscribeLangs(this.currentTranscribeLanguage);
     document.getElementById('settingsTranscribeOnStop').checked = !!this.currentTranscribeOnStop;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
@@ -344,6 +345,7 @@ const Settings = {
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
       const transcribeHost = document.getElementById('settingsTranscribeHost').value.trim();
+      const transcribeEngine = LocalAsr.selectedEngine();
       const transcribeLanguage = document.getElementById('settingsTranscribeLang').value || 'app';
       const transcribeOnStop = document.getElementById('settingsTranscribeOnStop').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
@@ -391,6 +393,8 @@ const Settings = {
         Bridge.send('set_mute_when_device_muted', { enabled: muteWhenDeviceMuted });
       if (transcribeHost !== this.currentTranscribeHost)
         Bridge.send('set_transcribe_host', { host: transcribeHost });
+      if (transcribeEngine !== this.currentTranscribeEngine)
+        Bridge.send('set_transcribe_engine', { engine: transcribeEngine });
       if (transcribeLanguage !== this.currentTranscribeLanguage)
         Bridge.send('set_transcribe_language', { language: transcribeLanguage });
       if (transcribeOnStop !== this.currentTranscribeOnStop)
@@ -431,6 +435,7 @@ const Settings = {
       this.currentStopOnLock = stopOnLock;
       this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
       this.currentTranscribeHost = transcribeHost;
+      this.currentTranscribeEngine = transcribeEngine;
       this.currentTranscribeLanguage = transcribeLanguage;
       this.currentTranscribeOnStop = transcribeOnStop;
       this.currentHibernate = hibernate;
@@ -503,6 +508,8 @@ const Settings = {
     // faltar, ao contrario do `!!` usado nos que sao default false.
     this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
     this.currentTranscribeHost = data.transcribeHost || 'http://localhost:8000';
+    // 'server' (Transcritor API) | 'local' (motor na placa de vídeo).
+    this.currentTranscribeEngine = data.transcribeEngine === 'local' ? 'local' : 'server';
     this.currentTranscribeLanguage = data.transcribeLanguage || 'app';
     // Default TRUE, mesmo esquema do muteWhenDeviceMuted.
     this.currentTranscribeOnStop = (data.transcribeOnStop !== false);
@@ -981,7 +988,11 @@ const Settings = {
       // Diagnóstico a cada entrada na aba: é aqui que o usuário vem quando
       // a transcrição não anda, e a situação muda fora do app (Docker
       // aberto, container iniciado) sem nenhum evento que nos avise.
-      TranscribeSetup.check();
+      // Motor local: estado da instalação (e da GPU) direto do backend.
+      Bridge.send('get_local_asr_state', {});
+      // O diagnóstico é do SERVIDOR (Docker, container): com o motor
+      // local escolhido ele não tem o que dizer.
+      if (LocalAsr.selectedEngine() !== 'local') TranscribeSetup.check();
     }
   },
   // Monta o seletor de idioma da transcrição. "Idioma do NoOBS" mostra

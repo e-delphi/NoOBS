@@ -55,7 +55,8 @@
     "saved": "Fragmento guardado",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "Ese atajo ya se usa para iniciar/detener la grabación. Elige otra combinación.",
-    "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})"
+    "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})",
+    "prefixFileSuffix": "búfer"
   },
   "recordings": {
     "title": "Grabaciones",
@@ -489,7 +490,9 @@
         "diarizing": "separando hablantes",
         "done": "completado",
         "waiting": "esperando al servidor",
-        "paused": "en pausa durante la captura"
+        "paused": "automáticas en pausa durante la captura",
+        "starting": "iniciando el motor local",
+        "waitingInstall": "esperando la instalación del motor local"
       },
       "language": {
         "label": "Idioma de la transcripción",
@@ -535,6 +538,40 @@
         "containerRestartTip": "Para que vuelva solo cuando el equipo se reinicia, ejecuta también:",
         "copy": "Copiar",
         "copied": "Copiado"
+      },
+      "engine": {
+        "label": "Dónde transcribir",
+        "local": "En este equipo, con la tarjeta gráfica",
+        "server": "En un servidor (Docker u otro equipo)",
+        "hint": "En este equipo es más rápido y marca cada palabra con más precisión, pero no distingue quién habló — grabando con pistas aisladas, el hablante sigue saliendo del nombre del dispositivo. El servidor (Transcritor API) separa a los hablantes."
+      },
+      "local": {
+        "missing": "El motor local aún no está instalado.",
+        "missingHow": "La descarga es de unos {{size}} (el motor audio.cpp y los modelos Qwen3) y se hace una sola vez. Necesita una tarjeta gráfica con controlador Vulkan — AMD, NVIDIA o Intel. Sin Docker y sin instalar nada más.",
+        "install": "Descargar e instalar",
+        "installing": "Instalando: {{stage}}",
+        "progress": "{{done}} de {{total}}",
+        "resumeHint": "Si se cae la conexión o cancelas, lo ya descargado se conserva y la descarga continúa donde se quedó.",
+        "cancel": "Cancelar",
+        "ready": "Listo — transcribiendo en la {{device}}.",
+        "readyCpu": "Listo — transcribiendo en la CPU. No se encontró ninguna tarjeta con Vulkan, así que será mucho más lento.",
+        "readyHow": "Ocupa {{size}} en %LOCALAPPDATA%\\NoOBS\\asr. El motor solo funciona mientras hay transcripciones en la cola y libera la memoria de vídeo unos minutos después.",
+        "remove": "Quitar",
+        "removeConfirm": "Confirmar",
+        "removeBusy": "No se puede quitar el motor local durante una instalación o transcripción.",
+        "error": "La instalación falló: {{error}}",
+        "retry": "Reintentar",
+        "stages": {
+          "engine": "descargando el motor",
+          "asr": "descargando el modelo de transcripción",
+          "align": "descargando el modelo de alineación",
+          "verifying": "comprobando el archivo descargado",
+          "extracting": "descomprimiendo el motor",
+          "detecting": "buscando la tarjeta gráfica",
+          "engineMirror": "descargando el motor (Google Drive)",
+          "asrMirror": "descargando el modelo de transcripción (Google Drive)",
+          "alignMirror": "descargando el modelo de alineación (Google Drive)"
+        }
       }
     },
     "replay": {
@@ -542,6 +579,8 @@
       "hint": "Con el búfer activado (botón en la pantalla principal), NoOBS guarda los <b>últimos minutos</b> de la pantalla en memoria, sin escribir en disco. Cuando pase algo que valga la pena registrar, pulsa el atajo: el fragmento se convierte en una grabación normal y el búfer <b>vuelve a empezar vacío</b> — guardar de nuevo trae solo la continuación, con cerca de un segundo repetido en la unión para no perder nada entre fragmentos.",
       "autoStart": "Activar el búfer al abrir NoOBS",
       "autoStartHint": "Marcado, el búfer empieza a guardar solo cada vez que NoOBS se abre. Sin marcar, el botón de la pantalla principal activa el búfer solo hasta cerrar la app.",
+      "intoRecording": "Grabar a partir de lo que guardó el búfer",
+      "intoRecordingHint": "Marcado, iniciar una grabación con el búfer activo aprovecha lo que ya guardó: el archivo empieza por ese fragmento y sigue sin interrupción. Sin marcar, lo que había en el búfer se descarta y la grabación empieza desde cero.",
       "apps": "Activar solo con estos programas",
       "appsPlaceholder": "ej.: valorant, cs2, League of Legends",
       "appsHint": "Nombres de programas separados por comas. Mientras uno esté abierto, el búfer se activa solo; cuando todos se cierren, se apaga. Basta una parte del nombre (\"valorant\" encuentra \"VALORANT-Win64-Shipping\"). Funciona también con NoOBS hibernando. Vacío = apagado.",
@@ -739,8 +778,20 @@
     "moveWhileRecording": "No se puede mover la grabación en curso.",
     "replayStartFailed": "No se pudo activar el búfer en memoria: {{error}}",
     "replaySaveFailed": "No se pudo guardar el fragmento del búfer.",
+    "replayIntoRecordingFailed": "No se pudo incluir lo que guardó el búfer. La grabación sigue, solo que sin ese fragmento.",
+    "replayIntoRecordingSplit": "No se pudo unir el fragmento del búfer con la grabación. Ambos se guardaron como archivos separados.",
     "replayHotkeyConflict": "El atajo del búfer no puede ser el mismo que el de iniciar/detener la grabación.",
-    "exportBusyFile": "Esta grabación se está exportando ahora — espera a que termine o cancela la exportación."
+    "exportBusyFile": "Esta grabación se está exportando ahora — espera a que termine o cancela la exportación.",
+    "localAsr": {
+      "download": "No se pudo descargar {{file}}: {{error}}",
+      "checksum": "El archivo {{file}} llegó dañado (el SHA-256 no coincide) y se descartó. Inténtalo de nuevo.",
+      "extract": "No se pudo descomprimir el motor: {{error}}",
+      "noVulkan": "El motor no pudo iniciarse en este equipo. Necesita una tarjeta gráfica con un controlador Vulkan actualizado (AMD, NVIDIA o Intel).",
+      "notInstalled": "La transcripción en este equipo aún no está instalada. Instálala en Configuración → Transcripción, o elige un servidor.",
+      "serverStart": "El motor de transcripción local no se inició. Los detalles están en {{log}}",
+      "request": "El motor de transcripción local respondió con un error: {{error}}",
+      "decode": "No se pudo leer el audio de la grabación."
+    }
   },
   "warning": {
     "canvasOverflow": "La resolución combinada de las pantallas excede el límite del códec ({{max}} × {{max}}). La grabación se reducirá proporcionalmente. Cambia a AV1 o HEVC en Configuración para grabar hasta 8192 × 8192."

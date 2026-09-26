@@ -91,12 +91,14 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets, AvErrStr) |
-| `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `MergeFiles`, `ExtractAudioTracks`, `ExtractFrameJpeg` |
+| `FFmpegOps`         | **Wrappers altos** (só copiam pacotes): `RemuxFile`, `MergeFiles`, `SpliceContinuation` (buffer + gravação que continuou dele, pegadinha #62), `ExtractAudioTracks`, `ExtractFrameJpeg` |
 | `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas) |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
-| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API. Manda só o ÁUDIO (faixas isoladas ou a mistura); grava a resposta no cache. A fila é reordenável item a item, **persistida em disco** e **espera o servidor voltar** em vez de falhar; `DiagnoseSetup` descobre em etapas o que falta (WSL → Docker → container) |
+| `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API ou o motor local (`transcribeEngine`). Manda só o ÁUDIO (faixas isoladas ou a mistura); grava a resposta no cache. A fila é reordenável item a item, **persistida em disco** e **espera o servidor voltar** em vez de falhar; `DiagnoseSetup` descobre em etapas o que falta (WSL → Docker → container) |
+| `OBSLocalAsr`       | Transcrição LOCAL na GPU (Vulkan: AMD/NVIDIA/Intel), sem Docker: instala o audio.cpp + Qwen3-ASR + Qwen3-ForcedAligner (~3,7 GB, SHA-256, retoma, espelho no Google Drive), sobe o `audiocpp_server.exe` escondido sob demanda e devolve o MESMO JSON da Transcritor API (pegadinha #60t) |
+| `OBSNumbersPt`      | Números por extenso → algarismos em português ("dois mil e vinte e seis" → 2026), acima de dez. Porte do `numbers_pt.py` da Transcritor API |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
@@ -2579,12 +2581,96 @@ canvas) e desce quando os controles somem (`.player.idle`). Trocar de vídeo
 sem fechar o player agora zera a transcrição — antes os turnos do anterior
 ficavam até alguém abrir o painel.
 
-**c) Uma por vez não é escolha nossa — e a fila para durante a captura.**
-`SetPaused` segura a fila enquanto há gravação manual ou buffer ligado (ver
-pegadinha #62): a transcrição lê o arquivo inteiro e sobe dezenas de MB, o
-que disputa máquina com quem está capturando. O item em curso termina; só
-os PRÓXIMOS esperam. Nada se perde — a fila é a mesma persistida do item
-**n**, e a etapa vira `paused`.
+**s) Duas APIs no mesmo endereço — só a do Docker separa falantes.** A
+Transcritor API tem também uma versão nativa do Windows (pasta `windows\`
+do repositório: Qwen3 + audio.cpp na GPU), com as mesmas rotas e o mesmo
+JSON, mas SEM diarização: ela recusa `diarization=true` com **HTTP 400**.
+Mandar o campo sempre, como antes, fazia toda transcrição morrer no envio.
+`ServerDiarizes` lê o `/health` antes do `POST /jobs`: a nativa responde
+`"engine": "audiocpp"`, o container 2.0 não manda `engine` nenhum. Sem o
+campo (ou `whisperx`) pede a separação; outro motor, não. Health sem
+resposta pede — é o comportamento de sempre, e a recusa, se vier, aparece
+no envio pelo `HttpErrText`.
+
+Sem diarização as palavras vêm sem `speaker` e o `segment.speaker` é
+`null`. Faixas isoladas continuam com o falante certo — o
+`LabelTrackSpeakers` põe o nome do dispositivo —; na mistura, os turnos
+saem sem rótulo. Os estágios da nativa (`queued` → `decoding` →
+`transcribing` → `aligning` → `done`) são subconjunto dos da v2: nenhuma
+chave `settings.transcribe.stage.*` nova.
+
+**t) Motor LOCAL (OBSLocalAsr): o audio.cpp não tem DLL, e o resto
+decorre disso.** O motor é o Qwen3-ASR (texto) + Qwen3-ForcedAligner
+(instante de cada palavra, ~22 ms de erro mediano) servidos pelo
+audio.cpp com backend Vulkan. O release só traz executáveis, então o
+`audiocpp_server.exe` roda ESCONDIDO numa porta livre de 127.0.0.1,
+suspenso até entrar num Job Object com `KILL_ON_JOB_CLOSE` (NoOBS morreu,
+o servidor morre junto) e derrubado após 3 min ocioso (`StopIfIdle`, na
+volta ociosa da worker) — os modelos ocupam ~4 GB de VRAM que o jogo
+gravado precisa. A lógica é a da Transcritor API (versão Windows,
+`app/engine.py`) traduzida: mudou lá, mude aqui. Oito coisas medidas:
+
+- **Só as regiões de fala vão pro modelo.** Em ruído ou silêncio longo o
+  Qwen3 inventa frases, e um bloco sem fala faz o servidor responder 500
+  ("did not contain transcript text") — derrubava o arquivo inteiro. Quadro
+  alto = energia acima do dobro do percentil 20; menos de 120 ms seguidos
+  é estalo; silêncio de 5 s separa blocos; blocos de até ~60 s (o
+  alinhador recusa acima de ~120 s). O 500 "sem texto" que ainda vier
+  vira bloco vazio (`NO_SPEECH_MARK`).
+- **Laço do modelo.** Em música ou ruído contínuo ele repete a mesma
+  palavra até o limite (medido: 258 palavras, 3 distintas, num bloco de
+  50 s). `CollapseLoops`: frase de até 8 palavras repetida 4+ vezes
+  seguidas fica com 2.
+- **Idioma: código na ida, NOME na volta.** Pedindo `pt`, o ASR devolve
+  `pt`; detectando sozinho, devolve `Portuguese`. `LangCode` normaliza —
+  sem isso a detecção automática perdia o alinhador e os algarismos.
+- **O `THTTPClient` NÃO serve pro servidor local.** Ele ajusta conexão,
+  envio e recebimento, mas não o `WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT`
+  (espera pela resposta depois do envio), que o Windows fixa em 90 s. Um
+  bloco lento (GPU disputada com a gravação) virava "Error sending data:
+  (12002)" e a gravação inteira falhava. `HttpPostLocal` fala WinHTTP
+  direto, com 15 min.
+- **Reamostrador próprio**, validado em Python antes (mesma conta):
+  sinc janelado (Blackman), 8 cruzamentos por lado, simétrico = sem atraso
+  de fase. Um atraso deslocaria TODAS as palavras. O swresample das DLLs
+  do OBS exigiria declarar structs de ABI.
+- **`System.PSingle`, não `PSingle`.** A `Winapi.Windows` declara um
+  `PSingle` próprio; com ela no uses, a assinatura deixa de bater com a
+  `TAudioBlockFunc` do FFmpegOps (E2010 "Incompatible types").
+- **Espelho no Google Drive.** Falhou o GitHub (motor) ou o HuggingFace
+  (modelos), cada arquivo é buscado no Drive (`ENGINE_MIRROR`,
+  `ASR_DRIVE_ID`, `ALIGN_DRIVE_ID`) pelo link direto do
+  `drive.usercontent` com `confirm=t` (pula a página de antivírus, aceita
+  Range). O Drive não tem o zip do motor: vão os 14 arquivos soltos que o
+  servidor precisa. Os ids mudam se o arquivo for REENVIADO — aí atualizar
+  a tabela (os SHA-256 continuam valendo).
+- **Mesmo JSON da API**, sem falantes (`speaker: null`): tudo depois do
+  `RunJob` — turnos, eco, cache, player — não sabe qual motor rodou. Com
+  faixas isoladas o falante continua vindo do nome do dispositivo.
+
+**c) Uma por vez não é escolha nossa — e a AUTOMÁTICA para durante a
+captura.** `SetPaused` segura os itens automáticos enquanto há gravação ou
+buffer ligado (ver pegadinha #62): a transcrição lê o arquivo inteiro e
+sobe dezenas de MB, o que disputa máquina com quem está capturando. O item
+em curso termina; só os PRÓXIMOS automáticos esperam. Nada se perde — a
+fila é a mesma persistida do item **n**, e a etapa vira `paused`.
+
+**O que o usuário pediu A MÃO não espera** (menu da gravação e
+"Transcrever pendentes" → `Enqueue(…, AManual=True)`). A pausa existe pra
+a transcrição que o app dispara sozinho não atrapalhar o jogo; quem clicou
+em "transcrever" escolheu gastar a máquina agora, e segurar o pedido dele
+até o buffer desligar — que pode ser a sessão inteira — parecia defeito.
+Pausada, a worker pega o PRIMEIRO item manual na ordem da fila e pula os
+automáticos (`NextIndex`). Três detalhes:
+
+- A marca mora num conjunto à parte (`GManual`), não na `GQueue`, e só sai
+  quando o item termina de verdade — servidor fora do ar devolve o item
+  pra fila, e ele tem que voltar ainda manual.
+- Pedir a mão um item que já esperava como automático o PROMOVE.
+- A fila persistida guarda quem era manual (chave `manual` no
+  `transcribe-queue.json`, mesma `version`: arquivo antigo sem ela só
+  restaura tudo como automático). Sem isso, reiniciar com o buffer ligado
+  rebaixaria o pedido do usuário a automático.
  O próprio container serializa as
 requisições (os modelos não são thread-safe). Paralelizar aqui só encheria
 a fila do outro lado. Uma thread, uma fila.
@@ -2933,9 +3019,10 @@ O que NÃO existe e decidiu o desenho:
   graça. O `Probe` só entra se não houver medida. Corolário: esse número é
   capturado ANTES de o relógio do buffer ser zerado pela rotação — depois
   dela, o "guardado" já é o do trecho seguinte.
-- **A fila de transcrição fica PAUSADA enquanto se captura** (gravação
+- **A transcrição AUTOMÁTICA fica PAUSADA enquanto se captura** (gravação
   manual OU buffer ligado, via `SyncTranscribePause` →
-  `OBSTranscribe.SetPaused`). Transcrever lê a gravação inteira do disco
+  `OBSTranscribe.SetPaused`). O que o usuário pede a mão roda mesmo
+  assim (pegadinha #60c). Transcrever lê a gravação inteira do disco
   para extrair o áudio e sobe dezenas de MB: fazer isso durante o jogo tira
   da máquina justamente o que a captura precisa. Os itens **não se perdem**
   — continuam na fila persistida, com a etapa `paused` na tela, e andam
@@ -2954,12 +3041,62 @@ O que NÃO existe e decidiu o desenho:
 
 Regras de convivência:
 
-- **Um de cada vez com a gravação manual.** Os dois montam o mesmo grafo
-  (`BuildCaptureGraph`, que reseta o vídeo com o canvas calculado). Gravar
-  DESCARTA o buffer; ao terminar a gravação ele religa sozinho se
-  `replayEnabled` — e religa por ÚLTIMO no `OnEngineRecordingStopped`,
+- **Gravar com o buffer ligado CONTINUA o buffer** (`replayIntoRecording`,
+  padrão ligado). A gravação não remonta a captura: uma saída
+  `ffmpeg_muxer` é pendurada nos MESMOS encoders do buffer
+  (`TOBSEngine.StartRecordingFromReplay`) e o buffer salva o que tinha,
+  pelo mesmo trilho do "salvar trecho" (rotação + `CommitReplaySave`
+  adiado, então os dois arquivos se sobrepõem em até ~1 s). Quando a
+  gravação termina, `FFmpegOps.SpliceContinuation` emenda os dois num
+  `.part` e troca pelo arquivo da gravação. Seis coisas que decidiram o
+  desenho:
+  - **Os timestamps dos dois arquivos NÃO estão na mesma linha do
+    tempo.** Cada saída da libobs zera o relógio no próprio começo, faixa
+    por faixa: `video_offsets = pts` do 1º pacote (`obs-output.c:2042`) na
+    gravação, e o `replay_buffer_save` faz o mesmo no trecho
+    (`obs-ffmpeg-mux.c:1163`). Então a emenda se ancora pelo CONTEÚDO: o
+    1º pacote de vídeo da gravação (um keyframe) existe byte a byte no fim
+    do trecho, porque saiu do mesmo encoder. Assinatura = tamanho + hash
+    das pontas (4 KB de cada lado) + flag de keyframe, confirmada por uma
+    corrida de 12 pacotes.
+  - **Pula por CONTAGEM de pacotes, não por tempo.** O MKV guarda ms e
+    arredonda diferente nos dois arquivos; comparar timestamp erraria por
+    1 tique na borda (um pacote a mais ou a menos).
+  - **Faixa de áudio MUDA casa em dezenas de lugares** (todo pacote AAC de
+    silêncio é igual). Estimar pelo vídeo errava por um quadro de AAC —
+    medido: um pacote sobrando ou faltando em 5 de 8 emendas simuladas.
+    A saída: o deslocamento de uma faixa COM som que casou num lugar só
+    vale pra todas, porque saem do mesmo mixer nos mesmos instantes e os
+    dois arquivos cortam todas juntas. Depois disso: 0 pacote errado e
+    0 ms de erro em 24 emendas simuladas sobre 3 gravações reais (até 18
+    min, 6 faixas, 284 mil pacotes).
+  - **Tela parada pode ter keyframes idênticos**, e aí o vídeo casa em
+    mais de um lugar. Desempate: o 1º candidato depois do instante em que a
+    gravação começou, que é o fim do trecho menos o `ALeadMs` (quanto a
+    gravação já tinha andado quando o trecho fechou, medido no
+    `CommitReplaySave`).
+  - **Sem ponto de encontro, NÃO emenda às cegas**: o trecho vira uma
+    gravação própria ao lado (`<nome> (buffer).mkv`) e a UI avisa. Nada se
+    perde, só não sai junto.
+  - **O stop espera o trecho.** Se a gravação para antes de o trecho do
+    buffer terminar de ser escrito, o `FinalizeStop` solta só a saída da
+    gravação e mantém `FStopping` até o "saved" (`EndPrefix`): liberar
+    tudo derrubaria a saída do buffer no meio do arquivo. Por isso o
+    `OnStopped` só chega ao Bridge com o trecho já resolvido.
+  Custos aceitos: a gravação herda o keyframe de 1 s do buffer (arquivo um
+  pouco maior), e a emenda reescreve o arquivo inteiro na velocidade do
+  disco ao parar — o card aparece quando ela termina. O relógio da
+  gravação (tela, indicador, duração) já começa no que o buffer tinha.
+  **Fica fora**: auto-gravação por microfone (usa OUTRO perfil de
+  dispositivos, portanto outra cena — `BuildAndStartRecording(…, True)`)
+  e um "salvar trecho" ainda em curso (o `GReplaySaving` está ocupado).
+  Nesses casos, e com a opção desligada, vale a regra antiga: um de cada
+  vez — gravar DESCARTA o buffer (os dois montam o mesmo grafo,
+  `BuildCaptureGraph`, que reseta o vídeo com o canvas calculado).
+  Em todos os casos o buffer religa sozinho ao fim da gravação se
+  `ReplayWanted`, e religa por ÚLTIMO no `OnEngineRecordingStopped`,
   porque montar o grafo reseta o `CurrentLayout` que a meta da gravação
-  recém-terminada ainda lê.
+  recém-terminada ainda lê (na emenda, o layout é lido ANTES de religar).
 - **Trocar monitor/webcam descarta o conteúdo** (`RestartReplayForSourceChange`):
   o canvas muda, e um trecho não pode mudar de resolução no meio. Áudio
   não: mudo é só `SetSourceMuted`, como na gravação.
@@ -3077,6 +3214,7 @@ Regras de convivência:
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>_aN.m4a` | Audio track isolada N, **N≥1** (libavformat extract) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.transcript.json` | Resposta inteira da Transcritor API (turnos, segmentos, palavras) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.txt` | Só o texto puro da transcrição — é o que a BUSCA lê |
+| `%LOCALAPPDATA%\NoOBS\asr\` | Motor local (pegadinha #60t): `audiocpp\` (servidor), `models\` (os dois `.gguf`), `server.json` (reescrito a cada subida, porta livre), `audiocpp.log` (stdout/stderr do servidor), `instalado.json` (só existe com tudo conferido) |
 | `%LOCALAPPDATA%\NoOBS\transcribe-queue.json` | Fila de transcrição pendente (item em curso primeiro), restaurada no próximo início do modo full (pegadinha #60n) |
 
 `<hash>` = primeiros 10 bytes hex do SHA1 do path original.
@@ -3125,12 +3263,15 @@ recuperáveis manualmente).
 | `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). As ROTAS são fixas (`/jobs`, `/health`) — só o host é configurável |
 | `transcribePerTrack`             | `true` / `false` (default **`true`**) — manda as faixas de áudio ISOLADAS pra transcrição, uma por vez, em vez da mistura. Dá atribuição de falante pelo nome do dispositivo, e custa N transcrições por gravação; só entra em ação com 2+ faixas isoladas. Só existe como chave do JSON, sem controle na UI (pegadinha #60j) |
 | `transcribeLanguage`             | `"app"` (default; vazio vale o mesmo) = idioma da interface do NoOBS; `"auto"` = a API detecta; ou código ISO (`pt`, `en`…). Seletor na aba Transcrição. **Detectar é o que fazia a transcrição sair TRADUZIDA** (pegadinha #60m) |
+| `transcribeEngine`               | `"server"` (default) = Transcritor API no `transcribeHost`; `"local"` = OBSLocalAsr na GPU desta máquina. Instalar o motor local troca pra `"local"`; remover volta pra `"server"` |
+| `localAsrBackend` / `localAsrDevice` | Detectados na instalação pelo `audiocpp_cli --list-devices`: `"vulkan"` + nome da GPU, ou `"cpu"` + vazio (sem Vulkan, ~10× mais lento) |
 | `transcribeOnStop`               | `true` / `false` (default **`true`**) — enfileira a gravação na transcrição assim que ela termina. Com o servidor fora do ar o item espera na fila persistida (pegadinha #60n) |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |
 | `replayAutoStart`                | `true` / `false` (default `false`) — liga o buffer em memória sozinho no warmup. É a ÚNICA chave do buffer que persiste: o botão da tela principal vale só pra sessão (`ReplayWanted`, pegadinha #62). Ligada, ela também **cancela o desvio pra hibernação** do `/autostart` no boot — senão o app subiria sem libobs e a preferência nunca valeria (pegadinha #62) |
+| `replayIntoRecording`           | `true` / `false` (default **`true`**) — gravar com o buffer ligado começa pelo que ele guardou: a gravação se pendura nos encoders do buffer e os dois arquivos são emendados ao parar (pegadinha #62). Desligado, o buffer é descartado ao gravar |
 | `replayMaxSec`                   | `10..3600` (default `300`) — quanto tempo o buffer guarda. Vale a partir da próxima rotação (sem `update` na saída) |
 | `replayMaxMb`                    | `128..(RAM instalada − 4 GB)` (default `2048`) — teto de memória do buffer; o que estourar primeiro (tempo ou memória) descarta o trecho mais antigo. O clamp por RAM (`ReplayMemLimitMb`) vale também pro JSON editado a mão: acima disso a máquina pagina, e no limite a libobs **morre** — o `bmalloc` dela chama `bcrash` em vez de tratar falta de memória (`libobs/util/bmem.c:112`) |
 | `replayHotkey`                   | atalho de salvar o trecho (default `"Ctrl+Shift+F10"`); só registrado com o buffer ativo, e não pode repetir o de gravar |

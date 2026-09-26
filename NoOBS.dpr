@@ -49,6 +49,8 @@ uses
   OBSSingleInstance in 'src\OBSSingleInstance.pas',
   OBSStartupCheck in 'src\OBSStartupCheck.pas',
   OBSTranscribe in 'src\OBSTranscribe.pas',
+  OBSLocalAsr in 'src\OBSLocalAsr.pas',
+  OBSNumbersPt in 'src\OBSNumbersPt.pas',
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',
   WinAudioMeter in 'src\WinAudioMeter.pas',

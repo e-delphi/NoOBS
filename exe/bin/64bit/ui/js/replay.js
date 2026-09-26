@@ -19,7 +19,8 @@ const Replay = {
   // enabled = ligado NESTA sessao (o botao da tela principal);
   // autoStart = ligar sozinho ao abrir o app (Configuracoes). Sao duas
   // coisas distintas de proposito — ver HandleSetReplayAutoStart.
-  state: { enabled: false, autoStart: false, active: false, saving: false,
+  state: { enabled: false, autoStart: false, intoRecording: true,
+           active: false, saving: false,
            sinceMs: 0, maxSec: 300, maxMb: 2048, maxMbLimit: 2048, hotkey: '',
            apps: '', indicator: true, indicatorCorner: 'top-right',
            indicatorOpacity: 90 },
@@ -171,6 +172,11 @@ const Replay = {
   onAutoStartChange(on) {
     Bridge.send('set_replay_autostart', { autoStart: !!on });
   },
+  // Gravar com o buffer ligado comeca pelo que ele guardou (o backend emenda
+  // os dois arquivos no fim). Vale a partir da proxima gravacao.
+  onIntoRecordingChange(on) {
+    Bridge.send('set_replay_into_recording', { enabled: !!on });
+  },
 
   // Programas que ligam o buffer sozinho (WinProcWatch no backend).
   onAppsChange(v) {
@@ -221,6 +227,9 @@ const Replay = {
   loadIntoSettings() {
     const auto = document.getElementById('settingsReplayAutoStart');
     if (auto) auto.checked = !!this.state.autoStart;
+    const into = document.getElementById('settingsReplayIntoRecording');
+    // Padrao ligado: so fica desmarcado se o backend disser false.
+    if (into) into.checked = this.state.intoRecording !== false;
     const apps = document.getElementById('settingsReplayApps');
     // NAO sobrescreve enquanto o usuario digita: o push chega a qualquer
     // momento (mesma armadilha da pegadinha #56).
@@ -283,6 +292,8 @@ const Replay = {
   restoreDefaults() {
     const auto = document.getElementById('settingsReplayAutoStart');
     if (auto && auto.checked) { auto.checked = false; this.onAutoStartChange(false); }
+    const into = document.getElementById('settingsReplayIntoRecording');
+    if (into && !into.checked) { into.checked = true; this.onIntoRecordingChange(true); }
     // Indicador volta ligado (padrao) e a lista de programas fica VAZIA: e
     // uma escolha do usuario, nao uma preferencia com padrao sensato.
     const ind = document.getElementById('settingsReplayIndicator');

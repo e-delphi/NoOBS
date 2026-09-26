@@ -680,3 +680,148 @@ const TranscribeSetup = {
     }
   }
 };
+
+
+// =====================================================================
+// Motor local (aba Configurações → Transcrição)
+// =====================================================================
+// "Onde transcrever": nesta máquina (OBSLocalAsr — Qwen3 + audio.cpp na
+// placa de vídeo, instalado por aqui, sem Docker) ou num servidor da
+// Transcritor API. O estado da instalação é do backend (local_asr_state);
+// aqui só se desenha.
+//
+// O RÁDIO segue o fluxo das Configurações: só vale no Salvar (Settings
+// manda set_transcribe_engine). A exceção é o backend trocar sozinho —
+// terminar a instalação liga o motor local, porque quem instala quer usar
+// — e aí o push traz `engine` e o rádio acompanha.
+const LocalAsr = {
+  state: null,        // último local_asr_state
+  _confirmRemove: false,
+
+  apply(data) {
+    this.state = data;
+    if (data.removeRefused)
+      Toast.show(T('settings.transcribe.local.removeBusy'), '', { ttl: 4000, warn: true });
+    // O backend mudou o motor (instalação terminou / motor removido):
+    // o rádio e o "valor salvo" acompanham, senão o próximo Salvar
+    // desfaria a troca.
+    if (data.engine && typeof Settings !== 'undefined' &&
+        data.engine !== Settings.currentTranscribeEngine) {
+      Settings.currentTranscribeEngine = data.engine;
+      this.setEngine(data.engine);
+    }
+    this.render();
+  },
+
+  // Motor marcado na TELA (pode ainda não ter sido salvo).
+  selectedEngine() {
+    const local = document.getElementById('settingsTranscribeEngineLocal');
+    return local && local.checked ? 'local' : 'server';
+  },
+
+  setEngine(engine) {
+    const local = document.getElementById('settingsTranscribeEngineLocal');
+    const server = document.getElementById('settingsTranscribeEngineServer');
+    if (local) local.checked = engine === 'local';
+    if (server) server.checked = engine !== 'local';
+    this.render();
+  },
+
+  onEngineChange() {
+    this._confirmRemove = false;
+    this.render();
+    // Voltou pro servidor: o diagnóstico dele passa a importar de novo.
+    if (this.selectedEngine() === 'server' && typeof TranscribeSetup !== 'undefined')
+      TranscribeSetup.check();
+  },
+
+  install() { Bridge.send('local_asr_install', {}); },
+  cancel()  { Bridge.send('local_asr_cancel', {}); },
+
+  remove() {
+    // Dois cliques: apagar 3,7 GB por engano custaria outro download.
+    if (!this._confirmRemove) {
+      this._confirmRemove = true;
+      this.render();
+      return;
+    }
+    this._confirmRemove = false;
+    Bridge.send('local_asr_remove', {});
+  },
+
+  _size(bytes) {
+    const gb = (bytes || 0) / 1e9;
+    let txt;
+    try {
+      txt = new Intl.NumberFormat(I18n.language || 'pt-BR',
+        { maximumFractionDigits: gb >= 10 ? 0 : 1 }).format(gb);
+    } catch (e) { txt = gb.toFixed(1); }
+    return txt + ' GB';
+  },
+
+  _button(parent, label, onClick) {
+    const btn = document.createElement('button');
+    btn.className = 'settings-btn';
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.onclick = onClick;
+    parent.appendChild(btn);
+    return btn;
+  },
+
+  render() {
+    const isLocal = this.selectedEngine() === 'local';
+    const box = document.getElementById('localAsrBox');
+    const serverBox = document.getElementById('transcribeServerBox');
+    if (serverBox) serverBox.hidden = isLocal;
+    if (!box) return;
+    box.hidden = !isLocal;
+    if (!isLocal) return;
+
+    const status = document.getElementById('localAsrStatus');
+    const detail = document.getElementById('localAsrDetail');
+    const actions = document.getElementById('localAsrActions');
+    const bar = document.getElementById('localAsrBar');
+    const fill = document.getElementById('localAsrFill');
+    const L = (k, a) => T('settings.transcribe.local.' + k, a);
+    const d = this.state || { status: 'missing', total: 0, done: 0 };
+    status.className = 'local-asr-status';
+    status.textContent = '';
+    detail.textContent = '';
+    actions.textContent = '';
+    bar.hidden = true;
+
+    if (d.status === 'installing') {
+      const st = d.stage ? L('stages.' + d.stage) : '';
+      status.textContent = L('installing', { stage: st });
+      bar.hidden = false;
+      const pct = d.total > 0 ? Math.min(100, d.done * 100 / d.total) : 0;
+      fill.style.width = pct.toFixed(1) + '%';
+      detail.textContent = L('progress', { done: this._size(d.done), total: this._size(d.total) }) +
+        ' · ' + L('resumeHint');
+      this._button(actions, L('cancel'), () => this.cancel());
+      return;
+    }
+
+    if (d.status === 'ready') {
+      status.classList.add('ok');
+      status.textContent = d.device ? L('ready', { device: d.device }) : L('readyCpu');
+      detail.textContent = L('readyHow', { size: this._size(d.total) });
+      const btn = this._button(actions,
+        this._confirmRemove ? L('removeConfirm') : L('remove'), () => this.remove());
+      if (this._confirmRemove) btn.classList.add('danger');
+      return;
+    }
+
+    // 'missing' ou 'error': o botão instala — e, depois de uma falha,
+    // RETOMA o que já tinha baixado.
+    if (d.status === 'error') {
+      status.classList.add('fail');
+      status.textContent = L('error', { error: d.error || '' });
+    } else {
+      status.textContent = L('missing');
+    }
+    detail.textContent = L('missingHow', { size: this._size(d.total) });
+    this._button(actions, d.status === 'error' ? L('retry') : L('install'), () => this.install());
+  }
+};

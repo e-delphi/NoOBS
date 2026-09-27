@@ -99,6 +99,13 @@ type
     // Titulo da faixa misturada (vira o nome dela no player e em editores
     // externos). Vazio = sem titulo.
     MixTitle: string;
+    // Encoder de audio da saida, no nome do libavcodec ('libmp3lame').
+    // Vazio = o de sempre: copia as faixas, ou AAC quando mistura. Com ele
+    // preenchido o audio e SEMPRE recodificado (uma faixa so tambem), porque
+    // o container pede outro codec — o caso do .mp3 na exportacao so de audio.
+    AudioCodec: AnsiString;
+    // Taxa do audio recodificado, em bits/s. 0 = MIX_BITRATE.
+    AudioBitrate: Integer;
     // So o audio: nenhum stream de video na saida, e o video da origem nem
     // e decodificado. Regioes, resolucao, fps, encoder e qualidade sao
     // ignorados. Origem sem video (uma exportacao so de audio reexportada)
@@ -976,6 +983,14 @@ var
   AudioOnly: Boolean;
   PktSec: Double;
   Burner: TCaptionBurner;
+  // Fila que refaz os quadros de audio no tamanho que o encoder exige
+  // (ver FifoEmit). So usada com Rechunk (hoje: MP3, 1152 amostras).
+  MixFrameSize: Int64;
+  Rechunk: Boolean;
+  FifoBuf: TArray<TArray<Single>>;   // um plano por canal, FLTP
+  FifoN, FifoCh: Integer;
+  FifoPts: Int64;                    // pts (MixTb) da 1a amostra da fila
+  TplFrame: PAVFrame;                // modelo do ch_layout
 
   procedure ReportProgress(ASec: Double);
   // ASec = posicao dentro do trecho corrente, no tempo do ORIGINAL. O que
@@ -1029,6 +1044,97 @@ var
     end;
   end;
 
+  function FifoEmit(AFinal: Boolean): Boolean;
+  // Tira da fila quadros de EXATAMENTE MixFrameSize amostras e manda pro
+  // encoder. AFinal = fim da exportacao: o que sobrar sai num quadro menor
+  // (o libmp3lame aceita o ultimo quadro curto).
+  //
+  // O quadro e criado aqui — o que a mistura normal evita (pegadinha #51d)
+  // porque exige o ch_layout, que fica fora da parte declarada do AVFrame.
+  // Ele vem copiado do quadro-modelo (TplFrame) pelas posicoes medidas
+  // (OFFS_FRAME_CH_LAYOUT / OFFS_FRAME_SAMPLE_RATE, FFmpegLib).
+  var
+    F: PAVFrame;
+    N, ch, R: Integer;
+  begin
+    Result := True;
+    while (FifoN >= MixFrameSize) or (AFinal and (FifoN > 0)) do
+    begin
+      N := Min(FifoN, Integer(MixFrameSize));
+      F := av_frame_alloc;
+      if F = nil then Exit(False);
+      try
+        F.nb_samples := N;
+        F.format := AV_SAMPLE_FMT_FLTP;
+        PInteger(PByte(F) + OFFS_FRAME_SAMPLE_RATE)^ := MixTb.den;
+        if av_channel_layout_copy(PByte(F) + OFFS_FRAME_CH_LAYOUT,
+             PByte(TplFrame) + OFFS_FRAME_CH_LAYOUT) < 0 then Exit(False);
+        R := av_frame_get_buffer(F, 0);
+        if R < 0 then
+        begin
+          Log('Export: av_frame_get_buffer (audio) falhou (%s).', [AvErrStr(R)]);
+          Exit(False);
+        end;
+        for ch := 0 to FifoCh - 1 do
+          if F.data[ch] <> nil then
+            Move(FifoBuf[ch][0], F.data[ch]^, N * SizeOf(Single));
+        F.pts := FifoPts;
+        R := avcodec_send_frame(MixCtx, F);
+        if R < 0 then
+        begin
+          Log('Export: avcodec_send_frame (audio) falhou (%s).', [AvErrStr(R)]);
+          Exit(False);
+        end;
+      finally
+        av_frame_free(@F);
+      end;
+      // Tira as N amostras da frente da fila.
+      for ch := 0 to FifoCh - 1 do
+        if FifoN > N then
+          Move(FifoBuf[ch][N], FifoBuf[ch][0], (FifoN - N) * SizeOf(Single));
+      Dec(FifoN, N);
+      Inc(FifoPts, N);
+      if not DrainEncoder(MixCtx, OutMixStream, MixTb) then Exit(False);
+    end;
+  end;
+
+  function FifoPush: Boolean;
+  // Poe o acumulador (ja com pts no MixTb) no fim da fila e manda o que
+  // formar quadro inteiro.
+  var
+    ch, N: Integer;
+  begin
+    Result := True;
+    N := AccFrame.nb_samples;
+    if N <= 0 then Exit;
+    if TplFrame = nil then
+    begin
+      // Modelo do layout de canais: o do primeiro quadro que chegou.
+      TplFrame := av_frame_alloc;
+      if (TplFrame = nil) or
+         (av_channel_layout_copy(PByte(TplFrame) + OFFS_FRAME_CH_LAYOUT,
+            PByte(AccFrame) + OFFS_FRAME_CH_LAYOUT) < 0) then Exit(False);
+      FifoCh := 1;
+      while (FifoCh < 8) and (AccFrame.data[FifoCh] <> nil) do Inc(FifoCh);
+      SetLength(FifoBuf, FifoCh);
+    end;
+    if FifoN = 0 then
+    begin
+      if AccFrame.pts <> AV_NOPTS_VALUE then FifoPts := AccFrame.pts;
+    end;
+    for ch := 0 to FifoCh - 1 do
+    begin
+      if Length(FifoBuf[ch]) < FifoN + N then
+        SetLength(FifoBuf[ch], (FifoN + N) * 2);
+      if AccFrame.data[ch] <> nil then
+        Move(AccFrame.data[ch]^, FifoBuf[ch][FifoN], N * SizeOf(Single))
+      else
+        FillChar(FifoBuf[ch][FifoN], N * SizeOf(Single), 0);
+    end;
+    Inc(FifoN, N);
+    Result := FifoEmit(False);
+  end;
+
   function FlushMixFrame: Boolean;
   // Manda o acumulador de audio pro encoder AAC e limpa. O pts vem no
   // time_base da FAIXA de origem (nao no do video): tira o inicio do
@@ -1042,6 +1148,12 @@ var
       AccFrame.pts :=
         av_rescale_q(AccFrame.pts - SecToTs(SegStartSec, MixSrcTb),
                      MixSrcTb, MixTb) + SecToTs(OutOffsetSec, MixTb);
+    if Rechunk then
+    begin
+      Result := FifoPush;
+      av_frame_unref(AccFrame);
+      Exit;
+    end;
     R := avcodec_send_frame(MixCtx, AccFrame);
     av_frame_unref(AccFrame);
     if R < 0 then
@@ -1312,6 +1424,12 @@ begin
   DecCtx := nil;
   EncCtx := nil;
   MixCtx := nil;
+  MixFrameSize := 0;
+  Rechunk := False;
+  FifoN := 0;
+  FifoCh := 0;
+  FifoPts := 0;
+  TplFrame := nil;
   EncPar := nil;
   Pkt := nil;
   EncPkt := nil;
@@ -1603,8 +1721,11 @@ begin
       Tracks[High(Tracks)].DecCtx := nil;
       Tracks[High(Tracks)].Done := False;
     end;
-    // Mixar uma faixa so seria reencode a toa — degrada pra copia.
-    DoMix := AOpts.MixAudio and (Length(Tracks) > 1);
+    // Mixar uma faixa so seria reencode a toa — degrada pra copia. Exceto
+    // com AudioCodec: ai o container nao aceita o AAC da origem (mp3), e o
+    // caminho da mistura e o que decodifica e recodifica.
+    DoMix := (AOpts.MixAudio and (Length(Tracks) > 1)) or
+             ((AOpts.AudioCodec <> '') and (Length(Tracks) > 0));
 
     // ---- output ----
     // Muxer SEMPRE explicito: deduzir do nome do arquivo quebraria com o
@@ -1629,10 +1750,16 @@ begin
 
     if DoMix then
     begin
-      MixEncoder := avcodec_find_encoder_by_name('aac');
+      if AOpts.AudioCodec <> '' then
+        MixEncoder := avcodec_find_encoder_by_name(PAnsiChar(AOpts.AudioCodec))
+      else
+        MixEncoder := avcodec_find_encoder_by_name('aac');
       if MixEncoder = nil then
       begin
-        Log('Export: encoder aac ausente — mixagem desligada.');
+        Log('Export: encoder de audio %s ausente.', [string(AOpts.AudioCodec)]);
+        // Sem o encoder pedido o container nao tem o que receber: copiar o
+        // AAC num .mp3 geraria um arquivo que nada toca.
+        if AOpts.AudioCodec <> '' then Exit(erNoEncoder);
         DoMix := False;
       end;
     end;
@@ -1654,7 +1781,8 @@ begin
         EncPar.codec_id    := MixEncoder.id;
         EncPar.format      := AV_SAMPLE_FMT_FLTP;
         EncPar.sample_rate := MixTb.den;
-        EncPar.bit_rate    := MIX_BITRATE;
+        if AOpts.AudioBitrate > 0 then EncPar.bit_rate := AOpts.AudioBitrate
+        else EncPar.bit_rate := MIX_BITRATE;
         // ch_layout copiado do source. As faixas do OBS sao sempre ordem
         // nativa (mono/estereo), entao copiar o record e seguro — em
         // ordem CUSTOM o campo `u` seria ponteiro e viraria alias.
@@ -1668,12 +1796,23 @@ begin
       Rc := avcodec_open2(MixCtx, MixEncoder, nil);
       if Rc < 0 then
       begin
-        Log('Export: avcodec_open2 (aac) falhou (%s) — mixagem desligada.',
-          [AvErrStr(Rc)]);
+        Log('Export: avcodec_open2 (%s) falhou (%s) — mixagem desligada.',
+          [string(AnsiString(MixEncoder.name)), AvErrStr(Rc)]);
+        if AOpts.AudioCodec <> '' then Exit(erNoEncoder);
         DoMix := False;
       end
       else
       begin
+        // Tamanho de quadro que o encoder exige (definido no open2). O AAC
+        // do OBS decodifica em 1024; o MP3 (libmp3lame) quer 1152 e recusa
+        // outro tamanho a nao ser no ultimo quadro. Diferente de 1024 =>
+        // as amostras passam pela fila que refaz os quadros (FifoPush).
+        MixFrameSize := 0;
+        av_opt_get_int(MixCtx, 'frame_size', 0, @MixFrameSize);
+        Rechunk := (MixFrameSize > 0) and (MixFrameSize <> 1024);
+        if Rechunk then
+          Log('Export: audio em quadros de %d amostras (%s).',
+            [MixFrameSize, string(AnsiString(MixEncoder.name))]);
         OutMixStream := avformat_new_stream(OutCtx, nil);
         if OutMixStream = nil then Exit;
         if avcodec_parameters_from_context(OutMixStream.codecpar, MixCtx) < 0 then
@@ -1924,6 +2063,8 @@ begin
     end;
     if DoMix then
     begin
+      // O que sobrou na fila sai num ultimo quadro curto.
+      if Rechunk and (not FifoEmit(True)) then Exit(erError);
       avcodec_send_frame(MixCtx, nil);
       DrainEncoder(MixCtx, OutMixStream, MixTb);
     end;
@@ -1947,6 +2088,7 @@ begin
         try sws_freeContext(Regs[i].Sws); except end;
     if NormSws <> nil then try sws_freeContext(NormSws); except end;
     if AccFrame <> nil then av_frame_free(@AccFrame);
+    if TplFrame <> nil then av_frame_free(@TplFrame);
     if OutFrame <> nil then av_frame_free(@OutFrame);
     if NormFrame <> nil then av_frame_free(@NormFrame);
     if Frame <> nil then av_frame_free(@Frame);

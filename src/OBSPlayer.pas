@@ -992,7 +992,7 @@ begin
   // o tipo certo. video/x-matroska pra .mkv, video/mp4 pra .mp4 etc.
   ExtKind := IndexStr(LowerCase(ExtractFileExt(AFilePath)),
                 ['.mp4', '.m4v', '.mkv', '.webm', '.mov', '.jpg',
-                 '.jpeg', '.png', '.m4a', '.aac']);
+                 '.jpeg', '.png', '.m4a', '.aac', '.mp3']);
   case ExtKind of
     0, 1: AResp.ContentType := 'video/mp4';
     2:    AResp.ContentType := 'video/x-matroska';
@@ -1002,6 +1002,7 @@ begin
     7:    AResp.ContentType := 'image/png';
     8:    AResp.ContentType := 'audio/mp4';
     9:    AResp.ContentType := 'audio/aac';
+    10:   AResp.ContentType := 'audio/mpeg';
   else
     AResp.ContentType := 'application/octet-stream';
   end;

@@ -178,6 +178,7 @@
     "canceling": "Cancelando…",
     "container": "Formato",
     "containerHintMp4": "MP4 abre em qualquer player, site ou celular. Salvo na pasta de gravações.",
+    "containerHintMp3": "Só áudio sai em MP3, que abre em qualquer aparelho. MP3 guarda uma faixa só: com o áudio original vai a mistura de todas, e faixas escolhidas uma a uma são juntadas. A qualidade é a da aba Áudio das Configurações.",
     "containerHintMkv": "MKV é o formato nativo do app e aguenta HEVC/AV1 sem problema, mas nem todo player ou site aceita. Salvo na pasta de gravações.",
     "rangeHint": "Arraste na barra para mover o cursor; use a roda do mouse sobre ela (ou Ctrl + + / Ctrl + −) para aproximar e acertar o segundo exato. \"Dividir aqui\" corta no ponto do cursor; \"Remover divisão\" desfaz a divisão mais próxima (destacada em vermelho); \"Tirar trecho\" remove do vídeo final o trecho onde o cursor está. Os trechos mantidos são emendados na ordem, sem buraco.",
     "cutHere": "Dividir aqui",

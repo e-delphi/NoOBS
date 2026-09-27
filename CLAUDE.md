@@ -378,7 +378,9 @@ User clica Exportar → `export_recording`:
     arredondamento par). Por isso o FFmpegExport não mudou nada: é o
     mesmo crop por offset de ponteiro que as regiões de monitor usam.
   • Container: 'mp4' (default) ou 'mkv' — vira o nome do muxer e a extensão
-    do arquivo final. A saída é escrita num "<final>.part" (pegadinha #51e).
+    do arquivo final. Sem tela (`noVideo`) é SEMPRE 'mp3', recodificado com
+    libmp3lame (pegadinha #51j). A saída é escrita num "<final>.part"
+    (pegadinha #51e).
   • Worker → FFmpegExport.ExportVideo, UM PASSE POR TRECHO:
     - a cada trecho: seek pro keyframe anterior + `avcodec_flush_buffers`
       em TODOS os decoders (sem isso o decoder tentaria continuar de
@@ -415,6 +417,12 @@ User clica Exportar → `export_recording`:
     pacote, então ainda chegam progressos no intervalo, e sem a marca
     `canceling` o texto voltaria pro percentual e pareceria que o clique
     não pegou.
+  • Fechar a tela E a janela (bandeja) NÃO pode hibernar o app: hibernar
+    é sair do processo, e a worker morre junto — a exportação sumia sem
+    aviso, deixando só um `.part` órfão. O `TIMER_HIBERNATE_IDLE` RE-ARMA
+    enquanto houver `ExportBusy`, emenda do buffer (`SpliceBusy`) ou
+    instalação do motor local (`lasInstalling`). Regra geral: **todo
+    trabalho longo em worker do processo full entra nessa checagem.**
   • Enquanto exporta, o ARQUIVO DE ORIGEM não pode ser excluído, renomeado,
     moldado nem unido — `ExportInUse` no backend recusa, e a UI bloqueia
     antes (o delete dela é OTIMISTA: tira o card antes da resposta, então
@@ -1709,6 +1717,42 @@ pelos caracteres (a regra do `Player._captionChunks`). Três detalhes:
 
 Falhar ao criar o GDI não derruba a exportação: o vídeo sai sem legenda e
 o log diz por quê. E os turnos vêm do cache (`LoadCaptionTurns`), nunca da UI.
+
+**j) Só áudio sai em MP3 — e o MP3 exige quadros de 1152, não 1024.**
+Sem tela nenhuma (`noVideo`) o `HandleExportRecording` troca o container
+por `mp3` e pede `AudioCodec = libmp3lame` na taxa da aba Áudio
+(`GetAudioBitrateKbps`). Um `.mp4` só com som parece vídeo quebrado em
+muito player; `.mp3` abre em qualquer lugar. Três consequências:
+
+- **O AAC da gravação não cabe num `.mp3`**, então o áudio é SEMPRE
+  recodificado — o `DoMix` liga mesmo com uma faixa só (é o caminho que
+  decodifica e recodifica). Sem o encoder pedido a exportação devolve
+  `erNoEncoder`, nunca copia AAC num `.mp3` que nada tocaria.
+- **MP3 guarda UMA faixa.** Com "áudio original" (ou a mistura marcada) vai
+  só a mistura, que já contém todas; isoladas escolhidas uma a uma são
+  somadas pela própria mixagem.
+- **O `libmp3lame` recusa quadro que não seja de `frame_size` = 1152**
+  (só o último pode ser curto: `SMALL_LAST_FRAME`, sem
+  `VARIABLE_FRAME_SIZE`), e o AAC do OBS decodifica em 1024. Uma fila
+  (`FifoPush`/`FifoEmit`) junta as amostras e emite quadros do tamanho
+  exigido — ligada só quando o `frame_size` do encoder (lido com
+  `av_opt_get_int` depois do `avcodec_open2`) é diferente de 1024, então o
+  AAC da mistura normal segue o caminho de sempre.
+  Emitir quadro próprio é justamente o que a #51d evitava (o `ch_layout`
+  fica fora da parte declarada do `AVFrame`). Aqui não dá pra adotar o
+  quadro do decoder — o tamanho é outro —, então o `ch_layout` e o
+  `sample_rate` são escritos pelas posições MEDIDAS no avutil-59
+  (`OFFS_FRAME_CH_LAYOUT = 408`, `OFFS_FRAME_SAMPLE_RATE = 192`, em
+  `FFmpegLib`): decodificando AAC de uma gravação real e procurando
+  `{order=1, nb_channels=2, mask=3}` e `48000` na memória do quadro — e
+  batem com a conta sobre o `frame.h` do 7.x. Validado fora do app com as
+  mesmas DLLs: 10,01 s de AAC → 417 quadros de 1152 → `.mp3` que
+  decodifica de volta com EXATAMENTE as mesmas 480.256 amostras.
+  Subindo o avutil de major (59 → 60), revalide as duas posições como as
+  da #26.
+
+A biblioteca passou a listar `.mp3` (`RECORDING_EXTS`) — senão o arquivo
+exportado nem aparecia — e o `OBSPlayer` o serve como `audio/mpeg`.
 
 **Bônus, e é o erro mais fácil de cometer:** as caps de encoder do
 `OBSEncoder.DetectEncoderCaps` são do **libobs** (`av1_texture_amf`,

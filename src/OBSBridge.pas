@@ -344,8 +344,10 @@ const
   // Extensoes de video reconhecidas como gravacao. Fonte unica usada por
   // ListRecordings e pela whitelist de open_recording (pegadinha de
   // seguranca: nao deixar a UI mandar ShellExecute('open') num .exe).
-  RECORDING_EXTS: array[0..6] of string = (
-    '.mkv', '.mp4', '.mov', '.m4v', '.ts', '.flv', '.webm');
+  // '.mp3' entrou pela exportacao so de audio: sem ele o arquivo exportado
+  // nem aparecia na biblioteca.
+  RECORDING_EXTS: array[0..7] of string = (
+    '.mkv', '.mp4', '.mov', '.m4v', '.ts', '.flv', '.webm', '.mp3');
 
 type
   // Trigger periodico pra captura de thumbnails. Roda em thread propria
@@ -3490,6 +3492,12 @@ begin
     try OBSTranscribe.Enqueue(AKeptPath); except end;
 end;
 
+var
+  // Emendas em curso (worker do FinishRecordingWithPrefix). So a main mexe:
+  // sobe antes de a worker nascer e desce no Queue de volta. O timer de
+  // hibernacao le isto — hibernar no meio mataria a emenda.
+  SpliceBusy: Integer = 0;
+
 procedure FinishRecordingWithPrefix(const ARecPath, APrefixPath: string;
   ALeadMs: Integer);
 // Emenda o trecho do buffer (APrefixPath, na pasta temporaria) com a gravacao
@@ -3518,6 +3526,7 @@ begin
   Suffix := OBSLang.T('replay.prefixFileSuffix');
   Log('Buffer: emendando o comeco guardado em "%s".', [ARecPath]);
 
+  Inc(SpliceBusy);
   TThread.CreateAnonymousThread(
     procedure
     var
@@ -3602,6 +3611,7 @@ begin
       TThread.Queue(nil,
         procedure
         begin
+          Dec(SpliceBusy);
           FinishSplicedRecording(ARecPath, Kept, Replaced, Dur, PrefixSec, Meta);
         end);
     end).Start;
@@ -8166,7 +8176,23 @@ begin
 
   // Container: MP4 (default, mais compativel) ou MKV. O muxer vai
   // explicito pro FFmpegExport — nada e deduzido da extensao.
-  if LowerCase(GetStrField(AObj, 'container', 'mp4')) = 'mkv' then
+  //
+  // So audio sai em MP3, que abre em qualquer lugar (um .mp4 so com som
+  // parece video quebrado em muito player). O AAC da gravacao nao cabe num
+  // .mp3, entao o audio e recodificado com o libmp3lame, na taxa da aba
+  // Audio. E MP3 guarda UMA faixa: com o audio original (ou a mistura
+  // marcada) vai a mistura, que ja contem todas; faixas isoladas escolhidas
+  // sao misturadas numa so pelo proprio caminho de recodificacao.
+  if Opts.NoVideo then
+  begin
+    Opts.Container := AnsiString('mp3');
+    Ext := '.mp3';
+    Opts.AudioCodec := AnsiString('libmp3lame');
+    Opts.AudioBitrate := GetAudioBitrateKbps * 1000;
+    if (MixTrackIdx >= 0) and (OriginalAudio or HasFirst) then
+      Opts.AudioStreams := [MixTrackIdx];
+  end
+  else if LowerCase(GetStrField(AObj, 'container', 'mp4')) = 'mkv' then
   begin
     Opts.Container := AnsiString('matroska');
     Ext := '.mkv';
@@ -8945,6 +8971,22 @@ begin
     begin
       Log('TIMER_HIBERNATE_IDLE: transcrevendo (%d na fila), hibernacao adiada.',
         [OBSTranscribe.QueueLength]);
+      SetTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE,
+        HIBERNATE_IDLE_DELAY_MS, nil);
+      Exit;
+    end;
+    // Trabalho longo em WORKER deste processo: exportacao, emenda do buffer
+    // com a gravacao, instalacao do motor local. Hibernar e sair do
+    // processo — a worker morre junto e o trabalho se perde sem aviso (a
+    // exportacao deixava so um .part orfao). Re-arma pelo mesmo motivo da
+    // transcricao: terminou, a proxima verificacao hiberna.
+    if ExportBusy or (SpliceBusy > 0) or
+       (OBSLocalAsr.GetState.Status = lasInstalling) then
+    begin
+      Log('TIMER_HIBERNATE_IDLE: trabalho em andamento (exportacao=%s, ' +
+        'emenda=%d, instalacao=%s), hibernacao adiada.',
+        [BoolToStr(ExportBusy, True), SpliceBusy,
+         BoolToStr(OBSLocalAsr.GetState.Status = lasInstalling, True)]);
       SetTimer(MainWindowHandle, TIMER_HIBERNATE_IDLE,
         HIBERNATE_IDLE_DELAY_MS, nil);
       Exit;

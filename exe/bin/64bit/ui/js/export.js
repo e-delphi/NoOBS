@@ -139,7 +139,8 @@ const Export = {
     if (msg) msg.textContent = T('export.previewLoading');
 
     this._renderEncoders();
-    this._syncContainerHint();
+    // A exportacao anterior pode ter sido so audio (seletor travado em MP3).
+    this._syncContainerForAudio();
     this._syncRunButton();
     this._wirePreview();
     this._syncPlayButtons();
@@ -935,6 +936,27 @@ const Export = {
       if (el.id === 'exportCaptionsField') return;
       el.querySelectorAll('input, select').forEach(i => { i.disabled = off; });
     });
+    this._syncContainerForAudio();
+  },
+
+  // So audio sai em MP3 — decisao do backend (HandleExportRecording), aqui
+  // so espelhada: o seletor mostra MP3 travado e, ao voltar a ter tela,
+  // devolve o formato de video que estava escolhido.
+  _syncContainerForAudio() {
+    const sel = document.getElementById('exportContainer');
+    if (!sel) return;
+    const mp3 = sel.querySelector('option[value="mp3"]');
+    if (this.noVideo) {
+      if (sel.value !== 'mp3') this._videoContainer = sel.value;
+      if (mp3) mp3.hidden = false;
+      sel.value = 'mp3';
+      sel.disabled = true;
+    } else {
+      if (mp3) mp3.hidden = true;
+      if (sel.value === 'mp3') sel.value = this._videoContainer || 'mp4';
+      sel.disabled = false;
+    }
+    this._syncContainerHint();
   },
 
   // ---- composicao na previa ------------------------------------------
@@ -2216,6 +2238,7 @@ const Export = {
     if (!el) return;
     const v = document.getElementById('exportContainer').value || 'mp4';
     el.textContent = T(v === 'mkv' ? 'export.containerHintMkv'
+                     : v === 'mp3' ? 'export.containerHintMp3'
                                    : 'export.containerHintMp4');
   },
 

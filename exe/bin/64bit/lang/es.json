@@ -178,6 +178,7 @@
     "canceling": "Cancelando…",
     "container": "Formato",
     "containerHintMp4": "MP4 se abre en cualquier reproductor, web o móvil. Se guarda en la carpeta de grabaciones.",
+    "containerHintMp3": "Solo audio se guarda en MP3, que se abre en cualquier dispositivo. MP3 guarda una sola pista: con el audio original va la mezcla de todas, y las pistas elegidas una a una se juntan. La calidad es la de la pestaña Audio de la Configuración.",
     "containerHintMkv": "MKV es el formato nativo de la app y admite HEVC/AV1 sin problema, pero no todos los reproductores o webs lo aceptan. Se guarda en la carpeta de grabaciones.",
     "rangeHint": "Arrastra en la barra para mover el cursor; usa la rueda del ratón sobre ella (o Ctrl + + / Ctrl + −) para acercar y acertar el segundo exacto. \"Dividir aquí\" corta en el cursor; \"Quitar división\" deshace la división más cercana (resaltada en rojo); \"Quitar fragmento\" saca del vídeo final el fragmento donde está el cursor. Los fragmentos que quedan se unen en orden, sin hueco.",
     "cutHere": "Dividir aquí",

@@ -244,6 +244,15 @@ const
   // encoder 'aac' — por isso a mixagem de faixas nao precisa de swresample.
   AV_SAMPLE_FMT_FLTP = 8;
 
+  // Campos do AVFrame FORA da parte declarada (avutil-59 / FFmpeg 7.x,
+  // Win64). Medidos decodificando AAC de uma gravacao real e procurando os
+  // valores na memoria do quadro — batem com a conta sobre o frame.h do 7.x
+  // (sample_rate logo depois de palette_has_changed; ch_layout depois de
+  // private_ref). NAO sao ABI-estaveis: revalidar se o avutil subir de
+  // major (59 -> 60), como os offsets da pegadinha #26.
+  OFFS_FRAME_SAMPLE_RATE = 192;   // int
+  OFFS_FRAME_CH_LAYOUT   = 408;   // AVChannelLayout (24 bytes)
+
   // AVPictureType — NONE deixa o encoder decidir o tipo do quadro.
   AV_PICTURE_TYPE_NONE = 0;
 
@@ -366,6 +375,13 @@ function av_opt_set_q(obj: Pointer; name: PAnsiChar; val: AVRational;
   search_flags: Integer): Integer; cdecl; external LIB_AVUTIL delayed;
 function av_opt_set(obj: Pointer; name: PAnsiChar; val: PAnsiChar;
   search_flags: Integer): Integer; cdecl; external LIB_AVUTIL delayed;
+// Le uma opcao inteira (ex.: 'frame_size' do AVCodecContext, que o encoder
+// define no avcodec_open2 e que fica fora da parte declarada do struct).
+function av_opt_get_int(obj: Pointer; name: PAnsiChar; search_flags: Integer;
+  out_val: PInt64): Integer; cdecl; external LIB_AVUTIL delayed;
+// Copia um AVChannelLayout (aloca o mapa se a ordem for CUSTOM).
+function av_channel_layout_copy(dst, src: Pointer): Integer; cdecl;
+  external LIB_AVUTIL delayed;
 
 // ---------------------------------------------------------------------
 // avcodec — packet, frame, decode/encode

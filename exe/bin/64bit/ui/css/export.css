@@ -76,7 +76,11 @@
 }
 
 .export-field + .export-field { margin-top: 16px; }
-.export-field > label,
+/* So o TITULO do campo. Sem o :not, a regra (mais especifica que a
+   .export-check) pegava tambem as caixas soltas direto no campo — "Manter
+   o audio original", "Juntar as faixas", "Gravar a legenda" — e trocava o
+   inline-flex delas por block: caixa e texto desalinhados, texto em negrito. */
+.export-field > label:not(.export-check),
 .export-section-title {
   display: block;
   font-size: 12px;

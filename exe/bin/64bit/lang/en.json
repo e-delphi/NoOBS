@@ -178,6 +178,7 @@
     "canceling": "Canceling…",
     "container": "Format",
     "containerHintMp4": "MP4 opens in any player, site or phone. Saved to the recordings folder.",
+    "containerHintMp3": "Audio only is saved as MP3, which plays anywhere. MP3 holds a single track: with the original audio you get the mix of all of them, and tracks picked one by one are merged. Quality follows the Audio tab in Settings.",
     "containerHintMkv": "MKV is the app's native format and handles HEVC/AV1 fine, but not every player or site accepts it. Saved to the recordings folder.",
     "rangeHint": "Drag on the bar to move the cursor; use the mouse wheel over it (or Ctrl + + / Ctrl + −) to zoom in and hit the exact second. \"Split here\" cuts at the cursor; \"Remove split\" undoes the nearest split (highlighted in red); \"Drop segment\" removes the segment under the cursor from the final video. Kept segments are joined in order, with no gap.",
     "cutHere": "Split here",

@@ -52,6 +52,19 @@ function GetEncoderMaxDimension: Integer;
 // o CRF dele.
 function GetRecordingQualityLevel: Integer;
 
+// Taxa de bits do AAC de CADA faixa de audio da gravacao (kbps), lida de
+// 'audioBitrate' e encaixada no degrau mais proximo de AUDIO_BITRATES.
+// Fonte unica: o encoder de audio e o push pra UI leem daqui.
+function GetAudioBitrateKbps: Integer;
+function NormalizeAudioBitrate(AKbps: Integer): Integer;
+
+const
+  // Degraus oferecidos. O ffmpeg_aac aceita 64..1024 (passo 32), mas acima
+  // de 320 o AAC estereo nao tem mais o que ganhar, e abaixo de 96 a voz
+  // ja fica abafada — o degrau de 64 so serviria pra faixa mono.
+  AUDIO_BITRATES: array[0..5] of Integer = (96, 128, 160, 192, 256, 320);
+  AUDIO_BITRATE_DEFAULT = 192;
+
 // Traduz um ID de encoder do libobs ('av1_texture_amf', 'obs_x264',
 // 'ffmpeg_svt_av1', ...) no rotulo curto de familia que a UI mostra
 // ('AV1', 'H.264', 'HEVC') e se e hardware. Serve pra registrar na meta
@@ -300,6 +313,24 @@ function QualityLevelToCrf(ALevel: Integer): Integer;
 begin
   if (ALevel < 0) or (ALevel > 10) then ALevel := 5;   // 5 = padrao
   Result := Q_X264[ALevel];
+end;
+
+function NormalizeAudioBitrate(AKbps: Integer): Integer;
+var
+  i: Integer;
+begin
+  // Degrau mais proximo; 0/negativo (chave ausente, JSON editado) = padrao.
+  if AKbps <= 0 then Exit(AUDIO_BITRATE_DEFAULT);
+  Result := AUDIO_BITRATES[0];
+  for i := 1 to High(AUDIO_BITRATES) do
+    if Abs(AUDIO_BITRATES[i] - AKbps) < Abs(Result - AKbps) then
+      Result := AUDIO_BITRATES[i];
+end;
+
+function GetAudioBitrateKbps: Integer;
+begin
+  Result := NormalizeAudioBitrate(
+    GetConfigInt('audioBitrate', AUDIO_BITRATE_DEFAULT));
 end;
 
 function GetRecordingQualityLevel: Integer;

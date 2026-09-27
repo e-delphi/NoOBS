@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (14 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (15 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -85,6 +85,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSEngine`         | Motor de gravação: init libobs, scene, sources, output MKV (TOBSEngine class)      |
 | `OBSEncoder`        | Detecção/seleção de encoder de vídeo (AV1/HEVC/H264 hw, x264 sw)                   |
 | `OBSAudioTracks`    | `ComputeAudioTrackAssignments` (single source of truth) + `BuildTrackNames` + enum de devices via obs_properties |
+| `OBSAudioFilters`   | Filtros de áudio do plugin `obs-filters` nos MICROFONES: lista os tipos de áudio registrados, descreve as propriedades num JSON genérico (a UI monta o editor), guarda em `audioFilters`, pendura a cadeia em cada mic (`ApplyAudioFilters`) e faz o teste A/B (duas capturas do mesmo mic, crua e filtrada) — pegadinha #63 |
 | `OBSScene`          | Tipos puros (TOBSMonitor, TAudioDevice) + `ComputeCanvas` + `FilterEnabledMonitors`|
 | `OBSStartupCheck`   | Valida presença de obs.dll, libav, WebView2 antes de criar janela                  |
 | `OBSRtwq`           | `RtwqStartup`/`RtwqShutdown` da plataforma RTWQ no arranque/saída — o win-wasapi depende disso pra capturar (Pegadinha #48) |
@@ -112,9 +113,9 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
-recordings, player, export, settings, widgets) e `js/` (14 módulos: i18n,
+recordings, player, export, settings, widgets) e `js/` (15 módulos: i18n,
 bridge, displays, recordings, folders, record, widgets, hotkey, settings,
-player, export, transcribe, replay, main), além
+audiofilters, player, export, transcribe, replay, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -623,7 +624,14 @@ Plugins carregados (whitelist em `OBSEngine.LoadModules.WANTED`):
 `obs-ffmpeg` (encoder áudio + muxer MKV), `obs-x264` (CPU encoder
 fallback), `obs-nvenc` (HEVC/H264 NVIDIA, opcional), `win-capture`
 (monitor_capture), `win-dshow` (webcam), `win-wasapi` (mics +
-speakers loopback).
+speakers loopback), `obs-filters` (filtros de áudio dos microfones —
+opcional: sem ele a aba Áudio só não lista filtros; pegadinha #63).
+
+O `obs-filters.dll` NÃO vinha no runtime: o `clean-obs.bat` o removia junto
+com os plugins de cena. Hoje ele fica (dele só saem os LUTs/`.effect` de
+vídeo). Pra repor num runtime limpo: `obs-plugins/64bit/obs-filters.dll` +
+`data/obs-plugins/obs-filters/locale/*.ini` do zip do OBS da MESMA versão
+da `obs.dll` (32.1.2).
 
 Usa `obs_open_module` + `obs_init_module` por plugin (não
 `obs_load_all_modules`) — assim filtra plugins problemáticos como
@@ -1653,8 +1661,14 @@ grava pro arquivo final:
 - **Transcrição** por `OBSTranscribe.ExportTranscript`: turnos, segmentos
   e palavras remapeados pro relógio do arquivo novo (trechos mantidos
   emendados sem buraco, a mesma linha do tempo que a exportação produz);
-  o que cai fora dos trechos sai, o que atravessa um corte fica aparado, e
-  o `.txt` da busca é remontado dos turnos que ficaram. SÓ vai se o áudio
+  o que cai fora dos trechos sai, e o `.txt` da busca é remontado dos
+  turnos que ficaram. Turno que um corte PARTE (começa antes, termina
+  depois, ou atravessa um trecho tirado) vira um turno por pedaço mantido,
+  e o TEXTO de cada pedaço sai só das palavras que caíram nele — aparar só
+  o tempo deixava o arquivo novo "dizendo" o que foi cortado. O lado de
+  cada palavra: com palavras alinhadas (caminho da mistura), o meio da
+  palavra; sem elas (transcrição por faixa, que só guarda turnos), o tempo
+  do turno dividido pelos caracteres — a regra da legenda. SÓ vai se o áudio
   ainda for o transcrito — a mistura, ou TODAS as isoladas (`keepTranscript`,
   a UI decide porque é ela que sabe quantas faixas existem). Tirando uma
   isolada, a transcrição falaria de quem não está mais no arquivo.
@@ -1662,6 +1676,12 @@ grava pro arquivo final:
   `SaveRecordingMeta`, que reescreve o `<hash>.json` inteiro.
 - **Faixas**: os títulos já iam por `CopyStreamTag`; a faixa MISTURADA
   ganhou título próprio (`export.mixTrackTitle`, no idioma de quem exporta).
+  **"Manter o áudio original"** (padrão ligado, só aparece com 2+ faixas,
+  campo `originalAudio`): TODAS as faixas copiadas como o OBS gravou — a
+  mistura JUNTO com as isoladas, que fora dele se excluem (a mesma voz
+  entraria duas vezes numa escolha manual). Mixar fica desligado. É o
+  único jeito de o arquivo exportado manter o volume por faixa no player,
+  e a transcrição vai junto sempre.
 - Selo de codec por `DescribeExportEncoder` — o `DescribeEncoderId` é pros
   IDs do libobs e marcaria o `libsvtav1` como hardware. Aqui software é o
   prefixo `lib`. `quality` fica -1: o CRF da exportação não é o nível 0..10.
@@ -2715,6 +2735,14 @@ gravado precisa. A lógica é a da Transcritor API (versão Windows,
   aceitar pedidos (12002 já no `WinHttpSendRequest`, onde a conexão
   acontece; caído daria 12029 na hora). `PostChunk` derruba, sobe de novo
   e repete o MESMO bloco até 2 vezes antes de desistir da gravação.
+- **Memória insuficiente desce uma escada.** Máquina só com vídeo
+  integrado tem Vulkan (a instalação escolhe a GPU), mas não os ~3,6 GB
+  dos dois modelos: o servidor responde **503 `insufficient_memory`**
+  ("estimated 3.58 GiB ... exceeds available ... memory"). `StepDownMemory`
+  desce um degrau e FICA nele (config): GPU com 2 modelos → GPU com 1
+  (`max_loaded_models`; as duas passadas trocam de modelo uma vez só por
+  arquivo) → CPU com 2 → CPU com 1. Na CPU um bloco de 60 s leva ~30 s
+  (i9-9900KS), ~10× a GPU. Reinstalar volta ao degrau mais rápido.
 - **Reamostrador próprio**, validado em Python antes (mesma conta):
   sinc janelado (Blackman), 8 cruzamentos por lado, simétrico = sem atraso
   de fase. Um atraso deslocaria TODAS as palavras. O swresample das DLLs
@@ -3277,13 +3305,106 @@ Regras de convivência:
 - **"Ligado agora" e "ligar ao abrir" são coisas DIFERENTES, e por isso são
   duas chaves.** O botão da tela principal é vontade de SESSÃO
   (`ReplayWanted`, variável do Bridge, não persiste); o arranque é a
-  preferência `replayAutoStart`, na aba Gravação. Uma chave só faria o
+  preferência `replayAutoStart`, na aba Buffer. Uma chave só faria o
   botão da tela principal mudar em silêncio o comportamento do próximo
   arranque — e não haveria como "ligar só agora" nem como "deixar sempre
   ligado sem ter que reativar". O warmup é o único ponto que converte uma
   na outra (`replayAutoStart` → `ReplayWanted := True`). O `ReplayWanted`
   também é quem traz o buffer de volta depois de uma gravação manual,
   então NÃO o troque por leitura de config nesses pontos.
+
+### 63. **Filtros de áudio do microfone: propriedades da INSTÂNCIA, cadeia por ordem de inserção, teste pelo callback de captura**
+
+A aba Áudio usa os filtros do plugin `obs-filters` do próprio OBS
+(`OBSAudioFilters`). Nada de filtro nosso: são os mesmos que o usuário do
+OBS conhece, com os rótulos do plugin (`obs_set_locale` no idioma do app, no
+init e na troca de idioma). O editor é GENÉRICO — cada propriedade vira o
+controle do tipo dela (bool, int/float com ou sem slider, lista, info,
+grupo) —, então filtro novo de plugin aparece sem código novo. O que é
+nosso por filtro é só a frase que diz pra que ele serve
+(`settings.audioFilters.desc.<id>`, opcional).
+
+Cinco coisas que decidiram o desenho, todas lidas na fonte do OBS 32.1.2:
+
+- **Propriedades SEMPRE de uma instância** (`obs_source_create_private` +
+  `obs_source_properties`), NUNCA do tipo (`obs_get_source_properties`). O
+  `expander_properties` faz `cd->is_upwcomp` logo na 1ª linha
+  (`expander-filter.c:437`): pelo tipo o `data` é NULL e o app cai.
+- **A supressão de ruído atual é `noise_suppress_filter_v2`.** O plugin
+  registra `noise_suppress_filter` duas vezes, a v1 com
+  `OBS_SOURCE_CAP_OBSOLETE`; a libobs guarda a v2 com o id versionado. A
+  lista pula tudo com `CAP_DISABLED`/`DEPRECATED`.
+- **Ordem da cadeia = ordem de inserção.** O `obs_source_filter_add` insere
+  na FRENTE do array (`obs-source.c:3107`) e o áudio percorre de trás pra
+  frente (`filter_async_audio`, `:3870`) — o primeiro adicionado processa
+  primeiro. `CHAIN_ORDER` põe supressão/porta/expansor antes de ganho
+  (senão o ganho sobe o chiado junto) e compressor/limitador por último. O
+  `filter_add` pega a PRÓPRIA referência: quem criou libera a sua.
+- **Valor gravado pelo `obs_data`, não direto no JSON.** Um `3` vindo da UI
+  num campo float tem que virar double, senão o `obs_data_get_double` do
+  plugin lê 0. E o `settings` salvo guarda só o que o usuário mudou (sem os
+  defaults), pra uma versão nova do plugin poder mudar um default.
+- **Só microfone.** No som do sistema supressão de ruído e porta
+  estragariam música e vídeo. Vale pra gravação e buffer (os dois passam
+  por `BuildCaptureGraph`) a partir do próximo grafo — filtro não é trocado
+  numa fonte viva.
+
+**O teste A/B não grava arquivo.** Filtro de áudio roda dentro do
+`obs_source_output_audio` (`obs-source.c:4051`), na thread de captura da
+fonte, ANTES do callback de captura (`source_signal_audio_data`) — e isso
+vale pra fonte fora de qualquer cena ou canal. E é SÍNCRONO: quem chama
+`obs_source_output_audio` recebe os callbacks antes de a chamada voltar.
+
+**O teste grava UMA vez e reaplica a cada mudança.** O jeito natural de
+usar foi "gravo, depois vou ligando os filtros e comparo" — com a versão
+filtrada feita só na hora da gravação, isso devolvia duas cópias iguais.
+Então:
+
+1. `Testar` abre UMA fonte privada do microfone (crua), junta ~6 s em
+   float estéreo pelo callback de captura (thread do WASAPI, só copia sob
+   lock) e guarda o trecho (`GClipL`/`GClipR`).
+2. As duas versões saem do trecho guardado: ele é EMPURRADO em blocos de
+   1024 (`obs_source_output_audio`) numa fonte NOSSA sem som próprio,
+   `noobs_audio_feed`, com a cadeia pendurada (ou sem ela, pro original —
+   sai idêntico ao capturado, medido). + 0,25 s de silêncio no fim, porque
+   filtro com atraso (supressão) só devolve o fim se receber mais áudio; a
+   saída é cortada no tamanho do original.
+3. Cada `set_audio_filter` refaz só a filtrada (`PushAudioFilterRerender`,
+   estado `filtered`). Medido: 4 s em 40 ms (ganho) a ~110 ms (RNNoise), na
+   main. A UI troca o som SEM voltar pro começo, e alternar entre Original
+   e Com filtros mantém o ponto — comparar o mesmo instante é o que torna
+   a diferença audível.
+
+A fonte `noobs_audio_feed` é registrada por nós (`obs_register_source_s`,
+uma vez por vida do libobs) com só o PREFIXO do `obs_source_info` (id,
+tipo, flags, `get_name`, `create`, `destroy` = 40 bytes): a função recebe
+o tamanho e zera o resto. Precisa de `OBS_SOURCE_AUDIO` nas flags (é o que
+o `filter_compatible` compara), de `create` devolvendo não-nulo (senão a
+libobs loga "Failed to create source") e de `destroy` (chamado sempre que
+há data). Por que não reaproveitar uma fonte existente: a `ffmpeg_source`
+serviria, mas amarra o teste ao `obs-ffmpeg`; e id INEXISTENTE também
+"funciona" — a libobs cria uma fonte de reserva (`owns_info_id`) que pula
+o `filter_compatible` —, mas é peculiaridade, não contrato.
+
+Filtro com estado (porta, compressor, supressão) começa do zero em cada
+versão: os primeiros milissegundos podem soar diferente de uma gravação
+contínua. Os WAV vão como `data:` URL (~770 KB cada; Base64 com
+`TBase64Encoding.Create(0)` — o padrão do Delphi quebra linha a cada 76
+caracteres e a quebra invalidaria a URL).
+
+**"Não vi diferença" foi lido como "não funciona" — e não era.** No 1º uso
+real, os 4 testes rodaram com **0 filtros ligados** (o usuário ligava e
+desligava antes de testar) e saíram idênticos. E num microfone bom o ruído
+de fundo já fica em ~−84 dBFS: a supressão leva a −90 (RNNoise) / −93
+(Speex), abaixo do que se ouve. Medido fora do app, com a mesma `obs.dll`
+e os mesmos plugins por ctypes (duas fontes do mesmo mic + callback de
+captura): ganho +20 dB → exatamente +20 dB; porta de ruído → silêncio
+total (−140 dBFS) entre as falas. Daí a tela:
+
+- o resultado diz **com quantos filtros** o teste rodou (`filters`) e AVISA
+  quando foram zero — antes de testar, também avisa se nada está ligado;
+- mostra o nível **MÉDIO** (RMS) além do pico. Supressão de ruído quase não
+  mexe no pico (o pico é a voz, que ela preserva); é a média que cai.
 
 ---
 
@@ -3348,7 +3469,10 @@ recuperáveis manualmente).
 | `transcribeHost`                 | base do servidor da Transcritor API (default `http://localhost:8000`). As ROTAS são fixas (`/jobs`, `/health`) — só o host é configurável |
 | `transcribePerTrack`             | `true` / `false` (default **`true`**) — manda as faixas de áudio ISOLADAS pra transcrição, uma por vez, em vez da mistura. Dá atribuição de falante pelo nome do dispositivo, e custa N transcrições por gravação; só entra em ação com 2+ faixas isoladas. Só existe como chave do JSON, sem controle na UI (pegadinha #60j) |
 | `transcribeLanguage`             | `"app"` (default; vazio vale o mesmo) = idioma da interface do NoOBS; `"auto"` = a API detecta; ou código ISO (`pt`, `en`…). Seletor na aba Transcrição. **Detectar é o que fazia a transcrição sair TRADUZIDA** (pegadinha #60m) |
-| `transcribeEngine`               | `"server"` (default) = Transcritor API no `transcribeHost`; `"local"` = OBSLocalAsr na GPU desta máquina. Instalar o motor local troca pra `"local"`; remover volta pra `"server"` |
+| `transcribeEngine`               | `"local"` (default) = OBSLocalAsr (audio.cpp) na GPU desta máquina; `"server"` = Transcritor API no `transcribeHost`. **Chave ausente** vale `"local"`, exceto se o `transcribeHost` estiver no config — aí `"server"`, pra a atualização não tirar do Docker quem já tinha configurado um servidor (o padrão antigo era `"server"`). Local sem instalação não falha: a fila espera (`waitingInstall`). Remover o motor local grava `"server"` explícito |
+| `audioFilters`                   | Filtros de áudio dos microfones: `{ "<id do filtro>": { "enabled": bool, "settings": { ... } } }`. `settings` guarda só o que o usuário mudou (o JSON do `obs_data`, sem os defaults do plugin). A ORDEM da cadeia não é guardada: é fixa (`OBSAudioFilters.CHAIN_ORDER`). Aba **Áudio** (pegadinha #63) |
+| `audioBitrate`                   | kbps do AAC de CADA faixa gravada: `96`, `128`, `160`, `192` (default), `256`, `320` — valor fora da lista cai no degrau mais próximo (`OBSEncoder.NormalizeAudioBitrate`). Aba **Áudio** das Configurações. Vale pra gravação e buffer a partir do próximo grafo montado; encoder vivo não troca de taxa |
+| `localAsrMaxModels`              | `2` (default) / `1` — modelos carregados ao mesmo tempo no servidor local. Cai pra `1` sozinho com memória insuficiente (pegadinha #60t) |
 | `localAsrBackend` / `localAsrDevice` | Detectados na instalação pelo `audiocpp_cli --list-devices`: `"vulkan"` + nome da GPU, ou `"cpu"` + vazio (sem Vulkan, ~10× mais lento) |
 | `transcribeOnStop`               | `true` / `false` (default **`true`**) — enfileira a gravação na transcrição assim que ela termina. Com o servidor fora do ar o item espera na fila persistida (pegadinha #60n) |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |

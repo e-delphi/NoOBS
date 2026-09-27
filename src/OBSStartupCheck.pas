@@ -152,6 +152,9 @@ begin
     'Captura de monitor. Sem isso so grava audio.', mkRecommended);
   CheckFile(Result, IncludeTrailingPathDelimiter(PluginBin) + 'win-dshow.dll',
     'Captura de webcam. Sem isso webcam nao aparece.', mkRecommended);
+  CheckFile(Result, IncludeTrailingPathDelimiter(PluginBin) + 'obs-filters.dll',
+    'Filtros de audio do microfone (aba Audio). Sem isso a lista fica vazia.',
+    mkRecommended);
   CheckFile(Result, IncludeTrailingPathDelimiter(PluginBin) + 'obs-ffmpeg.dll',
     'Muxer/encoder de audio. Sem isso o arquivo final nao escreve.',
     mkCritical);

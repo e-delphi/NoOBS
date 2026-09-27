@@ -300,6 +300,11 @@
       <!-- Audio -->
       <div class="export-field" id="exportAudioField">
         <label data-i18n="export.audio">Áudio</label>
+        <label class="export-check" id="exportOrigAudioWrap" style="margin-bottom:7px">
+          <input type="checkbox" id="exportOrigAudio"
+                 onchange="Export.onOriginalAudioChange(this.checked)">
+          <span data-i18n="export.originalAudio">Manter o áudio original (as mesmas faixas da gravação)</span>
+        </label>
         <div class="export-checks" id="exportAudio"></div>
         <label class="export-check" id="exportMixWrap" style="margin-top:7px">
           <input type="checkbox" id="exportMixAudio">
@@ -376,7 +381,10 @@
               data-i18n="settings.tabs.general">Geral</button>
       <button type="button" class="settings-tab" data-tab="recording"
               onclick="Settings.showTab('recording')"
-              data-i18n="settings.tabs.recording">Gravação</button>
+              data-i18n="settings.tabs.recording">Vídeo</button>
+      <button type="button" class="settings-tab" data-tab="audio"
+              onclick="Settings.showTab('audio')"
+              data-i18n="settings.tabs.audio">Áudio</button>
       <button type="button" class="settings-tab" data-tab="replay"
               onclick="Settings.showTab('replay')"
               data-i18n="settings.tabs.replay">Buffer</button>
@@ -600,6 +608,65 @@
         </div>
       </div>
 
+      <!-- Aba Audio: qualidade do AAC de cada faixa gravada. Os degraus vem
+           de OBSEncoder.AUDIO_BITRATES (montados em JS). -->
+      <div class="settings-field" data-panel="audio">
+        <label data-i18n="settings.audioBitrate.label">Qualidade do áudio</label>
+        <div class="settings-input-row">
+          <select class="settings-input" id="settingsAudioBitrate"
+                  onchange="Settings.onAudioBitrateChange()"></select>
+        </div>
+        <div class="settings-hint" id="settingsAudioBitrateHint"></div>
+      </div>
+
+      <hr class="settings-divider" data-panel="audio">
+      <div class="settings-field" data-panel="audio">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsMuteWhenDeviceMuted">
+          <span data-i18n="settings.muteWhenDeviceMuted.label">Silenciar a faixa quando o microfone estiver mudo no Windows</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.muteWhenDeviceMuted.hint">
+          Enquanto o microfone estiver mudo no Windows, a faixa dele sai
+          em silêncio na gravação. Vale para o botão de mudo do fone, o
+          mudo do sistema e os aplicativos de chamada que avisam o
+          Windows ao mutar. O mudo feito só dentro do aplicativo, sem
+          avisar o Windows, não é detectável — nesses casos o microfone
+          continua sendo gravado.
+        </div>
+      </div>
+
+      <!-- Filtros do microfone: lista e editor montados em JS
+           (js/audiofilters.js) a partir do audio_filters do backend. O teste
+           grava alguns segundos do microfone em duas copias (original e com
+           filtros) pra comparar sem precisar gravar um video. -->
+      <hr class="settings-divider" data-panel="audio">
+      <div class="settings-field" data-panel="audio">
+        <label data-i18n="settings.audioFilters.label">Filtros do microfone</label>
+        <div class="settings-hint" data-i18n="settings.audioFilters.hint">
+          Tratam o som dos microfones antes de ele entrar na gravação e no
+          buffer. O som do sistema não passa por eles.
+        </div>
+        <div class="afilter-test">
+          <select class="settings-input" id="afTestMic"></select>
+          <button type="button" class="settings-btn" id="afTestBtn"
+                  onclick="AudioFilters.test()"></button>
+        </div>
+        <div class="settings-hint afilter-test-status" id="afTestStatus"></div>
+        <div class="afilter-test-result" id="afTestResult" hidden>
+          <div class="afilter-ab">
+            <button type="button" class="settings-btn" id="afPlayOriginal"
+                    onclick="AudioFilters.play('original')"></button>
+            <span class="settings-hint" id="afPeakOriginal"></span>
+          </div>
+          <div class="afilter-ab">
+            <button type="button" class="settings-btn" id="afPlayFiltered"
+                    onclick="AudioFilters.play('filtered')"></button>
+            <span class="settings-hint" id="afPeakFiltered"></span>
+          </div>
+        </div>
+        <div class="settings-hint afilter-summary" id="afSummary"></div>
+        <div id="afList"></div>
+      </div>
       <!-- Aba Buffer: tudo do buffer em memoria mora aqui (o liga/desliga
            do dia a dia fica na tela principal). -->
       <div class="settings-field" data-panel="replay">
@@ -857,21 +924,6 @@
           e ao terminar (descendente) a gravação. Discreto — volume
           baixo o suficiente pra não atrapalhar, alto o suficiente pra
           confirmar que a ação foi recebida.
-        </div>
-      </div>
-      <hr class="settings-divider" data-panel="behavior">
-      <div class="settings-field" data-panel="behavior">
-        <label class="settings-check-row">
-          <input type="checkbox" id="settingsMuteWhenDeviceMuted">
-          <span data-i18n="settings.muteWhenDeviceMuted.label">Silenciar a faixa quando o microfone estiver mudo no Windows</span>
-        </label>
-        <div class="settings-hint" data-i18n="settings.muteWhenDeviceMuted.hint">
-          Enquanto o microfone estiver mudo no Windows, a faixa dele sai
-          em silêncio na gravação. Vale para o botão de mudo do fone, o
-          mudo do sistema e os aplicativos de chamada que avisam o
-          Windows ao mutar. O mudo feito só dentro do aplicativo, sem
-          avisar o Windows, não é detectável — nesses casos o microfone
-          continua sendo gravado.
         </div>
       </div>
       <hr class="settings-divider" data-panel="behavior">
@@ -1612,6 +1664,7 @@
 <script src="js/widgets.js"></script>
 <script src="js/hotkey.js"></script>
 <script src="js/settings.js"></script>
+<script src="js/audiofilters.js"></script>
 <script src="js/player.js"></script>
 <script src="js/export.js"></script>
 <script src="js/transcribe.js"></script>

@@ -172,6 +172,7 @@
     "trackMix": "Track {{n}} (mix)",
     "trackN": "Track {{n}}",
     "mixAudio": "Merge tracks into one",
+    "originalAudio": "Keep the original audio (same tracks as the recording)",
     "fileName": "File name",
     "progress": "Exporting… {{pct}}%",
     "canceling": "Canceling…",
@@ -208,7 +209,8 @@
     "title": "Settings",
     "tabs": {
       "general": "General",
-      "recording": "Recording",
+      "recording": "Video",
+      "audio": "Audio",
       "replay": "Buffer",
       "files": "Files",
       "devices": "Devices",
@@ -462,6 +464,51 @@
       "openPage": "Open release page",
       "failed": "Could not check right now. Check your connection and try again."
     },
+    "audioBitrate": {
+      "label": "Audio quality",
+      "option": "{{kbps}} kbps",
+      "optionDefault": "{{kbps}} kbps (default)",
+      "hint": {
+        "voice": "Enough for voice; music and system sound lose clarity.",
+        "good": "Good for voice and system sound.",
+        "default": "Default — transparent for nearly everything.",
+        "high": "High — only noticeable on music with good headphones."
+      },
+      "size": "About {{mb}} MB per hour, per track. Applies from the next recording."
+    },
+    "audioFilters": {
+      "label": "Microphone filters",
+      "hint": "Process the microphones before the sound goes into the recording and the buffer. System sound is not affected. They apply from the next recording.",
+      "loading": "Loading filters…",
+      "unavailable": "Filters unavailable: the obs-filters plugin was not found in the installation.",
+      "noneOn": "No filter enabled.",
+      "nOn": "{{count}} filter(s) enabled.",
+      "showSettings": "Settings",
+      "hideSettings": "Close settings",
+      "reset": "Restore defaults",
+      "test": "Test ({{sec}} s)",
+      "testing": "Recording… speak into the microphone ({{sec}} s)",
+      "compare": "Version with {{count}} filter(s). Change any filter and it is rebuilt instantly — switch between Original and With filters at the same point. The difference shows mostly in the average: the peaks are your voice.",
+      "testFailed": "Could not open the microphone for the test.",
+      "micDefault": "{{name}} (Windows default)",
+      "original": "Original",
+      "filtered": "With filters",
+      "silence": "silence",
+      "desc": {
+        "noise_suppress_filter_v2": "Removes hiss, fan noise and constant background noise. The most useful one for laptop mics and basic headsets.",
+        "noise_gate_filter": "Closes the microphone when the sound drops below a threshold: cuts the noise between sentences.",
+        "expander_filter": "Lowers quiet sounds (breathing, keyboard in the background) without cutting them off like the noise gate.",
+        "upward_compressor_filter": "Raises the quiet parts of speech, evening out the volume.",
+        "basic_eq_filter": "Adjusts the bass, mids and treble of the voice.",
+        "gain_filter": "Raises or lowers the microphone volume.",
+        "compressor_filter": "Brings the loud and quiet parts of speech closer together.",
+        "limiter_filter": "Keeps peaks (laughter, shouting) from going over the limit and distorting.",
+        "invert_polarity_filter": "Inverts the signal polarity. Only useful in specific cases with combined microphones."
+      },
+      "level": "average {{rms}} dB · peak {{peak}} dB",
+      "testedWithout": "No filter on: both versions are the same. Turn a filter on below — the filtered version is rebuilt instantly, without recording again.",
+      "howTo": "Press Test and speak for a few seconds. Then turn filters on, off and adjust them freely: the filtered version is rebuilt instantly from the same clip, without recording again."
+    },
     "muteWhenDeviceMuted": {
       "label": "Silence the track while the microphone is muted in Windows",
       "hint": "While the microphone is muted in Windows, its track is recorded as silence. This covers the mute button on your headset, the system mute, and call apps that tell Windows when you mute. A mute done only inside the app, without telling Windows, cannot be detected — in those cases the microphone keeps being recorded."
@@ -565,7 +612,7 @@
         "resumeHint": "If the connection drops or you cancel, what was already downloaded is kept and the download resumes where it stopped.",
         "cancel": "Cancel",
         "ready": "Ready — transcribing on the {{device}}.",
-        "readyCpu": "Ready — transcribing on the CPU. No graphics card with Vulkan was found, so it will be much slower.",
+        "readyCpu": "Ready — transcribing on the processor, much slower than on the graphics card: the card has no Vulkan or not enough memory for the models.",
         "readyHow": "Uses {{size}} in %LOCALAPPDATA%\\NoOBS\\asr. The engine only runs while there is something in the queue and frees the video memory a few minutes later.",
         "remove": "Remove",
         "removeConfirm": "Confirm removal",
@@ -802,7 +849,8 @@
       "notInstalled": "Transcription on this computer is not installed yet. Install it in Settings → Transcription, or choose a server.",
       "serverStart": "The local transcription engine did not start. Details are in {{log}}",
       "request": "The local transcription engine returned an error: {{error}}",
-      "decode": "Could not read the recording's audio."
+      "decode": "Could not read the recording's audio.",
+      "memory": "There is not enough memory to load the transcription engine, neither on the graphics card nor in the system. Close other programs and try again. Detail: {{detail}}"
     }
   },
   "warning": {

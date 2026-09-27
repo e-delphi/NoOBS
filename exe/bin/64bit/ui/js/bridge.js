@@ -104,6 +104,15 @@ const Bridge = {
       // Quadro do motor local: textos (e tamanhos formatados) em JS.
       try { LocalAsr.render(); } catch (e) {}
       try { Settings._fillTranscribeLangs(); } catch (e) {}
+      // Filtros de audio: os rotulos dos campos vem do plugin, no idioma novo.
+      try { AudioFilters.onLanguageChanged(); } catch (e) {}
+      // Rótulos e dica da taxa do áudio também são montados em JS. Refaz
+      // com o que está NA TELA, não o salvo: o modal pode estar aberto.
+      try {
+        const ab = document.getElementById('settingsAudioBitrate');
+        Settings._fillAudioBitrates(parseInt(ab && ab.value, 10) ||
+                                    Settings.currentAudioBitrate);
+      } catch (e) {}
       // A fila tem o selo "agora" e o title do botão de remover, os
       // dois traduzidos em tempo de render. Fora do render() de
       // propósito: aquele roda a cada segundo e refazer a lista ali
@@ -352,6 +361,10 @@ const Bridge = {
     keyframes(data) { Player.onKeyframes(data); },
     // Buffer em memoria (replay.js).
     replay_state(data) { Replay.applyState(data); },
+    // Filtros de audio (aba Audio): lista inteira, um filtro so, e o teste A/B.
+    audio_filters(data)     { AudioFilters.apply(data); },
+    audio_filter(data)      { AudioFilters.applyOne(data); },
+    audio_filter_test(data) { AudioFilters.onTest(data); },
     replay_saved(data) { Replay.onSaved(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
     // O `id` diz em qual card a barra vive (a tela pode estar fechada).

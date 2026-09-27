@@ -10,6 +10,7 @@
     OBSEngine      — motor de gravacao (init, scene, encoders, output).
     OBSEncoder     — selecao de codec de video (AV1/HEVC/H264/x264).
     OBSAudioTracks — atribuicao de faixas de audio + enum de devices.
+    OBSAudioFilters — filtros de audio dos microfones (lista, editor, teste A/B).
     NoOBSTypes     — tipos compartilhados (TEncoderCaps, etc).
     FFmpegOps      — wrappers altos sobre libav* (Remux, ExtractFrame, ...).
     FFmpegExport   — exportacao com re-encode (recorte, regioes, escala).
@@ -33,6 +34,7 @@ uses
   LibOBS in 'src\LibOBS.pas',
   OBSEngine in 'src\OBSEngine.pas',
   OBSAudioTracks in 'src\OBSAudioTracks.pas',
+  OBSAudioFilters in 'src\OBSAudioFilters.pas',
   OBSAudioWatch in 'src\OBSAudioWatch.pas',
   OBSAutostart in 'src\OBSAutostart.pas',
   OBSBridge in 'src\OBSBridge.pas',

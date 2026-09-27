@@ -1162,3 +1162,107 @@
     letter-spacing: .04em;
     color: var(--success);
   }
+
+  /* ===== Filtros de audio do microfone (aba Audio) =====
+     Um cartao por filtro, com a moldura do quadro do motor local. Os
+     campos vem do plugin do OBS e sao montados em JS (audiofilters.js). */
+  .afilter-test {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .afilter-test .settings-input { flex: 1; min-width: 0; }
+  .afilter-test-status.recording { color: var(--danger-2); font-weight: 600; }
+  /* Mesmo ambar do .settings-warn: teste sem filtro nenhum ligado. */
+  .afilter-test-status.warn { color: #b45309; }
+  :root[data-theme="dark"] .afilter-test-status.warn { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .afilter-test-status.warn { color: #fbbf24; }
+  }
+  .afilter-test-result[hidden] { display: none; }
+  .afilter-test-result {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 6px 0 4px;
+  }
+  .afilter-ab { display: flex; align-items: center; gap: 8px; }
+  .afilter-ab .settings-btn.active {
+    border-color: var(--success);
+    color: var(--success);
+  }
+  .afilter-summary { margin-top: 10px; }
+  .afilter {
+    margin-top: 8px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .afilter.on { border-color: var(--success); }
+  .afilter-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .afilter-head .settings-check-row { margin: 0; }
+  .afilter-toggle { flex-shrink: 0; }
+  .afilter-desc { margin-top: 2px; }
+  .afilter-body {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .afilter-group { margin: 6px 0 2px; }
+  .afilter-group-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-bottom: 2px;
+  }
+  .afilter-prop { margin: 6px 0; }
+  .afilter-prop-label { font-size: 12px; color: var(--text-2); margin-bottom: 3px; }
+  .afilter-num { display: flex; align-items: center; gap: 10px; }
+  .afilter-num .settings-input { width: 120px; flex: 0 0 auto; }
+  .afilter-num-val {
+    font-size: 12px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    min-width: 72px;
+    text-align: right;
+  }
+  /* Mesmo slider das outras abas (pegadinha #39): thumb de 14px e trilho
+     preenchido ate o centro dele pela --val. */
+  .afilter-num input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
+  .afilter-num input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .afilter-num input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    border: none;
+    margin-top: -5px;
+  }
+  .afilter-num input[type="range"]:disabled { opacity: .5; cursor: default; }
+  .afilter-reset { margin-top: 6px; }

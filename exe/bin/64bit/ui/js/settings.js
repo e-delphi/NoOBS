@@ -197,6 +197,11 @@ const Settings = {
   currentCheckUpdates: true,
   currentRecordingQuality: 5,
   currentRecordingKeyframe: 2,
+  // Taxa do AAC por faixa (kbps). Degraus e padrao espelham o backend
+  // (OBSEncoder.AUDIO_BITRATES / AUDIO_BITRATE_DEFAULT).
+  currentAudioBitrate: 192,
+  AUDIO_BITRATES: [96, 128, 160, 192, 256, 320],
+  AUDIO_BITRATE_DEFAULT: 192,
   currentLibraryThumbs: 'auto',   // 'auto' | 'always' | 'off'
   recordDirCloud: false,          // pasta de gravacao parece estar no OneDrive
   currentRecordingFps: 30,
@@ -237,7 +242,7 @@ const Settings = {
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
     document.getElementById('settingsTranscribeHost').value = this.currentTranscribeHost || '';
-    LocalAsr.setEngine(this.currentTranscribeEngine || 'server');
+    LocalAsr.setEngine(this.currentTranscribeEngine || 'local');
     this._fillTranscribeLangs(this.currentTranscribeLanguage);
     document.getElementById('settingsTranscribeOnStop').checked = !!this.currentTranscribeOnStop;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
@@ -258,6 +263,7 @@ const Settings = {
       String(this.currentRecordingKeyframe | 0);
     this._populateKeyframeTicks();
     this._syncKeyframeHint();
+    this._fillAudioBitrates(this.currentAudioBitrate);
     document.getElementById('settingsLibraryThumbs').value = this.currentLibraryThumbs;
     this._syncLibraryHint();
     this._syncMinimizeOnRecordLabel();
@@ -279,6 +285,7 @@ const Settings = {
     Bridge.send('get_settings');
   },
   close() {
+    if (typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
     document.getElementById('settingsOverlay').classList.remove('visible');
   },
   pickFolder() {
@@ -359,6 +366,8 @@ const Settings = {
       const recordingFps = this._currentFpsFromSlider();
       const recordingKeyframe = parseInt(document.getElementById('settingsRecordingKeyframe').value, 10) | 0;
       const libraryThumbs = document.getElementById('settingsLibraryThumbs').value;
+      const audioBitrate = parseInt(document.getElementById('settingsAudioBitrate').value, 10) ||
+                           this.AUDIO_BITRATE_DEFAULT;
 
       // path vazio = restaurar pro default (USERPROFILE\Videos). So
       // envia se mudou — evita rebuild desnecessario da lista de gravacoes.
@@ -413,6 +422,8 @@ const Settings = {
         Bridge.send('set_recording_fps', { fps: recordingFps });
       if (recordingKeyframe !== this.currentRecordingKeyframe)
         Bridge.send('set_recording_keyframe', { sec: recordingKeyframe });
+      if (audioBitrate !== this.currentAudioBitrate)
+        Bridge.send('set_audio_bitrate', { kbps: audioBitrate });
       if (libraryThumbs !== this.currentLibraryThumbs)
         Bridge.send('set_library_thumbs', { mode: libraryThumbs });
       if (language !== this.currentLanguagePref)
@@ -446,6 +457,7 @@ const Settings = {
       this.currentRecordingQuality = recordingQuality;
       this.currentRecordingFps = recordingFps;
       this.currentRecordingKeyframe = recordingKeyframe;
+      this.currentAudioBitrate = audioBitrate;
       this.currentLibraryThumbs = libraryThumbs;
       this.currentLanguagePref = language;
       // Atualiza o icone de aviso na barra lateral caso o codec novo
@@ -508,8 +520,8 @@ const Settings = {
     // faltar, ao contrario do `!!` usado nos que sao default false.
     this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
     this.currentTranscribeHost = data.transcribeHost || 'http://localhost:8000';
-    // 'server' (Transcritor API) | 'local' (motor na placa de vídeo).
-    this.currentTranscribeEngine = data.transcribeEngine === 'local' ? 'local' : 'server';
+    // 'server' (Transcritor API) | 'local' (motor na placa de vídeo, o padrão).
+    this.currentTranscribeEngine = data.transcribeEngine === 'server' ? 'server' : 'local';
     this.currentTranscribeLanguage = data.transcribeLanguage || 'app';
     // Default TRUE, mesmo esquema do muteWhenDeviceMuted.
     this.currentTranscribeOnStop = (data.transcribeOnStop !== false);
@@ -541,6 +553,10 @@ const Settings = {
     if (kf < 1)  kf = 1;
     if (kf > 10) kf = 10;
     this.currentRecordingKeyframe = kf;
+    // audioBitrate: kbps por faixa, o backend ja manda num degrau valido.
+    const ab = parseInt(data.audioBitrate, 10);
+    this.currentAudioBitrate = this.AUDIO_BITRATES.includes(ab)
+      ? ab : this.AUDIO_BITRATE_DEFAULT;
     // libraryThumbs: 'auto' | 'always' | 'off', default 'auto'.
     this.currentLibraryThumbs =
       ['auto', 'always', 'off'].includes(data.libraryThumbs) ? data.libraryThumbs : 'auto';
@@ -957,6 +973,9 @@ const Settings = {
   // listener delegado de 'change' (commit imediato) e os _sync* de
   // dependencia seguem funcionando sem nenhuma alteracao de logica.
   showTab(name) {
+    // Saindo da aba Audio: o som do teste nao continua atras de outra aba.
+    if (this.currentTab === 'audio' && name !== 'audio' &&
+        typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
     this.currentTab = name;
     // Campos E divisores por aba: ambos carregam data-panel e alternam junto.
     document.querySelectorAll('.settings-field[data-panel], .settings-divider[data-panel]').forEach(f => {
@@ -970,6 +989,8 @@ const Settings = {
     if (body) body.scrollTop = 0;
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
+    // Filtros de audio: estado e rotulos sao do backend (plugin do OBS).
+    if (name === 'audio' && typeof AudioFilters !== 'undefined') AudioFilters.request();
     // Aba Buffer: o estado (limites, teto de RAM, apps, indicador) e do
     // backend — pede na hora de mostrar e redesenha com o que ja se tem.
     if (name === 'replay' && typeof Replay !== 'undefined') {
@@ -994,6 +1015,37 @@ const Settings = {
       // local escolhido ele não tem o que dizer.
       if (LocalAsr.selectedEngine() !== 'local') TranscribeSetup.check();
     }
+  },
+  // Taxa do áudio: um degrau por opção, o padrão marcado no rótulo. A dica
+  // traduz a taxa no que ela custa em disco (kbps × 3600 / 8 = kB/h), por
+  // faixa — com faixas isoladas o arquivo leva uma dessas por dispositivo.
+  _fillAudioBitrates(selected) {
+    const sel = document.getElementById('settingsAudioBitrate');
+    if (!sel) return;
+    sel.innerHTML = '';
+    this.AUDIO_BITRATES.forEach(k => {
+      const o = document.createElement('option');
+      o.value = String(k);
+      o.textContent = T(k === this.AUDIO_BITRATE_DEFAULT
+        ? 'settings.audioBitrate.optionDefault' : 'settings.audioBitrate.option',
+        { kbps: k });
+      sel.appendChild(o);
+    });
+    sel.value = String(this.AUDIO_BITRATES.includes(selected)
+                       ? selected : this.AUDIO_BITRATE_DEFAULT);
+    this._syncAudioBitrateHint();
+  },
+  onAudioBitrateChange() {
+    this._syncAudioBitrateHint();
+  },
+  _syncAudioBitrateHint() {
+    const sel = document.getElementById('settingsAudioBitrate');
+    const hint = document.getElementById('settingsAudioBitrateHint');
+    if (!sel || !hint) return;
+    const k = parseInt(sel.value, 10) || this.AUDIO_BITRATE_DEFAULT;
+    const band = k <= 96 ? 'voice' : (k <= 160 ? 'good' : (k <= 192 ? 'default' : 'high'));
+    hint.textContent = T('settings.audioBitrate.hint.' + band) + ' ' +
+      T('settings.audioBitrate.size', { mb: Math.round(k * 3600 / 8 / 1000) });
   },
   // Monta o seletor de idioma da transcrição. "Idioma do NoOBS" mostra
   // entre parênteses QUAL idioma é hoje, senão a opção padrão não diria
@@ -1114,6 +1166,8 @@ const Settings = {
         // Keyframe: default 2s.
         document.getElementById('settingsRecordingKeyframe').value = '2';
         this._populateKeyframeTicks();
+        // Audio: 192 kbps por faixa.
+        this._fillAudioBitrates(this.AUDIO_BITRATE_DEFAULT);
         // Previas da biblioteca: default 'auto'.
         document.getElementById('settingsLibraryThumbs').value = 'auto';
         this._syncLibraryHint();

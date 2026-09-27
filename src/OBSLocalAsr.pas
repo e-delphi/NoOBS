@@ -224,6 +224,13 @@ const
   // reconhecivel. Nao e erro do arquivo: o bloco fica vazio e segue.
   NO_SPEECH_MARK = #1'nospeech';
   NO_SPEECH_TEXT = 'did not contain transcript text';
+  // O servidor responde 503 com este tipo quando o modelo nao cabe na
+  // memoria (da placa ou do sistema): "estimated 3.58 GiB ... exceeds
+  // available ... memory". Visto numa maquina so com video integrado, que
+  // tem Vulkan mas uma fatia pequena de memoria. A marca vem seguida do
+  // motivo, pra mensagem final.
+  NO_MEMORY_MARK = #1'nomemory';
+  NO_MEMORY_TYPE = 'insufficient_memory';
 
 type
   // Arquivo do espelho no Google Drive (ver ENGINE_MIRROR).
@@ -729,6 +736,7 @@ begin
     begin
       SetConfigStr('localAsrBackend', Backend);
       SetConfigStr('localAsrDevice', Device);
+      SetConfigInt('localAsrMaxModels', 2);
       Marker := TJSONObject.Create;
       try
         Marker.AddPair('engine', ENGINE_ZIP);
@@ -920,7 +928,8 @@ begin
     Cfg.AddPair('lazy_load', TJSONBool.Create(True));
     // Os dois modelos juntos na memoria: e o que evita recarregar a cada
     // troca entre a passada de transcricao e a de alinhamento.
-    Cfg.AddPair('max_loaded_models', TJSONNumber.Create(2));
+    Cfg.AddPair('max_loaded_models',
+      TJSONNumber.Create(EnsureRange(GetConfigInt('localAsrMaxModels', 2), 1, 2)));
     Cfg.AddPair('idle_unload_ms', TJSONNumber.Create(0));
     Cfg.AddPair('min_free_memory_mb', TJSONNumber.Create(0));
     Models := TJSONArray.Create;
@@ -1077,8 +1086,9 @@ begin
   except
     on E: Exception do Log('LocalAsr: falha ao apagar %s: %s', [RootDir, E.Message]);
   end;
-  if GetConfigStr('transcribeEngine', 'server') = 'local' then
-    SetConfigStr('transcribeEngine', 'server');
+  // Sempre explicito: o padrao da chave e o motor LOCAL, entao so apagar
+  // a escolha deixaria a fila esperando uma instalacao que nao existe mais.
+  SetConfigStr('transcribeEngine', 'server');
   GLock.Enter;
   try
     GState.Status := lasMissing;
@@ -1540,6 +1550,57 @@ begin
   end;
 end;
 
+function ErrorMessageOf(const ABody: string): string;
+// {"error":{"message":"..."}} -> a mensagem; senao o corpo encurtado.
+var
+  Json: TJSONValue;
+begin
+  Result := Copy(ABody, 1, 300);
+  Json := TJSONObject.ParseJSONValue(ABody);
+  try
+    if Json is TJSONObject then
+      Result := TJSONObject(Json).GetValue<string>('error.message', Result);
+  finally
+    Json.Free;
+  end;
+end;
+
+function StepDownMemory(const AReason: string): Boolean;
+// Memoria insuficiente: desce UM degrau e fica nele (config), pra a proxima
+// transcricao ja comecar onde cabe:
+//   GPU, 2 modelos -> GPU, 1 modelo -> CPU, 2 modelos -> CPU, 1 modelo.
+// Um modelo por vez custa quase nada: as duas passadas (transcrever tudo,
+// depois alinhar tudo) trocam de modelo UMA vez por arquivo. A CPU custa
+// ~10x (medido: bloco de 60 s em 30 s, contra ~2 s na RX 9070 XT).
+// False = ja estava no ultimo degrau.
+var
+  OnCpu: Boolean;
+  MaxModels: Integer;
+begin
+  Result := True;
+  OnCpu := SameText(GetConfigStr('localAsrBackend', 'vulkan'), 'cpu');
+  MaxModels := GetConfigInt('localAsrMaxModels', 2);
+  if MaxModels > 1 then
+    SetConfigInt('localAsrMaxModels', 1)
+  else if not OnCpu then
+  begin
+    SetConfigStr('localAsrBackend', 'cpu');
+    SetConfigStr('localAsrDevice', '');
+    SetConfigInt('localAsrMaxModels', 2);
+    GLock.Enter;
+    try
+      GState.Device := '';
+    finally
+      GLock.Leave;
+    end;
+    NotifyChanged(True);
+  end
+  else
+    Exit(False);
+  Log('LocalAsr: memoria insuficiente (%s) — agora %s com %d modelo(s) carregado(s).',
+    [AReason, GetConfigStr('localAsrBackend', 'vulkan'), GetConfigInt('localAsrMaxModels', 2)]);
+end;
+
 function PostAudio(const ARoute: string; const AFields: array of string;
   const AWav: TBytes; out AObj: TJSONObject; out ATransport: Boolean): string;
 // POST multipart com o bloco em WAV. AFields = pares nome, valor (valor
@@ -1592,6 +1653,8 @@ begin
     ATransport := True;
     Exit(OBSLang.T('error.localAsr.request', ['error', Err]));
   end;
+  if (Status = 503) and (Pos(NO_MEMORY_TYPE, Body) > 0) then
+    Exit(NO_MEMORY_MARK + ErrorMessageOf(Body));
   if (Status <> 200) and (Pos(NO_SPEECH_TEXT, Body) > 0) then
     Exit(NO_SPEECH_MARK);
   if Status <> 200 then
@@ -1610,30 +1673,49 @@ end;
 
 function PostChunk(const ARoute: string; const AFields: array of string;
   const AWav: TBytes; out AObj: TJSONObject; ACancel: TLocalAsrCancel): string;
-// PostAudio com recuperacao: se o servidor nao responde (travou — visto com
-// o buffer do OBS disputando a placa numa gravacao de 2 h), derruba, sobe de
-// novo e repete o MESMO bloco, ate REQUEST_RETRIES vezes. Sem isso um
-// travamento perdia a gravacao inteira. CANCELED_MARK se cancelaram durante
-// a subida.
+// PostAudio com recuperacao, repetindo o MESMO bloco:
+//  - servidor sem responder (travou — visto com o buffer do OBS disputando a
+//    placa numa gravacao de 2 h): derruba, sobe de novo, ate REQUEST_RETRIES;
+//  - memoria insuficiente: desce um degrau (StepDownMemory), sobe o servidor
+//    no degrau novo e tenta de novo, ate o ultimo.
+// Sem isso qualquer um dos dois perdia a gravacao inteira. CANCELED_MARK se
+// cancelaram durante uma subida.
 var
   Attempt: Integer;
   Transport: Boolean;
-  Err: string;
-begin
-  Result := '';
-  for Attempt := 0 to REQUEST_RETRIES do
+  Err, Reason: string;
+
+  function Restart: string;
   begin
-    Result := PostAudio(ARoute, AFields, AWav, AObj, Transport);
-    if (not Transport) or (Attempt = REQUEST_RETRIES) or GShuttingDown then Exit;
-    Log('LocalAsr: servidor sem resposta (%s) — reiniciando e repetindo o bloco (%d de %d).',
-      [Result, Attempt + 1, REQUEST_RETRIES]);
     GServerLock.Enter;
     try
       StopServerLocked;
     finally
       GServerLock.Leave;
     end;
-    Err := EnsureServer(ACancel);
+    Result := EnsureServer(ACancel);
+  end;
+
+begin
+  Attempt := 0;
+  while True do
+  begin
+    Result := PostAudio(ARoute, AFields, AWav, AObj, Transport);
+    if GShuttingDown then Exit;
+    if Result.StartsWith(NO_MEMORY_MARK) then
+    begin
+      Reason := Copy(Result, Length(NO_MEMORY_MARK) + 1, MaxInt);
+      if not StepDownMemory(Reason) then
+        Exit(OBSLang.T('error.localAsr.memory', ['detail', Reason]));
+      Err := Restart;
+      if Err <> '' then Exit(Err);
+      Continue;
+    end;
+    if (not Transport) or (Attempt >= REQUEST_RETRIES) then Exit;
+    Inc(Attempt);
+    Log('LocalAsr: servidor sem resposta (%s) — reiniciando e repetindo o bloco (%d de %d).',
+      [Result, Attempt, REQUEST_RETRIES]);
+    Err := Restart;
     if Err <> '' then Exit(Err);
   end;
 end;

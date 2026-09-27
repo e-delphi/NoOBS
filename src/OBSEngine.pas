@@ -216,6 +216,8 @@ uses
   OBSLog,
   OBSEncoder,
   OBSAudioTracks,
+  OBSAudioFilters,
+  OBSLang,
   WinPreview,
   WinAudioMeter,
   WinWebcam;
@@ -546,13 +548,15 @@ procedure TOBSEngine.LoadModules;
 // (crash: tenta chamar obs_frontend_* sem UI). obs_load_all_modules
 // nao filtra, entao usamos obs_open_module + obs_init_module por plugin.
 const
-  WANTED: array[0..5] of string = (
+  WANTED: array[0..6] of string = (
     'obs-ffmpeg',       // ffmpeg_muxer (output) + ffmpeg_aac (audio enc)
     'obs-x264',         // encoder CPU fallback
     'obs-nvenc',        // encoder HEVC/H264 NVIDIA (opcional)
     'win-capture',      // monitor_capture (gravar tela)
     'win-dshow',        // dshow_input (webcam)
-    'win-wasapi'        // wasapi_input/output_capture (audio)
+    'win-wasapi',       // wasapi_input/output_capture (audio)
+    'obs-filters'       // filtros de audio dos microfones (opcional:
+                        // sem ele a aba Audio so nao lista filtros)
   );
 var
   i: Integer;
@@ -636,6 +640,8 @@ begin
     Log('libobs: audio ok (48kHz stereo).');
 
     LoadModules;
+    // Rotulos dos filtros (vem do plugin) no idioma do app.
+    OBSAudioFilters.SetObsLocaleFromApp(OBSLang.CurrentLanguage);
   except
     Log('libobs: init parcial — chamando obs_shutdown pra reset.');
     try obs_shutdown; except end;
@@ -728,6 +734,7 @@ var
   RawBoundingW: Integer;
   i, j: Integer;
   Ret: Integer;
+  AudioKbps: Integer;
   OVI: obs_video_info;
   GraphicsModule: AnsiString;
   MonId: AnsiString;
@@ -1067,6 +1074,10 @@ begin
     Settings := MakeSettings;
     SetStr(Settings, 'device_id', Mics[j].DeviceId);
     Src := CreateSource('wasapi_input_capture', AudioName, Settings);
+    // Filtros da aba Audio (supressao de ruido, compressor...), na ordem da
+    // cadeia. So microfone: no som do sistema eles estragariam a musica.
+    try OBSAudioFilters.ApplyAudioFilters(Src); except on E: Exception do
+      Log('   filtros falharam: %s', [E.Message]); end;
 
     // Bitmask: bit 0 = Mix (track 1). Se MicTracks[j] > 0, adiciona o
     // bit da track isolada. Disabled (MicTracks[j] = 0) fica so no Mix
@@ -1131,14 +1142,17 @@ begin
   // Audio encoders: um por track. O "name" do encoder (2o param de
   // obs_audio_encoder_create) e escrito como metadata "title" da
   // stream no MKV — visivel no info panel e em editores externos.
-  Log('-- Audio encoders (%d tracks) --', [TotalTracks]);
+  // Taxa do AAC por faixa: preferencia 'audioBitrate' (aba Audio). Vale
+  // pra gravacao e buffer, que montam o grafo por aqui.
+  AudioKbps := OBSEncoder.GetAudioBitrateKbps;
+  Log('-- Audio encoders (%d tracks, %d kbps) --', [TotalTracks, AudioKbps]);
   TrackNames := BuildTrackNames(TotalTracks, Mics, Outputs,
     MicTracks, OutTracks);
   SetLength(GAudioEncoders, TotalTracks);
   for i := 0 to TotalTracks - 1 do
   begin
     AEncSettings := MakeSettings;
-    SetInt(AEncSettings, 'bitrate', 192);
+    SetInt(AEncSettings, 'bitrate', AudioKbps);
     GAudioEncoders[i] := obs_audio_encoder_create(
       'ffmpeg_aac',
       PAnsiChar(ToAnsi(TrackNames[i])),

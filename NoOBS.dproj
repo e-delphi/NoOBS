@@ -178,6 +178,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\LibOBS.pas"/>
         <DCCReference Include="src\OBSEngine.pas"/>
         <DCCReference Include="src\OBSAudioTracks.pas"/>
+        <DCCReference Include="src\OBSAudioFilters.pas"/>
         <DCCReference Include="src\OBSAudioWatch.pas"/>
         <DCCReference Include="src\OBSAutostart.pas"/>
         <DCCReference Include="src\OBSBridge.pas"/>

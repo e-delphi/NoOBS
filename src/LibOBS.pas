@@ -477,6 +477,174 @@ function obs_property_list_item_string(p: obs_property_t;
   idx: NativeUInt): PAnsiChar; cdecl; external 'obs.dll' delayed;
 
 // -----------------------------------------------------------------------
+// Filtros de audio (OBSAudioFilters): tipos registrados, editor generico
+// de propriedades e captura do audio de uma fonte pro teste.
+// -----------------------------------------------------------------------
+
+const
+  // Flags de saida de source (obs-source.h)
+  OBS_SOURCE_AUDIO        = 1 shl 1;
+  OBS_SOURCE_DEPRECATED   = 1 shl 8;
+  OBS_SOURCE_CAP_DISABLED = 1 shl 10;   // = OBS_SOURCE_CAP_OBSOLETE
+
+  // enum obs_property_type (obs-properties.h)
+  OBS_PROPERTY_INVALID = 0;
+  OBS_PROPERTY_BOOL    = 1;
+  OBS_PROPERTY_INT     = 2;
+  OBS_PROPERTY_FLOAT   = 3;
+  OBS_PROPERTY_TEXT    = 4;
+  OBS_PROPERTY_LIST    = 6;
+  OBS_PROPERTY_GROUP   = 12;
+
+  // enum obs_combo_format
+  OBS_COMBO_FORMAT_INT    = 1;
+  OBS_COMBO_FORMAT_FLOAT  = 2;
+  OBS_COMBO_FORMAT_STRING = 3;
+  OBS_COMBO_FORMAT_BOOL   = 4;
+
+  // enum obs_number_type
+  OBS_NUMBER_SCROLLER = 0;
+  OBS_NUMBER_SLIDER   = 1;
+
+  // enum obs_text_type
+  OBS_TEXT_INFO = 3;
+
+  MAX_AV_PLANES = 8;
+
+type
+  // struct audio_data (media-io/audio-io.h). Planos float (FLTP) no
+  // formato do audio do OBS (48 kHz, estereo no NoOBS).
+  TObsAudioData = record
+    data:      array[0..MAX_AV_PLANES - 1] of PByte;
+    frames:    Cardinal;
+    timestamp: UInt64;
+  end;
+  PObsAudioData = ^TObsAudioData;
+
+  // typedef void (*obs_source_audio_capture_t)(void *param,
+  //   obs_source_t *source, const struct audio_data *audio_data, bool muted);
+  // Chamado na THREAD DE CAPTURA da fonte, ja DEPOIS dos filtros.
+  TObsAudioCaptureCallback = procedure(param: Pointer; source: obs_source_t;
+    audio: PObsAudioData; muted: ByteBool); cdecl;
+
+const
+  // enum audio_format (media-io/audio-io.h)
+  AUDIO_FORMAT_FLOAT_PLANAR = 8;
+
+type
+  // struct obs_source_audio (obs.h): audio EMPURRADO numa fonte por
+  // obs_source_output_audio. 64 + 4*4 = 80, timestamp em 80, total 88.
+  TObsSourceAudio = record
+    data:            array[0..MAX_AV_PLANES - 1] of Pointer;
+    frames:          Cardinal;
+    speakers:        Integer;
+    format:          Integer;
+    samples_per_sec: Cardinal;
+    timestamp:       UInt64;
+  end;
+  PObsSourceAudio = ^TObsSourceAudio;
+
+// Registra um tipo de fonte. ASize = quantos bytes de obs_source_info o
+// chamador preencheu; a libobs zera o resto (obs-module.c:958).
+procedure obs_register_source_s(info: Pointer; size: NativeUInt);
+  cdecl; external 'obs.dll' delayed;
+// Empurra audio numa fonte: passa pelos filtros dela e chega nos callbacks
+// de captura ANTES de voltar (sincrono, na thread de quem chama).
+procedure obs_source_output_audio(source: obs_source_t; audio: PObsSourceAudio);
+  cdecl; external 'obs.dll' delayed;
+// Relogio da libobs (util/platform.h), em nanossegundos.
+function os_gettime_ns: UInt64; cdecl; external 'obs.dll' delayed;
+
+procedure obs_set_locale(locale: PAnsiChar); cdecl; external 'obs.dll' delayed;
+
+function obs_enum_filter_types(idx: NativeUInt; var id: PAnsiChar): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+function obs_get_source_output_flags(id: PAnsiChar): Cardinal;
+  cdecl; external 'obs.dll' delayed;
+function obs_source_get_display_name(id: PAnsiChar): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+function obs_get_source_defaults(id: PAnsiChar): obs_data_t;
+  cdecl; external 'obs.dll' delayed;
+function obs_source_create_private(id: PAnsiChar; name: PAnsiChar;
+  settings: obs_data_t): obs_source_t; cdecl; external 'obs.dll' delayed;
+// Pega a PROPRIA referencia do filtro: quem criou libera a sua depois.
+procedure obs_source_filter_add(source: obs_source_t; filter: obs_source_t);
+  cdecl; external 'obs.dll' delayed;
+procedure obs_source_add_audio_capture_callback(source: obs_source_t;
+  callback: TObsAudioCaptureCallback; param: Pointer);
+  cdecl; external 'obs.dll' delayed;
+procedure obs_source_remove_audio_capture_callback(source: obs_source_t;
+  callback: TObsAudioCaptureCallback; param: Pointer);
+  cdecl; external 'obs.dll' delayed;
+
+function obs_data_create_from_json(json_string: PAnsiChar): obs_data_t;
+  cdecl; external 'obs.dll' delayed;
+function obs_data_get_json(data: obs_data_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+procedure obs_data_apply(target: obs_data_t; apply_data: obs_data_t);
+  cdecl; external 'obs.dll' delayed;
+procedure obs_data_set_double(data: obs_data_t; name: PAnsiChar; val: Double);
+  cdecl; external 'obs.dll' delayed;
+function obs_data_get_double(data: obs_data_t; name: PAnsiChar): Double;
+  cdecl; external 'obs.dll' delayed;
+function obs_data_get_bool(data: obs_data_t; name: PAnsiChar): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+
+// Configuracoes da fonte COM os defaults do plugin. Referencia nova: quem
+// chama libera com obs_data_release.
+function obs_source_get_settings(source: obs_source_t): obs_data_t;
+  cdecl; external 'obs.dll' delayed;
+
+procedure obs_properties_apply_settings(props: obs_properties_t;
+  settings: obs_data_t); cdecl; external 'obs.dll' delayed;
+// Roda o callback "modificado" do campo (o que presets usam pra preencher
+// outros campos). True = a lista de propriedades precisa ser refeita.
+function obs_property_modified(p: obs_property_t; settings: obs_data_t): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_get_type(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_description(p: obs_property_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_long_description(p: obs_property_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_visible(p: obs_property_t): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_enabled(p: obs_property_t): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_int_min(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_int_max(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_int_step(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_int_type(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_int_suffix(p: obs_property_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_float_min(p: obs_property_t): Double;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_float_max(p: obs_property_t): Double;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_float_step(p: obs_property_t): Double;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_float_type(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_float_suffix(p: obs_property_t): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_text_type(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_list_format(p: obs_property_t): Integer;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_list_item_int(p: obs_property_t; idx: NativeUInt): Int64;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_list_item_float(p: obs_property_t; idx: NativeUInt): Double;
+  cdecl; external 'obs.dll' delayed;
+function obs_property_list_item_disabled(p: obs_property_t;
+  idx: NativeUInt): ByteBool; cdecl; external 'obs.dll' delayed;
+function obs_property_group_content(p: obs_property_t): obs_properties_t;
+  cdecl; external 'obs.dll' delayed;
+
+// -----------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------
 

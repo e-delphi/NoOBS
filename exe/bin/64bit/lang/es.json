@@ -172,6 +172,7 @@
     "trackMix": "Pista {{n}} (mezcla)",
     "trackN": "Pista {{n}}",
     "mixAudio": "Unir las pistas en una sola",
+    "originalAudio": "Mantener el audio original (las mismas pistas de la grabación)",
     "fileName": "Nombre del archivo",
     "progress": "Exportando… {{pct}}%",
     "canceling": "Cancelando…",
@@ -208,7 +209,8 @@
     "title": "Configuración",
     "tabs": {
       "general": "General",
-      "recording": "Grabación",
+      "recording": "Vídeo",
+      "audio": "Audio",
       "replay": "Búfer",
       "files": "Archivos",
       "devices": "Dispositivos",
@@ -462,6 +464,51 @@
       "openPage": "Abrir página del release",
       "failed": "No se pudo verificar ahora. Revisa tu conexión e inténtalo de nuevo."
     },
+    "audioBitrate": {
+      "label": "Calidad del audio",
+      "option": "{{kbps}} kbps",
+      "optionDefault": "{{kbps}} kbps (predeterminado)",
+      "hint": {
+        "voice": "Suficiente para voz; la música y el sonido del sistema pierden brillo.",
+        "good": "Buena para voz y sonido del sistema.",
+        "default": "Predeterminado — transparente para casi todo.",
+        "high": "Alta — solo se nota en música con buenos auriculares."
+      },
+      "size": "Unos {{mb}} MB por hora, por pista. Se aplica desde la próxima grabación."
+    },
+    "audioFilters": {
+      "label": "Filtros del micrófono",
+      "hint": "Procesan el sonido de los micrófonos antes de que entre en la grabación y en el búfer. El sonido del sistema no pasa por ellos. Se aplican desde la próxima grabación.",
+      "loading": "Cargando filtros…",
+      "unavailable": "Filtros no disponibles: no se encontró el plugin obs-filters en la instalación.",
+      "noneOn": "Ningún filtro activado.",
+      "nOn": "{{count}} filtro(s) activado(s).",
+      "showSettings": "Ajustes",
+      "hideSettings": "Cerrar ajustes",
+      "reset": "Restaurar valores",
+      "test": "Probar ({{sec}} s)",
+      "testing": "Grabando… habla al micrófono ({{sec}} s)",
+      "compare": "Versión con {{count}} filtro(s). Cambia cualquier filtro y se rehace al instante — alterna entre Original y Con filtros en el mismo punto. La diferencia se nota más en la media: los picos son tu voz.",
+      "testFailed": "No se pudo abrir el micrófono para la prueba.",
+      "micDefault": "{{name}} (predeterminado de Windows)",
+      "original": "Original",
+      "filtered": "Con filtros",
+      "silence": "silencio",
+      "desc": {
+        "noise_suppress_filter_v2": "Elimina el siseo, el ventilador y el ruido de fondo constante. El más útil para micrófonos de portátil o auriculares sencillos.",
+        "noise_gate_filter": "Cierra el micrófono cuando el sonido baja de un umbral: corta el ruido entre frases.",
+        "expander_filter": "Baja los sonidos débiles (respiración, teclado de fondo) sin cortarlos del todo como la puerta de ruido.",
+        "upward_compressor_filter": "Sube las partes bajas de la voz y deja el volumen más uniforme.",
+        "basic_eq_filter": "Ajusta graves, medios y agudos de la voz.",
+        "gain_filter": "Sube o baja el volumen del micrófono.",
+        "compressor_filter": "Acerca el volumen de las partes fuertes y suaves de la voz.",
+        "limiter_filter": "Evita que los picos (risas, gritos) pasen del límite y distorsionen.",
+        "invert_polarity_filter": "Invierte la polaridad de la señal. Solo es útil en casos específicos con micrófonos combinados."
+      },
+      "level": "media {{rms}} dB · pico {{peak}} dB",
+      "testedWithout": "Ningún filtro activado: las dos versiones son iguales. Activa un filtro abajo — la versión con filtros se rehace al instante, sin grabar de nuevo.",
+      "howTo": "Pulsa Probar y habla unos segundos. Después activa, desactiva y ajusta los filtros como quieras: la versión con filtros se rehace al instante a partir del mismo fragmento, sin grabar de nuevo."
+    },
     "muteWhenDeviceMuted": {
       "label": "Silenciar la pista cuando el micrófono esté silenciado en Windows",
       "hint": "Mientras el micrófono esté silenciado en Windows, su pista se graba en silencio. Sirve para el botón de silencio de los auriculares, el silencio del sistema y las aplicaciones de llamadas que avisan a Windows al silenciar. El silencio hecho solo dentro de la aplicación, sin avisar a Windows, no se puede detectar: en esos casos el micrófono se sigue grabando."
@@ -565,7 +612,7 @@
         "resumeHint": "Si se cae la conexión o cancelas, lo ya descargado se conserva y la descarga continúa donde se quedó.",
         "cancel": "Cancelar",
         "ready": "Listo — transcribiendo en la {{device}}.",
-        "readyCpu": "Listo — transcribiendo en la CPU. No se encontró ninguna tarjeta con Vulkan, así que será mucho más lento.",
+        "readyCpu": "Listo — transcribiendo en el procesador, mucho más lento que en la tarjeta gráfica: la tarjeta no tiene Vulkan o no tiene memoria suficiente para los modelos.",
         "readyHow": "Ocupa {{size}} en %LOCALAPPDATA%\\NoOBS\\asr. El motor solo funciona mientras hay transcripciones en la cola y libera la memoria de vídeo unos minutos después.",
         "remove": "Quitar",
         "removeConfirm": "Confirmar",
@@ -802,7 +849,8 @@
       "notInstalled": "La transcripción en este equipo aún no está instalada. Instálala en Configuración → Transcripción, o elige un servidor.",
       "serverStart": "El motor de transcripción local no se inició. Los detalles están en {{log}}",
       "request": "El motor de transcripción local respondió con un error: {{error}}",
-      "decode": "No se pudo leer el audio de la grabación."
+      "decode": "No se pudo leer el audio de la grabación.",
+      "memory": "No hay memoria suficiente para cargar el motor de transcripción, ni en la tarjeta gráfica ni en el sistema. Cierra otros programas e inténtalo de nuevo. Detalle: {{detail}}"
     }
   },
   "warning": {

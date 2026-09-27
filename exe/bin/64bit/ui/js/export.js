@@ -52,6 +52,7 @@ const Export = {
   _panDrag: null,        // gesto de deslocamento em curso
   _lastPanMoved: 0,      // quanto o último arrasto andou (suprime o play)
   selectedAudio: null,   // Set<number> — indices de STREAM do arquivo
+  originalAudio: true,   // todas as faixas como na gravacao (_useOriginalAudio)
   parts: [],             // [{start,end,keep}] cobrindo a duracao inteira
   playSec: 0,            // posicao do cursor na linha do tempo
   zoom: 1,               // quantas telas a duracao inteira ocupa
@@ -102,6 +103,10 @@ const Export = {
     this.crop = null;
     this.resetCropZoom();
     this.selectedAudio = new Set();
+    // Padrao: o audio como foi gravado — e o unico jeito de o arquivo
+    // exportado manter as faixas isoladas (e o player dele, o volume por
+    // faixa).
+    this.originalAudio = true;
     this.durationSec = 0;
     this.parts = [];
     this.playSec = 0;
@@ -1809,12 +1814,38 @@ const Export = {
     return this.audioStreams.length > 0 ? this.audioStreams[0].index : -1;
   },
 
+  // "Audio original": TODAS as faixas, na ordem e com os titulos da
+  // gravacao, copiadas sem reprocessar — a mistura (faixa 1) JUNTO com as
+  // isoladas, como o OBS gravou. So existe com 2+ faixas: com uma, marcar a
+  // unica faixa ja da o mesmo arquivo.
+  //
+  // A escolha manual (selectedAudio) fica intocada por baixo: desmarcar o
+  // original volta pro que o usuario tinha escolhido antes.
+  _useOriginalAudio() {
+    return this.originalAudio && this.audioStreams.length > 1;
+  },
+
+  _audioSelection() {
+    return this._useOriginalAudio() ? this.audioStreams.map(s => s.index)
+                                    : [...this.selectedAudio];
+  },
+
+  onOriginalAudioChange(on) {
+    this.originalAudio = !!on;
+    this._renderAudio();
+  },
+
   _renderAudio() {
     const field = document.getElementById('exportAudioField');
     const box = document.getElementById('exportAudio');
     box.innerHTML = '';
     if (this.audioStreams.length === 0) { field.style.display = 'none'; return; }
     field.style.display = '';
+
+    const orig = this._useOriginalAudio();
+    const origWrap = document.getElementById('exportOrigAudioWrap');
+    origWrap.style.display = this.audioStreams.length > 1 ? '' : 'none';
+    document.getElementById('exportOrigAudio').checked = orig;
 
     const mixIdx = this._mixIndex();
     const hasIsolated = [...this.selectedAudio].some(i => i !== mixIdx);
@@ -1825,9 +1856,11 @@ const Export = {
       const label = s.title || (isMix ? T('export.trackMix', { n: i + 1 })
                                       : T('export.trackN', { n: i + 1 }));
       // A faixa 1 e a mixagem de TUDO: marcada junto com uma isolada, o
-      // mesmo audio entraria duas vezes. Por isso as duas se excluem.
-      const blocked = isMix ? hasIsolated : hasMix;
-      box.appendChild(this._mkCheck(label, this.selectedAudio.has(s.index),
+      // mesmo audio entraria duas vezes. Por isso as duas se excluem — a
+      // nao ser no audio original, que reproduz o arquivo como ele e.
+      const blocked = orig || (isMix ? hasIsolated : hasMix);
+      box.appendChild(this._mkCheck(label,
+        orig || this.selectedAudio.has(s.index),
         () => {
           if (this.selectedAudio.has(s.index)) this.selectedAudio.delete(s.index);
           else this.selectedAudio.add(s.index);
@@ -1835,9 +1868,10 @@ const Export = {
         }, blocked));
     });
 
-    // Mixar so faz sentido com 2+ faixas selecionadas.
+    // Mixar so faz sentido com 2+ faixas selecionadas — e nunca no original
+    // (juntar a mistura com as isoladas dobraria cada voz).
     const mixWrap = document.getElementById('exportMixWrap');
-    const canMix = this.selectedAudio.size > 1;
+    const canMix = !orig && this.selectedAudio.size > 1;
     mixWrap.classList.toggle('disabled', !canMix);
     const cb = document.getElementById('exportMixAudio');
     cb.disabled = !canMix;
@@ -1944,6 +1978,7 @@ const Export = {
   // foi transcrito: a mistura (faixa 1), ou TODAS as isoladas. Tirando uma
   // faixa isolada, a transcricao falaria de quem nao esta mais no arquivo.
   _audioIsComplete() {
+    if (this._useOriginalAudio()) return true;
     const mix = this._mixIndex();
     if (this.selectedAudio.has(mix)) return true;
     const isolated = this.audioStreams.filter(s => s.index !== mix).length;
@@ -1956,7 +1991,7 @@ const Export = {
     const segs = this.keptSegments();
     if (segs.length === 0 || this.keptDuration() <= 0) return;
     // Sem tela e sem faixa nenhuma o arquivo sairia vazio.
-    if (this.noVideo && this.selectedAudio.size === 0) {
+    if (this.noVideo && this._audioSelection().length === 0) {
       Toast.show(T('toast.errorTitle'), T('error.exportNothing'), { warn: true, ttl: 5000 });
       return;
     }
@@ -1988,9 +2023,13 @@ const Export = {
       // Sem reducao de resolucao o campo esta escondido: manda o default,
       // que e o que o backend usaria de qualquer jeito.
       scaleAlgo: this._isResizing() ? this._scaleAlgo() : 'bicubic',
-      audioStreams: [...this.selectedAudio],
+      audioStreams: this._audioSelection(),
       mixTrackIndex: this._mixIndex(),
-      mixAudio: document.getElementById('exportMixAudio').checked,
+      // Original: mistura + isoladas juntas, copiadas como estao. Sem este
+      // campo o backend manteria so a mistura (rede de seguranca).
+      originalAudio: this._useOriginalAudio(),
+      mixAudio: !this._useOriginalAudio() &&
+                document.getElementById('exportMixAudio').checked,
       container: document.getElementById('exportContainer').value || 'mp4'
     };
 

@@ -27,6 +27,12 @@ instalar nem configurar nada — só abrir e gravar.
   DaVinci ou no Premiere com os nomes certos, pronto pra separar voz de
   áudio do sistema.
 
+- **Filtros no microfone.** Supressão de ruído, porta de ruído,
+  compressor, limitador, ganho e equalizador (os mesmos do OBS), com um
+  botão de testar: grava alguns segundos uma vez e, a cada filtro que você
+  liga ou ajusta, refaz a versão filtrada na hora pra comparar com o
+  original no mesmo ponto — sem precisar gravar um vídeo pra ouvir.
+
 - **Arquivos que não desperdiçam espaço.** Grava por qualidade, não por
   taxa fixa: tela parada quase não ocupa nada, e as cenas de movimento
   gastam o que precisarem.

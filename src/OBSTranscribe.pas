@@ -434,8 +434,20 @@ begin
 end;
 
 function UseLocalEngine: Boolean;
+// Padrao: o motor LOCAL (audio.cpp na placa de video) — nao exige Docker,
+// e o item so espera na fila ate a instalacao (LOCAL_MISSING_MARK).
+// Excecao pra quem ja usava o servidor antes deste padrao: a chave nao
+// existia (o antigo padrao era 'server'), mas quem configurou um host o
+// escreveu no config. Sem essa leitura, a atualizacao trocaria de motor
+// por baixo de quem tem o Docker de pe.
+var
+  Engine: string;
 begin
-  Result := SameText(GetConfigStr('transcribeEngine', 'server'), 'local');
+  Engine := Trim(GetConfigStr('transcribeEngine', ''));
+  if Engine = '' then
+    Result := Trim(GetConfigStr('transcribeHost', '')) = ''
+  else
+    Result := SameText(Engine, 'local');
 end;
 
 function TranscriptPath(const APath: string): string;
@@ -1001,162 +1013,6 @@ begin
     Result := SB.ToString;
   finally
     SB.Free;
-  end;
-end;
-
-function ExportTranscript(const ASrc, ADst: string;
-  const AStarts, AEnds: TArray<Double>): Boolean;
-var
-  Offs: TArray<Double>;
-  Body: string;
-  Root: TJSONValue;
-  Src, Dst, Item, Seg: TJSONObject;
-  Arr, NewArr, Words, NewWords: TJSONArray;
-  Pair: TJSONPair;
-  i, k: Integer;
-  Acc, NA, NB: Double;
-
-  // Mapeia [AFrom, ATo] da origem pra saida. Intervalo sem nenhum pedaco
-  // dentro dos trechos mantidos = False. Intervalo de duracao zero (palavra
-  // sem fim) vale se cair dentro de um trecho.
-  function MapRange(AFrom, ATo: Double; out AOutFrom, AOutTo: Double): Boolean;
-  var
-    j, First, Last: Integer;
-  begin
-    First := -1;
-    Last := -1;
-    for j := 0 to High(AStarts) do
-      if (ATo >= AStarts[j]) and (AFrom <= AEnds[j]) and
-         ((ATo > AStarts[j]) or (AFrom = ATo)) and
-         ((AFrom < AEnds[j]) or (AFrom = ATo)) then
-      begin
-        if First < 0 then First := j;
-        Last := j;
-      end;
-    Result := First >= 0;
-    if not Result then Exit;
-    AOutFrom := Max(AFrom, AStarts[First]) - AStarts[First] + Offs[First];
-    AOutTo := Min(ATo, AEnds[Last]) - AStarts[Last] + Offs[Last];
-    if AOutTo < AOutFrom then AOutTo := AOutFrom;
-  end;
-
-  // Clona o objeto trocando start/end. Sem start/end (palavra que o
-  // alinhador nao reconheceu, pegadinha #60a) o clone vai como veio.
-  function Remapped(AObj: TJSONObject; out AKeep: Boolean): TJSONObject;
-  var
-    S, E: Double;
-    HasS, HasE: Boolean;
-  begin
-    Result := nil;
-    AKeep := True;
-    HasS := AObj.TryGetValue<Double>('start', S);
-    HasE := AObj.TryGetValue<Double>('end', E);
-    if not HasS then Exit(TJSONObject(AObj.Clone));
-    if not HasE then E := S;
-    if not MapRange(S, E, NA, NB) then
-    begin
-      AKeep := False;
-      Exit;
-    end;
-    Result := TJSONObject(AObj.Clone);
-    Result.RemovePair('start').Free;
-    Result.AddPair('start', TJSONNumber.Create(NA));
-    if HasE then
-    begin
-      Result.RemovePair('end').Free;
-      Result.AddPair('end', TJSONNumber.Create(NB));
-    end;
-  end;
-
-var
-  Keep: Boolean;
-begin
-  Result := False;
-  if (Length(AStarts) = 0) or (Length(AStarts) <> Length(AEnds)) then Exit;
-  if not HasTranscript(ASrc) then Exit;
-  SetLength(Offs, Length(AStarts));
-  Acc := 0;
-  for i := 0 to High(AStarts) do
-  begin
-    Offs[i] := Acc;
-    Acc := Acc + Max(0, AEnds[i] - AStarts[i]);
-  end;
-
-  try
-    Body := TFile.ReadAllText(TranscriptPath(ASrc), TEncoding.UTF8);
-  except
-    Exit;
-  end;
-  Root := TJSONObject.ParseJSONValue(Body);
-  if not (Root is TJSONObject) then
-  begin
-    Root.Free;
-    Exit;
-  end;
-  Src := TJSONObject(Root);
-  Dst := TJSONObject.Create;
-  try
-    // Tudo que nao e tempo (idioma, motor...) vai como veio. O 'text'
-    // sai: ele e remontado dos turnos que ficaram (ExtractPlainText).
-    for Pair in Src do
-      if not (SameText(Pair.JsonString.Value, 'turns') or
-              SameText(Pair.JsonString.Value, 'segments') or
-              SameText(Pair.JsonString.Value, 'text')) then
-        Dst.AddPair(Pair.JsonString.Value, TJSONValue(Pair.JsonValue.Clone));
-
-    NewArr := TJSONArray.Create;
-    if Src.GetValue('turns') is TJSONArray then
-    begin
-      Arr := TJSONArray(Src.GetValue('turns'));
-      for i := 0 to Arr.Count - 1 do
-        if Arr.Items[i] is TJSONObject then
-        begin
-          Item := Remapped(TJSONObject(Arr.Items[i]), Keep);
-          if Keep and (Item <> nil) then NewArr.AddElement(Item);
-        end;
-    end;
-    Dst.AddPair('turns', NewArr);
-
-    if Src.GetValue('segments') is TJSONArray then
-    begin
-      NewArr := TJSONArray.Create;
-      Arr := TJSONArray(Src.GetValue('segments'));
-      for i := 0 to Arr.Count - 1 do
-      begin
-        if not (Arr.Items[i] is TJSONObject) then Continue;
-        Seg := Remapped(TJSONObject(Arr.Items[i]), Keep);
-        if (not Keep) or (Seg = nil) then Continue;
-        if Seg.GetValue('words') is TJSONArray then
-        begin
-          Words := TJSONArray(Seg.GetValue('words'));
-          NewWords := TJSONArray.Create;
-          for k := 0 to Words.Count - 1 do
-            if Words.Items[k] is TJSONObject then
-            begin
-              Item := Remapped(TJSONObject(Words.Items[k]), Keep);
-              if Keep and (Item <> nil) then NewWords.AddElement(Item);
-            end;
-          Seg.RemovePair('words').Free;
-          Seg.AddPair('words', NewWords);
-        end;
-        NewArr.AddElement(Seg);
-      end;
-      Dst.AddPair('segments', NewArr);
-    end;
-
-    try
-      TFile.WriteAllText(TranscriptPath(ADst), Dst.ToJSON, TEncoding.UTF8);
-      TFile.WriteAllText(TranscriptTextPath(ADst), ExtractPlainText(Dst),
-        TEncoding.UTF8);
-      Result := True;
-    except
-      on E: Exception do
-        Log('Transcribe: nao consegui gravar a transcricao exportada: %s',
-          [E.Message]);
-    end;
-  finally
-    Dst.Free;
-    Src.Free;
   end;
 end;
 
@@ -2071,6 +1927,279 @@ begin
   SetLength(Words, 0);
   CollectWords(AObj, Words);
   TurnsFromWordList(Words, ATrack, ATurns);
+end;
+
+function ExportTranscript(const ASrc, ADst: string;
+  const AStarts, AEnds: TArray<Double>): Boolean;
+// Transcricao do arquivo exportado, no relogio DELE: so o que foi dito nos
+// trechos mantidos, com os trechos emendados sem buraco (a mesma linha do
+// tempo que a exportacao produz).
+//
+// Turno inteiro dentro de um trecho so muda de relogio. Turno que um corte
+// PARTE (comeca antes, termina depois, ou atravessa um trecho tirado) vira
+// um turno por pedaco mantido, e o TEXTO de cada pedaco sai so das palavras
+// que cairam nele — senao o arquivo novo "diria" o que foi cortado fora.
+// Quem decide o lado de cada palavra:
+//   - com palavras alinhadas (caminho da mistura): o meio da palavra;
+//   - sem elas (transcricao por faixa, que so guarda turnos): o tempo do
+//     turno dividido pelos caracteres, a mesma regra da legenda do player.
+var
+  Offs: TArray<Double>;
+  Words: TTimedWords;
+  Body: string;
+  Root: TJSONValue;
+  Src, Dst, Item, Seg: TJSONObject;
+  Arr, NewArr, WordsArr, NewWords: TJSONArray;
+  Pair: TJSONPair;
+  i, k, Timed, TimedKept: Integer;
+  Acc, NA, NB: Double;
+  Keep: Boolean;
+  SegText, WText: string;
+
+  // Mapeia [AFrom, ATo] da origem pra saida. Intervalo sem nenhum pedaco
+  // dentro dos trechos mantidos = False. Intervalo de duracao zero (palavra
+  // sem fim) vale se cair dentro de um trecho.
+  function MapRange(AFrom, ATo: Double; out AOutFrom, AOutTo: Double): Boolean;
+  var
+    x, First, Last: Integer;
+  begin
+    First := -1;
+    Last := -1;
+    for x := 0 to High(AStarts) do
+      if (ATo >= AStarts[x]) and (AFrom <= AEnds[x]) and
+         ((ATo > AStarts[x]) or (AFrom = ATo)) and
+         ((AFrom < AEnds[x]) or (AFrom = ATo)) then
+      begin
+        if First < 0 then First := x;
+        Last := x;
+      end;
+    Result := First >= 0;
+    if not Result then Exit;
+    AOutFrom := Max(AFrom, AStarts[First]) - AStarts[First] + Offs[First];
+    AOutTo := Min(ATo, AEnds[Last]) - AStarts[Last] + Offs[Last];
+    if AOutTo < AOutFrom then AOutTo := AOutFrom;
+  end;
+
+  // Clona o objeto trocando start/end. Sem start/end (palavra que o
+  // alinhador nao reconheceu, pegadinha #60a) o clone vai como veio.
+  function Remapped(AObj: TJSONObject; out AKeep: Boolean): TJSONObject;
+  var
+    S, E: Double;
+    HasS, HasE: Boolean;
+  begin
+    Result := nil;
+    AKeep := True;
+    HasS := AObj.TryGetValue<Double>('start', S);
+    HasE := AObj.TryGetValue<Double>('end', E);
+    if not HasS then Exit(TJSONObject(AObj.Clone));
+    if not HasE then E := S;
+    if not MapRange(S, E, NA, NB) then
+    begin
+      AKeep := False;
+      Exit;
+    end;
+    Result := TJSONObject(AObj.Clone);
+    Result.RemovePair('start').Free;
+    Result.AddPair('start', TJSONNumber.Create(NA));
+    if HasE then
+    begin
+      Result.RemovePair('end').Free;
+      Result.AddPair('end', TJSONNumber.Create(NB));
+    end;
+  end;
+
+  procedure SetPair(AObj: TJSONObject; const AKey: string; AVal: TJSONValue);
+  begin
+    AObj.RemovePair(AKey).Free;
+    AObj.AddPair(AKey, AVal);
+  end;
+
+  // Texto do turno [TS, TE] que cai no pedaco mantido [PA, PB].
+  function PieceText(const AText: string; TS, TE, PA, PB: Double): string;
+  var
+    x, Cum, Total: Integer;
+    Mid, T: Double;
+    Any: Boolean;
+    Tokens: TArray<string>;
+  begin
+    Result := '';
+    // Palavras alinhadas que pertencem a ESTE turno (pelo meio delas).
+    Any := False;
+    for x := 0 to High(Words) do
+    begin
+      Mid := (Words[x].StartS + Words[x].EndS) / 2;
+      if (Mid < TS) or (Mid > TE) then Continue;
+      Any := True;
+      if (Mid >= PA) and (Mid <= PB) then AppendWord(Result, Words[x].Text);
+    end;
+    if Any then Exit;
+
+    // Sem palavras: proporcional aos caracteres.
+    Tokens := AText.Split([' '], TStringSplitOptions.ExcludeEmpty);
+    Total := 0;
+    for x := 0 to High(Tokens) do Inc(Total, Length(Tokens[x]) + 1);
+    if Total = 0 then Exit;
+    Cum := 0;
+    for x := 0 to High(Tokens) do
+    begin
+      T := TS + (TE - TS) * ((Cum + Length(Tokens[x]) / 2) / Total);
+      Inc(Cum, Length(Tokens[x]) + 1);
+      if (T >= PA) and (T <= PB) then AppendWord(Result, Tokens[x]);
+    end;
+  end;
+
+  procedure AddTurn(ATurn: TJSONObject; ADest: TJSONArray);
+  var
+    S, E, PA, PB: Double;
+    HasE: Boolean;
+    x: Integer;
+    Txt, Piece: string;
+    Clone: TJSONObject;
+    KeepIt: Boolean;
+  begin
+    if not ATurn.TryGetValue<Double>('start', S) then
+    begin
+      ADest.AddElement(TJSONObject(ATurn.Clone));
+      Exit;
+    end;
+    HasE := ATurn.TryGetValue<Double>('end', E);
+    if not HasE then E := S;
+
+    // Inteiro dentro de um trecho: so troca o relogio.
+    for x := 0 to High(AStarts) do
+      if (S >= AStarts[x]) and (E <= AEnds[x]) then
+      begin
+        Clone := Remapped(ATurn, KeepIt);
+        if KeepIt and (Clone <> nil) then ADest.AddElement(Clone);
+        Exit;
+      end;
+    if E <= S then Exit;   // instante fora de todos os trechos
+
+    Txt := '';
+    ATurn.TryGetValue<string>('text', Txt);
+    for x := 0 to High(AStarts) do
+    begin
+      PA := Max(S, AStarts[x]);
+      PB := Min(E, AEnds[x]);
+      if PB <= PA then Continue;
+      Piece := Trim(PieceText(Txt, S, E, PA, PB));
+      if Piece = '' then Continue;
+      Clone := TJSONObject(ATurn.Clone);
+      SetPair(Clone, 'start', TJSONNumber.Create(PA - AStarts[x] + Offs[x]));
+      SetPair(Clone, 'end', TJSONNumber.Create(PB - AStarts[x] + Offs[x]));
+      SetPair(Clone, 'text', TJSONString.Create(Piece));
+      ADest.AddElement(Clone);
+    end;
+  end;
+
+begin
+  Result := False;
+  if (Length(AStarts) = 0) or (Length(AStarts) <> Length(AEnds)) then Exit;
+  if not HasTranscript(ASrc) then Exit;
+  SetLength(Offs, Length(AStarts));
+  Acc := 0;
+  for i := 0 to High(AStarts) do
+  begin
+    Offs[i] := Acc;
+    Acc := Acc + Max(0, AEnds[i] - AStarts[i]);
+  end;
+
+  try
+    Body := TFile.ReadAllText(TranscriptPath(ASrc), TEncoding.UTF8);
+  except
+    Exit;
+  end;
+  Root := TJSONObject.ParseJSONValue(Body);
+  if not (Root is TJSONObject) then
+  begin
+    Root.Free;
+    Exit;
+  end;
+  Src := TJSONObject(Root);
+  Dst := TJSONObject.Create;
+  try
+    SetLength(Words, 0);
+    CollectWords(Src, Words);
+
+    // Tudo que nao e tempo (idioma, motor...) vai como veio. O 'text'
+    // sai: ele e remontado dos turnos que ficaram (ExtractPlainText).
+    for Pair in Src do
+      if not (SameText(Pair.JsonString.Value, 'turns') or
+              SameText(Pair.JsonString.Value, 'segments') or
+              SameText(Pair.JsonString.Value, 'text')) then
+        Dst.AddPair(Pair.JsonString.Value, TJSONValue(Pair.JsonValue.Clone));
+
+    NewArr := TJSONArray.Create;
+    if Src.GetValue('turns') is TJSONArray then
+    begin
+      Arr := TJSONArray(Src.GetValue('turns'));
+      for i := 0 to Arr.Count - 1 do
+        if Arr.Items[i] is TJSONObject then
+          AddTurn(TJSONObject(Arr.Items[i]), NewArr);
+    end;
+    Dst.AddPair('turns', NewArr);
+
+    if Src.GetValue('segments') is TJSONArray then
+    begin
+      NewArr := TJSONArray.Create;
+      Arr := TJSONArray(Src.GetValue('segments'));
+      for i := 0 to Arr.Count - 1 do
+      begin
+        if not (Arr.Items[i] is TJSONObject) then Continue;
+        Seg := Remapped(TJSONObject(Arr.Items[i]), Keep);
+        if (not Keep) or (Seg = nil) then Continue;
+        if Seg.GetValue('words') is TJSONArray then
+        begin
+          WordsArr := TJSONArray(Seg.GetValue('words'));
+          NewWords := TJSONArray.Create;
+          Timed := 0;
+          TimedKept := 0;
+          SegText := '';
+          for k := 0 to WordsArr.Count - 1 do
+            if WordsArr.Items[k] is TJSONObject then
+            begin
+              if WordsArr.Items[k].FindValue('start') <> nil then Inc(Timed);
+              Item := Remapped(TJSONObject(WordsArr.Items[k]), Keep);
+              if Keep and (Item <> nil) then
+              begin
+                if Item.FindValue('start') <> nil then Inc(TimedKept);
+                WText := '';
+                Item.TryGetValue<string>('word', WText);
+                AppendWord(SegText, WText);
+                NewWords.AddElement(Item);
+              end;
+            end;
+          SetPair(Seg, 'words', NewWords);
+          // Segmento partido por um corte: o texto dele sai das palavras
+          // que ficaram. Nenhuma palavra alinhada ficou = o segmento so
+          // encostava nos trechos mantidos, sai inteiro.
+          if (Timed > 0) and (TimedKept = 0) then
+          begin
+            Seg.Free;
+            Continue;
+          end;
+          if TimedKept < Timed then
+            SetPair(Seg, 'text', TJSONString.Create(Trim(SegText)));
+        end;
+        NewArr.AddElement(Seg);
+      end;
+      Dst.AddPair('segments', NewArr);
+    end;
+
+    try
+      TFile.WriteAllText(TranscriptPath(ADst), Dst.ToJSON, TEncoding.UTF8);
+      TFile.WriteAllText(TranscriptTextPath(ADst), ExtractPlainText(Dst),
+        TEncoding.UTF8);
+      Result := True;
+    except
+      on E: Exception do
+        Log('Transcribe: nao consegui gravar a transcricao exportada: %s',
+          [E.Message]);
+    end;
+  finally
+    Dst.Free;
+    Src.Free;
+  end;
 end;
 
 function DedupWords(var ATracks: TArray<TTimedWords>): Integer;

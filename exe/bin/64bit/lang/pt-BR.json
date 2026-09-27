@@ -172,6 +172,7 @@
     "trackMix": "Faixa {{n}} (mixagem)",
     "trackN": "Faixa {{n}}",
     "mixAudio": "Juntar as faixas em uma só",
+    "originalAudio": "Manter o áudio original (as mesmas faixas da gravação)",
     "fileName": "Nome do arquivo",
     "progress": "Exportando… {{pct}}%",
     "canceling": "Cancelando…",
@@ -208,7 +209,8 @@
     "title": "Configurações",
     "tabs": {
       "general": "Geral",
-      "recording": "Gravação",
+      "recording": "Vídeo",
+      "audio": "Áudio",
       "replay": "Buffer",
       "files": "Arquivos",
       "devices": "Dispositivos",
@@ -462,6 +464,51 @@
       "openPage": "Abrir página do release",
       "failed": "Não foi possível verificar agora. Confira sua conexão e tente novamente."
     },
+    "audioBitrate": {
+      "label": "Qualidade do áudio",
+      "option": "{{kbps}} kbps",
+      "optionDefault": "{{kbps}} kbps (padrão)",
+      "hint": {
+        "voice": "Suficiente para voz; música e som do sistema perdem brilho.",
+        "good": "Boa para voz e som do sistema.",
+        "default": "Padrão — transparente para quase tudo.",
+        "high": "Alta — só faz diferença em música com bons fones."
+      },
+      "size": "Cerca de {{mb}} MB por hora, por faixa. Vale a partir da próxima gravação."
+    },
+    "audioFilters": {
+      "label": "Filtros do microfone",
+      "hint": "Tratam o som dos microfones antes de ele entrar na gravação e no buffer. O som do sistema não passa por eles. Valem a partir da próxima gravação.",
+      "loading": "Carregando filtros…",
+      "unavailable": "Filtros indisponíveis: o plugin obs-filters não foi encontrado na instalação.",
+      "noneOn": "Nenhum filtro ligado.",
+      "nOn": "{{count}} filtro(s) ligado(s).",
+      "showSettings": "Ajustes",
+      "hideSettings": "Fechar ajustes",
+      "reset": "Restaurar padrão",
+      "test": "Testar ({{sec}} s)",
+      "testing": "Gravando… fale no microfone ({{sec}} s)",
+      "compare": "Versão com {{count}} filtro(s). Mude qualquer filtro e ela é refeita na hora — alterne entre Original e Com filtros no mesmo ponto. A diferença aparece mais na média: os picos são a sua voz.",
+      "testFailed": "Não foi possível abrir o microfone para o teste.",
+      "micDefault": "{{name}} (padrão do Windows)",
+      "original": "Original",
+      "filtered": "Com filtros",
+      "silence": "silêncio",
+      "desc": {
+        "noise_suppress_filter_v2": "Remove chiado, ventilador e ruído de fundo constante. O mais útil para microfone de notebook ou headset simples.",
+        "noise_gate_filter": "Fecha o microfone quando o som fica abaixo de um limite: corta o ruído entre as falas.",
+        "expander_filter": "Abaixa os sons fracos (respiração, teclado ao fundo) sem cortar de vez como a porta de ruído.",
+        "upward_compressor_filter": "Sobe os trechos baixos da fala, deixando o volume mais uniforme.",
+        "basic_eq_filter": "Ajusta graves, médios e agudos da voz.",
+        "gain_filter": "Aumenta ou diminui o volume do microfone.",
+        "compressor_filter": "Aproxima o volume dos trechos altos e baixos da fala.",
+        "limiter_filter": "Impede que picos (risada, grito) passem do limite e distorçam.",
+        "invert_polarity_filter": "Inverte a polaridade do sinal. Só é útil em casos específicos de microfones combinados."
+      },
+      "level": "média {{rms}} dB · pico {{peak}} dB",
+      "testedWithout": "Nenhum filtro ligado: as duas versões estão iguais. Ligue um filtro abaixo — a versão com filtros é refeita na hora, sem gravar de novo.",
+      "howTo": "Aperte Testar e fale por alguns segundos. Depois ligue, desligue e ajuste os filtros à vontade: a versão com filtros é refeita na hora a partir do mesmo trecho, sem gravar de novo."
+    },
     "muteWhenDeviceMuted": {
       "label": "Silenciar a faixa quando o microfone estiver mudo no Windows",
       "hint": "Enquanto o microfone estiver mudo no Windows, a faixa dele sai em silêncio na gravação. Vale para o botão de mudo do fone, o mudo do sistema e os aplicativos de chamada que avisam o Windows ao mutar. O mudo feito só dentro do aplicativo, sem avisar o Windows, não é detectável — nesses casos o microfone continua sendo gravado."
@@ -565,7 +612,7 @@
         "resumeHint": "Se a conexão cair ou você cancelar, o que já foi baixado fica guardado e o download continua de onde parou.",
         "cancel": "Cancelar",
         "ready": "Pronto — transcrevendo na {{device}}.",
-        "readyCpu": "Pronto — transcrevendo na CPU. Nenhuma placa com Vulkan foi encontrada, então vai ser bem mais lento.",
+        "readyCpu": "Pronto — transcrevendo no processador, bem mais devagar que na placa de vídeo: a placa não tem Vulkan ou não tem memória suficiente para os modelos.",
         "readyHow": "Ocupa {{size}} em %LOCALAPPDATA%\\NoOBS\\asr. O motor só roda enquanto há transcrição na fila e libera a memória de vídeo alguns minutos depois.",
         "remove": "Remover",
         "removeConfirm": "Confirmar remoção",
@@ -802,7 +849,8 @@
       "notInstalled": "A transcrição nesta máquina ainda não foi instalada. Instale em Configurações → Transcrição, ou escolha um servidor.",
       "serverStart": "O motor de transcrição local não iniciou. Os detalhes estão em {{log}}",
       "request": "O motor de transcrição local respondeu com erro: {{error}}",
-      "decode": "Não foi possível ler o áudio da gravação."
+      "decode": "Não foi possível ler o áudio da gravação.",
+      "memory": "Não há memória suficiente para carregar o motor de transcrição, nem na placa de vídeo nem no sistema. Feche outros programas e tente de novo. Detalhe: {{detail}}"
     }
   },
   "warning": {

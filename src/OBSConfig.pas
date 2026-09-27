@@ -39,6 +39,11 @@ procedure SetConfigBool(const AKey: string; AValue: Boolean);
 function GetConfigInt(const AKey: string; ADefault: Integer): Integer;
 procedure SetConfigInt(const AKey: string; AValue: Integer);
 
+// Valor estruturado (objeto/array). Get devolve uma COPIA (quem chama
+// libera) ou nil se a chave nao existe; Set assume a posse de AValue.
+function GetConfigJson(const AKey: string): TJSONValue;
+procedure SetConfigJson(const AKey: string; AValue: TJSONValue);
+
 // Toggle de source: ACategory = 'monitors'/'mics'/'speakers'/'webcams',
 // AId = indice (monitor) ou nome do dispositivo.
 function GetSourceBool(const ACategory, AId: string;
@@ -333,6 +338,39 @@ begin
     Pair := CachedJson.RemovePair(AKey);
     if Pair <> nil then Pair.Free;
     CachedJson.AddPair(AKey, TJSONNumber.Create(AValue));
+    WriteToDisk;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+function GetConfigJson(const AKey: string): TJSONValue;
+var
+  V: TJSONValue;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    V := CachedJson.GetValue(AKey);
+    if (V is TJSONObject) or (V is TJSONArray) then
+      Result := TJSONValue(V.Clone)
+    else
+      Result := nil;
+  finally
+    ConfigLock.Leave;
+  end;
+end;
+
+procedure SetConfigJson(const AKey: string; AValue: TJSONValue);
+var
+  Pair: TJSONPair;
+begin
+  ConfigLock.Enter;
+  try
+    EnsureLoaded;
+    Pair := CachedJson.RemovePair(AKey);
+    if Pair <> nil then Pair.Free;
+    if AValue <> nil then CachedJson.AddPair(AKey, AValue);
     WriteToDisk;
   finally
     ConfigLock.Leave;

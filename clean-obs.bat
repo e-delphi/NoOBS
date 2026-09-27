@@ -35,6 +35,9 @@ REM Plugins nao usados (.dll + .pdb + pasta data correspondente).
 REM obs-filters/transitions/outputs/rtmp-services antes eram obrigatorios
 REM pro init do OBS Studio carregar a cena default. Com libobs direto
 REM montamos nossa cena, entao podem sair tambem.
+REM EXCETO obs-filters: os filtros de AUDIO dele (supressao de ruido,
+REM compressor...) sao usados nos microfones (OBSAudioFilters). Dele so
+REM saem os LUTs/effects de video (bloco logo abaixo do laco).
 for %%P in (
   aja
   aja-output-ui
@@ -45,7 +48,6 @@ for %%P in (
   image-source
   nv-filters
   obs-browser
-  obs-filters
   obs-outputs
   obs-qsv11
   obs-text
@@ -65,6 +67,9 @@ for %%P in (
   if exist "%PLUGINS%\%%P.pdb" del /q "%PLUGINS%\%%P.pdb" 2>nul
   if exist "%DATAP%\%%P" rmdir /s /q "%DATAP%\%%P" 2>nul
 )
+REM obs-filters: dos arquivos de dados, so a traducao (locale) e usada.
+if exist "%DATAP%\obs-filters\LUTs" rmdir /s /q "%DATAP%\obs-filters\LUTs" 2>nul
+del /q "%DATAP%\obs-filters\*.effect" 2>nul
 
 REM Sobras do obs-browser (CEF) — pesado, ~300MB
 for %%F in (

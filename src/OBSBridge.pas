@@ -88,7 +88,9 @@
                            resolucao), audioStreams (array de
                            INDICES de stream do arquivo), mixTrackIndex
                            (indice da faixa de mix, pra regra de exclusao),
-                           mixAudio (Boolean), noVideo (Boolean — nenhuma
+                           mixAudio (Boolean), originalAudio (Boolean —
+                           todas as faixas como gravadas, mix + isoladas
+                           juntas, sem mixar), noVideo (Boolean — nenhuma
                            tela: so o audio sai, e regioes/resolucao/
                            encoder/qualidade sao ignorados), burnCaptions
                            (Boolean — queima a transcricao como legenda;
@@ -96,6 +98,18 @@
                            keepTranscript (Boolean — o audio escolhido
                            ainda e o transcrito, entao a transcricao vai
                            junto pro arquivo novo, remapeada pelos cortes)
+    set_audio_bitrate    : kbps (AAC por faixa; degrau mais proximo)
+    get_audio_filters    : -> push audio_filters {ready, filters, mics,
+                           testSec, testing} (sobe o libobs se preciso)
+    set_audio_filter     : id, op ('enable' + value | 'value' + key +
+                           value | 'reset') -> push audio_filter {filter}
+    test_audio_filters   : device (id do endpoint, '' = padrao) -> push
+                           audio_filter_test {state: recording|done|error|
+                           filtered (so a versao filtrada, refeita do
+                           trecho guardado a cada set_audio_filter);
+                           done traz original/filtered (data: URL WAV),
+                           originalPeakDb/filteredPeakDb, originalRmsDb/
+                           filteredRmsDb e filters = quantos estavam ligados}
     request_waveform     : id, buckets, hi (Boolean — resolucao alta pra
                            linha do tempo da exportacao, cache proprio;
                            responde waveform_ready com hi)
@@ -226,6 +240,7 @@ uses
   ExportCaptions,
   NoOBSTypes,
   OBSEncoder,
+  OBSAudioFilters,
   OBSAudioTracks,
   OBSEngine,
   OBSHotkey,
@@ -297,6 +312,9 @@ const
   // registro nao ha como separar "o jogo travou por causa do buffer" de
   // "travou por outra coisa" depois do fato.
   TIMER_REPLAY_MEM          = 7014;
+  // Teste dos filtros de audio (aba Audio): fim da captura A/B. One-shot.
+  TIMER_AUDIO_FILTER_TEST   = 7015;
+  AUDIO_FILTER_TEST_SEC     = 6;
   REPLAY_MEM_LOG_MS         = 30_000;
 
   // Limites do buffer (config 'replayMaxSec' / 'replayMaxMb'). O que
@@ -5733,6 +5751,8 @@ begin
   // precisao da divisao de video no player (stream copy so corta em I-frame).
   Obj.AddPair('recordingKeyframeSec',
     TJSONNumber.Create(GetConfigInt('recordingKeyframeSec', 2)));
+  // audioBitrate: kbps do AAC por faixa, ja encaixado num degrau valido.
+  Obj.AddPair('audioBitrate', TJSONNumber.Create(GetAudioBitrateKbps));
   // Geracao de previa/duracao da biblioteca: 'auto'|'always'|'off'.
   Obj.AddPair('libraryThumbs', GetConfigStr('libraryThumbs', 'auto'));
   // Informa a UI se a pasta de gravacao esta no OneDrive (hint no modo
@@ -5854,6 +5874,218 @@ begin
   Log('RecordingKeyframe: %ds', [ASec]);
 end;
 
+procedure HandleSetAudioBitrate(AKbps: Integer);
+begin
+  // Encaixa no degrau valido. Vale a partir do proximo grafo montado
+  // (proxima gravacao, ou o buffer religado) — encoder de audio vivo nao
+  // troca de taxa no meio do arquivo.
+  AKbps := NormalizeAudioBitrate(AKbps);
+  SetConfigInt('audioBitrate', AKbps);
+  Log('AudioBitrate: %d kbps', [AKbps]);
+end;
+
+// ---- Filtros de audio (aba Audio) ----------------------------------------
+//
+// Lista, edicao e teste A/B moram no OBSAudioFilters; aqui so a mensageria.
+// Os tres precisam do libobs vivo (os filtros sao tipos do plugin), entao
+// sobem o core se o warmup ainda nao o fez — o mesmo que o clique de gravar.
+
+function EnsureObsForAudioFilters: Boolean;
+begin
+  Result := False;
+  try
+    if Engine = nil then
+    begin
+      Engine := TOBSEngine.Create;
+      Engine.OnStopped := OnEngineRecordingStopped;
+    end;
+    Engine.EnsureInitialized;
+    PushEncoderCapsOnce;
+    Result := Engine.IsInitialized;
+  except
+    on E: Exception do Log('AudioFilters: libobs nao subiu: %s', [E.Message]);
+  end;
+end;
+
+procedure HandleGetAudioFilters;
+var
+  Obj, M: TJSONObject;
+  Mics: TJSONArray;
+  Devs: TAudioDeviceInfoArray;
+  i, Pass: Integer;
+  Ready: Boolean;
+begin
+  Ready := EnsureObsForAudioFilters;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'audio_filters');
+  Obj.AddPair('ready', TJSONBool.Create(Ready));
+  if Ready then
+    Obj.AddPair('filters', OBSAudioFilters.BuildAudioFiltersJson)
+  else
+    Obj.AddPair('filters', TJSONArray.Create);
+  // Microfones pro teste: o padrao do Windows primeiro. O id e o do
+  // endpoint, que e o mesmo device_id que o wasapi do OBS usa.
+  Mics := TJSONArray.Create;
+  try
+    Devs := WinAudioMeter.EnumerateAudioDevices;
+    for Pass := 0 to 1 do
+      for i := 0 to High(Devs) do
+        if (Devs[i].Kind = adkInput) and (Devs[i].IsDefault = (Pass = 0)) then
+        begin
+          M := TJSONObject.Create;
+          M.AddPair('id', Devs[i].DeviceId);
+          M.AddPair('name', Devs[i].Name);
+          M.AddPair('isDefault', TJSONBool.Create(Devs[i].IsDefault));
+          Mics.AddElement(M);
+        end;
+  except
+    on E: Exception do Log('AudioFilters: lista de mics falhou: %s', [E.Message]);
+  end;
+  Obj.AddPair('mics', Mics);
+  Obj.AddPair('testSec', TJSONNumber.Create(AUDIO_FILTER_TEST_SEC));
+  Obj.AddPair('testing', TJSONBool.Create(OBSAudioFilters.AudioFilterTestRunning));
+  PostOwned(Obj);
+end;
+
+var
+  // Quantos filtros estavam ligados na versao filtrada que esta na tela.
+  // Vai junto no push: sem isso, um teste feito com tudo desligado devolvia
+  // duas copias identicas e parecia que os filtros nao funcionavam.
+  AudioFilterTestCount: Integer = 0;
+
+procedure PushAudioFilterRerender;
+// 'filtered': so a versao com filtros, refeita do trecho guardado (~0,1 s
+// na main thread pra 6 s de audio).
+var
+  Wav: TBytes;
+  PeakDb, RmsDb: Double;
+  Enc: TBase64Encoding;
+  Obj: TJSONObject;
+begin
+  if not OBSAudioFilters.RerenderAudioFilterTest(Wav, PeakDb, RmsDb) then Exit;
+  AudioFilterTestCount := OBSAudioFilters.EnabledAudioFilterCount;
+  Enc := TBase64Encoding.Create(0);
+  try
+    Obj := TJSONObject.Create;
+    Obj.AddPair('type', 'audio_filter_test');
+    Obj.AddPair('state', 'filtered');
+    Obj.AddPair('filtered', 'data:audio/wav;base64,' + Enc.EncodeBytesToString(Wav));
+    Obj.AddPair('filteredPeakDb', TJSONNumber.Create(Round(PeakDb * 10) / 10));
+    Obj.AddPair('filteredRmsDb', TJSONNumber.Create(Round(RmsDb * 10) / 10));
+    Obj.AddPair('filters', TJSONNumber.Create(AudioFilterTestCount));
+    PostOwned(Obj);
+  finally
+    Enc.Free;
+  end;
+end;
+
+procedure HandleSetAudioFilter(AObj: TJSONObject);
+// op: 'enable' (value: bool) | 'value' (key + value) | 'reset'.
+// Responde com o filtro inteiro de novo: mudar um campo pode mostrar ou
+// esconder outros (metodo da supressao de ruido, preset do expansor).
+var
+  Id, Op: string;
+  V: TJSONValue;
+  Obj: TJSONObject;
+begin
+  Id := GetStrField(AObj, 'id');
+  Op := GetStrField(AObj, 'op');
+  if (Id = '') or not EnsureObsForAudioFilters then Exit;
+  try
+    V := AObj.GetValue('value');
+    if Op = 'enable' then
+      OBSAudioFilters.SetAudioFilterEnabled(Id, (V is TJSONBool) and TJSONBool(V).AsBoolean)
+    else if Op = 'value' then
+      OBSAudioFilters.SetAudioFilterValue(Id, GetStrField(AObj, 'key'), V)
+    else if Op = 'reset' then
+      OBSAudioFilters.ResetAudioFilter(Id)
+    else
+      Exit;
+    Obj := TJSONObject.Create;
+    Obj.AddPair('type', 'audio_filter');
+    Obj.AddPair('filter', OBSAudioFilters.BuildAudioFilterJson(Id));
+    PostOwned(Obj);
+    // Ja ha um trecho de teste gravado: refaz a versao com filtros na hora,
+    // com a cadeia nova, pra comparar sem precisar falar de novo.
+    PushAudioFilterRerender;
+  except
+    on E: Exception do Log('AudioFilters: set %s/%s falhou: %s', [Id, Op, E.Message]);
+  end;
+end;
+
+procedure PushAudioFilterTestState(const AState: string; const AError: string = '');
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'audio_filter_test');
+  Obj.AddPair('state', AState);
+  Obj.AddPair('seconds', TJSONNumber.Create(AUDIO_FILTER_TEST_SEC));
+  Obj.AddPair('filters', TJSONNumber.Create(AudioFilterTestCount));
+  if AError <> '' then Obj.AddPair('error', AError);
+  PostOwned(Obj);
+end;
+
+procedure HandleTestAudioFilters(const ADeviceId: string);
+// Grava AUDIO_FILTER_TEST_SEC segundos do microfone CRU e guarda o trecho.
+// No fim, devolve o original e a versao com a cadeia atual; depois disso
+// cada mudanca de filtro refaz so a filtrada (PushAudioFilterRerender).
+// Nao passa pela gravacao: nenhum arquivo nasce na biblioteca.
+var
+  Err: string;
+begin
+  if OBSAudioFilters.AudioFilterTestRunning then Exit;
+  if not EnsureObsForAudioFilters then
+  begin
+    PushAudioFilterTestState('error', OBSLang.T('settings.audioFilters.testFailed'));
+    Exit;
+  end;
+  AudioFilterTestCount := OBSAudioFilters.EnabledAudioFilterCount;
+  if not OBSAudioFilters.StartAudioFilterTest(ADeviceId, Err) then
+  begin
+    Log('AudioFilters: teste nao iniciou: %s', [Err]);
+    PushAudioFilterTestState('error', OBSLang.T('settings.audioFilters.testFailed'));
+    Exit;
+  end;
+  PushAudioFilterTestState('recording');
+  SetTimer(MainWindowHandle, TIMER_AUDIO_FILTER_TEST,
+    AUDIO_FILTER_TEST_SEC * 1000, nil);
+end;
+
+procedure FinishAudioFilterTestAndPush;
+var
+  RawWav, FiltWav: TBytes;
+  RawDb, FiltDb, RawRms, FiltRms: Double;
+  Enc: TBase64Encoding;
+  Obj: TJSONObject;
+begin
+  if not OBSAudioFilters.AudioFilterTestRunning then Exit;
+  OBSAudioFilters.FinishAudioFilterTest(RawWav, FiltWav, RawDb, FiltDb,
+    RawRms, FiltRms);
+  // A filtrada e feita AGORA, com a cadeia de agora (nao a do inicio).
+  AudioFilterTestCount := OBSAudioFilters.EnabledAudioFilterCount;
+  // Dados inline (data: URL): ~770 KB por copia em 6 s de mono 16 bits.
+  // Evita arquivo temporario e rota nova no servidor HTTP. CharsPerLine 0:
+  // o Base64 padrao do Delphi quebra linha a cada 76 caracteres, e a
+  // quebra invalidaria a data: URL.
+  Enc := TBase64Encoding.Create(0);
+  try
+    Obj := TJSONObject.Create;
+    Obj.AddPair('type', 'audio_filter_test');
+    Obj.AddPair('state', 'done');
+    Obj.AddPair('original', 'data:audio/wav;base64,' + Enc.EncodeBytesToString(RawWav));
+    Obj.AddPair('filtered', 'data:audio/wav;base64,' + Enc.EncodeBytesToString(FiltWav));
+    Obj.AddPair('originalPeakDb', TJSONNumber.Create(Round(RawDb * 10) / 10));
+    Obj.AddPair('filteredPeakDb', TJSONNumber.Create(Round(FiltDb * 10) / 10));
+    Obj.AddPair('originalRmsDb', TJSONNumber.Create(Round(RawRms * 10) / 10));
+    Obj.AddPair('filteredRmsDb', TJSONNumber.Create(Round(FiltRms * 10) / 10));
+    Obj.AddPair('filters', TJSONNumber.Create(AudioFilterTestCount));
+    PostOwned(Obj);
+  finally
+    Enc.Free;
+  end;
+end;
+
 procedure HandleSetLibraryThumbs(const AMode: string);
 var
   M: string;
@@ -5894,6 +6126,10 @@ begin
   Bundle := OBSLang.GetCurrentBundle;
   if Bundle <> nil then Obj.AddPair('i18n', Bundle);
   PostOwned(Obj);
+  // Rotulos dos filtros de audio vem do plugin do OBS: troca o idioma dele
+  // tambem (so se o libobs ja subiu; senao o init ja pega o novo).
+  if (Engine <> nil) and Engine.IsInitialized then
+    OBSAudioFilters.SetObsLocaleFromApp(Resolved);
 end;
 
 procedure HandleSetHibernate(AEnable: Boolean);
@@ -7710,7 +7946,7 @@ var
   SrcSize, FreeBytes, Needed: Int64;
   AudioSel: TArray<Integer>;
   MixTrackIdx: Integer;
-  HasFirst, HasOther: Boolean;
+  HasFirst, HasOther, OriginalAudio: Boolean;
   // O que o arquivo exportado herda da gravacao (pegadinha #51h).
   SrcMeta, OutMeta: TRecordingMeta;
   HasSrcMeta, KeepTranscript: Boolean;
@@ -7854,14 +8090,22 @@ begin
   // Faixas de audio. Regra pedida: a faixa 1 e o MIX de tudo, entao ela
   // nao pode conviver com as isoladas (o mesmo audio entraria duas
   // vezes). A UI ja impede; aqui e a rede de seguranca.
+  //
+  // Excecao: o "audio original" (originalAudio). Ai o pedido e reproduzir
+  // as faixas do arquivo como o OBS gravou — mistura E isoladas, cada uma
+  // na sua stream, copiadas sem reprocessar. Nada entra duas vezes na
+  // MESMA faixa, e mixar fica desligado (juntaria a mistura com as vozes
+  // que ela ja contem).
   AudioSel := GetIntArrayField(AObj, 'audioStreams');
   MixTrackIdx := GetIntField(AObj, 'mixTrackIndex', -1);
+  OriginalAudio := GetBoolField(AObj, 'originalAudio', False);
+  if OriginalAudio then Opts.MixAudio := False;
   HasFirst := False;
   HasOther := False;
   for i := 0 to High(AudioSel) do
     if (AudioSel[i] >= 0) and (AudioSel[i] = MixTrackIdx) then HasFirst := True
     else if AudioSel[i] >= 0 then HasOther := True;
-  if HasFirst and HasOther then
+  if HasFirst and HasOther and (not OriginalAudio) then
   begin
     Log('Export: faixa do mix + isoladas selecionadas — mantendo so o mix.');
     SetLength(Opts.AudioStreams, 1);
@@ -8298,6 +8542,14 @@ begin
       HandleSetRecordingFps(GetIntField(Obj, 'fps'))
     else if MsgType = 'set_recording_keyframe' then
       HandleSetRecordingKeyframe(GetIntField(Obj, 'sec'))
+    else if MsgType = 'set_audio_bitrate' then
+      HandleSetAudioBitrate(GetIntField(Obj, 'kbps'))
+    else if MsgType = 'get_audio_filters' then
+      HandleGetAudioFilters
+    else if MsgType = 'set_audio_filter' then
+      HandleSetAudioFilter(Obj)
+    else if MsgType = 'test_audio_filters' then
+      HandleTestAudioFilters(GetStrField(Obj, 'device'))
     else if MsgType = 'set_library_thumbs' then
       HandleSetLibraryThumbs(GetStrField(Obj, 'mode'))
     else if MsgType = 'set_language' then
@@ -8719,6 +8971,11 @@ begin
       try Engine.ForceCompleteStop; except on E: Exception do
         Log('ForceCompleteStop falhou: %s', [E.Message]); end;
   end
+  else if ATimerId = TIMER_AUDIO_FILTER_TEST then
+  begin
+    KillTimer(MainWindowHandle, TIMER_AUDIO_FILTER_TEST);
+    FinishAudioFilterTestAndPush;
+  end
   else if ATimerId = TIMER_REPLAY_MEM then
   begin
     if ReplayActive then LogMemUsage('guardando')
@@ -8848,6 +9105,10 @@ begin
 
   if Engine <> nil then
   begin
+    // Teste de filtro em curso: as fontes dele sao do libobs e tem que sair
+    // antes do Teardown.
+    KillTimer(MainWindowHandle, TIMER_AUDIO_FILTER_TEST);
+    try OBSAudioFilters.CancelAudioFilterTest; except end;
     if Engine.IsRecording then
       try Engine.StopRecording; except end;
     try Engine.Teardown; except end;

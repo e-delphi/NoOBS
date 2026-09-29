@@ -8277,6 +8277,18 @@ begin
       // so agora ele ganha o nome .mp4 e passa a existir pra lista.
       if Res = erOk then
       begin
+        // Datas da ORIGEM no arquivo novo: a galeria agrupa pela data de
+        // modificacao, e um arquivo recem-escrito cairia no dia de hoje em
+        // vez de ficar junto da gravacao de onde saiu. Antes do Move, pra o
+        // watcher ja ver o arquivo com a data certa. Falhar aqui so muda o
+        // dia em que ele aparece — nao derruba a exportacao.
+        try
+          TFile.SetCreationTime(Opts.DstPath, TFile.GetCreationTime(SrcPath));
+          TFile.SetLastWriteTime(Opts.DstPath, TFile.GetLastWriteTime(SrcPath));
+        except
+          on E: Exception do
+            Log('Export: nao copiei as datas da origem: %s', [E.Message]);
+        end;
         try
           if TFile.Exists(FinalPath) then TFile.Delete(FinalPath);
           TFile.Move(Opts.DstPath, FinalPath);

@@ -100,7 +100,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
 | `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API ou o motor local (`transcribeEngine`). Manda só o ÁUDIO (faixas isoladas ou a mistura); grava a resposta no cache. A fila é reordenável item a item, **persistida em disco** e **espera o servidor voltar** em vez de falhar; `DiagnoseSetup` descobre em etapas o que falta (WSL → Docker → container) |
 | `OBSLocalAsr`       | Transcrição LOCAL na GPU (Vulkan: AMD/NVIDIA/Intel), sem Docker: instala o audio.cpp + Qwen3-ASR + Qwen3-ForcedAligner (~3,7 GB, SHA-256, retoma, espelho no Google Drive), sobe o `audiocpp_server.exe` escondido sob demanda e devolve o MESMO JSON da Transcritor API (pegadinha #60t) |
-| `OBSNumbersPt`      | Números por extenso → algarismos em português ("dois mil e vinte e seis" → 2026), acima de dez. Porte do `numbers_pt.py` da Transcritor API |
+| `OBSNumbersPt`      | Números por extenso → algarismos em português ("dois mil e vinte e seis" → 2026), acima de dez. Porte do `qwen/windows/app/numbers_pt.py` da Transcritor API |
 | `OBSConfig`         | Preferências em JSON com discriminator de versão (`%LOCALAPPDATA%\NoOBS\config.json`) |
 | `OBSLang`           | i18n: loader de `lang\<code>.json` (i18next-style), `T()`, detecção do locale do Windows, fallback chain |
 | `OBSLog`            | Log em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (1/dia, append; mantém 3 dias), thread-safe |
@@ -428,7 +428,10 @@ User clica Exportar → `export_recording`:
     antes (o delete dela é OTIMISTA: tira o card antes da resposta, então
     sem a guarda o card sumiria da tela e só voltaria no refresh seguinte)
   • Sucesso: o .part é renomeado pro nome final (aí sim COMPLETO) e o
-    PushRecordingAdded monta o card. Falha ou cancelamento: o .part é
+    PushRecordingAdded monta o card. ANTES do rename o .part recebe as
+    datas de criação e modificação da ORIGEM: a galeria agrupa pela data
+    de modificação, e o arquivo novo cairia no dia de hoje em vez de ficar
+    junto da gravação de onde saiu. Falha ou cancelamento: o .part é
     apagado e nunca chegou a aparecer na lista.
   • O arquivo exportado HERDA o que a gravação tinha (pegadinha #51h):
     layout de monitores recalculado, transcrição remapeada pelos cortes,
@@ -2726,7 +2729,7 @@ sem fechar o player agora zera a transcrição — antes os turnos do anterior
 ficavam até alguém abrir o painel.
 
 **s) Duas APIs no mesmo endereço — só a do Docker separa falantes.** A
-Transcritor API tem também uma versão nativa do Windows (pasta `windows\`
+Transcritor API tem também uma versão nativa do Windows (pasta `qwen\windows\`
 do repositório: Qwen3 + audio.cpp na GPU), com as mesmas rotas e o mesmo
 JSON, mas SEM diarização: ela recusa `diarization=true` com **HTTP 400**.
 Mandar o campo sempre, como antes, fazia toda transcrição morrer no envio.
@@ -2751,8 +2754,8 @@ audio.cpp com backend Vulkan. O release só traz executáveis, então o
 suspenso até entrar num Job Object com `KILL_ON_JOB_CLOSE` (NoOBS morreu,
 o servidor morre junto) e derrubado após 3 min ocioso (`StopIfIdle`, na
 volta ociosa da worker) — os modelos ocupam ~4 GB de VRAM que o jogo
-gravado precisa. A lógica é a da Transcritor API (versão Windows,
-`app/engine.py`) traduzida: mudou lá, mude aqui. Oito coisas medidas:
+gravado precisa. A lógica é a da Transcritor API (`qwen/windows/app/engine.py`,
+também em `qwen/docker`) traduzida: mudou lá, mude aqui. Oito coisas medidas:
 
 - **Só as regiões de fala vão pro modelo.** Em ruído ou silêncio longo o
   Qwen3 inventa frases, e um bloco sem fala faz o servidor responder 500

@@ -11,7 +11,7 @@
   ("dois mil e vinte"). Assim "dois e tres" continua sendo dois numeros, e
   nao vira 5.
 
-  Traducao direta do numbers_pt.py da Transcritor API (versao Windows),
+  Traducao direta do qwen/windows/app/numbers_pt.py da Transcritor API,
   validado la contra 19 frases reais. Mudou um, mude o outro.
 
   O arquivo e UTF-8 COM BOM de proposito: as palavras tem acento ("tres",

@@ -19,7 +19,7 @@
      precisa). Fica num Job Object com KILL_ON_JOB_CLOSE: se o NoOBS morrer
      de qualquer jeito, o servidor morre junto.
 
-  2. A LOGICA e a mesma da Transcritor API (versao Windows, app/engine.py),
+  2. A LOGICA e a mesma da Transcritor API (qwen/windows/app/engine.py),
      traduzida: so as REGIOES DE FALA vao pro modelo (ruido e silencio
      longo viram texto inventado), em blocos de ate ~60 s cortados no
      trecho mais silencioso,

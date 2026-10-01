@@ -60,7 +60,7 @@
                            colar do menu de contexto
     set_recording_fps    : fps (Integer, >= 10)
     set_window_title     : title (string; vazio = 'NoOBS')
-    set_filename_pattern : pattern (string com codigos {AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ})
+    set_filename_pattern : pattern (string com codigos {AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}{CODEC}{FPS}{QUALIDADE})
     set_auto_record_on_mic  : enabled (Boolean) — grava ao detectar mic em uso
     set_auto_record_mic_apps: apps (string; nomes de processo, vazio=qualquer)
     set_auto_record_mic_except: apps (string; excecoes ignoradas mesmo usando o mic)
@@ -110,6 +110,14 @@
                            done traz original/filtered (data: URL WAV),
                            originalPeakDb/filteredPeakDb, originalRmsDb/
                            filteredRmsDb e filters = quantos estavam ligados}
+    test_video_quality   : -> grava VIDEO_TEST_SEC s da tela no nivel maximo e
+                           reproduz os niveis 0..10 pela exportacao. Push
+                           video_test {state: recording|encoding (level, pct,
+                           total)|done|canceled|error (error)}; done traz
+                           duration, width, height, fps, encoder,
+                           currentLevel e levels [{level, crf, bytes, image
+                           (PNG do meio do clipe), video (MP4)}]
+    cancel_video_test    : — (interrompe a captura ou as codificacoes)
     request_waveform     : id, buckets, hi (Boolean — resolucao alta pra
                            linha do tempo da exportacao, cache proprio;
                            responde waveform_ready com hi)
@@ -248,6 +256,7 @@ uses
   OBSTray,
   OBSTranscribe,
   OBSLocalAsr,
+  OBSFileMeta,
   WinPreview,
   WinAudioMeter,
   WinRecIndicator,
@@ -314,7 +323,15 @@ const
   TIMER_REPLAY_MEM          = 7014;
   // Teste dos filtros de audio (aba Audio): fim da captura A/B. One-shot.
   TIMER_AUDIO_FILTER_TEST   = 7015;
-  AUDIO_FILTER_TEST_SEC     = 6;
+  AUDIO_FILTER_TEST_SEC     = 5;
+  // Teste de qualidade de video (aba Video): fim da captura da amostra.
+  // One-shot. 5 s bastam pra ter movimento e cabem ~2 GOPs de 2 s.
+  TIMER_VIDEO_TEST          = 7016;
+  VIDEO_TEST_SEC            = 5;
+  // Dados lidos do fim de um arquivo (OBSFileMeta) mudam o que o card
+  // mostra (transcricao, selos). One-shot, pra juntar uma varredura inteira
+  // de arquivos vindos de outra maquina num refresh so.
+  TIMER_FILEMETA_REFRESH    = 7017;
   REPLAY_MEM_LOG_MS         = 30_000;
 
   // Limites do buffer (config 'replayMaxSec' / 'replayMaxMb'). O que
@@ -3246,6 +3263,26 @@ begin
     on E: Exception do Log('Transcribe: falha ao restaurar a fila: %s', [E.Message]);
   end;
 
+  // Dados no fim do arquivo (layout, transcricao, falantes): a worker de
+  // escrita sobe com os pendentes da sessao anterior. Arquivo vindo de
+  // outra maquina e importado na varredura de metadados, e o card precisa
+  // ser refeito pra mostrar o que chegou.
+  try
+    OBSFileMeta.SetOnImported(
+      procedure(const APath: string)
+      begin
+        TThread.Queue(nil,
+          procedure
+          begin
+            if MainWindowHandle <> 0 then
+              SetTimer(MainWindowHandle, TIMER_FILEMETA_REFRESH, 800, nil);
+          end);
+      end);
+    OBSFileMeta.Start;
+  except
+    on E: Exception do Log('FileMeta: falha ao iniciar: %s', [E.Message]);
+  end;
+
   // Auto-gravacao ao detectar uso do microfone por outro app (chamadas de
   // Teams/WhatsApp/etc.). Monitor WASAPI em thread propria; o callback
   // marshalla pra main. So sobe se ligado no config.
@@ -3313,6 +3350,16 @@ procedure PushReplayState; forward;
 procedure PushEncoderCapsOnce; forward;
 procedure SyncTranscribePause; forward;
 function  ExportInUse(const APath: string): Boolean; forward;
+procedure OnVideoTestRecorded(const AOutputPath: string); forward;
+
+var
+  // Teste de qualidade de video (aba Video). Capturing = a libobs esta
+  // gravando a amostra (ocupa o grafo de captura como uma gravacao); Busy =
+  // do inicio da captura ao fim das codificacoes em worker.
+  VideoTestCapturing: Boolean = False;
+  VideoTestBusy: Boolean = False;
+  VideoTestRefPath: string = '';
+  VideoTestCancel: Integer = 0;
 
 procedure RestartReplayForSourceChange;
 // Monitor/webcam mudou com o buffer ligado: a cena dele foi montada com as
@@ -3476,6 +3523,7 @@ begin
   try OBSPlayer.SaveRecordingMeta(ARecPath, Meta); except
     on E: Exception do Log('SaveRecordingMeta falhou: %s', [E.Message]);
   end;
+  OBSFileMeta.MarkChanged(ARecPath);
   PushRecordingAdded(ARecPath, ADurSec);
   if GetConfigBool('transcribeOnStop', True) then
     try OBSTranscribe.Enqueue(ARecPath); except
@@ -3487,6 +3535,7 @@ begin
   if AKeptPath = '' then Exit;
   Meta.DurationSec := APrefixSec;
   try OBSPlayer.SaveRecordingMeta(AKeptPath, Meta); except end;
+  OBSFileMeta.MarkChanged(AKeptPath);
   PushRecordingAdded(AKeptPath, APrefixSec);
   if GetConfigBool('transcribeOnStop', True) then
     try OBSTranscribe.Enqueue(AKeptPath); except end;
@@ -3628,6 +3677,13 @@ var
 begin
   KillTimer(MainWindowHandle, TIMER_STOP_TIMEOUT);
   Log('OnEngineRecordingStopped: path="%s"', [AOutputPath]);
+  // A amostra do teste de qualidade usa o mesmo caminho de gravacao, mas
+  // nao e gravacao do usuario: nada de meta, card nem transcricao.
+  if VideoTestCapturing then
+  begin
+    OnVideoTestRecorded(AOutputPath);
+    Exit;
+  end;
   // Arquivo integro: libera o botao de gravar.
   PushFinalizing(False);
   if AOutputPath = '' then
@@ -3678,6 +3734,9 @@ begin
       on E: Exception do
         Log('SaveRecordingMeta falhou: %s', [E.Message]);
     end;
+    // Copia no fim do arquivo (layout, codec...), que viaja com ele. A
+    // escrita sai daqui a ~1,5 s, numa worker, com o muxer ja fechado.
+    OBSFileMeta.MarkChanged(AOutputPath);
   end;
 
   PushRecordingAdded(AOutputPath, LastRecordingDuration);
@@ -3707,10 +3766,14 @@ const
 // entre chaves pra nao colidir com texto literal):
 //   {AAAA}=ano(4) {MM}=mes {DD}=dia {HH}=hora(24h) {NN}=minuto {SS}=segundo
 //   {ZZZ}=milesimo(3)
+//   {CODEC}=familia do codec (AV1, HEVC, H.264) {FPS}=quadros por segundo
+//   {QUALIDADE}=nivel de qualidade 0..10
 // Chaves sobrando (codigo desconhecido/typo) sao removidas; caracteres
 // invalidos de nome de arquivo viram '_'. Se sobrar vazio, usa um fallback
-// datado garantido nao-vazio.
-function ApplyFilenamePattern(const APattern: string; AWhen: TDateTime): string;
+// datado garantido nao-vazio. O espelho da previa e o
+// Settings._buildFilenameFromPattern (settings.js).
+function ApplyFilenamePattern(const APattern: string; AWhen: TDateTime;
+  const ACodec: string; AFps, AQuality: Integer): string;
 const
   ILLEGAL: array[0..8] of Char = ('\', '/', ':', '*', '?', '"', '<', '>', '|');
 var
@@ -3718,6 +3781,9 @@ var
   i: Integer;
 begin
   S := APattern;
+  S := StringReplace(S, '{CODEC}', ACodec, [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{FPS}', IntToStr(AFps), [rfReplaceAll, rfIgnoreCase]);
+  S := StringReplace(S, '{QUALIDADE}', IntToStr(AQuality), [rfReplaceAll, rfIgnoreCase]);
   S := StringReplace(S, '{AAAA}', FormatDateTime('yyyy', AWhen), [rfReplaceAll, rfIgnoreCase]);
   S := StringReplace(S, '{MM}',   FormatDateTime('mm',   AWhen), [rfReplaceAll, rfIgnoreCase]);
   S := StringReplace(S, '{DD}',   FormatDateTime('dd',   AWhen), [rfReplaceAll, rfIgnoreCase]);
@@ -3739,14 +3805,27 @@ end;
 // Caminho completo do arquivo de saida: pasta + nome do modelo + '.mkv',
 // com sufixo ' (N)' se ja existir (essencial pra modelos so-texto sem
 // codigos de hora, que colidiriam a cada gravacao). Espelha MakeMergePath.
-function BuildRecordingPath(AWhen: TDateTime): string;
+// AEncoderId: o encoder que GRAVOU (buffer, que ja tem o dele); vazio = o que
+// a gravacao vai escolher (PredictVideoEncoderId — o arquivo nasce antes do
+// encoder).
+function BuildRecordingPath(AWhen: TDateTime; const AEncoderId: string = ''): string;
 var
-  Dir, Base, Cand: string;
+  Dir, Base, Cand, EncId, Codec: string;
+  Hw: Boolean;
   N: Integer;
 begin
   Dir := IncludeTrailingPathDelimiter(RecordDir);
+  EncId := AEncoderId;
+  if EncId = '' then
+    try
+      EncId := PredictVideoEncoderId;
+    except
+      EncId := '';
+    end;
+  DescribeEncoderId(EncId, Codec, Hw);
   Base := ApplyFilenamePattern(
-    GetConfigStr('filenamePattern', DEFAULT_FILENAME_PATTERN), AWhen);
+    GetConfigStr('filenamePattern', DEFAULT_FILENAME_PATTERN), AWhen,
+    Codec, GetConfigInt('recordingFps', 30), GetRecordingQualityLevel);
   Cand := Dir + Base + '.mkv';
   N := 2;
   while TFile.Exists(Cand) do
@@ -3780,6 +3859,13 @@ var
   ColdStart, ContinueReplay: Boolean;
 begin
   if RecordingActive then Exit;
+  // A amostra do teste de qualidade esta ocupando a captura (5 s).
+  if VideoTestCapturing then
+  begin
+    Log('HandleRecordStart: ignorado — teste de qualidade capturando.');
+    PostError(OBSLang.T('settings.videoTest.busyRecord'));
+    Exit;
+  end;
 
   // Desarma idle hibernate — gravacao em curso = nao hibernar.
   if MainWindowHandle <> 0 then
@@ -3866,7 +3952,11 @@ begin
 
     // Nome do arquivo pelo modelo configuravel (config 'filenamePattern'),
     // com sufixo ' (N)' se colidir. Ver ApplyFilenamePattern/BuildRecordingPath.
-    OutputPath := BuildRecordingPath(Now);
+    // Continuando o buffer, o codec e o dele (os encoders ja estao rodando).
+    if ContinueReplay then
+      OutputPath := BuildRecordingPath(Now, Engine.VideoEncoderId)
+    else
+      OutputPath := BuildRecordingPath(Now);
 
     TStep := GetTickCount64;
     // RecordingStartedByMicWatch ja foi setado pelos caminhos automaticos
@@ -4452,6 +4542,7 @@ begin
   except
     on E: Exception do Log('Buffer: SaveRecordingMeta falhou: %s', [E.Message]);
   end;
+  OBSFileMeta.MarkChanged(APath);
 
   PushRecordingAdded(APath, ADurSec);
 
@@ -4496,11 +4587,11 @@ begin
 
   // Nome pelo modelo do usuario, igual a uma gravacao manual, no instante
   // do "salvar".
-  Dest := BuildRecordingPath(Now);
   // Lidos AGORA, na main: o layout e o encoder sao os da sessao do buffer,
   // e um proximo start de gravacao os sobrescreveria.
   Layout := Engine.CurrentLayout;
   EncId := Engine.VideoEncoderId;
+  Dest := BuildRecordingPath(Now, EncId);
   EstSec := ReplayLastClipSec;
 
   TThread.CreateAnonymousThread(
@@ -4585,6 +4676,8 @@ end;
 procedure StartReplayBuffer;
 begin
   if ReplayActive or RecordingActive then Exit;
+  // O teste de qualidade religa o buffer no fim da captura, se preciso.
+  if VideoTestCapturing then Exit;
   // Gravacao ainda finalizando: o OnEngineRecordingStopped chama de novo
   // quando o arquivo fechar.
   if (Engine <> nil) and Engine.IsStopping then Exit;
@@ -5965,7 +6058,7 @@ var
 
 procedure PushAudioFilterRerender;
 // 'filtered': so a versao com filtros, refeita do trecho guardado (~0,1 s
-// na main thread pra 6 s de audio).
+// na main thread pra 5 s de audio).
 var
   Wav: TBytes;
   PeakDb, RmsDb: Double;
@@ -6074,7 +6167,7 @@ begin
     RawRms, FiltRms);
   // A filtrada e feita AGORA, com a cadeia de agora (nao a do inicio).
   AudioFilterTestCount := OBSAudioFilters.EnabledAudioFilterCount;
-  // Dados inline (data: URL): ~770 KB por copia em 6 s de mono 16 bits.
+  // Dados inline (data: URL): ~640 KB por copia em 5 s de mono 16 bits.
   // Evita arquivo temporario e rota nova no servidor HTTP. CharsPerLine 0:
   // o Base64 padrao do Delphi quebra linha a cada 76 caracteres, e a
   // quebra invalidaria a data: URL.
@@ -6094,6 +6187,341 @@ begin
   finally
     Enc.Free;
   end;
+end;
+
+// =====================================================================
+// Teste de qualidade de video (aba Video)
+// =====================================================================
+//
+// Grava VIDEO_TEST_SEC segundos da tela pelo MESMO caminho da gravacao
+// (mesma cena, monitores, canvas, fps e encoder), mas no nivel MAXIMO, e
+// guarda fora da biblioteca. Depois, numa worker, reproduz cada nivel 0..10
+// a partir dessa referencia pela exportacao — mesma familia de encoder, e o
+// CRF de cada nivel e calibrado por encoder dos dois lados (pegadinhas #51b
+// e #53), entao o tamanho sai equivalente ao que a gravacao daria. De cada
+// arquivo sai o tamanho e um quadro PNG do meio do clipe, pra comparar.
+//
+// Por que nao gravar os 11 niveis ao vivo, com 11 encoders sobre o mesmo
+// video: em 4K nenhuma GPU encoda 11 fluxos em tempo real — quadros
+// perdidos mudariam justamente o tamanho que se quer medir.
+
+const
+  VIDEO_TEST_LEVELS = 11;   // 0..10
+
+function VideoTestDir: string;
+var
+  Base: string;
+begin
+  Base := GetEnvironmentVariable('LOCALAPPDATA');
+  if Base = '' then Base := GetEnvironmentVariable('APPDATA');
+  Result := IncludeTrailingPathDelimiter(Base) + 'NoOBS\videotest\';
+  ForceDirectories(Result);
+end;
+
+function AppCodecFromObsEncoder(const AId: string): string;
+// ID do encoder da libobs -> vocabulario do app ('av1-hw', 'h264-sw'...),
+// que e o que o ResolveExportEncoder entende. Pela familia do nome, como o
+// DescribeEncoderId: os IDs da libobs mudam entre versoes.
+var
+  Family: string;
+  Hw: Boolean;
+begin
+  DescribeEncoderId(AId, Family, Hw);
+  if Family = 'AV1' then
+  begin
+    if Hw then Result := 'av1-hw' else Result := 'av1-sw';
+  end
+  else if Family = 'HEVC' then Result := 'hevc-hw'
+  else if Hw then Result := 'h264-hw'
+  else Result := 'h264-sw';
+end;
+
+procedure PushVideoTestState(const AState: string; const AError: string = '';
+  ALevel: Integer = -1; APct: Double = 0);
+var
+  Obj: TJSONObject;
+begin
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'video_test');
+  Obj.AddPair('state', AState);
+  Obj.AddPair('seconds', TJSONNumber.Create(VIDEO_TEST_SEC));
+  Obj.AddPair('total', TJSONNumber.Create(VIDEO_TEST_LEVELS));
+  if ALevel >= 0 then Obj.AddPair('level', TJSONNumber.Create(ALevel));
+  Obj.AddPair('pct', TJSONNumber.Create(Round(APct)));
+  if AError <> '' then Obj.AddPair('error', AError);
+  PostOwned(Obj);
+end;
+
+procedure QueueVideoTestProgress(ALevel: Integer; APct: Double);
+// Da worker: procedimento proprio, pra closure nao capturar o valor de uma
+// iteracao seguinte do laco (pegadinha #6).
+begin
+  TThread.Queue(nil,
+    procedure
+    begin
+      if not IsShuttingDown then
+        PushVideoTestState('encoding', '', ALevel, APct);
+    end);
+end;
+
+procedure HandleTestVideoQuality;
+var
+  Dir, F: string;
+begin
+  if VideoTestBusy then Exit;
+  // A amostra monta o grafo de captura como uma gravacao: nao da pra ter
+  // os dois ao mesmo tempo, e derrubar o buffer apagaria o que ele guardou.
+  if RecordingActive or ReplayActive or
+     ((Engine <> nil) and Engine.IsStopping) then
+  begin
+    PushVideoTestState('error', OBSLang.T('settings.videoTest.busy'));
+    Exit;
+  end;
+  if not EnsureObsForAudioFilters then
+  begin
+    PushVideoTestState('error', OBSLang.T('settings.videoTest.failed'));
+    Exit;
+  end;
+
+  Dir := VideoTestDir;
+  for F in TDirectory.GetFiles(Dir) do
+    try TFile.Delete(F); except end;
+  VideoTestRefPath := Dir + 'ref.mkv';
+  TInterlocked.Exchange(VideoTestCancel, 0);
+
+  // Referencia no nivel MAXIMO: e dela que saem os outros niveis, e nenhum
+  // pode ficar melhor do que ela.
+  OBSEncoder.SetQualityLevelOverride(10);
+  try
+    try
+      Engine.BuildAndStartRecording(VideoTestRefPath);
+    except
+      on E: Exception do
+      begin
+        Log('VideoTest: captura nao iniciou: %s', [E.Message]);
+        PushVideoTestState('error', OBSLang.T('settings.videoTest.failed'));
+        Exit;
+      end;
+    end;
+  finally
+    OBSEncoder.SetQualityLevelOverride(-1);
+  end;
+
+  VideoTestCapturing := True;
+  VideoTestBusy := True;
+  Log('VideoTest: capturando %ds em "%s" (encoder %s).',
+    [VIDEO_TEST_SEC, VideoTestRefPath, Engine.VideoEncoderId]);
+  PushVideoTestState('recording');
+  SetTimer(MainWindowHandle, TIMER_VIDEO_TEST, VIDEO_TEST_SEC * 1000, nil);
+end;
+
+procedure StopVideoTestCapture;
+// Mesmo stop assincrono da gravacao (pegadinha #41): o resto acontece no
+// OnEngineRecordingStopped -> OnVideoTestRecorded.
+begin
+  KillTimer(MainWindowHandle, TIMER_VIDEO_TEST);
+  if not VideoTestCapturing or (Engine = nil) then Exit;
+  try
+    Engine.RequestStop;
+    SetTimer(MainWindowHandle, TIMER_STOP_TIMEOUT, STOP_TIMEOUT_MS, nil);
+  except
+    on E: Exception do Log('VideoTest: stop falhou: %s', [E.Message]);
+  end;
+end;
+
+procedure HandleCancelVideoTest;
+begin
+  if not VideoTestBusy then Exit;
+  TInterlocked.Exchange(VideoTestCancel, 1);
+  if VideoTestCapturing then StopVideoTestCapture;
+end;
+
+function VideoTestCanceled: Boolean;
+begin
+  Result := TInterlocked.CompareExchange(VideoTestCancel, 0, 0) <> 0;
+end;
+
+procedure OnVideoTestRecorded(const AOutputPath: string);
+var
+  Ref, Dir, EncId: string;
+  EncName: AnsiString;
+  CurLevel: Integer;
+begin
+  VideoTestCapturing := False;
+  // O buffer pode ter sido pedido durante a captura (programa da lista
+  // abriu); o StartReplayBuffer recusou enquanto ela durava.
+  if ReplayWanted and not ReplayActive then StartReplayBuffer;
+
+  Ref := VideoTestRefPath;
+  if VideoTestCanceled or (AOutputPath = '') or not TFile.Exists(Ref) then
+  begin
+    VideoTestBusy := False;
+    if VideoTestCanceled then
+      PushVideoTestState('canceled')
+    else
+      PushVideoTestState('error', OBSLang.T('settings.videoTest.failed'));
+    Exit;
+  end;
+
+  EncId := '';
+  if Engine <> nil then EncId := Engine.VideoEncoderId;
+  EncName := ResolveExportEncoder(AppCodecFromObsEncoder(EncId), LastEncoderCaps);
+  CurLevel := GetRecordingQualityLevel;
+  Dir := ExtractFilePath(Ref);
+  Log('VideoTest: amostra pronta (%s, %d bytes); niveis via %s.',
+    [EncId, TFile.GetSize(Ref), string(EncName)]);
+  PushVideoTestState('encoding', '', 0, 0);
+
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      Rep: TProbeReport;
+      Dur, Fps, Mid: Double;
+      W, H, L, CurL: Integer;
+      Opts: TExportOptions;
+      Seg: TExportSegment;
+      Res: TExportResult;
+      Bytes: TArray<Int64>;
+      Pngs, Vids: TArray<string>;
+      Err: string;
+      Canceled: Boolean;
+      LastTick: UInt64;
+    begin
+      Err := '';
+      Canceled := False;
+      Dur := 0; Fps := 0; W := 0; H := 0;
+      SetLength(Bytes, VIDEO_TEST_LEVELS);
+      SetLength(Pngs, VIDEO_TEST_LEVELS);
+      SetLength(Vids, VIDEO_TEST_LEVELS);
+      for L := 0 to VIDEO_TEST_LEVELS - 1 do
+      begin
+        Bytes[L] := -1;
+        Pngs[L] := '';
+        Vids[L] := '';
+      end;
+      try
+        if Probe(Ref, Rep) then
+        begin
+          Dur := Rep.Duration;
+          W := Rep.VideoStream.Width;
+          H := Rep.VideoStream.Height;
+          Fps := Rep.VideoStream.FrameRate;
+        end;
+        if Dur < 1 then
+          Err := 'amostra sem duracao'
+        else
+        begin
+          // O meio do clipe: longe do 1o keyframe, onde todo encoder capricha.
+          // A amostra em si nao vai pra tela: a comparacao e entre niveis, e o
+          // nivel 10 (refeito dela) faz o papel de referencia.
+          Mid := Dur / 2;
+
+          Seg.StartSec := 0;
+          Seg.EndSec := Dur;
+          for L := 0 to VIDEO_TEST_LEVELS - 1 do
+          begin
+            if IsShuttingDown or VideoTestCanceled then
+            begin
+              Canceled := True;
+              Break;
+            end;
+            QueueVideoTestProgress(L, L * 100 / VIDEO_TEST_LEVELS);
+            Opts := Default(TExportOptions);
+            Opts.SrcPath := Ref;
+            // MP4 e nao MKV: cada nivel toca na tela pra comparar em
+            // movimento, e o WebView2 nao garante MKV.
+            Opts.DstPath := Dir + Format('q%d.mp4', [L]);
+            Opts.Container := AnsiString('mp4');
+            Opts.EncoderName := EncName;
+            Opts.Crf := QualityLevelToCrf(L);
+            Opts.Segments := [Seg];
+            Opts.AudioStreams := nil;   // so o video conta no tamanho
+            LastTick := 0;
+            // Copia do indice: variavel de laco capturada por closure vira
+            // campo do frame e o for recusa (E2081).
+            CurL := L;
+            Res := ExportVideo(Opts,
+              procedure(APct: Double)
+              var
+                Tick: UInt64;
+              begin
+                Tick := GetTickCount64;
+                if Tick - LastTick < 250 then Exit;
+                LastTick := Tick;
+                QueueVideoTestProgress(CurL, (CurL + APct / 100) * 100 / VIDEO_TEST_LEVELS);
+              end,
+              @VideoTestCancel);
+            if Res = erCanceled then
+            begin
+              Canceled := True;
+              Break;
+            end;
+            if Res <> erOk then
+            begin
+              Err := Format('nivel %d: exportacao falhou (%d)', [L, Ord(Res)]);
+              Break;
+            end;
+            try Bytes[L] := TFile.GetSize(Opts.DstPath); except end;
+            if FFmpegOps.ExtractFramePng(Opts.DstPath,
+                 Dir + Format('q%d.png', [L]), Mid) then
+              Pngs[L] := Dir + Format('q%d.png', [L]);
+            // O arquivo fica: e ele que toca no comparador. A pasta e
+            // esvaziada no proximo teste.
+            Vids[L] := Opts.DstPath;
+            Log('VideoTest: nivel %d (crf %d) -> %d bytes em %.1fs (%.0f kbps).',
+              [L, Opts.Crf, Bytes[L], Dur, Bytes[L] * 8 / Dur / 1000]);
+          end;
+        end;
+      except
+        on E: Exception do Err := E.Message;
+      end;
+
+      if IsShuttingDown then Exit;
+      TThread.Queue(nil,
+        procedure
+        var
+          Obj, Lv: TJSONObject;
+          Arr: TJSONArray;
+          k: Integer;
+        begin
+          VideoTestBusy := False;
+          if Canceled then
+          begin
+            PushVideoTestState('canceled');
+            Exit;
+          end;
+          if Err <> '' then
+          begin
+            Log('VideoTest: falhou: %s', [Err]);
+            PushVideoTestState('error', OBSLang.T('settings.videoTest.failed'));
+            Exit;
+          end;
+          Obj := TJSONObject.Create;
+          Obj.AddPair('type', 'video_test');
+          Obj.AddPair('state', 'done');
+          Obj.AddPair('duration', TJSONNumber.Create(Round(Dur * 100) / 100));
+          Obj.AddPair('width', TJSONNumber.Create(W));
+          Obj.AddPair('height', TJSONNumber.Create(H));
+          Obj.AddPair('fps', TJSONNumber.Create(Round(Fps * 100) / 100));
+          Obj.AddPair('encoder', string(EncName));
+          Obj.AddPair('currentLevel', TJSONNumber.Create(CurLevel));
+          Arr := TJSONArray.Create;
+          for k := 0 to VIDEO_TEST_LEVELS - 1 do
+          begin
+            Lv := TJSONObject.Create;
+            Lv.AddPair('level', TJSONNumber.Create(k));
+            Lv.AddPair('crf', TJSONNumber.Create(QualityLevelToCrf(k)));
+            Lv.AddPair('bytes', TJSONNumber.Create(Bytes[k]));
+            if Pngs[k] <> '' then
+              Lv.AddPair('image', OBSPlayer.GetFileUrl(Pngs[k]));
+            if Vids[k] <> '' then
+              Lv.AddPair('video', OBSPlayer.GetFileUrl(Vids[k]));
+            Arr.AddElement(Lv);
+          end;
+          Obj.AddPair('levels', Arr);
+          PostOwned(Obj);
+        end);
+    end).Start;
 end;
 
 procedure HandleSetLibraryThumbs(const AMode: string);
@@ -6456,6 +6884,10 @@ begin
           // A transcricao e por gravacao: sem ela, ficaria orfa no cache
           // e ainda apareceria na busca por texto.
           try OBSTranscribe.DeleteTranscript(PathCopy); except end;
+          // Esperando na fila de transcricao: sai junto, sem aviso. (Se ja
+          // estava EM CURSO, o OBSTranscribe ve o arquivo sumido e encerra
+          // o item calado.)
+          try OBSTranscribe.RemoveFromQueue(PathCopy); except end;
 
           Obj := TJSONObject.Create;
           Obj.AddPair('type', 'recording_removed');
@@ -7373,6 +7805,8 @@ begin
     try
       OBSPlayer.SaveMetaSubObjectJson(APath, SPEAKERS_META_KEY, Obj.ToJSON);
       Log('Falante "%s" de "%s" -> "%s"', [ASpeaker, ExtractFileName(APath), Nm]);
+      // Nome de falante e dado do usuario: vai pro fim do arquivo tambem.
+      OBSFileMeta.MarkChanged(APath);
     except
       on E: Exception do
         Log('SetSpeakerName: falha ao gravar: %s', [E.Message]);
@@ -7723,6 +8157,7 @@ begin
       begin
         Meta.DurationSec := 0;
         try OBSPlayer.SaveRecordingMeta(OutPath, Meta); except end;
+        OBSFileMeta.MarkChanged(OutPath);
       end;
 
       // Originais pra lixeira (recuperaveis) apos o merge dar certo. O
@@ -7851,15 +8286,18 @@ begin
       Result[i] := -1;
 end;
 
-function MakeExportPath(const ABaseName, AExt: string): string;
-// <RecordDir>\<nome><ext>, com sufixo " (N)" se ja existir. Sai na pasta
-// de gravacoes de proposito: o card aparece sozinho na lista (.mp4 e .mkv
-// ja estao em RECORDING_EXTS).
+function MakeExportPath(const ASrcPath, ABaseName, AExt: string): string;
+// <pasta da ORIGEM>\<nome><ext>, com sufixo " (N)" se ja existir. Fica ao
+// lado da gravacao de onde saiu: exportar um video guardado numa subpasta
+// jogava o arquivo na raiz, longe dele. A origem ja passou pelo
+// IsPathInRecordDir, entao a pasta dela esta dentro da biblioteca.
 var
   Dir, Base, Cand: string;
   N: Integer;
 begin
-  Dir := IncludeTrailingPathDelimiter(RecordDir);
+  Dir := ExtractFilePath(ASrcPath);
+  if Dir = '' then Dir := RecordDir;
+  Dir := IncludeTrailingPathDelimiter(Dir);
   Base := Trim(ABaseName);
   if Base = '' then Base := 'Exportado';
   Base := SanitizeFileName(Base);
@@ -8209,7 +8647,7 @@ begin
   // bytes do cabecalho ainda vazio. ".part" nao esta em RECORDING_EXTS,
   // entao nem o watcher nem o ListRecordings enxergam o arquivo enquanto
   // ele cresce — e um .part orfao de um crash tambem fica invisivel.
-  FinalPath := MakeExportPath(GetStrField(AObj, 'name'), Ext);
+  FinalPath := MakeExportPath(SrcPath, GetStrField(AObj, 'name'), Ext);
   Opts.DstPath := FinalPath + '.part';
 
   // Espaco em disco. Nao da pra saber o tamanho final (depende de quanto
@@ -8350,6 +8788,9 @@ begin
                       Names.Free;
                     end;
                   except end;
+                // Meta + transcricao + falantes ja no cache: uma escrita
+                // so no fim do arquivo exportado.
+                OBSFileMeta.MarkChanged(FinalPath);
                 PushRecordingAdded(FinalPath, OutMeta.DurationSec);
                 PushExportDone(True, False, FinalPath);
               end;
@@ -8588,6 +9029,10 @@ begin
       HandleSetAudioFilter(Obj)
     else if MsgType = 'test_audio_filters' then
       HandleTestAudioFilters(GetStrField(Obj, 'device'))
+    else if MsgType = 'test_video_quality' then
+      HandleTestVideoQuality
+    else if MsgType = 'cancel_video_test' then
+      HandleCancelVideoTest
     else if MsgType = 'set_library_thumbs' then
       HandleSetLibraryThumbs(GetStrField(Obj, 'mode'))
     else if MsgType = 'set_language' then
@@ -8992,7 +9437,7 @@ begin
     // processo — a worker morre junto e o trabalho se perde sem aviso (a
     // exportacao deixava so um .part orfao). Re-arma pelo mesmo motivo da
     // transcricao: terminou, a proxima verificacao hiberna.
-    if ExportBusy or (SpliceBusy > 0) or
+    if ExportBusy or (SpliceBusy > 0) or VideoTestBusy or
        (OBSLocalAsr.GetState.Status = lasInstalling) then
     begin
       Log('TIMER_HIBERNATE_IDLE: trabalho em andamento (exportacao=%s, ' +
@@ -9029,6 +9474,13 @@ begin
   begin
     KillTimer(MainWindowHandle, TIMER_AUDIO_FILTER_TEST);
     FinishAudioFilterTestAndPush;
+  end
+  else if ATimerId = TIMER_VIDEO_TEST then
+    StopVideoTestCapture
+  else if ATimerId = TIMER_FILEMETA_REFRESH then
+  begin
+    KillTimer(MainWindowHandle, TIMER_FILEMETA_REFRESH);
+    PushRecordings;
   end
   else if ATimerId = TIMER_REPLAY_MEM then
   begin
@@ -9096,6 +9548,7 @@ begin
   // IsShuttingDown sozinho nao a interrompe — o laco dela olha o proprio
   // flag de cancelamento, entao marque os dois.
   TInterlocked.Exchange(ExportCancelFlag, 1);
+  TInterlocked.Exchange(VideoTestCancel, 1);
   // Atalhos globais — libera a combinacao pra outros apps usarem.
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE);
   UnregisterGlobalHotkey(HK_RECORD_TOGGLE_ALT);
@@ -9171,6 +9624,7 @@ begin
   Log('Shutdown: Engine ok');
 
   try OBSTranscribe.Shutdown; except end;
+  try OBSFileMeta.Shutdown; except end;
   if MicMuteApplied <> nil then FreeAndNil(MicMuteApplied);
 
   Initialized := False;

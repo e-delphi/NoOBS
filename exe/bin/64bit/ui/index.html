@@ -381,6 +381,12 @@
       <button type="button" class="settings-tab active" data-tab="general"
               onclick="Settings.showTab('general')"
               data-i18n="settings.tabs.general">Geral</button>
+      <button type="button" class="settings-tab" data-tab="onrecord"
+              onclick="Settings.showTab('onrecord')"
+              data-i18n="settings.tabs.onrecord">Gravação</button>
+      <button type="button" class="settings-tab" data-tab="files"
+              onclick="Settings.showTab('files')"
+              data-i18n="settings.tabs.files">Arquivos</button>
       <button type="button" class="settings-tab" data-tab="recording"
               onclick="Settings.showTab('recording')"
               data-i18n="settings.tabs.recording">Vídeo</button>
@@ -390,18 +396,9 @@
       <button type="button" class="settings-tab" data-tab="replay"
               onclick="Settings.showTab('replay')"
               data-i18n="settings.tabs.replay">Buffer</button>
-      <button type="button" class="settings-tab" data-tab="files"
-              onclick="Settings.showTab('files')"
-              data-i18n="settings.tabs.files">Arquivos</button>
       <button type="button" class="settings-tab" data-tab="devices"
               onclick="Settings.showTab('devices')"
               data-i18n="settings.tabs.devices">Dispositivos</button>
-      <button type="button" class="settings-tab" data-tab="window"
-              onclick="Settings.showTab('window')"
-              data-i18n="settings.tabs.window">Janela e bandeja</button>
-      <button type="button" class="settings-tab" data-tab="behavior"
-              onclick="Settings.showTab('behavior')"
-              data-i18n="settings.tabs.behavior">Comportamento</button>
       <button type="button" class="settings-tab" data-tab="transcribe"
               onclick="Settings.showTab('transcribe')"
               data-i18n="settings.tabs.transcribe">Transcrição</button>
@@ -450,6 +447,7 @@
           </button>
         </div>
       </div>
+      <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label data-i18n="settings.language.label">Idioma</label>
         <div class="settings-input-row">
@@ -464,6 +462,7 @@
           Idioma da interface do NoOBS. "Automático" usa o idioma do Windows; outros valores forçam o idioma escolhido.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label data-i18n="settings.windowTitle.label">Título da janela</label>
         <div class="settings-input-row">
@@ -483,6 +482,7 @@
           <button class="settings-btn" onclick="Settings.pickFolder()" data-i18n="settings.recordDir.browse">Procurar...</button>
         </div>
       </div>
+      <hr class="settings-divider" data-panel="files">
       <div class="settings-field" data-panel="files">
         <label data-i18n="settings.filename.label">Nome do arquivo de saída</label>
         <div class="settings-input-row">
@@ -493,7 +493,9 @@
         <div class="settings-hint" data-i18n-html="settings.filename.hint">
           Use códigos entre chaves: <code>{AAAA}</code> ano, <code>{MM}</code> mês,
           <code>{DD}</code> dia, <code>{HH}</code> hora, <code>{NN}</code> minuto,
-          <code>{SS}</code> segundo, <code>{ZZZ}</code> milésimo. O restante é texto fixo.
+          <code>{SS}</code> segundo, <code>{ZZZ}</code> milésimo, <code>{CODEC}</code>
+          codec (AV1, HEVC, H.264), <code>{FPS}</code> quadros por segundo,
+          <code>{QUALIDADE}</code> nível de qualidade (0 a 10). O restante é texto fixo.
         </div>
         <div class="settings-hint" id="settingsFilenamePreview"></div>
       </div>
@@ -529,25 +531,7 @@
           fazendo.
         </div>
       </div>
-      <div class="settings-field" data-panel="general">
-        <label data-i18n="settings.hotkey.label">Atalho global para iniciar/parar gravação</label>
-        <div class="hotkey-builder">
-          <div class="hotkey-mods">
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyCtrl"  onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.ctrl">Ctrl</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyShift" onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.shift">Shift</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyAlt"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.alt">Alt</span></label>
-            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyWin"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.win">Win</span></label>
-          </div>
-          <span class="hotkey-plus">+</span>
-          <select class="settings-input hotkey-key" id="settingsHotkeyKey"
-                  onchange="Settings.onHotkeyChange()"></select>
-        </div>
-        <div class="settings-hint" id="settingsHotkeyPreview" data-i18n-html="settings.hotkey.hint">
-          Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e
-          escolha uma tecla principal. Exemplos: <code>Pause</code> ou
-          <code>Ctrl+Shift+G</code>.
-        </div>
-      </div>
+      <hr class="settings-divider" data-panel="recording">
       <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.quality.label">Qualidade da gravação</label>
         <div class="quality-slider-row">
@@ -568,6 +552,94 @@
           Padrão — balanceado entre tamanho do arquivo e qualidade visual.
         </div>
       </div>
+      <!-- Teste de qualidade (js/videotest.js): grava alguns segundos da tela
+           no nivel maximo e mostra o tamanho e um quadro de cada nivel. -->
+      <hr class="settings-divider" data-panel="recording">
+      <div class="settings-field" data-panel="recording">
+        <label data-i18n="settings.videoTest.label">Comparar os níveis de qualidade</label>
+        <div class="settings-hint" data-i18n="settings.videoTest.hint">
+          Grava 5 segundos da tela e mostra quanto cada nível ocuparia e como
+          a imagem fica. O tamanho depende do que muda na tela: durante o
+          teste, role uma página ou deixe um vídeo tocando.
+        </div>
+        <div class="vtest-actions">
+          <button type="button" class="settings-btn" id="vtTestBtn"
+                  onclick="VideoTest.start()"></button>
+          <button type="button" class="settings-btn" id="vtCancelBtn" hidden
+                  onclick="VideoTest.cancel()"></button>
+        </div>
+        <div class="settings-hint vtest-status" id="vtStatus" hidden></div>
+        <div class="vtest-progress" id="vtProgress" hidden><div id="vtProgressFill"></div></div>
+        <div class="vtest-result" id="vtResult" hidden>
+          <div class="settings-hint" id="vtMeta"></div>
+          <div class="vtest-levels" id="vtLevels"></div>
+          <div class="settings-hint" data-i18n="settings.videoTest.levelsHint">
+            Escolha o nível de cada lado no seletor sobre a imagem,
+            ou clique num nível da lista (Shift ou botão direito:
+            lado B). As setas ↑ ↓ trocam o nível A; com Shift, o B.
+            Espaço toca e pausa; ← → andam um quadro.
+          </div>
+          <div class="vtest-toolbar">
+            <button type="button" class="settings-btn vtest-swap" id="vtSwapBtn"
+                    onclick="VideoTest.swap()"></button>
+            <div class="vtest-ab" id="vtZoom">
+              <button type="button" class="settings-btn" data-zoom="fit"
+                      onclick="VideoTest.setZoom('fit')"
+                      data-i18n="settings.videoTest.zoomFit">Ajustar</button>
+              <button type="button" class="settings-btn" data-zoom="1"
+                      onclick="VideoTest.setZoom(1)">100%</button>
+              <button type="button" class="settings-btn" data-zoom="2"
+                      onclick="VideoTest.setZoom(2)">200%</button>
+              <button type="button" class="settings-btn" data-zoom="3"
+                      onclick="VideoTest.setZoom(3)">300%</button>
+            </div>
+          </div>
+          <!-- Comparacao lado a lado: B embaixo inteiro, A por cima cortado
+               no divisor (clip-path). O divisor fica FORA do palco que rola,
+               pra ficar parado na vista enquanto a imagem anda. -->
+          <div class="vtest-view" id="vtView">
+            <div class="vtest-stage fit" id="vtStage">
+              <div class="vtest-canvas">
+                <video id="vtVidB" muted loop playsinline preload="auto"></video>
+                <video id="vtVidA" muted loop playsinline preload="auto"></video>
+                <img id="vtImgB" alt="" hidden>
+                <img id="vtImgA" alt="" hidden>
+              </div>
+            </div>
+            <div class="vtest-divider" id="vtDivider"><span></span></div>
+            <select class="vtest-tag a" id="vtTagA"
+                    onchange="VideoTest.pick(+this.value, 'a')"></select>
+            <select class="vtest-tag b" id="vtTagB"
+                    onchange="VideoTest.pick(+this.value, 'b')"></select>
+          </div>
+          <div class="vtest-player" id="vtPlayer">
+            <button type="button" class="settings-btn" id="vtPlayBtn"
+                    onclick="VideoTest.togglePlay()">▶</button>
+            <button type="button" class="settings-btn" onclick="VideoTest.stepFrame(-1)"
+                    data-i18n-title="settings.videoTest.prevFrame" title="Quadro anterior">⟨</button>
+            <button type="button" class="settings-btn" onclick="VideoTest.stepFrame(1)"
+                    data-i18n-title="settings.videoTest.nextFrame" title="Próximo quadro">⟩</button>
+            <input type="range" id="vtSeek" min="0" max="1000" step="1" value="500"
+                   oninput="VideoTest.seekFrac(this.value / 1000)">
+            <span class="settings-hint vtest-time" id="vtTime"></span>
+          </div>
+          <div class="settings-hint" id="vtStillNote" hidden
+               data-i18n="settings.videoTest.stillOnly">
+            Este formato de vídeo não toca aqui; a comparação mostra um quadro parado.
+          </div>
+          <div class="settings-hint" data-i18n="settings.videoTest.viewHint">
+            Arraste o divisor pra comparar A (esquerda) com B
+            (direita), tocando ou parado. Os defeitos de compressão
+            só aparecem no tamanho real: use o zoom de 100% ou mais e
+            arraste a imagem pra andar por ela.
+          </div>
+          <div class="vtest-actions">
+            <button type="button" class="settings-btn primary" id="vtUseBtn"
+                    onclick="VideoTest.useA()"></button>
+          </div>
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="recording">
       <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.fps.label">Taxa de quadros da gravação</label>
         <div class="quality-slider-row">
@@ -590,6 +662,7 @@
           30 fps — suave, padrão de vídeo. Arquivo compacto.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="recording">
       <div class="settings-field" data-panel="recording">
         <label data-i18n="settings.keyframe.label">Intervalo de keyframe</label>
         <div class="quality-slider-row">
@@ -681,6 +754,7 @@
           cerca de 1 segundo repetido na emenda pra não perder nada.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsReplayAutoStart"
@@ -693,6 +767,7 @@
           só até fechar o app.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsReplayIntoRecording"
@@ -708,6 +783,7 @@
       </div>
       <!-- Os dois limites do buffer na MESMA linha: sao um par ("o que
            acabar primeiro manda"), e a dica abaixo vale pros dois. -->
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <div class="settings-pair">
           <div class="settings-pair-col">
@@ -729,20 +805,22 @@
           deixando 4 GB de RAM livres.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <label for="settingsReplayApps" data-i18n="settings.replay.apps">Ligar sozinho com estes programas</label>
         <input type="text" class="settings-input" id="settingsReplayApps"
                data-i18n-placeholder="settings.replay.appsPlaceholder"
-               placeholder="ex.: valorant, cs2, League of Legends"
+               placeholder="ex.: whatsapp, telegram, teams"
                oninput="Replay.onAppsInput(this.value)"
                onchange="Replay.onAppsChange(this.value)">
         <div class="settings-hint" data-i18n="settings.replay.appsHint">
           Nomes de programas separados por vírgula. Quando um deles estiver
           aberto, o buffer liga sozinho; quando todos fecharem, ele desliga.
-          Basta um pedaço do nome ("valorant" acha "VALORANT-Win64-Shipping").
+          Basta um pedaço do nome ("teams" acha "ms-teams").
           Funciona também com o NoOBS hibernando. Vazio = desligado.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsReplayIndicator"
@@ -779,6 +857,7 @@
           </div>
         </div>
       </div>
+      <hr class="settings-divider" data-panel="replay">
       <div class="settings-field" data-panel="replay">
         <label data-i18n="settings.replay.hotkey">Atalho para salvar o trecho</label>
         <div class="hotkey-builder">
@@ -798,6 +877,7 @@
           a ser dos outros programas.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="files">
       <div class="settings-field" data-panel="files">
         <label data-i18n="settings.library.label">Prévias e duração da biblioteca</label>
         <div class="settings-input-row">
@@ -813,6 +893,7 @@
           os que estão só na nuvem (OneDrive), para não baixá-los.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutostart">
@@ -822,6 +903,38 @@
           O NoOBS sobe automaticamente quando você loga no Windows.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="general">
+      <div class="settings-field" data-panel="general">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsCloseToTray"
+                 onchange="Settings.onTrayChange()">
+          <span data-i18n="settings.closeToTray.label">Minimizar para bandeja</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.closeToTray.hint">
+          Permite ao NoOBS usar o ícone na bandeja do sistema. Com
+          esta opção ativa, o botão X da janela manda pra bandeja
+          em vez de encerrar — clique no ícone pra reabrir, ou use
+          o menu do ícone pra fechar de verdade.
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="general">
+      <div class="settings-field" data-panel="general">
+        <label class="settings-check-row" id="settingsHibernateRow">
+          <input type="checkbox" id="settingsHibernate">
+          <span data-i18n="settings.hibernate.label">Hibernar quando inativo</span>
+        </label>
+        <div class="settings-hint" id="settingsHibernateHint" data-i18n="settings.hibernate.hint">
+          Quando a janela fica escondida na bandeja por mais de 1 minuto
+          sem gravação em curso, o app entra em modo hibernação — libera
+          libobs, WebView2, FFmpeg e watchers, deixando só um ícone na
+          bandeja + a tecla de atalho ativos (~5MB RAM vs ~150MB). Volta
+          ao normal automaticamente quando você clica no ícone ou aperta
+          o atalho de gravar. Só fica disponível se "Minimizar para
+          bandeja" estiver ativo — sem bandeja não há cenário pra
+          hibernar.
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label data-i18n="settings.reset.label">Restaurar padrões</label>
         <div class="settings-hint" data-i18n="settings.reset.hint">
@@ -840,45 +953,37 @@
           </button>
         </div>
       </div>
-      <div class="settings-field" data-panel="window">
-        <label class="settings-check-row">
-          <input type="checkbox" id="settingsCloseToTray"
-                 onchange="Settings.onTrayChange()">
-          <span data-i18n="settings.closeToTray.label">Minimizar para bandeja</span>
-        </label>
-        <div class="settings-hint" data-i18n="settings.closeToTray.hint">
-          Permite ao NoOBS usar o ícone na bandeja do sistema. Com
-          esta opção ativa, o botão X da janela manda pra bandeja
-          em vez de encerrar — clique no ícone pra reabrir, ou use
-          o menu do ícone pra fechar de verdade.
+      <div class="settings-field" data-panel="devices">
+        <div class="settings-hint" data-i18n="devices.hint">
+          Desmarque para ocultar o dispositivo da tela inicial. Dispositivos
+          ocultos não aparecem na lista e não entram na gravação.
+        </div>
+        <!-- Preenchido por Devices.render() (js/displays.js), agrupado por
+             tipo: monitores, webcams, microfones, alto-falantes. -->
+        <div id="devicesList"></div>
+      </div>
+      <!-- ===== Gravacao: controle | avisos | automatico ===== -->
+      <div class="settings-field" data-panel="onrecord">
+        <label data-i18n="settings.hotkey.label">Atalho global para iniciar/parar gravação</label>
+        <div class="hotkey-builder">
+          <div class="hotkey-mods">
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyCtrl"  onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.ctrl">Ctrl</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyShift" onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.shift">Shift</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyAlt"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.alt">Alt</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsHotkeyWin"   onchange="Settings.onHotkeyChange()"><span data-i18n="settings.hotkey.win">Win</span></label>
+          </div>
+          <span class="hotkey-plus">+</span>
+          <select class="settings-input hotkey-key" id="settingsHotkeyKey"
+                  onchange="Settings.onHotkeyChange()"></select>
+        </div>
+        <div class="settings-hint" id="settingsHotkeyPreview" data-i18n-html="settings.hotkey.hint">
+          Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e
+          escolha uma tecla principal. Exemplos: <code>Pause</code> ou
+          <code>Ctrl+Shift+G</code>.
         </div>
       </div>
-      <div class="settings-field" data-panel="window">
-        <label class="settings-check-row">
-          <input type="checkbox" id="settingsMinimizeOnRecord"
-                 onchange="Settings.onMinimizeOnRecordChange()">
-          <span id="settingsMinimizeOnRecordLabel">Minimizar ao iniciar a gravação</span>
-        </label>
-        <div class="settings-hint" id="settingsMinimizeOnRecordHint">
-          Ao começar uma gravação, a janela do NoOBS é minimizada
-          — útil para gravar a tela sem a própria janela aparecer
-          no vídeo. O atalho global continua funcionando pra parar.
-        </div>
-      </div>
-      <div class="settings-field" data-panel="window">
-        <label class="settings-check-row" id="settingsNotifyOnRecordRow">
-          <input type="checkbox" id="settingsNotifyOnRecord">
-          <span data-i18n="settings.notifyOnRecord.label">Notificar no Windows ao iniciar/parar gravação</span>
-        </label>
-        <div class="settings-hint" data-i18n="settings.notifyOnRecord.hint">
-          Mostra uma notificação do Windows quando começa ou termina
-          uma gravação. Só faz sentido quando a janela é minimizada
-          automaticamente — caso contrário o estado da gravação já
-          é visível na própria janela.
-        </div>
-      </div>
-      <hr class="settings-divider" data-panel="behavior">
-      <div class="settings-field" data-panel="behavior">
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsRecIndicator">
           <span data-i18n="settings.recIndicator.label">Mostrar indicador de gravação na tela</span>
@@ -915,8 +1020,8 @@
           </div>
         </div>
       </div>
-      <hr class="settings-divider" data-panel="behavior">
-      <div class="settings-field" data-panel="behavior">
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsPlaySoundOnRecord">
           <span data-i18n="settings.playSound.label">Tocar som de início e fim da gravação</span>
@@ -928,47 +1033,34 @@
           confirmar que a ação foi recebida.
         </div>
       </div>
-      <hr class="settings-divider" data-panel="behavior">
-      <div class="settings-field" data-panel="behavior">
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
+        <label class="settings-check-row" id="settingsNotifyOnRecordRow">
+          <input type="checkbox" id="settingsNotifyOnRecord">
+          <span data-i18n="settings.notifyOnRecord.label">Notificar no Windows ao iniciar/parar gravação</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.notifyOnRecord.hint">
+          Mostra uma notificação do Windows quando começa ou termina
+          uma gravação. Só faz sentido quando a janela é minimizada
+          automaticamente — caso contrário o estado da gravação já
+          é visível na própria janela.
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
-          <input type="checkbox" id="settingsStopOnLock">
-          <span data-i18n="settings.stopOnLock.label">Parar a gravação ao bloquear o computador</span>
+          <input type="checkbox" id="settingsMinimizeOnRecord"
+                 onchange="Settings.onMinimizeOnRecordChange()">
+          <span id="settingsMinimizeOnRecordLabel">Minimizar ao iniciar a gravação</span>
         </label>
-        <div class="settings-hint" data-i18n="settings.stopOnLock.hint">
-          Quando o Windows é bloqueado (Win+L, troca de usuário ou
-          bloqueio automático), a gravação em andamento é encerrada
-          automaticamente e o arquivo é finalizado. Útil pra não
-          deixar uma gravação rodando por horas se você esquecer de
-          parar antes de sair.
+        <div class="settings-hint" id="settingsMinimizeOnRecordHint">
+          Ao começar uma gravação, a janela do NoOBS é minimizada
+          — útil para gravar a tela sem a própria janela aparecer
+          no vídeo. O atalho global continua funcionando pra parar.
         </div>
       </div>
-      <div class="settings-field" data-panel="window">
-        <label class="settings-check-row" id="settingsHibernateRow">
-          <input type="checkbox" id="settingsHibernate">
-          <span data-i18n="settings.hibernate.label">Hibernar quando inativo</span>
-        </label>
-        <div class="settings-hint" id="settingsHibernateHint" data-i18n="settings.hibernate.hint">
-          Quando a janela fica escondida na bandeja por mais de 1 minuto
-          sem gravação em curso, o app entra em modo hibernação — libera
-          libobs, WebView2, FFmpeg e watchers, deixando só um ícone na
-          bandeja + a tecla de atalho ativos (~5MB RAM vs ~150MB). Volta
-          ao normal automaticamente quando você clica no ícone ou aperta
-          o atalho de gravar. Só fica disponível se "Minimizar para
-          bandeja" estiver ativo — sem bandeja não há cenário pra
-          hibernar.
-        </div>
-      </div>
-      <div class="settings-field" data-panel="devices">
-        <div class="settings-hint" data-i18n="devices.hint">
-          Desmarque para ocultar o dispositivo da tela inicial. Dispositivos
-          ocultos não aparecem na lista e não entram na gravação.
-        </div>
-        <!-- Preenchido por Devices.render() (js/displays.js), agrupado por
-             tipo: monitores, webcams, microfones, alto-falantes. -->
-        <div id="devicesList"></div>
-      </div>
-      <hr class="settings-divider" data-panel="behavior">
-      <div class="settings-field" data-panel="behavior">
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsAutoRecordOnMic">
           <span data-i18n="settings.autoRecord.label">Gravar automaticamente durante chamadas</span>
@@ -1012,6 +1104,20 @@
           <!-- Preenchido por AutoDevices.render() (js/displays.js): so os
                dispositivos habilitados, com checkbox = entra na auto-gravacao. -->
           <div id="autoDevicesList"></div>
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsStopOnLock">
+          <span data-i18n="settings.stopOnLock.label">Parar a gravação ao bloquear o computador</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.stopOnLock.hint">
+          Quando o Windows é bloqueado (Win+L, troca de usuário ou
+          bloqueio automático), a gravação em andamento é encerrada
+          automaticamente e o arquivo é finalizado. Útil pra não
+          deixar uma gravação rodando por horas se você esquecer de
+          parar antes de sair.
         </div>
       </div>
       <!-- ===== Transcricao ===== -->
@@ -1157,6 +1263,7 @@
         <label data-i18n="settings.updates.versionLabel">Versão instalada</label>
         <div class="settings-hint" id="settingsAppVersion">—</div>
       </div>
+      <hr class="settings-divider" data-panel="updates">
       <div class="settings-field" data-panel="updates">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsCheckUpdates">
@@ -1168,6 +1275,7 @@
           quando houver versão nova.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="updates">
       <div class="settings-field" data-panel="updates">
         <div class="settings-input-row">
           <button class="settings-btn" id="settingsCheckNowBtn"
@@ -1667,6 +1775,7 @@
 <script src="js/hotkey.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/audiofilters.js"></script>
+<script src="js/videotest.js"></script>
 <script src="js/player.js"></script>
 <script src="js/export.js"></script>
 <script src="js/transcribe.js"></script>

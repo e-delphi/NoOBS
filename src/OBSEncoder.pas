@@ -36,6 +36,11 @@ function SelectVideoEncoder: obs_encoder_t;
 // trechos salvos (o buffer novo so comeca no keyframe seguinte).
 procedure SetKeyframeSecOverride(ASec: Integer);
 
+// Forca o nivel de qualidade (0..10) dos PROXIMOS encoders criados; -1 volta
+// a ler o slider. O teste de qualidade das Configuracoes grava a amostra no
+// nivel maximo, pra servir de referencia aos outros.
+procedure SetQualityLevelOverride(ALevel: Integer);
+
 // Retorna a maior dimensao (W ou H) de canvas que o codec preferido
 // pelo user consegue aceitar. Usado pelo OBSEngine pra clampar o
 // bounding antes de obs_reset_video.
@@ -51,6 +56,11 @@ function GetEncoderMaxDimension: Integer;
 // preferencia — o OBSBridge empurra este valor pra UI e o encoder deriva
 // o CRF dele.
 function GetRecordingQualityLevel: Integer;
+
+// CRF equivalente de um nivel (0..10) na escala de referencia do x264 — a
+// mesma que a exportacao recebe e calibra por encoder. O teste de qualidade
+// usa isso pra reproduzir cada nivel pela exportacao.
+function QualityLevelToCrf(ALevel: Integer): Integer;
 
 // Taxa de bits do AAC de CADA faixa de audio da gravacao (kbps), lida de
 // 'audioBitrate' e encaixada no degrau mais proximo de AUDIO_BITRATES.
@@ -72,6 +82,13 @@ const
 procedure DescribeEncoderId(const AId: string; out AFamily: string;
   out AHardware: Boolean);
 
+// ID do encoder que o SelectVideoEncoder VAI escolher, sem criar nada: a
+// mesma ordem, parando no primeiro tipo registrado. Serve pro nome do
+// arquivo ({CODEC}), que precisa existir antes de o encoder ser criado. So
+// erra se um tipo registrado falhar ao criar — ai o arquivo leva o nome do
+// codec pedido e a meta registra o que gravou de fato. Requer libobs vivo.
+function PredictVideoEncoderId: string;
+
 implementation
 
 uses
@@ -87,10 +104,17 @@ type
 var
   // Ver SetKeyframeSecOverride. Main thread only (como todo o libobs).
   KeyframeSecOverride: Integer = 0;
+  // Ver SetQualityLevelOverride. -1 = sem override.
+  QualityLevelOverride: Integer = -1;
 
 procedure SetKeyframeSecOverride(ASec: Integer);
 begin
   KeyframeSecOverride := ASec;
+end;
+
+procedure SetQualityLevelOverride(ALevel: Integer);
+begin
+  QualityLevelOverride := ALevel;
 end;
 
 const
@@ -574,6 +598,8 @@ begin
     // "sem override", porque o default de todos os encoders e CBR e era
     // exatamente ele que enchia a gravacao de tela parada de bits de lixo.
     QLevel := GetRecordingQualityLevel;
+    if (QualityLevelOverride >= 0) and (QualityLevelOverride <= 10) then
+      QLevel := QualityLevelOverride;
     Crf := QualityLevelToCrf(QLevel);
     Log('Encoder quality: nivel=%d (equivale a crf %d na referencia x264)',
       [QLevel, Crf]);
@@ -721,6 +747,38 @@ begin
   Result := TryHevcHw;  if Result <> nil then Exit;
 
   raise Exception.Create('Nenhum encoder de video disponivel.');
+end;
+
+function PredictVideoEncoderId: string;
+
+  function FirstOf(const AIds: array of AnsiString; ASkipX264: Boolean): string;
+  var i: Integer;
+  begin
+    for i := 0 to High(AIds) do
+    begin
+      if ASkipX264 and (AIds[i] = 'obs_x264') then Continue;
+      if EncoderTypeExists(AIds[i]) then Exit(string(AIds[i]));
+    end;
+    Result := '';
+  end;
+
+var
+  Pref: string;
+begin
+  // Espelho do SelectVideoEncoder: a preferencia primeiro, depois a cadeia
+  // automatica H.264 hw -> x264 -> AV1 hw -> HEVC hw.
+  Pref := LowerCase(GetConfigStr('codec', 'auto'));
+  Result := '';
+  if Pref = 'av1-hw' then Result := FirstOf(AV1_IDS, False)
+  else if Pref = 'hevc-hw' then Result := FirstOf(HEVC_IDS, False)
+  else if Pref = 'h264-hw' then Result := FirstOf(H264_IDS, True)
+  else if (Pref = 'h264-sw') and EncoderTypeExists('obs_x264') then Result := 'obs_x264'
+  else if (Pref = 'av1-sw') and EncoderTypeExists(AV1_SW_ID) then Result := string(AV1_SW_ID);
+  if Result <> '' then Exit;
+  Result := FirstOf(H264_IDS, True);
+  if Result = '' then Result := FirstOf(['obs_x264'], False);
+  if Result = '' then Result := FirstOf(AV1_IDS, False);
+  if Result = '' then Result := FirstOf(HEVC_IDS, False);
 end;
 
 function GetEncoderMaxDimension: Integer;

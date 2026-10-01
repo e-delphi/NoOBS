@@ -608,7 +608,7 @@ const Devices = {
 };
 
 // =====================================================================
-// AutoDevices — lista do PERFIL DE GRAVACAO AUTOMATICA (aba Comportamento).
+// AutoDevices — lista do PERFIL DE GRAVACAO AUTOMATICA (aba Gravacao).
 // Reusa Devices.all (mesma fonte da aba Dispositivos). O perfil e
 // INDEPENDENTE da selecao da tela inicial (enabled): mostra TODOS os
 // dispositivos, exceto os OCULTOS no menu Dispositivos (hidden). O checkbox

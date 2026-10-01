@@ -577,10 +577,22 @@ end;
 //   int                 ctx_flags;    // 40
 //   unsigned int        nb_streams;   // 44  ← USAMOS (OFFS_NB_STREAMS)
 //   AVStream          **streams;      // 48  ← USAMOS (OFFS_STREAMS)
-//   const char         *url;          // 56
-//   int64_t             start_time;   // 64
-//   int64_t             duration;     // 72  ← USAMOS (OFFS_DURATION)
-//   int64_t             bit_rate;     // 80  ← USAMOS (OFFS_BIT_RATE)
+//   unsigned int        nb_stream_groups; // 56  (novo no FFmpeg 7.0)
+//   AVStreamGroup     **stream_groups;    // 64  (novo no FFmpeg 7.0)
+//   unsigned int        nb_chapters;  // 72
+//   AVChapter         **chapters;     // 80
+//   char               *url;          // 88
+//   int64_t             start_time;   // 96
+//   int64_t             duration;     // 104 ← USAMOS (OFFS_DURATION)
+//   int64_t             bit_rate;     // 112 ← USAMOS (OFFS_BIT_RATE)
+//
+// ATENCAO: ate 2026-09 isto dizia duration=72/bit_rate=80, o layout do
+// FFmpeg 6. O 7.0 inseriu os stream groups no meio e os dois campos
+// andaram 32 bytes: o 72 passou a ser o nb_chapters (sempre 0), entao a
+// duracao do container NUNCA era lida e todo Probe caia na varredura do
+// arquivo inteiro (ScanDurationByPackets). Medido nas DLLs empacotadas:
+// url@88 aponta pro caminho, duration@104 bate com a do arquivo, e
+// bit_rate@112 = tamanho*8/duracao.
 //
 // Esses offsets sao validos pra FFmpeg 7.x (avformat-61). Se a major
 // version mudar (61->62), recalcular contra avformat.h do release novo.
@@ -603,16 +615,18 @@ const
   //   ctx_flags    @ 40 (int)
   //   nb_streams   @ 44 (uint)
   //   streams**    @ 48
-  //   url*         @ 56
-  //   start_time   @ 64 (int64)
-  //   duration     @ 72 (int64)
-  //   bit_rate     @ 80 (int64)
+  //   nb_stream_groups @ 56 (uint), stream_groups** @ 64 (FFmpeg 7.0+)
+  //   nb_chapters  @ 72 (uint), chapters** @ 80
+  //   url*         @ 88
+  //   start_time   @ 96 (int64)
+  //   duration     @ 104 (int64)
+  //   bit_rate     @ 112 (int64)
   OFFS_IFORMAT    = 8;
   OFFS_NB_STREAMS = 44;
   OFFS_STREAMS    = 48;
   OFFS_PB         = 32;
-  OFFS_DURATION   = 72;
-  OFFS_BIT_RATE   = 80;
+  OFFS_DURATION   = 104;
+  OFFS_BIT_RATE   = 112;
 
 function PtrOffset(P: Pointer; AOffset: NativeInt): Pointer; inline;
 begin

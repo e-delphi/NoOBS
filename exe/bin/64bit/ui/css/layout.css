@@ -47,6 +47,21 @@
     background: rgba(239, 68, 68, 0.08);
     color: var(--danger-2, #ef4444);
   }
+  /* Arrastando um card: o botao vira ALVO — borda e icone vermelhos pra
+     dizer "solte aqui pra excluir". Em cima dele, fundo vermelho cheio. */
+  .delete-selected-btn.drop-armed {
+    color: var(--danger-2, #ef4444);
+    border-color: var(--danger-2, #ef4444);
+    background: rgba(239, 68, 68, 0.12);
+  }
+  .delete-selected-btn.drop-armed.drop-target {
+    color: #fff;
+    background: var(--danger-2, #ef4444);
+    transform: scale(1.08);
+  }
+  /* Os filhos do botao nao roubam o dragleave (senao ele pisca ao passar
+     por cima do icone). */
+  .delete-selected-btn.drop-armed * { pointer-events: none; }
 
   /* === Main === */
   .main {

@@ -414,6 +414,8 @@ document.addEventListener('DOMContentLoaded', () => {
   Hint.init();
   Player.init();
   Export.init();
+  VideoTest.init();
+  RecFolders.wireTrash();
   Displays.init();
   Bridge.init();
 });

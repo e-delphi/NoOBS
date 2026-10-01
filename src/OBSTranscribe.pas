@@ -260,6 +260,7 @@ uses
   OBSConfig,
   OBSPlayer,
   OBSLocalAsr,
+  OBSFileMeta,
   FFmpegOps;
 
 const
@@ -2732,6 +2733,8 @@ begin
     except
       on E: Exception do Exit(OBSLang.T('error.transcribe.writeFailed', ['error', E.Message]));
     end;
+    // Copia no fim do arquivo de video, que viaja com ele (OBSFileMeta).
+    OBSFileMeta.MarkChanged(APath);
     Exit('');
   end;
 
@@ -2801,6 +2804,10 @@ begin
       SetLength(Bodies, n);
       for i := 0 to n - 1 do
       begin
+        // Cancelado durante a extracao (ou entre faixas): nem sobe o audio.
+        // Sem isto o envio da faixa inteira acontecia antes de o laco de
+        // consulta do RunJob enxergar o cancelamento.
+        if CancelRequested then Exit(CANCELED_MARK);
         Result := RunJob(Send[i], i, n, Est, Body);
         if Result <> '' then
         begin
@@ -2858,6 +2865,7 @@ begin
     except
       on E: Exception do Exit(OBSLang.T('error.transcribe.writeFailed', ['error', E.Message]));
     end;
+    OBSFileMeta.MarkChanged(APath);
     Result := '';
   finally
     CleanupFiles;
@@ -2899,7 +2907,7 @@ procedure TTranscribeThread.Execute;
 
 var
   Path, Err: string;
-  Has: Boolean;
+  Has, WasCanceled: Boolean;
   Idx: Integer;
   Handles: array[0..1] of THandle;
 begin
@@ -2983,6 +2991,29 @@ begin
       on E: Exception do Err := E.Message;
     end;
 
+    // Cancelado enquanto este item rodava: o que quer que ele tenha
+    // devolvido depois (erro de rede, servidor fora, falha de extracao) e
+    // consequencia do cancelamento ou ja nao interessa. Sem isto, "servidor
+    // fora" DEVOLVIA o item pra fila que o usuario acabou de esvaziar, e uma
+    // falha virava aviso vermelho logo depois de ele cancelar. Um sucesso
+    // passa (a transcricao ja foi gravada), mas nao conta no lote zerado.
+    GLock.Enter;
+    try
+      WasCanceled := GCancelCurrent;
+    finally
+      GLock.Leave;
+    end;
+    if WasCanceled and (Err <> '') then Err := CANCELED_MARK;
+    // Gravacao APAGADA enquanto esperava ou rodava (o usuario excluiu, a
+    // pasta foi movida): nao e falha, e ninguem precisa de aviso por um
+    // arquivo que ele mesmo tirou. Sai calado, como um cancelamento — e
+    // nem volta pra fila se o erro tiver sido "servidor fora".
+    if (Err <> '') and (Err <> CANCELED_MARK) and not TFile.Exists(Path) then
+    begin
+      Log('Transcribe: "%s" nao existe mais — tirado da fila sem aviso.', [Path]);
+      Err := CANCELED_MARK;
+    end;
+
     // SERVIDOR FORA DO AR: nao e defeito do arquivo. Devolve o item pra
     // FRENTE da espera, sem contar como falha nem soltar aviso de erro por
     // item, e tenta de novo daqui a SERVER_RETRY_MS — ou antes, se alguem
@@ -3048,7 +3079,10 @@ begin
         // Cancelado pelo usuario: nao conta como concluido nem como
         // falha, e nao vira mensagem de erro na tela.
         Log('Transcribe: cancelado "%s"', [Path])
-      else if Err = '' then Inc(GDone)
+      else if Err = '' then
+      begin
+        if not WasCanceled then Inc(GDone);
+      end
       else
       begin
         Inc(GFailed);
@@ -3114,15 +3148,31 @@ begin
   GLastErrorName := '';
 end;
 
+function ClearItemError: Boolean;
+// Pedido NOVO do usuario tira da tela a falha da gravacao anterior, mesmo
+// com a fila andando (o ResetBatchIfIdle so zera com ela parada) — senao o
+// aviso vermelho ficava la depois de ele mandar transcrever de novo. So a
+// falha de GRAVACAO (nome preenchido): a frase de espera do servidor (nome
+// vazio) continua valendo enquanto ele nao voltar. O contador de falhas do
+// lote fica. Caller segura o GLock. True = havia algo pra limpar.
+begin
+  Result := GLastErrorName <> '';
+  if not Result then Exit;
+  GLastError := '';
+  GLastErrorName := '';
+end;
+
 procedure Enqueue(const APath: string; AManual: Boolean);
 var
-  Promoted: Boolean;
+  Promoted, Cleared: Boolean;
 begin
   if APath = '' then Exit;
   EnsureStarted;
   Promoted := False;
+  Cleared := False;
   GLock.Enter;
   try
+    if AManual then Cleared := ClearItemError;
     if AlreadyQueued(APath) then
     begin
       // Ja estava esperando como automatico e o usuario pediu a mao: vira
@@ -3146,7 +3196,11 @@ begin
   finally
     GLock.Leave;
   end;
-  if not Promoted then Exit;
+  if not Promoted then
+  begin
+    if Cleared then NotifyChanged;
+    Exit;
+  end;
   Log('Transcribe: enfileirado "%s"%s (fila=%d)',
     [APath, IfThen(AManual, ' a pedido do usuario', ''), QueueLength]);
   SaveQueue;
@@ -3165,6 +3219,7 @@ begin
   GLock.Enter;
   try
     ResetBatchIfIdle;
+    if AManual or (Length(AManualPaths) > 0) then ClearItemError;
     for i := 0 to High(APaths) do
     begin
       if APaths[i] = '' then Continue;

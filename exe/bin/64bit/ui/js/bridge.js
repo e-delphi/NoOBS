@@ -32,6 +32,9 @@ const Bridge = {
       // bundle carregado. Sem bundle, T() retorna '[key]' e os textos
       // hardcoded no HTML servem de fallback ate o user trocar idioma.
       if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
+      // Textos montados em JS no DOMContentLoaded (antes do bundle chegar)
+      // sairam como '[chave]' — refaz com o bundle carregado.
+      try { VideoTest.onLanguageChanged(); } catch (e) {}
       // Devices.setAll guarda a lista completa (pro modal "Dispositivos") e
       // devolve so os visiveis — os ocultos somem da tela inicial.
       Displays.monitors = Devices.setAll('monitors', data.monitors);
@@ -106,6 +109,7 @@ const Bridge = {
       try { Settings._fillTranscribeLangs(); } catch (e) {}
       // Filtros de audio: os rotulos dos campos vem do plugin, no idioma novo.
       try { AudioFilters.onLanguageChanged(); } catch (e) {}
+      try { VideoTest.onLanguageChanged(); } catch (e) {}
       // Rótulos e dica da taxa do áudio também são montados em JS. Refaz
       // com o que está NA TELA, não o salvo: o modal pode estar aberto.
       try {
@@ -365,6 +369,7 @@ const Bridge = {
     audio_filters(data)     { AudioFilters.apply(data); },
     audio_filter(data)      { AudioFilters.applyOne(data); },
     audio_filter_test(data) { AudioFilters.onTest(data); },
+    video_test(data) { VideoTest.onState(data); },
     replay_saved(data) { Replay.onSaved(data); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
     // O `id` diz em qual card a barra vive (a tela pode estar fechada).

@@ -286,6 +286,7 @@ const Settings = {
   },
   close() {
     if (typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
+    if (typeof VideoTest !== 'undefined') VideoTest.onLeave();
     document.getElementById('settingsOverlay').classList.remove('visible');
   },
   pickFolder() {
@@ -719,11 +720,16 @@ const Settings = {
   },
   // Prévia ao vivo do nome do arquivo — espelha ApplyFilenamePattern (Delphi):
   // substitui os codigos {AAAA}{MM}{DD}{HH}{NN}{SS} (case-insensitive) pela
-  // data/hora ATUAL, remove chaves sobrando, sanitiza caracteres invalidos.
-  _buildFilenameFromPattern(pattern, d) {
+  // data/hora ATUAL e {CODEC}{FPS}{QUALIDADE} pelo que esta nas abas Video,
+  // remove chaves sobrando, sanitiza caracteres invalidos.
+  _buildFilenameFromPattern(pattern, d, v) {
     const p2 = n => String(n).padStart(2, '0');
     const p3 = n => String(n).padStart(3, '0');
+    v = v || {};
     let s = String(pattern || '');
+    s = s.replace(/\{CODEC\}/gi, v.codec || '')
+         .replace(/\{FPS\}/gi, String(v.fps ?? ''))
+         .replace(/\{QUALIDADE\}/gi, String(v.quality ?? ''));
     s = s.replace(/\{AAAA\}/gi, String(d.getFullYear()))
          .replace(/\{MM\}/gi,   p2(d.getMonth() + 1))
          .replace(/\{DD\}/gi,   p2(d.getDate()))
@@ -743,7 +749,18 @@ const Settings = {
     const inp = document.getElementById('settingsFilenamePattern');
     const out = document.getElementById('settingsFilenamePreview');
     if (!inp || !out) return;
-    const name = this._buildFilenameFromPattern(inp.value, new Date());
+    // Familia do codec como o backend grava: 'auto' cai sempre em H.264
+    // (hardware, ou x264, que esta sempre presente).
+    const codecSel = document.getElementById('settingsCodec');
+    const codecVal = (codecSel && codecSel.value) || this.currentCodec || 'auto';
+    const codec = codecVal.startsWith('av1') ? 'AV1'
+                : codecVal.startsWith('hevc') ? 'HEVC' : 'H.264';
+    const q = document.getElementById('settingsRecordingQuality');
+    const name = this._buildFilenameFromPattern(inp.value, new Date(), {
+      codec,
+      fps: this._currentFpsFromSlider(),
+      quality: q ? (parseInt(q.value, 10) | 0) : 5,
+    });
     out.textContent = T('settings.filename.previewLabel', { name });
   },
   // Espelha OBSEncoder.GetEncoderMaxDimension (Delphi) — qualquer
@@ -976,6 +993,9 @@ const Settings = {
     // Saindo da aba Audio: o som do teste nao continua atras de outra aba.
     if (this.currentTab === 'audio' && name !== 'audio' &&
         typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
+    // Saindo da aba Video: os clipes do teste de qualidade param de tocar.
+    if (this.currentTab === 'recording' && name !== 'recording' &&
+        typeof VideoTest !== 'undefined') VideoTest.onLeave();
     this.currentTab = name;
     // Campos E divisores por aba: ambos carregam data-panel e alternam junto.
     document.querySelectorAll('.settings-field[data-panel], .settings-divider[data-panel]').forEach(f => {
@@ -987,6 +1007,8 @@ const Settings = {
     // Cada aba comeca do topo — senao herda o scroll da aba anterior.
     const body = document.getElementById('settingsBody');
     if (body) body.scrollTop = 0;
+    // Previa do nome: codec/fps/qualidade podem ter mudado na aba Video.
+    if (name === 'files') this._renderFilenamePreview();
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
     // Filtros de audio: estado e rotulos sao do backend (plugin do OBS).
@@ -997,10 +1019,10 @@ const Settings = {
       Replay.loadIntoSettings();
       Bridge.send('get_replay_state');
     }
-    // Idem pro perfil de auto-gravacao: ao entrar na aba Comportamento,
+    // Idem pro perfil de auto-gravacao: ao entrar na aba Gravacao,
     // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
     // hot-plug que ocorreu enquanto o usuario estava em outra aba).
-    if (name === 'behavior') this._syncAutoRecordDevicesVisibility();
+    if (name === 'onrecord') this._syncAutoRecordDevicesVisibility();
     // Fila e contagem de pendentes sao estado do backend: pede na hora de
     // entrar na aba, em vez de manter a UI assinada num push que ela
     // quase nunca esta olhando.

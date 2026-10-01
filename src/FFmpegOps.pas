@@ -59,6 +59,14 @@ function ExtractAudioTracks(const ASrc: string;
 function ExtractFrameJpeg(const ASrc, ADstJpeg: string;
   ATimestampSec, ATargetHeight: Integer): Boolean;
 
+// Quadro EXATO no instante ASec (segundos contados do 1o quadro do arquivo),
+// em PNG no tamanho original — sem a perda do JPEG, que misturaria os
+// artefatos dele com os do encoder. Decodifica desde o inicio: e pra clipes
+// curtos (o teste de qualidade das Configuracoes, ~5 s), onde isso custa
+// pouco e o seek pro keyframe daria o quadro errado. Passando do fim, fica o
+// ultimo quadro decodificado.
+function ExtractFramePng(const ASrc, ADstPng: string; ASec: Double): Boolean;
+
 // Decoda a primeira faixa de audio do source e calcula peaks por
 // bucket — usado pra renderizar a waveform abaixo do seek bar do
 // player. Retorna array de Single (Length = ABuckets), cada valor em
@@ -1509,6 +1517,194 @@ begin
       // re-raise pra propagar pro caller (que ja loga tambem).
       raise;
     end;
+  end;
+end;
+
+function ExtractFramePng(const ASrc, ADstPng: string; ASec: Double): Boolean;
+var
+  SrcCtx: AVFormatContext;
+  VStream, S: PAVStream;
+  VIdx, i, Rc, W, H, BufSize: Integer;
+  N: Cardinal;
+  Decoder, Encoder: PAVCodec;
+  DecCtx, EncCtx: PAVCodecContext;
+  EncPar: PAVCodecParameters;
+  Pkt, EncPkt: PAVPacket;
+  Frame, Kept, Rgb: PAVFrame;
+  Sws: SwsContext;
+  Buf: PByte;
+  FirstTs, Ts: Int64;
+  HaveFirst, Got, HaveKept, AtEnd: Boolean;
+  Tb, EncTb: AVRational;
+  FH: THandle;
+  Written: DWORD;
+
+  // Um quadro saido do decoder: chegou no instante pedido? Senao guarda
+  // como "ultimo visto" (vale se o arquivo acabar antes).
+  procedure Take;
+  begin
+    Ts := Frame.pts;
+    if Ts = AV_NOPTS_VALUE then Ts := Frame.pkt_dts;
+    if not HaveFirst then
+    begin
+      FirstTs := Ts;
+      HaveFirst := True;
+    end;
+    av_frame_unref(Kept);
+    av_frame_move_ref(Kept, Frame);
+    HaveKept := True;
+    if (Ts <> AV_NOPTS_VALUE) and (Tb.den > 0) and
+       ((Ts - FirstTs) * Tb.num / Tb.den >= ASec) then
+      Got := True;
+  end;
+
+  procedure Pump;
+  begin
+    while not Got do
+    begin
+      if avcodec_receive_frame(DecCtx, Frame) <> 0 then Break;
+      Take;
+    end;
+  end;
+
+begin
+  Result := False;
+  if not FFmpegLibAvailable then Exit;
+  SrcCtx := nil; DecCtx := nil; EncCtx := nil; EncPar := nil;
+  Pkt := nil; EncPkt := nil; Frame := nil; Kept := nil; Rgb := nil;
+  Sws := nil; Buf := nil;
+  try
+    if avformat_open_input(@SrcCtx, PAnsiChar(ToUtf8(ASrc)), nil, nil) < 0 then
+    begin
+      SrcCtx := nil;
+      Log('FramePng: nao abriu %s', [ExtractFileName(ASrc)]);
+      Exit;
+    end;
+    if avformat_find_stream_info(SrcCtx, nil) < 0 then Exit;
+
+    VIdx := -1;
+    N := av_format_context_nb_streams(SrcCtx);
+    for i := 0 to Integer(N) - 1 do
+    begin
+      S := GetStreamByIndex(SrcCtx, i);
+      if (S <> nil) and (S.codecpar <> nil) and
+         (S.codecpar.codec_type = AVMEDIA_TYPE_VIDEO) then
+      begin
+        VIdx := i;
+        Break;
+      end;
+    end;
+    if VIdx < 0 then Exit;
+    VStream := GetStreamByIndex(SrcCtx, VIdx);
+    Tb := VStream.time_base;
+    W := VStream.codecpar.width;
+    H := VStream.codecpar.height;
+    if (W <= 0) or (H <= 0) then Exit;
+
+    Decoder := avcodec_find_decoder(VStream.codecpar.codec_id);
+    if Decoder = nil then Exit;
+    DecCtx := avcodec_alloc_context3(Decoder);
+    if DecCtx = nil then Exit;
+    if avcodec_parameters_to_context(DecCtx, VStream.codecpar) < 0 then Exit;
+    // Aqui SIM vale threading (ao contrario do thumb, pegadinha #52): sao
+    // dezenas de quadros ate o instante pedido.
+    av_opt_set_int(DecCtx, 'threads', 0, 0);
+    if avcodec_open2(DecCtx, Decoder, nil) < 0 then Exit;
+
+    Pkt := av_packet_alloc;
+    Frame := av_frame_alloc;
+    Kept := av_frame_alloc;
+    if (Pkt = nil) or (Frame = nil) or (Kept = nil) then Exit;
+
+    HaveFirst := False; Got := False; HaveKept := False; AtEnd := False;
+    FirstTs := 0;
+    while not Got and not AtEnd do
+    begin
+      if av_read_frame(SrcCtx, Pkt) < 0 then
+      begin
+        avcodec_send_packet(DecCtx, nil);   // drena o que o decoder segura
+        Pump;
+        Break;
+      end;
+      if Pkt.stream_index = VIdx then
+        if avcodec_send_packet(DecCtx, Pkt) = 0 then Pump;
+      av_packet_unref(Pkt);
+    end;
+    if not HaveKept then
+    begin
+      Log('FramePng: nenhum quadro decodificado em %s', [ExtractFileName(ASrc)]);
+      Exit;
+    end;
+
+    // Pro RGB no tamanho original: PNG e sem perdas, entao o que se ve e
+    // exatamente o que o encoder de video entregou.
+    Sws := sws_getContext(W, H, AVPixelFormat(Kept.format), W, H,
+      AV_PIX_FMT_RGB24, SWS_BICUBIC, nil, nil, nil);
+    if Sws = nil then Exit;
+    Rgb := av_frame_alloc;
+    if Rgb = nil then Exit;
+    Rgb.format := Integer(AV_PIX_FMT_RGB24);
+    Rgb.width := W;
+    Rgb.height := H;
+    BufSize := av_image_get_buffer_size(AV_PIX_FMT_RGB24, W, H, 32);
+    if BufSize <= 0 then Exit;
+    GetMem(Buf, BufSize);
+    av_image_fill_arrays(@Rgb.data[0], @Rgb.linesize[0], Buf,
+      AV_PIX_FMT_RGB24, W, H, 32);
+    sws_scale(Sws, @Kept.data[0], @Kept.linesize[0], 0, H,
+      @Rgb.data[0], @Rgb.linesize[0]);
+
+    Encoder := avcodec_find_encoder_by_name('png');
+    if Encoder = nil then
+    begin
+      Log('FramePng: encoder png ausente.');
+      Exit;
+    end;
+    EncCtx := avcodec_alloc_context3(Encoder);
+    if EncCtx = nil then Exit;
+    EncPar := avcodec_parameters_alloc;
+    if EncPar = nil then Exit;
+    EncPar.codec_type := AVMEDIA_TYPE_VIDEO;
+    EncPar.codec_id := Encoder.id;
+    EncPar.width := W;
+    EncPar.height := H;
+    EncPar.format := Integer(AV_PIX_FMT_RGB24);
+    Rc := avcodec_parameters_to_context(EncCtx, EncPar);
+    avcodec_parameters_free(PPointer(@EncPar));
+    if Rc < 0 then Exit;
+    EncTb.num := 1;
+    EncTb.den := 25;
+    av_opt_set_q(EncCtx, 'time_base', EncTb, 0);
+    if avcodec_open2(EncCtx, Encoder, nil) < 0 then Exit;
+
+    EncPkt := av_packet_alloc;
+    if EncPkt = nil then Exit;
+    Rgb.pts := 0;
+    if avcodec_send_frame(EncCtx, Rgb) < 0 then Exit;
+    avcodec_send_frame(EncCtx, nil);
+    if avcodec_receive_packet(EncCtx, EncPkt) <> 0 then Exit;
+
+    FH := CreateFileW(PWideChar(ADstPng), GENERIC_WRITE, 0, nil,
+      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
+    if FH = INVALID_HANDLE_VALUE then Exit;
+    try
+      Written := 0;
+      WriteFile(FH, EncPkt.data^, EncPkt.size, Written, nil);
+      Result := Written = DWORD(EncPkt.size);
+    finally
+      CloseHandle(FH);
+    end;
+  finally
+    if Buf <> nil then FreeMem(Buf);
+    if Sws <> nil then sws_freeContext(Sws);
+    if Rgb <> nil then av_frame_free(@Rgb);
+    if Kept <> nil then av_frame_free(@Kept);
+    if Frame <> nil then av_frame_free(@Frame);
+    if EncPkt <> nil then av_packet_free(@EncPkt);
+    if Pkt <> nil then av_packet_free(@Pkt);
+    if EncCtx <> nil then avcodec_free_context(@EncCtx);
+    if DecCtx <> nil then avcodec_free_context(@DecCtx);
+    if SrcCtx <> nil then avformat_close_input(@SrcCtx);
   end;
 end;
 

@@ -22,7 +22,7 @@ const AudioFilters = {
   mics: [],
   ready: false,
   loaded: false,
-  testSec: 6,
+  testSec: 5,
   testing: false,
   _open: new Set(),        // ids com os ajustes abertos (sobrevive a re-render)
   _audio: null,

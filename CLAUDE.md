@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (15 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (16 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -96,6 +96,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `FFmpegExport`      | **Único caminho com re-encode**: `ExportVideo` (recorte de trecho + composição de regiões + escala + escolha de encoder + faixas de áudio copiadas ou mixadas + só áudio) e `ComputeExportLayout` (layout de monitores do arquivo exportado) |
 | `ExportCaptions`    | Legenda **gravada** no vídeo exportado: corta os turnos em blocos de 2 linhas na fonte/largura da saída, rasteriza com GDI e mistura direto nos planos YUV 4:2:0 (pegadinha #51i) |
 | `OBSPlayer`         | `TIdHTTPServer` em 127.0.0.1:porta-livre + cache de MP4 remuxado + extração de audio tracks |
+| `OBSFileMeta`       | Cópia dos dados do NoOBS (layout, transcrição, falantes, como foi gravado) **no fim do próprio arquivo de vídeo**, num elemento que o formato manda ignorar (Void no MKV, `free` no MP4). Importa pro cache quando o arquivo chega de outra máquina; worker com pendentes persistidos pra escrever — pegadinha #65 |
 | `OBSProbe`          | Inspeção de mídia via libavformat (codec, faixas, bitrate, duration com packet-scan fallback) |
 | `OBSAudioWatch`     | `IMMNotificationClient` em Delphi puro pra detectar hot-plug de áudio              |
 | `OBSTranscribe`     | Fila de transcrição (1 por vez) contra a Transcritor API ou o motor local (`transcribeEngine`). Manda só o ÁUDIO (faixas isoladas ou a mistura); grava a resposta no cache. A fila é reordenável item a item, **persistida em disco** e **espera o servidor voltar** em vez de falhar; `DiagnoseSetup` descobre em etapas o que falta (WSL → Docker → container) |
@@ -113,9 +114,9 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
-recordings, player, export, settings, widgets) e `js/` (15 módulos: i18n,
+recordings, player, export, settings, widgets) e `js/` (16 módulos: i18n,
 bridge, displays, recordings, folders, record, widgets, hotkey, settings,
-audiofilters, player, export, transcribe, replay, main), além
+audiofilters, videotest, player, export, transcribe, replay, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -380,7 +381,8 @@ User clica Exportar → `export_recording`:
   • Container: 'mp4' (default) ou 'mkv' — vira o nome do muxer e a extensão
     do arquivo final. Sem tela (`noVideo`) é SEMPRE 'mp3', recodificado com
     libmp3lame (pegadinha #51j). A saída é escrita num "<final>.part"
-    (pegadinha #51e).
+    (pegadinha #51e), na MESMA PASTA da origem (`MakeExportPath`) — não na
+    raiz: exportar um vídeo guardado numa subpasta o deixava longe dela.
   • Worker → FFmpegExport.ExportVideo, UM PASSE POR TRECHO:
     - a cada trecho: seek pro keyframe anterior + `avcodec_flush_buffers`
       em TODOS os decoders (sem isso o decoder tentaria continuar de
@@ -484,6 +486,13 @@ tem aqui e o recorte pendente. O estado **não é deduzido no cliente** —
 chega inteiro no mesmo push que traz a lista, pra nunca divergir dela.
 O menu de contexto (`showCtxMenu` em `main.js`) passou a ser **montado em
 JS**, com três alvos: card de gravação, card de pasta e o fundo da lista.
+
+**Soltar na lixeira**: arrastando um card, o botão de excluir da barra
+(`#deleteSelectedBtn`) vira alvo — `RecFolders._trashArm` tira o `disabled`
+de VERDADE (botão desabilitado não recebe `dragover`/`drop`) e acende o
+vermelho; no fim do arrasto o `disabled` volta pelo estado ATUAL da seleção.
+Soltar abre a mesma confirmação do botão (`deleteRecordings`); pasta usa a
+dela (`RecFolders.remove`, que avisa quantas gravações vão junto).
 
 ---
 
@@ -800,11 +809,27 @@ do libavformat. Pra FFmpeg 7.x (avformat-61):
 | `pb*` | 32 | AVIOContext* |
 | `nb_streams` | **44** | unsigned int |
 | `streams**` | **48** | AVStream** |
-| `duration` | 72 | int64_t |
-| `bit_rate` | 80 | int64_t |
+| `nb_stream_groups` / `stream_groups**` | 56 / 64 | novos no 7.0 |
+| `nb_chapters` / `chapters**` | 72 / 80 | |
+| `url*` | 88 | char* |
+| `start_time` | 96 | int64_t |
+| `duration` | **104** | int64_t |
+| `bit_rate` | **112** | int64_t |
+
+**Esta tabela já esteve errada** (`duration` 72, `bit_rate` 80 — o layout
+do FFmpeg 6). O 7.0 inseriu os stream groups e os dois campos andaram 32
+bytes; o 72 virou `nb_chapters`, sempre 0. Ninguém notou porque havia
+fallback: a duração caía na dos streams e, no MKV do OBS (que não tem
+duração por stream), na varredura do arquivo INTEIRO
+(`ScanDurationByPackets`) — todo Probe lia todos os pacotes. Erro de
+offset que cai num campo zerado é silencioso: só o desempenho denuncia.
+Validação feita nas DLLs empacotadas, em 3 arquivos: `url@88` aponta pro
+caminho, `duration@104` bate com a duração real, e `bit_rate@112` =
+tamanho × 8 / duração.
 
 Se trocar major do libavformat (61→62), validar contra `avformat.h`
-do novo release. Constantes em `FFmpegLib.pas` (`OFFS_*`).
+do novo release — e conferir LENDO os campos num arquivo real, não só
+contando bytes no header. Constantes em `FFmpegLib.pas` (`OFFS_*`).
 
 ### 27. **MKV de OBS pode ter `duration = 0` no global**
 
@@ -2842,6 +2867,25 @@ por uma sentinela (`CANCELED_MARK`) que o `Execute` reconhece, em vez de
 virar mensagem de erro na tela. Cancelar é melhor-esforço: se o DELETE
 não chegar, o job termina sozinho e expira pelo `JOB_TTL_SECONDS`.
 
+**Depois do cancelar, o item em voo é SEMPRE cancelado**, devolva ele o
+que devolver. O `Execute` lê o `GCancelCurrent` ao fim do `ProcessOne` e
+troca qualquer erro por `CANCELED_MARK`. Antes, um "servidor fora" logo
+depois do clique DEVOLVIA o item pra fila que o usuário tinha acabado de
+esvaziar, e uma falha qualquer virava aviso vermelho na tela recém-limpa.
+O `ProcessOne` também checa o cancelamento antes de cada faixa, senão o
+upload inteiro rodava antes de o laço de consulta enxergar o pedido.
+
+**Gravação apagada não é falha.** Excluir uma gravação tira ela da espera
+(`RemoveFromQueue` no `HandleDeleteRecording`); e se o arquivo sumiu com
+o item em curso, ou por outro caminho (Explorer, pasta movida), o
+`Execute` troca o erro por `CANCELED_MARK` — sem aviso, sem contar falha
+e sem voltar pra fila num "servidor fora".
+
+**Pedido manual novo limpa a falha anterior** (`ClearItemError`), mesmo
+com a fila andando — o `ResetBatchIfIdle` só zera com ela parada. Só a
+falha de GRAVAÇÃO (nome preenchido); a frase de espera do servidor fica
+até ele voltar.
+
 **d) A busca é do BACKEND.** A resposta traz timestamps por palavra e dá
 megabytes por gravação. Filtrar no JS exigiria atravessar tudo isso pelo
 `postMessage` a cada tecla. Então:
@@ -3170,13 +3214,17 @@ O que NÃO existe e decidiu o desenho:
   vazio (mesma razão do `.part` da #51e). Um worker move pro nome final
   (`BuildRecordingPath(Now)`), sonda a duração, e na main vêm meta, card,
   push `replay_saved`, notificação da bandeja e transcrição automática.
-- **A duração do trecho é MEDIDA, não lida do arquivo.** O MKV do
-  `replay_buffer` não traz `Duration` no header, então o `Probe` cairia no
-  `ScanDurationByPackets` — varredura do arquivo inteiro, **9 s medidos num
-  trecho de 5,6 GB**, logo depois de o muxer ter escrito esses mesmos GB, e
-  com o jogo rodando. O tempo que o buffer tinha guardado no instante do
-  "salvar" (`ReplayLastClipSec`, saturado no teto) dá a mesma resposta de
-  graça. O `Probe` só entra se não houver medida. Corolário: esse número é
+- **A duração do trecho é MEDIDA, não lida do arquivo.** O tempo que o
+  buffer tinha guardado no instante do "salvar" (`ReplayLastClipSec`,
+  saturado no teto) dá a resposta sem abrir o arquivo, logo depois de o
+  muxer ter escrito GBs e com o jogo rodando. O `Probe` só entra se não
+  houver medida. *Correção de diagnóstico:* isto já dizia que o MKV do
+  `replay_buffer` "não traz `Duration` no header" e por isso a varredura
+  levava 9 s num trecho de 5,6 GB. Errado: o header TEM a `Duration`
+  (medido num trecho real: 31786 ms no elemento 0x4489). A varredura vinha
+  do offset errado da pegadinha #26, que fazia TODO arquivo cair no
+  `ScanDurationByPackets`. Com o offset certo o `Probe` lê a duração na
+  hora; a medida continua valendo por não precisar abrir o arquivo. Corolário: esse número é
   capturado ANTES de o relógio do buffer ser zerado pela rotação — depois
   dela, o "guardado" já é o do trecho seguinte.
 - **A transcrição AUTOMÁTICA fica PAUSADA enquanto se captura** (gravação
@@ -3407,7 +3455,7 @@ usar foi "gravo, depois vou ligando os filtros e comparo" — com a versão
 filtrada feita só na hora da gravação, isso devolvia duas cópias iguais.
 Então:
 
-1. `Testar` abre UMA fonte privada do microfone (crua), junta ~6 s em
+1. `Testar` abre UMA fonte privada do microfone (crua), junta ~5 s em
    float estéreo pelo callback de captura (thread do WASAPI, só copia sob
    lock) e guarda o trecho (`GClipL`/`GClipR`).
 2. As duas versões saem do trecho guardado: ele é EMPURRADO em blocos de
@@ -3453,6 +3501,137 @@ total (−140 dBFS) entre as falas. Daí a tela:
 - mostra o nível **MÉDIO** (RMS) além do pico. Supressão de ruído quase não
   mexe no pico (o pico é a voz, que ela preserva); é a média que cai.
 
+### 64. **Teste de qualidade de vídeo: captura UMA referência, reproduz os níveis pela exportação**
+
+A aba Vídeo compara os níveis 0..10 (`js/videotest.js` + bloco "Teste de
+qualidade de video" no `OBSBridge`). O desenho saiu de uma restrição: o
+tamanho só é honesto se TODOS os níveis codificarem os MESMOS quadros.
+
+1. `test_video_quality` grava `VIDEO_TEST_SEC` (5 s) pelo caminho da
+   gravação — `Engine.BuildAndStartRecording`, mesma cena, monitores,
+   canvas, fps e encoder —, mas com `OBSEncoder.SetQualityLevelOverride(10)`:
+   a referência sai no nível MÁXIMO, e nenhum nível pode ficar melhor que ela.
+   O arquivo vai pra `%LOCALAPPDATA%\NoOBS\videotest\`, fora da biblioteca.
+2. O stop é o mesmo assíncrono da gravação (#41). No
+   `OnEngineRecordingStopped`, `VideoTestCapturing` DESVIA pro
+   `OnVideoTestRecorded` antes de qualquer coisa: sem o desvio a amostra
+   ganharia meta, card, transcrição e religaria o buffer como gravação.
+3. Numa worker, cada nível sai da referência pelo `ExportVideo`, com o
+   encoder do libavcodec da MESMA família do que gravou
+   (`AppCodecFromObsEncoder` → `ResolveExportEncoder`) e o CRF do nível
+   (`QualityLevelToCrf`). Vale porque os dois lados são calibrados contra o
+   mesmo PSNR do x264 (#51b na exportação, #53 na gravação): o nível N da
+   exportação entrega a qualidade do nível N da gravação.
+4. De cada arquivo sai o tamanho (→ "por hora") e um quadro do MEIO do clipe
+   em PNG (`FFmpegOps.ExtractFramePng`), servido pelo `OBSPlayer.GetFileUrl`.
+5. Os níveis saem em **MP4** e FICAM na pasta (até o próximo teste): o
+   comparador TOCA os clipes, porque parado não se vê o que o encoder faz
+   com o que muda (texto rolando, cursor, vídeo). MP4 e não MKV porque o
+   WebView2 não garante MKV. Todos saem da mesma amostra pela mesma
+   exportação, que começa o trecho em 0 — `currentTime` igual = quadro igual.
+6. A comparação é ENTRE NÍVEIS. A amostra crua não vai pra tela: o nível 10
+   (refeito dela) faz o papel de referência, e a tela abre com o nível atual
+   à esquerda contra o 10 à direita. Cada lado tem um `<select>` de nível
+   por cima da imagem.
+
+Por que não gravar os 11 níveis ao vivo, com 11 encoders sobre o mesmo
+vídeo: em 4K nenhuma GPU encoda 11 fluxos em tempo real, e quadro perdido
+muda justamente o tamanho que se quer medir.
+
+Detalhes que mordem:
+
+- **O quadro de comparação é PNG no tamanho original, decodificado até o
+  instante EXATO.** JPEG misturaria os artefatos dele com os do encoder, e
+  o `ExtractFrameJpeg` pega o keyframe do seek (#42) — o quadro que todo
+  encoder caprichou, onde a diferença entre níveis quase some. O meio do
+  clipe cai no meio do GOP.
+- **Reduzida, qualquer nível parece bom.** A tela mostra ajustado, mas os
+  botões de zoom levam a 100% (pixels REAIS: largura / `devicePixelRatio`),
+  200% e 300% com `image-rendering: pixelated`. Clique na imagem NÃO faz
+  nada (nem zoom, nem tocar/pausar): o clique também encerra um arrasto da
+  vista, e reagir a ele atrapalhava a comparação.
+- **Comparação lado a lado com divisor arrastável.** As duas imagens ficam
+  EMPILHADAS no mesmo palco que rola (B embaixo, A por cima cortado com
+  `clip-path: inset(0 Rpx 0 0)`). O divisor mora FORA do palco (irmão dele
+  na `.vtest-view`), então fica parado na VISTA enquanto a imagem rola; o
+  corte é recalculado no `scroll` como `scrollLeft + split × clientWidth`.
+  Pelo mesmo motivo trocar o nível de um lado não perde o ponto: as imagens
+  têm o mesmo tamanho. Setas ↑/↓ trocam o nível A (Shift = B); fora de
+  campos, porque o slider de qualidade usa as mesmas setas.
+- **Player: o A manda no relógio, o B segue.** Dois `<video>` empilhados
+  (mesmo esquema do divisor). Tocando, o B é puxado pro instante do A
+  quando escorrega mais de meio quadro — por DOIS caminhos: o laço de
+  `requestAnimationFrame` e o `timeupdate` do A. Só o rAF não basta: ele
+  para quando a página não está sendo desenhada (janela coberta), e o B
+  escorregava ~0,2 s. Parado, os dois são posicionados no MESMO
+  `currentTime` (é aí que se compara); Espaço toca/pausa, ← → andam um
+  quadro, e trocar o nível de um lado recarrega só aquele vídeo no mesmo
+  instante. Sair da aba ou fechar as Configurações pausa. Antes de um novo
+  teste, os `src` são soltos (`_unload`): a pasta vai ser reescrita.
+- **Vídeo que não toca cai pro quadro parado.** HEVC depende de extensão
+  do Windows: `error` num dos `<video>` troca os dois pelos PNGs
+  (`_still`) e esconde a barra do player, com um aviso.
+- Pra testar o player fora do app, o `http.server` do Python NÃO serve
+  (sem Range, o `<video>` não faz seek); e com o painel do navegador em
+  segundo plano o Chromium PAUSA vídeo mudo sozinho — `playing` segue true
+  e o tempo para, o que parece bug do player e não é.
+- **Captura ocupa o grafo como uma gravação.** Recusado com gravação,
+  buffer ativo ou stop em curso; enquanto captura, `HandleRecordStart`
+  recusa com aviso e `StartReplayBuffer` espera (o fim da captura religa o
+  buffer se `ReplayWanted`). As codificações (fase longa) não bloqueiam
+  nada, mas seguram a hibernação (`VideoTestBusy`, regra da exportação) e
+  param no shutdown (`VideoTestCancel`).
+- **O tamanho depende do conteúdo.** Tela parada dá arquivo mínimo em
+  qualquer nível; a tela pede pra mexer em algo durante a captura, e o
+  resultado diz que é estimativa "com esse mesmo conteúdo".
+
+### 65. **Dados no FIM do arquivo de vídeo (`OBSFileMeta`)**
+
+O cache é por hash do PATH e mora em `%LOCALAPPDATA%`: copiar uma gravação
+pra outra máquina perdia layout, transcrição e nomes de falante. Agora o
+que não dá pra refazer vai TAMBÉM num bloco no fim do próprio arquivo. O
+cache continua sendo a cópia de trabalho (rápido, local, não puxa da
+nuvem); o bloco é a cópia que viaja.
+
+**Formato.** `'NOOBSMETA' + zlib(JSON) + rodapé de 24 bytes` (`'NOOBSEND'`,
+versão, tamanho do envelope, CRC32), embrulhado num elemento que o
+container manda IGNORAR — EBML **Void** (`$EC`) no MKV, caixa **`free`** no
+MP4 —, então o arquivo continua válido. MP3 fica de fora (não tem "ignore
+isto" confiável). Ler = os últimos 24 bytes; o vídeo nunca é lido nem
+regravado: atualizar troca só o bloco (KB). Viajam `duration`, `canvas`,
+`monitors`, `codec`, `codecHw`, `fps`, `quality`, `speakers` e a transcrição
+(+ o `.txt` da busca); `waveform`/`videoInfo` não (refeitos sozinhos, pesam MB).
+
+**Validado antes de existir** (protótipo nas DLLs empacotadas, em cópias de
+gravações reais): pacotes, bytes, último instante por faixa, duração, seek
+a 90%, remux pro MP4 do player e o `<video>` do Chromium idênticos com e sem
+o bloco — MKV fechado, MKV interrompido e MP4 exportado. **Uma exceção, e
+ela decide o código:** MKV interrompido NO MEIO de um cluster. O cluster
+declara um tamanho que passa do fim do arquivo e o leitor engole o começo
+do bloco como pacote de vídeo (medido: 1 pacote falso). Por isso
+`MkvDataEnd`/`Mp4DataEnd` andam pela estrutura e só deixam escrever num
+limite de elemento; senão os dados ficam só no cache (`wrUnsafe`).
+
+**Escrita** (worker; `filemeta-pending.json` persiste o que falta):
+- abre com `FILE_SHARE_READ` só: outro processo escrevendo (OBS gravando,
+  cópia em curso) faz a abertura falhar, e tenta de novo depois;
+- CORTA primeiro, escreve depois — queda no meio deixa o original limpo
+  ou um bloco sem rodapé válido, e a escrita seguinte o descarta (MKV
+  fechado: tudo depois do fim do segmento sai; interrompido/MP4: Void ou
+  `free` que passa do fim sai). Testado com escrita interrompida de propósito;
+- restaura as datas do arquivo (a galeria agrupa pela modificação);
+- arquivo só na nuvem: espera (escrever forçaria o download).
+
+**Sincronia por revisão.** `MarkChanged` carimba `tailRev` (UTC ISO) no
+`<hash>.json` e agenda a escrita: fim de gravação, buffer salvo, emenda,
+exportação, união, transcrição e renome de falante. `ImportIfNewer` roda no
+`EnsureRecordingMeta` (ANTES de ler a meta: a duração do bloco evita o
+Probe, e o `SaveRecordingMeta` não reescreve por cima do importado): bloco
+mais novo → popula o cache e refaz a lista (`TIMER_FILEMETA_REFRESH`);
+cache mais novo → agenda escrita. `tailSig` (tamanho + data) pula o rodapé
+de quem não mudou. Gravações antigas ganham o bloco na primeira mudança.
+Pendente segue renome/movimentação pelo `RenameCacheEntries`.
+
 ---
 
 ## Caches
@@ -3468,6 +3647,7 @@ total (−140 dBFS) entre as falas. Daí a tela:
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.transcript.json` | Resposta inteira da Transcritor API (turnos, segmentos, palavras) |
 | `%LOCALAPPDATA%\NoOBS\cache\<hash>.txt` | Só o texto puro da transcrição — é o que a BUSCA lê |
 | `%LOCALAPPDATA%\NoOBS\asr\` | Motor local (pegadinha #60t): `audiocpp\` (servidor), `models\` (os dois `.gguf`), `server.json` (reescrito a cada subida, porta livre), `audiocpp.log` (stdout/stderr do servidor), `instalado.json` (só existe com tudo conferido) |
+| `%LOCALAPPDATA%\NoOBS\filemeta-pending.json` | Arquivos cujo bloco no fim ainda não foi escrito (aberto por outro processo, só na nuvem, erro) — pegadinha #65 |
 | `%LOCALAPPDATA%\NoOBS\transcribe-queue.json` | Fila de transcrição pendente (item em curso primeiro), restaurada no próximo início do modo full (pegadinha #60n) |
 
 `<hash>` = primeiros 10 bytes hex do SHA1 do path original.
@@ -3498,7 +3678,7 @@ recuperáveis manualmente).
 | `theme`                          | `"system"` (default — segue o SO via registry), `"dark"` ou `"light"` |
 | `recordDir`                      | path absoluto                                      |
 | `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |
-| `filenamePattern`                | modelo do nome do arquivo; códigos `{AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}` (default `"{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"`) |
+| `filenamePattern`                | modelo do nome do arquivo; códigos `{AAAA}{MM}{DD}{HH}{NN}{SS}{ZZZ}` de data/hora e `{CODEC}` (AV1/HEVC/H.264 — o codec que a gravação VAI usar, `OBSEncoder.PredictVideoEncoderId`, porque o arquivo nasce antes do encoder), `{FPS}`, `{QUALIDADE}` (nível 0..10) (default `"{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}"`) |
 | `codec`                          | `"auto"`, `"av1-hw"`, `"hevc-hw"`, `"h264-hw"`, `"h264-sw"`, `"av1-sw"`. O `av1-sw` (`ffmpeg_svt_av1`, CPU) **nunca entra na cadeia automática** — só por escolha explícita, porque satura todos os núcleos e a gravação concorre com o que o usuário está fazendo (Pegadinha #53) |
 | `sources.monitors[name]`         | `true` / `false` (default: `true`)                 |
 | `sources.mics[name]`             | `true` / `false` (default: `true`)                 |

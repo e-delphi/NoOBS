@@ -151,7 +151,13 @@ const RecSelection = {
 // processa um delete por vez. Pushes 'recording_removed' que chegam
 // depois sao no-op (card ja nao existe).
 function bulkDeleteSelected() {
-  const ids = RecSelection.all();
+  deleteRecordings(RecSelection.all());
+}
+
+// Pergunta e exclui as gravações `ids`: o botão da barra (a seleção) e o
+// soltar um card arrastado em cima dele (RecFolders.wireTrash).
+function deleteRecordings(ids) {
+  ids = (ids || []).filter(Boolean);
   if (ids.length === 0) return;
   // O delete da UI e otimista (tira o card antes da resposta): bloqueia
   // ANTES de perguntar, senao o card sumiria e voltaria sozinho.
@@ -173,7 +179,9 @@ function bulkDeleteSelected() {
         card.remove();
         if (group && !group.querySelector('.rec-card')) group.remove();
       });
-      RecSelection.clear();
+      // Tira da seleção só o que saiu (um card arrastado pode não fazer
+      // parte dela, e a seleção de outros cards continua valendo).
+      RecSelection.setMany(ids, false);
       recalcRecMetaFromDom();
       ids.forEach(rid => Bridge.send('delete_recording', { id: rid }));
     }

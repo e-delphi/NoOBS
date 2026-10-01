@@ -35,7 +35,10 @@ instalar nem configurar nada — só abrir e gravar.
 
 - **Arquivos que não desperdiçam espaço.** Grava por qualidade, não por
   taxa fixa: tela parada quase não ocupa nada, e as cenas de movimento
-  gastam o que precisarem.
+  gastam o que precisarem. Na aba Vídeo, um teste grava alguns segundos da
+  sua tela e mostra, nível por nível, quanto cada um ocuparia por hora e
+  como a imagem fica — dois níveis lado a lado, no mesmo ponto, em tamanho
+  real.
 
 - **Junta e exporta sem sair do app.** Unir não reencoda — é instantâneo
   e sem perda. A exportação recorta trechos,
@@ -51,6 +54,11 @@ instalar nem configurar nada — só abrir e gravar.
 - **Organiza em pastas, sem abrir o Explorer.** Crie pastas na própria
   lista, arraste uma gravação pra dentro ou use recortar e colar. Excluir
   uma pasta avisa quantas gravações vão junto.
+
+- **O vídeo leva os dados junto.** Transcrição, nomes de quem falou e a
+  posição de cada monitor ficam guardados dentro do próprio arquivo, num
+  espaço que qualquer player ignora. Copiou pra outro computador? O NoOBS
+  de lá abre com tudo pronto, sem transcrever de novo.
 
 - **Grava chamadas sozinho.** Detecta quando o Teams, o Meet ou o
   WhatsApp abre o microfone, começa a gravar e para quando a chamada

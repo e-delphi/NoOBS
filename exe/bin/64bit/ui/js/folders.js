@@ -388,6 +388,7 @@ const RecFolders = {
       if (el.dataset.editing === 'true') { e.preventDefault(); return; }
       this._dragIds = this.targetIds(id);
       el.classList.add('dragging');
+      this._trashArm(true);
       try {
         e.dataTransfer.effectAllowed = 'move';
         // Sem setData o Chromium cancela o arrasto antes do primeiro
@@ -398,8 +399,61 @@ const RecFolders = {
     el.addEventListener('dragend', () => {
       el.classList.remove('dragging');
       this._dragIds = null;
+      this._trashArm(false);
       document.querySelectorAll('.drop-target')
         .forEach(t => t.classList.remove('drop-target'));
+    });
+  },
+
+  // -------------------------------------------------------------
+  // Soltar na lixeira (botão de excluir da barra)
+  // -------------------------------------------------------------
+  // Durante o arrasto o botão fica HABILITADO e vermelho, mesmo sem nada
+  // selecionado: é o que avisa que ele é um alvo. Botão desabilitado nem
+  // recebe os eventos de arrastar, por isso o `disabled` sai de verdade e
+  // volta como estava no fim (`_trashWasDisabled`).
+  _trashWasDisabled: null,
+  _trashArm(on) {
+    const btn = document.getElementById('deleteSelectedBtn');
+    if (!btn) return;
+    if (on) {
+      if (this._trashWasDisabled === null) this._trashWasDisabled = btn.disabled;
+      btn.disabled = false;
+      btn.classList.add('drop-armed');
+    } else {
+      btn.classList.remove('drop-armed', 'drop-target');
+      if (this._trashWasDisabled !== null) {
+        // A seleção pode ter mudado no meio do arrasto: vale o estado
+        // atual dela, não o de antes.
+        btn.disabled = (typeof RecSelection !== 'undefined')
+          ? RecSelection.size() === 0 : this._trashWasDisabled;
+      }
+      this._trashWasDisabled = null;
+    }
+  },
+
+  // Chamado uma vez no boot (main.js).
+  wireTrash() {
+    const btn = document.getElementById('deleteSelectedBtn');
+    if (!btn || btn._trashWired) return;
+    btn._trashWired = true;
+    btn.addEventListener('dragover', (e) => {
+      if (!this._dragIds || !this._dragIds.length) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+      btn.classList.add('drop-target');
+    });
+    btn.addEventListener('dragleave', () => btn.classList.remove('drop-target'));
+    btn.addEventListener('drop', (e) => {
+      if (!this._dragIds || !this._dragIds.length) return;
+      e.preventDefault();
+      const ids = this._dragIds.slice();
+      this._dragIds = null;
+      this._trashArm(false);
+      // Pasta tem confirmação própria (avisa quantas gravações vão junto).
+      // Arrastar uma pasta leva só ela — a seleção é de gravações.
+      if (ids.length === 1 && this.find(ids[0])) { this.remove(ids[0]); return; }
+      deleteRecordings(ids.filter(x => !this.find(x)));
     });
   },
 

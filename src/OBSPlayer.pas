@@ -44,6 +44,11 @@ function GetMonitorThumbUrl(const AId: string): string;
 // HEVC Video Extensions instalado). Instantaneo, sem ffmpeg.
 function GetDirectUrl(const APath: string): string;
 
+// URL de um arquivo qualquer (ex.: os quadros PNG do teste de qualidade).
+// Leva um sufixo de tempo na query: o mesmo caminho e reescrito a cada
+// teste, e o <img> nao pode reaproveitar a imagem do teste anterior.
+function GetFileUrl(const APath: string): string;
+
 // URL "transcodada" — garante MP4/H.264 jogavel. Pode demorar (ffmpeg).
 // Use de worker thread se chamada vier da main pra evitar travar a UI.
 function GetTranscodedUrl(const APath: string): string;
@@ -76,6 +81,13 @@ procedure SaveRecordingMeta(const APath: string;
 // Interface em string de proposito (nao expoe System.JSON aqui).
 function LoadMetaSubObjectJson(const APath, AKey: string): string;
 procedure SaveMetaSubObjectJson(const APath, AKey, AValueJson: string);
+
+// Varias chaves de uma vez (uma leitura / uma escrita do <hash>.json, que
+// pode ter MB de waveform). LoadMetaSubset devolve um objeto JSON so com as
+// chaves pedidas que existem ('{}' se nada); SaveMetaSubset mescla as chaves
+// do objeto AObjJson, preservando o resto. Usados pelo OBSFileMeta.
+function LoadMetaSubset(const APath: string; const AKeys: array of string): string;
+procedure SaveMetaSubset(const APath, AObjJson: string);
 
 // Remove arquivos de cache que nao pertencem a nenhuma das gravacoes
 // listadas. ALivePaths sao os paths das gravacoes que ainda existem.
@@ -125,7 +137,8 @@ uses
   OBSLog,
   OBSProbe,
   FFmpegLib,
-  FFmpegOps;
+  FFmpegOps,
+  OBSFileMeta;
 
 const
   // Por quanto tempo o Chromium pode reter os bytes de midia servidos
@@ -215,6 +228,8 @@ var
   Files: TArray<string>;
   F: string;
 begin
+  // Escrita pendente no fim do arquivo (OBSFileMeta) segue o arquivo.
+  try OBSFileMeta.RenamePath(AOldPath, ANewPath); except end;
   Dir := CacheDirFor(AOldPath);
   if not DirectoryExists(Dir) then Exit;
   OldHash := HashName(AOldPath);
@@ -584,6 +599,93 @@ begin
   end;
 end;
 
+function LoadMetaSubset(const APath: string; const AKeys: array of string): string;
+var
+  MetaFile: string;
+  Root, V: TJSONValue;
+  Res: TJSONObject;
+  i: Integer;
+begin
+  Result := '{}';
+  MetaFile := MetaFilePath(APath);
+  if MetaLock <> nil then MetaLock.Enter;
+  try
+    if not FileExists(MetaFile) then Exit;
+    try
+      Root := TJSONObject.ParseJSONValue(TFile.ReadAllText(MetaFile, TEncoding.UTF8));
+      if Root <> nil then
+      try
+        if Root is TJSONObject then
+        begin
+          Res := TJSONObject.Create;
+          try
+            for i := 0 to High(AKeys) do
+            begin
+              V := TJSONObject(Root).GetValue(AKeys[i]);
+              if V <> nil then Res.AddPair(AKeys[i], TJSONValue(V.Clone));
+            end;
+            Result := Res.ToJSON;
+          finally
+            Res.Free;
+          end;
+        end;
+      finally
+        Root.Free;
+      end;
+    except
+      on E: Exception do Log('LoadMetaSubset: %s', [E.Message]);
+    end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
+  end;
+end;
+
+procedure SaveMetaSubset(const APath, AObjJson: string);
+var
+  MetaFile: string;
+  Root, Src: TJSONObject;
+  Parsed: TJSONValue;
+  OldPair: TJSONPair;
+  i: Integer;
+begin
+  Parsed := TJSONObject.ParseJSONValue(AObjJson);
+  if not (Parsed is TJSONObject) then
+  begin
+    Parsed.Free;
+    Exit;
+  end;
+  Src := TJSONObject(Parsed);
+  Root := nil;
+  MetaFile := MetaFilePath(APath);
+  if MetaLock <> nil then MetaLock.Enter;
+  try
+    try
+      if FileExists(MetaFile) then
+      begin
+        Parsed := TJSONObject.ParseJSONValue(TFile.ReadAllText(MetaFile, TEncoding.UTF8));
+        if Parsed is TJSONObject then Root := TJSONObject(Parsed)
+        else Parsed.Free;
+      end;
+      if Root = nil then Root := TJSONObject.Create;
+      for i := 0 to Src.Count - 1 do
+      begin
+        OldPair := Root.RemovePair(Src.Pairs[i].JsonString.Value);
+        OldPair.Free;
+        Root.AddPair(Src.Pairs[i].JsonString.Value,
+          TJSONValue(Src.Pairs[i].JsonValue.Clone));
+      end;
+      ForceDirectories(ExtractFilePath(MetaFile));
+      TFile.WriteAllText(MetaFile, Root.ToJSON, TEncoding.UTF8);
+    except
+      on E: Exception do Log('SaveMetaSubset: %s', [E.Message]);
+    end;
+  finally
+    if MetaLock <> nil then MetaLock.Leave;
+    Root.Free;
+    Src.Free;
+  end;
+end;
+
 function EnsureRecordingMeta(const APath: string;
   out ADurationSec: Integer; out AThumbUrl: string): Boolean;
 // Duracao + thumbnail via libavformat/libavcodec — sem ffmpeg.exe.
@@ -604,6 +706,14 @@ begin
   CacheDir := CacheDirFor(APath);
   Token := HashName(APath);
   ThumbFile := IncludeTrailingPathDelimiter(CacheDir) + Token + '.jpg';
+
+  // Arquivo vindo de outra maquina traz layout, transcricao e falantes no
+  // fim dele (OBSFileMeta). ANTES de ler a meta: a duracao do bloco evita o
+  // Probe, e o SaveRecordingMeta abaixo (que reescreve o <hash>.json
+  // inteiro) nao roda por cima do que acabou de ser importado.
+  try OBSFileMeta.ImportIfNewer(APath); except
+    on E: Exception do Log('Player: leitura dos dados do arquivo falhou: %s', [E.Message]);
+  end;
 
   LoadRecordingMeta(APath, Meta);
   ADurationSec := Meta.DurationSec;
@@ -682,6 +792,13 @@ var
 begin
   Ext := LowerCase(ExtractFileExt(APath));
   Result := MakeUrl('-direct', APath, Ext);
+end;
+
+function GetFileUrl(const APath: string): string;
+begin
+  Result := MakeUrl('-file', APath, LowerCase(ExtractFileExt(APath)));
+  if Result <> '' then
+    Result := Result + '?t=' + IntToStr(GetTickCount64);
 end;
 
 procedure GarbageCollectCache(const ALivePaths: TArray<string>);

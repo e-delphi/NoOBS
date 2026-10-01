@@ -53,6 +53,7 @@ uses
   OBSStartupCheck in 'src\OBSStartupCheck.pas',
   OBSTranscribe in 'src\OBSTranscribe.pas',
   OBSLocalAsr in 'src\OBSLocalAsr.pas',
+  OBSFileMeta in 'src\OBSFileMeta.pas',
   OBSNumbersPt in 'src\OBSNumbersPt.pas',
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',

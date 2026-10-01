@@ -773,7 +773,18 @@ const LocalAsr = {
     const isLocal = this.selectedEngine() === 'local';
     const box = document.getElementById('localAsrBox');
     const serverBox = document.getElementById('transcribeServerBox');
-    if (serverBox) serverBox.hidden = isLocal;
+    if (serverBox) {
+      serverBox.hidden = isLocal;
+      // Some o campo inteiro E o divisor de cima: sem isso sobravam dois
+      // divisores seguidos com o campo vazio no meio. Classe (e nao
+      // style.display), porque o Settings.showTab reescreve o display.
+      const field = serverBox.closest('.settings-field');
+      if (field) {
+        field.classList.toggle('settings-off', isLocal);
+        const hr = field.previousElementSibling;
+        if (hr && hr.classList.contains('settings-divider')) hr.classList.toggle('settings-off', isLocal);
+      }
+    }
     if (!box) return;
     box.hidden = !isLocal;
     if (!isLocal) return;

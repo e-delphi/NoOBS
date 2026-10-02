@@ -19,6 +19,8 @@
     set_rec_indicator_corner : corner (string: top-left|top-right|bottom-left|
                            bottom-right) — canto do overlay no monitor principal
     set_rec_indicator_opacity : opacity (Integer 20..100) — opacidade do overlay
+    set_rec_indicator_clickable : enabled (Boolean) — clicar no overlay para a
+                           gravacao; False = o clique atravessa
     record_start         : —
     record_stop          : —
     set_replay_enabled   : enabled (Boolean) — liga/desliga o buffer em memoria
@@ -35,6 +37,8 @@
     set_replay_indicator_corner  : corner (top-left|top-right|bottom-left|
                            bottom-right)
     set_replay_indicator_opacity : opacity (Integer 20..100)
+    set_replay_indicator_clickable : enabled (Boolean) — clicar no indicador
+                           salva o trecho; False = o clique atravessa
     save_replay          : — grava o conteudo do buffer e o esvazia
     set_replay_limits    : maxSec, maxMb (Integer; 0 = nao muda)
     set_replay_hotkey    : hotkey (string; '' = sem atalho)
@@ -42,7 +46,9 @@
                            (Delphi -> JS: replay_state {enabled, autoStart,
                            intoRecording, active, saving, sinceMs, maxSec, maxMb,
                            maxMbLimit, hotkey};
-                           replay_saved {id, name, durationSec})
+                           replay_saved {id, name, durationSec};
+                           replay_restarted (sem campos — o buffer recomecou
+                           porque qualidade/fps/codec/audio mudou))
     rename_recording     : id (filepath), newName
     open_recording       : id (filepath)
     request_keyframes    : id (filepath) -> keyframes {id, fps, times[]}
@@ -103,6 +109,8 @@
                            testSec, testing} (sobe o libobs se preciso)
     set_audio_filter     : id, op ('enable' + value | 'value' + key +
                            value | 'reset') -> push audio_filter {filter}
+    reset_audio_filters  : — nenhum filtro ligado, ajustes do plugin (o
+                           "Restaurar padroes"); com libobs vivo, reenvia a lista
     test_audio_filters   : device (id do endpoint, '' = padrao) -> push
                            audio_filter_test {state: recording|done|error|
                            filtered (so a versao filtrada, refeita do
@@ -261,6 +269,7 @@ uses
   WinAudioMeter,
   WinRecIndicator,
   WinProcWatch,
+  WinGpuUsage,
   WinWebcam;
 
 const
@@ -332,6 +341,11 @@ const
   // mostra (transcricao, selos). One-shot, pra juntar uma varredura inteira
   // de arquivos vindos de outra maquina num refresh so.
   TIMER_FILEMETA_REFRESH    = 7017;
+  // Monitor de desempenho: uma linha no log a cada 30 s enquanto o buffer
+  // ou a gravacao estao ligados (quadros atrasados, uso da placa por
+  // motor, CPU do NoOBS). Se desliga sozinho quando os dois param.
+  TIMER_PERF_LOG            = 7018;
+  PERF_LOG_MS               = 30_000;
   REPLAY_MEM_LOG_MS         = 30_000;
 
   // Limites do buffer (config 'replayMaxSec' / 'replayMaxMb'). O que
@@ -3372,6 +3386,33 @@ begin
   StartReplayBuffer;
 end;
 
+procedure RestartReplayForEncoderChange(const AWhat: string);
+// Qualidade, fps, codec e taxa do audio sao fixados quando o encoder do
+// buffer nasce — mudar a preferencia com ele ligado nao muda nada nele, e
+// o que saisse dali (trechos salvos, gravacao continuada) seguiria na
+// configuracao antiga. Escolha do usuario: vale NA HORA, recomecando o
+// buffer — o que estava guardado e descartado, e a tela avisa.
+//
+// Gravando, nao: a gravacao continuada usa os MESMOS encoders do buffer, e
+// derruba-los cortaria o arquivo. O buffer religa sozinho ao fim da
+// gravacao (ReplayWanted), ja com a configuracao nova.
+var
+  Obj: TJSONObject;
+begin
+  if not ReplayActive then Exit;
+  if RecordingActive then
+  begin
+    Log('Buffer: %s mudou durante a gravacao — vale quando o buffer religar.', [AWhat]);
+    Exit;
+  end;
+  Log('Buffer: %s mudou — recomecando o buffer (o guardado e descartado).', [AWhat]);
+  StopReplayBuffer(False);
+  StartReplayBuffer;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'replay_restarted');
+  PostOwned(Obj);
+end;
+
 procedure HandleToggleSource(const AId: string; AEnabled: Boolean);
 var
   IsMonitor, IsAudio: Boolean;
@@ -3836,6 +3877,111 @@ begin
   Result := Cand;
 end;
 
+// =====================================================================
+// Monitor de desempenho (buffer / gravacao)
+// =====================================================================
+// Pra responder "o buffer pesa no jogo?" com numero, nao com impressao. A
+// cada PERF_LOG_MS, o que mudou no intervalo:
+//   - render atrasado: quadros que o OBS nao conseguiu MONTAR a tempo — a
+//     placa ocupada demais (o jogo) atrasa a captura;
+//   - encoder pulou: quadros que o encoder nao CONSUMIU a tempo — o motor
+//     de codificacao da placa nao acompanhou;
+//   - render medio: tempo de montar um quadro, contra o intervalo de um;
+//   - GPU por motor (WinGpuUsage): o jogo no 3D, o NoOBS na codificacao;
+//   - CPU do processo NoOBS.
+// Os avisos equivalentes do proprio OBS saem em LOG_INFO, que o nosso
+// ObsLogHandler filtra (pegadinha #53) — sem isto nao sobra nada no log.
+var
+  PerfActive: Boolean = False;
+  PerfPrevTotal, PerfPrevLagged, PerfPrevVTotal, PerfPrevSkipped: Cardinal;
+  PerfPrevCpu, PerfPrevWallMs: UInt64;
+
+function ProcessCpuTime100ns: UInt64;
+var
+  C, E, K, U: TFileTime;
+begin
+  Result := 0;
+  if GetProcessTimes(GetCurrentProcess, C, E, K, U) then
+    Result := (UInt64(K.dwHighDateTime) shl 32 or K.dwLowDateTime) +
+              (UInt64(U.dwHighDateTime) shl 32 or U.dwLowDateTime);
+end;
+
+procedure PerfBaseline;
+var
+  AvgNs, IntNs: UInt64;
+begin
+  PerfPrevTotal := 0; PerfPrevLagged := 0; PerfPrevVTotal := 0; PerfPrevSkipped := 0;
+  if Engine <> nil then
+    Engine.GetVideoStats(PerfPrevTotal, PerfPrevLagged, PerfPrevVTotal,
+      PerfPrevSkipped, AvgNs, IntNs);
+  PerfPrevCpu := ProcessCpuTime100ns;
+  PerfPrevWallMs := GetTickCount64;
+end;
+
+procedure StartPerfMonitor;
+begin
+  if PerfActive or (MainWindowHandle = 0) then Exit;
+  PerfActive := True;
+  try GpuUsageStart; except end;
+  PerfBaseline;
+  SetTimer(MainWindowHandle, TIMER_PERF_LOG, PERF_LOG_MS, nil);
+  Log('Desempenho: monitor ligado (uma linha a cada %d s).', [PERF_LOG_MS div 1000]);
+end;
+
+procedure StopPerfMonitor;
+begin
+  if not PerfActive then Exit;
+  PerfActive := False;
+  if MainWindowHandle <> 0 then KillTimer(MainWindowHandle, TIMER_PERF_LOG);
+  try GpuUsageStop; except end;
+  Log('Desempenho: monitor desligado.');
+end;
+
+// Delta de contador acumulado. O contador ZERA quando o grafo e remontado
+// (obs_reset_video: buffer religado, gravacao nova) — ai o "antes" nao vale.
+function CounterDelta(ACur, APrev: Cardinal): Cardinal;
+begin
+  if ACur >= APrev then Result := ACur - APrev else Result := ACur;
+end;
+
+procedure PerfTick;
+var
+  Total, Lagged, VTotal, Skipped: Cardinal;
+  AvgNs, IntNs, Cpu, Wall: UInt64;
+  CpuPct: Double;
+  What, Gpu, Obs: string;
+begin
+  if not (ReplayActive or RecordingActive) then
+  begin
+    StopPerfMonitor;
+    Exit;
+  end;
+  if RecordingActive then What := 'gravando' else What := 'buffer';
+  Obs := 'OBS sem video';
+  if (Engine <> nil) and Engine.GetVideoStats(Total, Lagged, VTotal, Skipped,
+       AvgNs, IntNs) then
+  begin
+    Obs := Format('render atrasou %d de %d quadros | encoder pulou %d de %d | ' +
+      'render medio %.1f ms (quadro de %.1f ms)',
+      [CounterDelta(Lagged, PerfPrevLagged), CounterDelta(Total, PerfPrevTotal),
+       CounterDelta(Skipped, PerfPrevSkipped), CounterDelta(VTotal, PerfPrevVTotal),
+       AvgNs / 1e6, IntNs / 1e6]);
+    PerfPrevTotal := Total; PerfPrevLagged := Lagged;
+    PerfPrevVTotal := VTotal; PerfPrevSkipped := Skipped;
+  end;
+  Gpu := '';
+  try Gpu := GpuUsageSample(GetCurrentProcessId); except end;
+  if Gpu = '' then Gpu := 'sem contador';
+  Cpu := ProcessCpuTime100ns;
+  Wall := GetTickCount64;
+  CpuPct := 0;
+  if (Wall > PerfPrevWallMs) and (CPUCount > 0) then
+    CpuPct := (Cpu - PerfPrevCpu) / ((Wall - PerfPrevWallMs) * 10000.0 * CPUCount) * 100;
+  PerfPrevCpu := Cpu;
+  PerfPrevWallMs := Wall;
+  Log('Desempenho [%s]: %s | GPU: %s | CPU NoOBS %.1f%%', [What, Obs, Gpu, CpuPct]);
+end;
+
 // Mostra o indicador de tela lendo TODAS as prefs do config (canto,
 // opacidade, clicar-para-parar). Centraliza os 3 pontos que precisam
 // mostra-lo: HandleRecordStart e os handlers reativos das Configuracoes.
@@ -3845,7 +3991,9 @@ begin
     WinRecIndicator.ShowIndicator(
       WinRecIndicator.ParseCorner(GetConfigStr('recIndicatorCorner', 'top-right')),
       RecordingStartTickMs,
-      GetConfigInt('recIndicatorOpacity', 90));
+      GetConfigInt('recIndicatorOpacity', 90),
+      WinRecIndicator.imRecording, 0,
+      GetConfigBool('recIndicatorClickable', True));
   except
     on E: Exception do
       Log('RecIndicator: falha ao mostrar overlay: %s', [E.Message]);
@@ -3994,6 +4142,7 @@ begin
       [GetTickCount64 - TStep]);
 
     RecordingActive := True;
+    StartPerfMonitor;
     SyncTranscribePause;
     LastRecordingPath := OutputPath;
     LastRecordingDuration := 0;
@@ -4412,7 +4561,8 @@ begin
       ReplayStartTickMs,
       GetConfigInt('replayIndicatorOpacity', 90),
       WinRecIndicator.imBuffer,
-      ReplayMaxSecCfg);
+      ReplayMaxSecCfg,
+      GetConfigBool('replayIndicatorClickable', True));
   except
     on E: Exception do
       Log('Buffer: falha ao mostrar o indicador: %s', [E.Message]);
@@ -4465,6 +4615,8 @@ begin
     GetConfigStr('replayIndicatorCorner', 'top-right'));
   Obj.AddPair('indicatorOpacity',
     TJSONNumber.Create(GetConfigInt('replayIndicatorOpacity', 90)));
+  Obj.AddPair('indicatorClickable',
+    TJSONBool.Create(GetConfigBool('replayIndicatorClickable', True)));
   PostOwned(Obj);
 end;
 
@@ -4699,6 +4851,7 @@ begin
     ShowReplayIndicatorFromConfig;
     SyncTranscribePause;
     LogMemUsage('buffer ligado');
+    StartPerfMonitor;
     // Mede a RAM de tempos em tempos enquanto guarda.
     if MainWindowHandle <> 0 then
       SetTimer(MainWindowHandle, TIMER_REPLAY_MEM, REPLAY_MEM_LOG_MS, nil);
@@ -4935,6 +5088,19 @@ begin
   if WinRecIndicator.IsShowing and
      (WinRecIndicator.CurrentMode = WinRecIndicator.imBuffer) then
     try WinRecIndicator.SetOpacity(AOpacity); except end;
+end;
+
+procedure HandleSetReplayIndicatorClickable(AEnable: Boolean);
+// Desligado, o clique atravessa o indicador do buffer (nao salva o trecho):
+// ele pode ficar em cima de um botao que o usuario precisa. Na hora, sem
+// recriar a janela.
+begin
+  SetConfigBool('replayIndicatorClickable', AEnable);
+  Log('ReplayIndicatorClickable: %s', [BoolToStr(AEnable, True)]);
+  if WinRecIndicator.IsShowing and
+     (WinRecIndicator.CurrentMode = WinRecIndicator.imBuffer) then
+    try WinRecIndicator.SetClickable(AEnable); except end;
+  PushReplayState;
 end;
 
 procedure HandleSetReplayAutoStart(AAutoStart: Boolean);
@@ -5825,6 +5991,8 @@ begin
     GetConfigStr('recIndicatorCorner', 'top-right'));
   Obj.AddPair('recIndicatorOpacity',
     TJSONNumber.Create(GetConfigInt('recIndicatorOpacity', 90)));
+  Obj.AddPair('recIndicatorClickable',
+    TJSONBool.Create(GetConfigBool('recIndicatorClickable', True)));
   Obj.AddPair('playSoundOnRecord',
     TJSONBool.Create(GetConfigBool('playSoundOnRecord', True)));
   Obj.AddPair('stopOnLock',
@@ -5929,8 +6097,10 @@ begin
   // ao GetRecordingQualityLevel saber se ja migrou (pegadinha #53).
   if ALevel <  0 then ALevel :=  0;
   if ALevel > 10 then ALevel := 10;
+  if ALevel = GetRecordingQualityLevel then Exit;
   SetConfigInt('recordingQualityLevel', ALevel);
   Log('RecordingQuality: %d', [ALevel]);
+  RestartReplayForEncoderChange('qualidade');
 end;
 
 procedure HandleSetWindowTitle(const ATitle: string);
@@ -5963,8 +6133,10 @@ procedure HandleSetRecordingFps(AFps: Integer);
 begin
   // Minimo 10 fps. Sem maximo fixo — user pode ter monitor 360 Hz.
   if AFps < 10 then AFps := 10;
+  if AFps = GetConfigInt('recordingFps', 30) then Exit;
   SetConfigInt('recordingFps', AFps);
   Log('RecordingFps: %d fps', [AFps]);
+  RestartReplayForEncoderChange('taxa de quadros');
 end;
 
 procedure HandleSetRecordingKeyframe(ASec: Integer);
@@ -5983,8 +6155,10 @@ begin
   // (proxima gravacao, ou o buffer religado) — encoder de audio vivo nao
   // troca de taxa no meio do arquivo.
   AKbps := NormalizeAudioBitrate(AKbps);
+  if AKbps = GetAudioBitrateKbps then Exit;
   SetConfigInt('audioBitrate', AKbps);
   Log('AudioBitrate: %d kbps', [AKbps]);
+  RestartReplayForEncoderChange('qualidade do audio');
 end;
 
 // ---- Filtros de audio (aba Audio) ----------------------------------------
@@ -6080,6 +6254,17 @@ begin
   finally
     Enc.Free;
   end;
+end;
+
+procedure HandleResetAudioFilters;
+// "Restaurar padroes": nenhum filtro ligado e os ajustes de volta aos do
+// plugin. Nao sobe o libobs so pra isto (e config); se ele ja esta vivo, a
+// aba Audio recebe a lista nova. Como qualquer mudanca de filtro, vale a
+// partir do proximo grafo (filtro nao e trocado numa fonte viva).
+begin
+  OBSAudioFilters.ResetAllAudioFilters;
+  Log('AudioFilters: todos restaurados ao padrao (nenhum ligado).');
+  if (Engine <> nil) and Engine.IsInitialized then HandleGetAudioFilters;
 end;
 
 procedure HandleSetAudioFilter(AObj: TJSONObject);
@@ -6624,6 +6809,17 @@ begin
     try WinRecIndicator.SetOpacity(AOpacity); except end;
 end;
 
+procedure HandleSetRecIndicatorClickable(AEnable: Boolean);
+// Desligado, o clique atravessa o indicador de gravacao (nao para a
+// gravacao): ele pode ficar em cima de um botao que o usuario precisa.
+begin
+  SetConfigBool('recIndicatorClickable', AEnable);
+  Log('RecIndicatorClickable: %s', [BoolToStr(AEnable, True)]);
+  if WinRecIndicator.IsShowing and
+     (WinRecIndicator.CurrentMode = WinRecIndicator.imRecording) then
+    try WinRecIndicator.SetClickable(AEnable); except end;
+end;
+
 procedure HandleSetMuteWhenDeviceMuted(AEnable: Boolean);
 begin
   SetConfigBool('muteWhenDeviceMuted', AEnable);
@@ -6735,8 +6931,10 @@ begin
       [ACodec]);
     Exit;
   end;
+  if SameText(ACodec, GetConfigStr('codec', 'auto')) then Exit;
   SetConfigStr('codec', ACodec);
   Log('Codec preferido alterado para: %s', [ACodec]);
+  RestartReplayForEncoderChange('codec');
 end;
 
 function PickFolder(const AInitial: string): string;
@@ -8973,6 +9171,8 @@ begin
       HandleSetReplayIndicator(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_replay_indicator_corner' then
       HandleSetReplayIndicatorCorner(GetStrField(Obj, 'corner'))
+    else if MsgType = 'set_replay_indicator_clickable' then
+      HandleSetReplayIndicatorClickable(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_replay_indicator_opacity' then
       HandleSetReplayIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
     else if MsgType = 'set_replay_autostart' then
@@ -9001,6 +9201,8 @@ begin
       HandleSetRecIndicatorCorner(GetStrField(Obj, 'corner'))
     else if MsgType = 'set_rec_indicator_opacity' then
       HandleSetRecIndicatorOpacity(GetIntField(Obj, 'opacity', 90))
+    else if MsgType = 'set_rec_indicator_clickable' then
+      HandleSetRecIndicatorClickable(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_mute_when_device_muted' then
       HandleSetMuteWhenDeviceMuted(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_play_sound_on_record' then
@@ -9027,6 +9229,8 @@ begin
       HandleGetAudioFilters
     else if MsgType = 'set_audio_filter' then
       HandleSetAudioFilter(Obj)
+    else if MsgType = 'reset_audio_filters' then
+      HandleResetAudioFilters
     else if MsgType = 'test_audio_filters' then
       HandleTestAudioFilters(GetStrField(Obj, 'device'))
     else if MsgType = 'test_video_quality' then
@@ -9477,6 +9681,8 @@ begin
   end
   else if ATimerId = TIMER_VIDEO_TEST then
     StopVideoTestCapture
+  else if ATimerId = TIMER_PERF_LOG then
+    PerfTick
   else if ATimerId = TIMER_FILEMETA_REFRESH then
   begin
     KillTimer(MainWindowHandle, TIMER_FILEMETA_REFRESH);
@@ -9625,6 +9831,7 @@ begin
 
   try OBSTranscribe.Shutdown; except end;
   try OBSFileMeta.Shutdown; except end;
+  try StopPerfMonitor; except end;
   if MicMuteApplied <> nil then FreeAndNil(MicMuteApplied);
 
   Initialized := False;

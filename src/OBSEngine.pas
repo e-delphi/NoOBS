@@ -136,6 +136,11 @@ type
     // False = libobs ainda nao subiu. Usado pra detectar cold start (ver
     // COLD_START_AUDIO_SETTLE_MS em OBSBridge).
     function  IsInitialized: Boolean;
+    // Contadores ACUMULADOS do pipeline de video desde o ultimo reset
+    // (monitor de desempenho do OBSBridge, que faz o delta). False sem
+    // libobs/video. Lagged = render atrasado; Skipped = encoder atrasado.
+    function  GetVideoStats(out ATotal, ALagged, AVTotal, ASkipped: Cardinal;
+      out AAvgFrameNs, AIntervalNs: UInt64): Boolean;
     procedure SetSourceMuted(const ASourceName: string; AMuted: Boolean);
     // ---- buffer em memoria ----
     // Monta a mesma cena da gravacao manual, com uma saida replay_buffer que
@@ -1762,6 +1767,30 @@ end;
 function TOBSEngine.IsRecording: Boolean;
 begin
   Result := FRecording;
+end;
+
+function TOBSEngine.GetVideoStats(out ATotal, ALagged, AVTotal,
+  ASkipped: Cardinal; out AAvgFrameNs, AIntervalNs: UInt64): Boolean;
+var
+  V: video_t;
+begin
+  ATotal := 0; ALagged := 0; AVTotal := 0; ASkipped := 0;
+  AAvgFrameNs := 0; AIntervalNs := 0;
+  Result := False;
+  if not FInitialized then Exit;
+  try
+    V := obs_get_video;
+    if V = nil then Exit;
+    ATotal := obs_get_total_frames;
+    ALagged := obs_get_lagged_frames;
+    AVTotal := video_output_get_total_frames(V);
+    ASkipped := video_output_get_skipped_frames(V);
+    AAvgFrameNs := obs_get_average_frame_time_ns;
+    AIntervalNs := obs_get_frame_interval_ns;
+    Result := True;
+  except
+    Result := False;
+  end;
 end;
 
 function TOBSEngine.IsInitialized: Boolean;

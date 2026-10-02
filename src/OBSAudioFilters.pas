@@ -49,6 +49,9 @@ procedure SetAudioFilterEnabled(const AId: string; AEnabled: Boolean);
 // AValue: TJSONBool / TJSONNumber / TJSONString, conforme o tipo do campo.
 procedure SetAudioFilterValue(const AId, AKey: string; AValue: TJSONValue);
 procedure ResetAudioFilter(const AId: string);
+// "Restaurar padroes" das Configuracoes: nenhum filtro ligado e os
+// ajustes de todos de volta aos do plugin (apaga a chave do config).
+procedure ResetAllAudioFilters;
 function EnabledAudioFilterCount: Integer;
 
 // Pendura os filtros habilitados, na ordem da cadeia, numa fonte de
@@ -563,6 +566,11 @@ begin
   finally
     Cfg.Free;
   end;
+end;
+
+procedure ResetAllAudioFilters;
+begin
+  SetConfigJson(CONFIG_KEY, TJSONObject.Create);
 end;
 
 procedure ResetAudioFilter(const AId: string);

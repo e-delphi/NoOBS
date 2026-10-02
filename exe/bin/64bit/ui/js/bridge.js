@@ -371,6 +371,7 @@ const Bridge = {
     audio_filter_test(data) { AudioFilters.onTest(data); },
     video_test(data) { VideoTest.onState(data); },
     replay_saved(data) { Replay.onSaved(data); },
+    replay_restarted() { Replay.onRestarted(); },
     encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
     // O `id` diz em qual card a barra vive (a tela pode estar fechada).
     export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },

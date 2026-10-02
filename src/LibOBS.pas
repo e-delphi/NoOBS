@@ -226,6 +226,19 @@ function obs_init_module(module_: Pointer): ByteBool;
 function obs_get_video: video_t;
   cdecl; external 'obs.dll' delayed;
 
+// Estatisticas do pipeline de video (monitor de desempenho do OBSBridge).
+// Contadores ACUMULADOS desde o obs_reset_video — quem usa faz o delta.
+//   lagged  = quadros que a RENDERIZACAO nao montou a tempo (GPU ocupada)
+//   skipped = quadros que o ENCODER nao consumiu a tempo
+function obs_get_total_frames: Cardinal; cdecl; external 'obs.dll' delayed;
+function obs_get_lagged_frames: Cardinal; cdecl; external 'obs.dll' delayed;
+function obs_get_average_frame_time_ns: UInt64; cdecl; external 'obs.dll' delayed;
+function obs_get_frame_interval_ns: UInt64; cdecl; external 'obs.dll' delayed;
+function video_output_get_skipped_frames(video: video_t): Cardinal;
+  cdecl; external 'obs.dll' delayed;
+function video_output_get_total_frames(video: video_t): Cardinal;
+  cdecl; external 'obs.dll' delayed;
+
 function obs_get_audio: audio_t;
   cdecl; external 'obs.dll' delayed;
 

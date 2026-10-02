@@ -28,6 +28,19 @@
   isso a atualizacao do tempo/pulso usa SetTimer na propria janela.
 
   Fica so no MONITOR PRINCIPAL, num dos 4 cantos (config recIndicatorCorner).
+
+  SAI DA FRENTE de app em tela cheia (jogo, apresentacao). Uma janela por
+  cima do jogo tira ele da apresentacao direta (independent flip): o DWM
+  passa a compor cada quadro do jogo com o overlay. Medido no Bodycam (UE5,
+  placa a 100%): 155 -> ~93 FPS, piores quadros 76 -> 24, travadas fortes
+  13 -> 34 — o NoOBS em si sem nenhum quadro atrasado. O overlay do
+  Adrenalin/Steam nao tem esse custo porque desenha DENTRO do quadro do jogo
+  (injecao no Present), o que aqui seria alvo de anticheat. Entao: com
+  SHQueryUserNotificationState dizendo tela cheia, a janela fica ESCONDIDA
+  (continua existindo e contando); o tique de 500 ms a traz de volta quando
+  o jogo sai do primeiro plano. Nenhuma atualizacao (salvar, trocar modo ou
+  canto) pode traze-la pra frente enquanto isso — era o HWND_TOPMOST do
+  PositionWindow que a punha por cima do jogo a cada "salvar trecho".
 }
 unit WinRecIndicator;
 
@@ -60,13 +73,17 @@ function ParseCorner(const S: string): TRecCorner;
 // partir de AStartTickMs (base GetTickCount, igual ao RecordingStartTickMs
 // do OBSBridge). AOpacityPct = opacidade 20..100. AMode escolhe o visual
 // (ver TIndicatorMode) e AMaxSec e o teto de tempo do buffer, usado so no
-// imBuffer pra mostrar "guardado / teto". O overlay SEMPRE e clicavel (nao
-// e click-through) — clicar nele chama OnClickStop. Se ja visivel,
-// reposiciona/reaplica, inclusive trocando de modo. Se o Windows nao
-// suporta exclusao de captura, NAO mostra (e loga).
+// imBuffer pra mostrar "guardado / teto". AClickable: clicar nele chama
+// OnClickStop; False = o clique ATRAVESSA o overlay e vai pro que estiver
+// embaixo (o indicador pode cair em cima de um botao que o usuario
+// precisa). Se ja visivel, reposiciona/reaplica, inclusive trocando de
+// modo. Se o Windows nao suporta exclusao de captura, NAO mostra (e loga).
 procedure ShowIndicator(ACorner: TRecCorner; AStartTickMs: Cardinal;
   AOpacityPct: Integer; AMode: TIndicatorMode = imRecording;
-  AMaxSec: Integer = 0);
+  AMaxSec: Integer = 0; AClickable: Boolean = True);
+
+// Liga/desliga o clique no overlay vivo, sem recriar.
+procedure SetClickable(AClickable: Boolean);
 
 // Modo do overlay visivel agora. So faz sentido com IsShowing = True.
 function CurrentMode: TIndicatorMode;
@@ -103,6 +120,16 @@ const
 function SetWindowDisplayAffinity(hWnd: HWND; dwAffinity: DWORD): BOOL;
   stdcall; external user32;
 
+// Estado de notificacao do shell (Vista+); nome local pra nao colidir com
+// uma declaracao da RTL (mesmo esquema do OBSBridge.ThumbPauseReason).
+function QueryUserNotifState(out AState: Integer): HRESULT; stdcall;
+  external 'shell32.dll' name 'SHQueryUserNotificationState';
+
+const
+  QUNS_BUSY                    = 2;  // app em tela cheia em 1o plano
+  QUNS_RUNNING_D3D_FULL_SCREEN = 3;  // D3D exclusivo (jogo)
+  QUNS_PRESENTATION_MODE       = 4;
+
 var
   FHwnd: HWND = 0;
   FStartTick: Cardinal = 0;
@@ -112,6 +139,18 @@ var
   FDpi: Integer = 96;
   FMode: TIndicatorMode = imRecording;
   FMaxSec: Integer = 0;
+  FClickable: Boolean = True;
+  // Escondida porque um app em tela cheia esta em primeiro plano.
+  FFullscreenHidden: Boolean = False;
+
+// App em tela cheia (jogo, inclusive sem borda; apresentacao) em 1o plano.
+function FullscreenAppActive: Boolean;
+var
+  State: Integer;
+begin
+  Result := Succeeded(QueryUserNotifState(State)) and
+    (State in [QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE]);
+end;
 
 // Opacidade 20..100 -> alpha 51..255 (clampeada; abaixo de 20% seria
 // invisivel demais pra ser util).
@@ -331,6 +370,30 @@ begin
   end;
 end;
 
+// Esconde com app em tela cheia na frente, mostra de volta quando ele sai
+// (ver cabecalho). So age na TRANSICAO. Voltar usa HWND_TOPMOST: sem jogo
+// em tela cheia, ficar por cima nao custa nada.
+procedure SyncFullscreen;
+var
+  Fs: Boolean;
+begin
+  if FHwnd = 0 then Exit;
+  Fs := FullscreenAppActive;
+  if Fs = FFullscreenHidden then Exit;
+  FFullscreenHidden := Fs;
+  if Fs then
+  begin
+    ShowWindow(FHwnd, SW_HIDE);
+    Log('WinRecIndicator: escondido (app em tela cheia em primeiro plano).');
+  end
+  else
+  begin
+    SetWindowPos(FHwnd, HWND_TOPMOST, 0, 0, 0, 0,
+      SWP_NOMOVE or SWP_NOSIZE or SWP_NOACTIVATE or SWP_SHOWWINDOW);
+    Log('WinRecIndicator: de volta (sem app em tela cheia).');
+  end;
+end;
+
 function WndProc(Wnd: HWND; Msg: UINT; wParam: WPARAM; lParam: LPARAM): LRESULT;
   stdcall;
 begin
@@ -342,9 +405,11 @@ begin
       end;
     WM_TIMER:
       begin
+        SyncFullscreen;
         // Pulso so na gravacao; no buffer a bolinha fica acesa.
         if FMode = imBuffer then FDotOn := True else FDotOn := not FDotOn;
-        InvalidateRect(Wnd, nil, False);   // repinta (tempo tambem reavalia)
+        if not FFullscreenHidden then
+          InvalidateRect(Wnd, nil, False);   // repinta (tempo tambem reavalia)
         Result := 0;
       end;
     WM_MOUSEACTIVATE:
@@ -401,14 +466,48 @@ begin
   else // rcTopRight
                    begin X := WA.Right - W - M; Y := WA.Top + M;        end;
   end;
-  SetWindowPos(FHwnd, HWND_TOPMOST, X, Y, W, H,
-    SWP_NOACTIVATE or SWP_SHOWWINDOW);
+  // Com jogo em tela cheia na frente, so posiciona e deixa escondida: e
+  // AQUI que o salvar/trocar de modo trazia o overlay pra cima do jogo.
+  if FullscreenAppActive then
+  begin
+    if not FFullscreenHidden then
+      Log('WinRecIndicator: escondido (app em tela cheia em primeiro plano).');
+    FFullscreenHidden := True;
+    SetWindowPos(FHwnd, 0, X, Y, W, H,
+      SWP_NOACTIVATE or SWP_NOZORDER or SWP_HIDEWINDOW);
+  end
+  else
+  begin
+    FFullscreenHidden := False;
+    SetWindowPos(FHwnd, HWND_TOPMOST, X, Y, W, H,
+      SWP_NOACTIVATE or SWP_SHOWWINDOW);
+  end;
 end;
 
 procedure SetOpacity(AOpacityPct: Integer);
 begin
   if FHwnd = 0 then Exit;
   SetLayeredWindowAttributes(FHwnd, 0, OpacityToAlpha(AOpacityPct), LWA_ALPHA);
+end;
+
+procedure ApplyClickable;
+// WS_EX_TRANSPARENT numa janela LAYERED = o mouse atravessa: o hit-test
+// pula a janela e o clique cai no que estiver embaixo. Sem ele o overlay
+// recebe o clique (WM_LBUTTONUP -> OnClickStop).
+var
+  Ex: LONG_PTR;
+begin
+  if FHwnd = 0 then Exit;
+  Ex := GetWindowLongPtr(FHwnd, GWL_EXSTYLE);
+  if FClickable then Ex := Ex and not LONG_PTR(WS_EX_TRANSPARENT)
+  else Ex := Ex or LONG_PTR(WS_EX_TRANSPARENT);
+  SetWindowLongPtr(FHwnd, GWL_EXSTYLE, Ex);
+end;
+
+procedure SetClickable(AClickable: Boolean);
+begin
+  FClickable := AClickable;
+  ApplyClickable;
 end;
 
 // Largura logica do pill no modo atual.
@@ -418,7 +517,8 @@ begin
 end;
 
 procedure ShowIndicator(ACorner: TRecCorner; AStartTickMs: Cardinal;
-  AOpacityPct: Integer; AMode: TIndicatorMode; AMaxSec: Integer);
+  AOpacityPct: Integer; AMode: TIndicatorMode; AMaxSec: Integer;
+  AClickable: Boolean);
 var
   W, H: Integer;
   Rgn: HRGN;
@@ -428,6 +528,7 @@ begin
   FDotOn := True;
   FMode := AMode;
   FMaxSec := AMaxSec;
+  FClickable := AClickable;
 
   if FHwnd <> 0 then
   begin
@@ -443,6 +544,7 @@ begin
     SetWindowRgn(FHwnd, Rgn, False);
     PositionWindow(W, H);
     SetOpacity(AOpacityPct);
+    ApplyClickable;
     InvalidateRect(FHwnd, nil, False);
     Exit;
   end;
@@ -452,8 +554,9 @@ begin
   W := SX(ModeWidthDip);
   H := SX(H_DIP);
 
-  // SEM WS_EX_TRANSPARENT: o overlay recebe o clique (clicar = parar). E
-  // pequeno (~116x34px), entao bloquear so essa area e aceitavel.
+  // Nasce SEM WS_EX_TRANSPARENT (recebe o clique: parar/salvar); o
+  // ApplyClickable logo abaixo liga o "atravessar" se o usuario desligou
+  // o clique — o overlay pode cair em cima de um botao que ele precisa.
   FHwnd := CreateWindowEx(
     WS_EX_LAYERED or WS_EX_TOOLWINDOW or WS_EX_NOACTIVATE or WS_EX_TOPMOST,
     CLASS_NAME, '', WS_POPUP,
@@ -479,14 +582,15 @@ begin
 
   // Opacidade configuravel + cantos arredondados.
   SetOpacity(AOpacityPct);
+  ApplyClickable;
   Rgn := CreateRoundRectRgn(0, 0, W + 1, H + 1, SX(10), SX(10));
   SetWindowRgn(FHwnd, Rgn, False);   // a janela assume a posse da regiao
 
   PositionWindow(W, H);
   SetTimer(FHwnd, TIMER_ID, TICK_MS, nil);
   InvalidateRect(FHwnd, nil, False);
-  Log('WinRecIndicator: overlay mostrado (modo=%d, canto=%d, opac=%d%%).',
-    [Ord(FMode), Ord(FCorner), AOpacityPct]);
+  Log('WinRecIndicator: overlay mostrado (modo=%d, canto=%d, opac=%d%%, clique=%s).',
+    [Ord(FMode), Ord(FCorner), AOpacityPct, BoolToStr(FClickable, True)]);
 end;
 
 function CurrentMode: TIndicatorMode;
@@ -500,6 +604,7 @@ begin
   KillTimer(FHwnd, TIMER_ID);
   DestroyWindow(FHwnd);
   FHwnd := 0;
+  FFullscreenHidden := False;
   Log('WinRecIndicator: overlay escondido.');
 end;
 

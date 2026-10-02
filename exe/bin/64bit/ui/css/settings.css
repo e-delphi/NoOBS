@@ -1475,3 +1475,17 @@
   }
   .afilter-num input[type="range"]:disabled { opacity: .5; cursor: default; }
   .afilter-reset { margin-top: 6px; }
+
+  /* "Clicar no indicador": logo abaixo do texto do check principal, com
+     folga dos dois lados pra nao colar nem nele nem no Canto. */
+  /* O bloco do Canto ja traz 10px de margem e o campo 6px de gap: -6px
+     deixa 10px ate o texto de cima, perto sem colar. */
+  .indicator-click-opt {
+    margin: -6px 0 14px;
+    /* Check e descricao no mesmo ritmo dos outros campos (.settings-field). */
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* O bloco do buffer nao tem a margem de 10px: so os 6px do gap. */
+  #settingsReplayIndicatorWrap > .indicator-click-opt { margin-top: 4px; }

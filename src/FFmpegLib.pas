@@ -424,6 +424,8 @@ function avcodec_find_encoder(id: Integer): PAVCodec; cdecl;
   external LIB_AVCODEC delayed;
 function avcodec_find_encoder_by_name(name: PAnsiChar): PAVCodec; cdecl;
   external LIB_AVCODEC delayed;
+function avcodec_find_decoder_by_name(name: PAnsiChar): PAVCodec; cdecl;
+  external LIB_AVCODEC delayed;
 function avcodec_alloc_context3(codec: PAVCodec): PAVCodecContext; cdecl;
   external LIB_AVCODEC delayed;
 procedure avcodec_free_context(avctx: PPAVCodecContext); cdecl;

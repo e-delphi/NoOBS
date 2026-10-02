@@ -969,6 +969,11 @@ var
   // guarda de monotonicidade em EncodeVideoFrame.
   LastEncPts: Int64;
   PtsCollisionLogged: Boolean;
+  // Quadros de video entregues ao encoder e se ja logamos um pacote
+  // recusado pelo decoder. Zero quadros num arquivo com video e FALHA, nao
+  // "concluido": sairia so o cabecalho (261 bytes) e nada tocaria.
+  VidFramesEncoded: Integer;
+  VidSendErrLogged: Boolean;
   // Linha do tempo da SAIDA: quanto ja foi escrito, em segundos. E o que
   // emenda um trecho no outro sem buraco. Convertido pro time_base de
   // cada stream na hora de escrever.
@@ -1245,6 +1250,7 @@ var
       Log('Export: avcodec_send_frame (video) falhou (%s).', [AvErrStr(R)]);
       Exit(False);
     end;
+    Inc(VidFramesEncoded);
     Result := DrainEncoder(EncCtx, OutVStream, EncTb);
   end;
 
@@ -1411,6 +1417,79 @@ var
     end;
   end;
 
+  function ProbeVideoDecode(out AErr: Integer): Boolean;
+  // Decodifica do COMECO ate sair UM quadro (no maximo PROBE_PACKETS
+  // pacotes de video). Existe porque um decoder pode abrir sem erro e
+  // recusar TODO pacote: o libaom (o decoder de AV1 do build) com o AV1 que
+  // a NVENC grava. O laco de exportacao pulava os pacotes recusados em
+  // silencio e o arquivo saia com 261 bytes — so cabecalho, "concluido".
+  // O seek do trecho logo depois devolve a leitura pro lugar certo.
+  const
+    PROBE_PACKETS = 120;
+  var
+    R, N: Integer;
+  begin
+    Result := False;
+    AErr := 0;
+    N := 0;
+    av_seek_frame(SrcCtx, -1, 0, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(DecCtx);
+    while (N < PROBE_PACKETS) and (av_read_frame(SrcCtx, Pkt) = 0) do
+    try
+      if Pkt.stream_index <> VIdx then Continue;
+      Inc(N);
+      R := avcodec_send_packet(DecCtx, Pkt);
+      if R < 0 then
+      begin
+        AErr := R;
+        Continue;
+      end;
+      R := avcodec_receive_frame(DecCtx, Frame);
+      if R = 0 then
+      begin
+        av_frame_unref(Frame);
+        Result := True;
+        Break;
+      end;
+      if (R <> AVERROR_EAGAIN) and (R <> AVERROR_EOF) then AErr := R;
+    finally
+      av_packet_unref(Pkt);
+    end;
+    // Com threading em quadros o 1o quadro pode estar preso no decoder.
+    if (not Result) and (avcodec_send_packet(DecCtx, nil) >= 0) and
+       (avcodec_receive_frame(DecCtx, Frame) = 0) then
+    begin
+      av_frame_unref(Frame);
+      Result := True;
+    end;
+    // Sai do modo dreno e esquece o que decodificou: o trecho recomeca.
+    avcodec_flush_buffers(DecCtx);
+  end;
+
+  function SwitchVideoDecoder(const AName: AnsiString): Boolean;
+  // Troca o decoder de video por outro do build, pelo NOME. False = nao
+  // existe ou nao abriu (o atual continua).
+  var
+    D: PAVCodec;
+    C2: PAVCodecContext;
+  begin
+    Result := False;
+    D := avcodec_find_decoder_by_name(PAnsiChar(AName));
+    if D = nil then Exit;
+    C2 := avcodec_alloc_context3(D);
+    if C2 = nil then Exit;
+    if (avcodec_parameters_to_context(C2, VStream.codecpar) < 0) or
+       (avcodec_open2(C2, D, nil) < 0) then
+    begin
+      avcodec_free_context(@C2);
+      Exit;
+    end;
+    avcodec_free_context(@DecCtx);
+    DecCtx := C2;
+    Decoder := D;
+    Result := True;
+  end;
+
 begin
   Result := erError;
   if not FFmpegLibAvailable then Exit;
@@ -1454,6 +1533,8 @@ begin
   TotalSec := 0;
   LastEncPts := Low(Int64);
   PtsCollisionLogged := False;
+  VidFramesEncoded := 0;
+  VidSendErrLogged := False;
   Burner := nil;
   AudioOnly := AOpts.NoVideo;
   VideoTb.num := 1;
@@ -1898,6 +1979,40 @@ begin
         Log('Export: av_frame_get_buffer falhou (%s).', [AvErrStr(Rc)]);
         Exit;
       end;
+
+      // O decoder escolhido decodifica ESTE arquivo? Abrir sem erro nao
+      // garante (o libaom recusa o AV1 da NVENC pacote a pacote). Senao,
+      // tenta os decoders de hardware do build pro mesmo codec — o *_cuvid
+      // e o NVDEC, e entrega NV12 em memoria, que o NeedsNormalize converte.
+      if not ProbeVideoDecode(Rc) then
+      begin
+        Log('Export: decoder "%s" nao entregou nenhum quadro (%s); tentando outro.',
+          [string(AnsiString(Decoder.name)), AvErrStr(Rc)]);
+        var Found: Boolean := False;
+        for var AltName in TArray<AnsiString>.Create('av1_cuvid', 'hevc_cuvid', 'h264_cuvid') do
+        begin
+          var Alt: PAVCodec := avcodec_find_decoder_by_name(PAnsiChar(AltName));
+          if (Alt = nil) or (Alt.id <> VStream.codecpar.codec_id) then Continue;
+          if not SwitchVideoDecoder(AltName) then
+          begin
+            Log('Export: decoder "%s" nao abriu.', [string(AltName)]);
+            Continue;
+          end;
+          if ProbeVideoDecode(Rc) then
+          begin
+            Log('Export: usando o decoder "%s".', [string(AltName)]);
+            Found := True;
+            Break;
+          end;
+          Log('Export: decoder "%s" tambem nao entregou quadro (%s).',
+            [string(AltName), AvErrStr(Rc)]);
+        end;
+        if not Found then
+        begin
+          Log('Export: nenhum decoder conseguiu ler o video da origem.');
+          Exit;
+        end;
+      end;
     end;
 
     // ---- um passe por trecho, emendando na saida ----
@@ -1960,7 +2075,18 @@ begin
         begin
           if VideoDone then Continue;
           Rc := avcodec_send_packet(DecCtx, Pkt);
-          if Rc < 0 then Continue;
+          if Rc < 0 then
+          begin
+            // Um pacote ruim isolado nao derruba a exportacao, mas tem que
+            // aparecer no log: recusa em TODO pacote passava calada.
+            if not VidSendErrLogged then
+            begin
+              VidSendErrLogged := True;
+              Log('Export: decoder recusou um pacote de video (%s) — so este aviso.',
+                [AvErrStr(Rc)]);
+            end;
+            Continue;
+          end;
           PumpDecoder;
           if Failed then Break;
         end
@@ -2074,6 +2200,12 @@ begin
     if Rc < 0 then
     begin
       Log('Export: av_write_trailer falhou (%s).', [AvErrStr(Rc)]);
+      Exit(erError);
+    end;
+
+    if (not AudioOnly) and (VidFramesEncoded = 0) then
+    begin
+      Log('Export: nenhum quadro de video chegou ao encoder — arquivo descartado.');
       Exit(erError);
     end;
 

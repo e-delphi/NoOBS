@@ -833,6 +833,17 @@
           trecho. Requer Windows 10 2004+.
         </div>
         <div id="settingsReplayIndicatorWrap">
+          <div class="indicator-click-opt">
+            <label class="settings-check-row">
+              <input type="checkbox" id="settingsReplayIndicatorClickable"
+                     onchange="Replay.onIndicatorClickableChange(this.checked)">
+              <span data-i18n="settings.replay.indicatorClickable">Clicar no indicador salva o trecho</span>
+            </label>
+            <div class="settings-hint" data-i18n="settings.recIndicator.clickableHint">
+              Desmarque se o indicador ficar em cima de algo que você precisa
+              clicar: o clique passa direto para o que está embaixo.
+            </div>
+          </div>
           <div class="settings-input-row">
             <label class="settings-inline-label"
                    data-i18n="settings.recIndicator.cornerLabel">Canto</label>
@@ -994,6 +1005,16 @@
           na gravação</b> (é excluído da captura). Requer Windows 10 2004+.
         </div>
         <div id="settingsRecIndicatorCornerWrap">
+          <div class="indicator-click-opt">
+            <label class="settings-check-row">
+              <input type="checkbox" id="settingsRecIndicatorClickable">
+              <span data-i18n="settings.recIndicator.clickable">Clicar no indicador para a gravação</span>
+            </label>
+            <div class="settings-hint" data-i18n="settings.recIndicator.clickableHint">
+              Desmarque se o indicador ficar em cima de algo que você precisa
+              clicar: o clique passa direto para o que está embaixo.
+            </div>
+          </div>
           <div class="settings-input-row">
             <label class="settings-inline-label"
                    data-i18n="settings.recIndicator.cornerLabel">Canto</label>
@@ -1317,7 +1338,7 @@
           </div>
           <div class="about-row">
             <span class="about-label" data-i18n="about.labels.coAuthor">Co-autoria</span>
-            <span class="about-value">Claude (Anthropic) - Max 5X · Opus 4.8 <span style="color: var(--text-3)">1M</span></span>
+            <span class="about-value">Claude (Anthropic) - Max 5X · Opus 5.5 <span style="color: var(--text-3)">1M</span></span>
           </div>
           <div class="about-row">
             <span class="about-label" data-i18n="about.labels.repository">Repositório</span>

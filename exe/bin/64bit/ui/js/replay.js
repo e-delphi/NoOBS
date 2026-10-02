@@ -23,7 +23,7 @@ const Replay = {
            active: false, saving: false,
            sinceMs: 0, maxSec: 300, maxMb: 2048, maxMbLimit: 2048, hotkey: '',
            apps: '', indicator: true, indicatorCorner: 'top-right',
-           indicatorOpacity: 90 },
+           indicatorOpacity: 90, indicatorClickable: true },
   _receivedAt: 0,     // performance.now() do ultimo push (base do relogio)
   _ticker: null,
   currentHotkey: '',  // ultimo atalho aceito (pra nao reenviar o mesmo)
@@ -125,6 +125,13 @@ const Replay = {
       { ttl: 5000 });
   },
 
+  // Qualidade, fps, codec ou audio mudou com o buffer ligado: ele recomecou
+  // pra valer na hora, e o que estava guardado foi descartado — sem este
+  // aviso o "guardado" voltando a zero pareceria defeito.
+  onRestarted() {
+    Toast.show(T('replay.restarted'), T('replay.restartedBody'), { ttl: 6000 });
+  },
+
   // ---- Configuracoes ------------------------------------------------------
 
   _fillSelect(id, values, current, label) {
@@ -197,6 +204,11 @@ const Replay = {
     Bridge.send('set_replay_indicator', { enabled: !!on });
     this._syncIndicatorVisibility(!!on);
   },
+  // Desmarcado, o clique atravessa o indicador (nao salva o trecho): ele
+  // pode ficar em cima de um botao que o usuario precisa clicar.
+  onIndicatorClickableChange(on) {
+    Bridge.send('set_replay_indicator_clickable', { enabled: !!on });
+  },
   onIndicatorCornerChange(v) {
     Bridge.send('set_replay_indicator_corner', { corner: v });
   },
@@ -240,6 +252,8 @@ const Replay = {
     if (corner) corner.value = this.state.indicatorCorner || 'top-right';
     const op = document.getElementById('settingsReplayIndicatorOpacity');
     if (op) op.value = this.state.indicatorOpacity || 90;
+    const clk = document.getElementById('settingsReplayIndicatorClickable');
+    if (clk) clk.checked = this.state.indicatorClickable !== false;
     this._syncIndicatorOpacityLabel();
     this._syncIndicatorVisibility(!!this.state.indicator);
     this._fillSelect('settingsReplayMaxSec', this.SEC_OPTIONS,
@@ -304,6 +318,8 @@ const Replay = {
     }
     const op = document.getElementById('settingsReplayIndicatorOpacity');
     if (op && String(op.value) !== '90') { op.value = 90; this.onIndicatorOpacityInput(); }
+    const clk = document.getElementById('settingsReplayIndicatorClickable');
+    if (clk && !clk.checked) { clk.checked = true; this.onIndicatorClickableChange(true); }
     const apps = document.getElementById('settingsReplayApps');
     if (apps && apps.value !== '') { apps.value = ''; this.onAppsChange(''); }
     this._fillSelect('settingsReplayMaxSec', this.SEC_OPTIONS,

@@ -54,6 +54,7 @@ uses
   OBSTranscribe in 'src\OBSTranscribe.pas',
   OBSLocalAsr in 'src\OBSLocalAsr.pas',
   OBSFileMeta in 'src\OBSFileMeta.pas',
+  WinGpuUsage in 'src\WinGpuUsage.pas',
   OBSNumbersPt in 'src\OBSNumbersPt.pas',
   OBSTray in 'src\OBSTray.pas',
   OBSUI in 'src\OBSUI.pas',

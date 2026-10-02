@@ -682,6 +682,19 @@ const AutoDevices = {
     Bridge.send('set_auto_source', { id: id, enabled: enabled });
   },
 
+  // "Restaurar padroes": todo dispositivo volta a entrar na gravacao
+  // automatica (o padrao do auto_* no backend e marcado).
+  checkAll() {
+    this._kinds.forEach(kind => {
+      (Devices.all[kind] || []).forEach(d => {
+        if (d.auto !== false) return;
+        d.auto = true;
+        Bridge.send('set_auto_source', { id: d.id, enabled: true });
+      });
+    });
+    this.refreshIfVisible();
+  },
+
   // Re-renderiza so se a lista esta visivel (settings aberto + wrap mostrado).
   // Chamado pelos refreshes de dispositivo (bridge.js) — como hot-plug muda
   // Devices.all, a lista do perfil precisa acompanhar.

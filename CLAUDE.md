@@ -109,6 +109,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinAudioMeter`     | **WASAPI**: `IMMDeviceEnumerator` + `IAudioMeterInformation` pra peak L+R por device, e `IAudioEndpointVolume` pro mudo do endpoint (`ReadInputMutes`) |
 | `WinMicWatch`       | **WASAPI**: sessões de captura (`IAudioSessionManager2`) pra detectar mic em uso por outro app → auto-gravar em chamadas |
 | `WinProcWatch`      | **Win32**: ToolHelp32 em thread própria pra detectar se um programa da lista do usuário está rodando → ligar/desligar o buffer em memória sozinho (pegadinha #62) |
+| `WinGpuUsage`       | **PDH**: uso da placa POR MOTOR (`GPU Engine` → `Utilization Percentage`), somado por adaptador e tipo, com a parte do próprio NoOBS — alimenta o monitor de desempenho |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
 | `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
 
@@ -1488,15 +1489,35 @@ essa affinity; então funciona pro caminho de captura do projeto.
 - **Opacidade** configurável (`recIndicatorOpacity`, 20..100%) via
   `SetLayeredWindowAttributes` — `SetOpacity` aplica na janela viva (slider
   ao vivo), sem recriar.
-- **Clicar para parar (SEMPRE ligado)**: o overlay NÃO é click-through —
-  criado **sem** `WS_EX_TRANSPARENT` pra receber o clique. `WM_LBUTTONUP`
+- **Clicar para parar (padrão ligado, opcional)**: o overlay nasce SEM
+  `WS_EX_TRANSPARENT` pra receber o clique. `WM_LBUTTONUP`
   chama `OnClickStop`, que o `OBSBridge` registra pra parar a gravação. O
   stop é DIFERIDO via `TThread.Queue`: `HandleRecordStop` destrói esta
   janela, e fazê-lo dentro do próprio `WndProc` dela seria reentrante.
   `WM_SETCURSOR` mostra cursor de mão (sinaliza clicável) e
   `WM_MOUSEACTIVATE`→`MA_NOACTIVATE` pro clique nunca roubar o foco. Bloquear
-  a áreazinha do overlay (~116×34px) é o trade-off aceito por não ter
-  toggle — o resto da tela segue clicável normal.
+  a áreazinha do overlay (~116×34px) virou problema real: ele caiu em cima
+  de um botão que o usuário precisava, e o clique PARAVA a gravação. Daí
+  `recIndicatorClickable` / `replayIndicatorClickable`: desligado,
+  `ApplyClickable` liga o `WS_EX_TRANSPARENT` — numa janela LAYERED isso
+  faz o hit-test PULAR a janela e o clique cai no que está embaixo. Troca na
+  janela viva (`SetClickable`, via `SetWindowLongPtr`), sem recriar.
+- **Por cima de jogo em tela cheia ele custa ~40% de FPS — por isso SOME.**
+  Qualquer janela por cima do jogo tira ele da apresentação direta
+  (independent flip) e o DWM passa a compor cada quadro. Medido com o
+  Adrenalin no Bodycam (UE5, placa a 100%), mesmo trajeto: com o overlay
+  atrás do jogo 155 FPS / 99% 76 / travadas fortes 13; o "salvar trecho"
+  o trouxe pra frente e foi a 93 / 24 / 34 — com o NoOBS em 0 quadros
+  atrasados e os mesmos 2% do 3D. O culpado era o `HWND_TOPMOST` +
+  `SWP_SHOWWINDOW` do `PositionWindow`, chamado em todo `ShowIndicator`
+  (salvar, começar/parar, trocar canto). Hoje, com
+  `SHQueryUserNotificationState` em tela cheia (`FullscreenAppActive`, a
+  mesma regra do `ThumbPauseReason`), o `PositionWindow` só posiciona e
+  deixa ESCONDIDO, e o tique de 500 ms (`SyncFullscreen`) mostra de volta
+  quando o jogo sai da frente. A janela continua existindo (`IsShowing`
+  segue True). O overlay do Adrenalin/Steam não paga isso porque desenha
+  DENTRO do quadro do jogo (hook no `Present`) — injeção em jogo é alvo de
+  anticheat, não faça.
 - `SetWindowDisplayAffinity` em si é Win7+ (o import direto é seguro pro
   load); é a FLAG nova que exige 2004+. `GetDpiForSystem` (escala do
   overlay) é 1607+ — resolvido via `GetProcAddress` pra não quebrar o load
@@ -1781,6 +1802,23 @@ muito player; `.mp3` abre em qualquer lugar. Três consequências:
 
 A biblioteca passou a listar `.mp3` (`RECORDING_EXTS`) — senão o arquivo
 exportado nem aparecia — e o `OBSPlayer` o serve como `audio/mpeg`.
+
+**k) Decoder que ABRE não é decoder que DECODIFICA — prove com um quadro.**
+Visto numa RTX 4060: o teste de qualidade (que exporta a amostra gravada
+pela `obs_nvenc_av1_tex`) gerou os 11 níveis com **261 bytes** cada — só o
+cabeçalho do MP4 —, todos "concluídos", ~4 ms entre abrir o encoder e
+terminar. O `avcodec_find_decoder(AV1)` deste build devolve o `libaom-av1`
+(não há `libdav1d`; o `av1` nativo é só-hardware), ele ABRE sem erro e
+recusou todo pacote; o laço fazia `if Rc < 0 then Continue` calado.
+Descartado com medida antes: NÃO é o seek pra 0 com o 1º keyframe depois de
+0 (cópia com vídeo deslocado 33/67 ms: os 910 pacotes lidos nos dois modos).
+Hoje: `ProbeVideoDecode` decodifica do começo até sair UM quadro antes do
+laço; sem quadro, tenta os `*_cuvid` do build pro MESMO `codec_id` (NVDEC,
+NV12 em memória → o `NeedsNormalize` converte). Nenhum funcionou = erro
+claro no log. E exportação com vídeo que entregou **zero quadros** ao
+encoder é `erError`, nunca "concluído". O motivo exato da recusa do libaom
+ainda não foi visto (só a NVIDIA reproduz) — o primeiro `send_packet`
+recusado agora vai pro log.
 
 **Bônus, e é o erro mais fácil de cometer:** as caps de encoder do
 `OBSEncoder.DetectEncoderCaps` são do **libobs** (`av1_texture_amf`,
@@ -3243,6 +3281,18 @@ O que NÃO existe e decidiu o desenho:
   sozinho em memória, e sem registro não há como separar depois do fato
   "o jogo travou por causa do buffer" de "travou por outra coisa" — foi
   exatamente o que faltou para fechar o primeiro diagnóstico.
+  **E o desempenho também** (`StartPerfMonitor`/`PerfTick`, `TIMER_PERF_LOG`,
+  liga com o buffer OU a gravação e se desliga sozinho): a cada 30 s, o
+  delta de quadros que a renderização atrasou (`obs_get_lagged_frames`) e
+  que o encoder pulou (`video_output_get_skipped_frames`), o tempo médio de
+  render contra o intervalo de um quadro, o uso da placa por motor
+  (`WinGpuUsage`: o jogo no 3D, o NoOBS na codificação) e a CPU do processo.
+  Os avisos equivalentes do OBS saem em `LOG_INFO`, que o `ObsLogHandler`
+  filtra — sem o monitor não sobrava nada. O nome do motor de codificação é
+  do DRIVER, não padronizado (AMD: `Video Codec Engine`; NVIDIA:
+  `VideoEncode`), por isso a linha lista os mais usados sem tabela fixa.
+  O FPS do JOGO não sai daqui: medir exige ler os quadros que ele apresenta
+  (PresentMon / overlay do driver).
 - **O `saved` pode não vir** (erro de escrita não emite nada) —
   `TIMER_REPLAY_SAVE_TIMEOUT` (120 s) desiste, derruba a saída velha
   (`AbortReplaySave`) e avisa.
@@ -3308,6 +3358,16 @@ Regras de convivência:
 - **Trocar monitor/webcam descarta o conteúdo** (`RestartReplayForSourceChange`):
   o canvas muda, e um trecho não pode mudar de resolução no meio. Áudio
   não: mudo é só `SetSourceMuted`, como na gravação.
+- **Trocar qualidade, fps, codec ou qualidade do áudio também recomeça o
+  buffer** (`RestartReplayForEncoderChange`, push `replay_restarted` → aviso
+  na tela). Esses valores são fixados quando o encoder do buffer nasce; sem
+  recomeçar, tudo o que saísse dele (trechos e a gravação continuada, que
+  usa os MESMOS encoders) seguiria na configuração antiga — e o selo e o
+  `{QUALIDADE}` do nome, que leem o config na hora de salvar, mentiriam.
+  Escolha do usuário: vale na hora, ao custo do que estava guardado.
+  **Gravando, não recomeça**: derrubar os encoders cortaria a gravação; o
+  buffer religa ao fim dela já com o valor novo. Os handlers só agem se o
+  valor MUDOU, senão um "Salvar" sem mudança apagaria o buffer.
 - **O atalho de salvar só é registrado com o buffer ATIVO.** Desligado, a
   combinação volta a ser dos outros programas (e não pode repetir o atalho
   de gravar — o Windows aceita um registro por combinação).
@@ -3706,6 +3766,7 @@ recuperáveis manualmente).
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |
+| `recIndicatorClickable`          | `true` / `false` (default **`true`**) — clicar no overlay para a gravação; `false` = o clique atravessa pro que está embaixo (`WS_EX_TRANSPARENT`, pegadinha #49) |
 | `replayAutoStart`                | `true` / `false` (default `false`) — liga o buffer em memória sozinho no warmup. É a ÚNICA chave do buffer que persiste: o botão da tela principal vale só pra sessão (`ReplayWanted`, pegadinha #62). Ligada, ela também **cancela o desvio pra hibernação** do `/autostart` no boot — senão o app subiria sem libobs e a preferência nunca valeria (pegadinha #62) |
 | `replayIntoRecording`           | `true` / `false` (default **`true`**) — gravar com o buffer ligado começa pelo que ele guardou: a gravação se pendura nos encoders do buffer e os dois arquivos são emendados ao parar (pegadinha #62). Desligado, o buffer é descartado ao gravar |
 | `replayMaxSec`                   | `10..3600` (default `300`) — quanto tempo o buffer guarda. Vale a partir da próxima rotação (sem `update` na saída) |
@@ -3715,6 +3776,7 @@ recuperáveis manualmente).
 | `replayIndicator`                | `true` / `false` (default **`true`**) — indicador do buffer na tela (bolinha verde + guardado/teto), excluído da captura; clicar nele SALVA o trecho |
 | `replayIndicatorCorner`          | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` |
 | `replayIndicatorOpacity`         | `20..100` (default `90`) — opacidade do indicador do buffer, aplicada ao vivo |
+| `replayIndicatorClickable`       | `true` / `false` (default **`true`**) — clicar no indicador salva o trecho; `false` = o clique atravessa |
 
 ---
 

@@ -177,6 +177,7 @@ const Settings = {
   currentRecIndicator: false,
   currentRecIndicatorCorner: 'top-right',
   currentRecIndicatorOpacity: 90,
+  currentRecIndicatorClickable: true,
   currentPlaySoundOnRecord: false,
   currentStopOnLock: false,
   // Default TRUE, igual ao backend: microfone mudo no Windows nao
@@ -238,6 +239,7 @@ const Settings = {
     document.getElementById('settingsRecIndicator').checked = !!this.currentRecIndicator;
     document.getElementById('settingsRecIndicatorCorner').value = this.currentRecIndicatorCorner || 'top-right';
     document.getElementById('settingsRecIndicatorOpacity').value = this.currentRecIndicatorOpacity || 90;
+    document.getElementById('settingsRecIndicatorClickable').checked = this.currentRecIndicatorClickable !== false;
     this._syncRecIndicatorOpacityLabel();
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
@@ -349,6 +351,7 @@ const Settings = {
       const recIndicator = document.getElementById('settingsRecIndicator').checked;
       const recIndicatorCorner = document.getElementById('settingsRecIndicatorCorner').value;
       const recIndicatorOpacity = parseInt(document.getElementById('settingsRecIndicatorOpacity').value, 10) || 90;
+      const recIndicatorClickable = document.getElementById('settingsRecIndicatorClickable').checked;
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
@@ -395,6 +398,8 @@ const Settings = {
         Bridge.send('set_rec_indicator_corner', { corner: recIndicatorCorner });
       if (recIndicatorOpacity !== this.currentRecIndicatorOpacity)
         Bridge.send('set_rec_indicator_opacity', { opacity: recIndicatorOpacity });
+      if (recIndicatorClickable !== this.currentRecIndicatorClickable)
+        Bridge.send('set_rec_indicator_clickable', { enabled: recIndicatorClickable });
       if (playSoundOnRecord !== this.currentPlaySoundOnRecord)
         Bridge.send('set_play_sound_on_record', { enabled: playSoundOnRecord });
       if (stopOnLock !== this.currentStopOnLock)
@@ -443,6 +448,7 @@ const Settings = {
       this.currentRecIndicator = recIndicator;
       this.currentRecIndicatorCorner = recIndicatorCorner;
       this.currentRecIndicatorOpacity = recIndicatorOpacity;
+      this.currentRecIndicatorClickable = recIndicatorClickable;
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
       this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
@@ -511,6 +517,7 @@ const Settings = {
     this.currentRecIndicatorCorner = data.recIndicatorCorner || 'top-right';
     this.currentRecIndicatorOpacity =
       (typeof data.recIndicatorOpacity === 'number') ? data.recIndicatorOpacity : 90;
+    this.currentRecIndicatorClickable = data.recIndicatorClickable !== false;
     // playSoundOnRecord: default true (backend GetConfigBool). O backend sempre
     // envia o valor real; !!data.* so protege contra ausencia acidental.
     this.currentPlaySoundOnRecord = !!data.playSoundOnRecord;
@@ -600,6 +607,8 @@ const Settings = {
     if (ric) ric.value = this.currentRecIndicatorCorner || 'top-right';
     const rio = document.getElementById('settingsRecIndicatorOpacity');
     if (rio) rio.value = this.currentRecIndicatorOpacity || 90;
+    const ricl = document.getElementById('settingsRecIndicatorClickable');
+    if (ricl) ricl.checked = this.currentRecIndicatorClickable !== false;
     this._syncRecIndicatorOpacityLabel();
     const ps = document.getElementById('settingsPlaySoundOnRecord');
     if (ps) ps.checked = this.currentPlaySoundOnRecord;
@@ -1137,8 +1146,9 @@ const Settings = {
     // Reseta os campos e APLICA na hora (commit no fim) — nao ha botao
     // Salvar. Por isso pede confirmacao antes: sem etapa de revisao, o
     // clique e irreversivel.
-    // Tema fica de fora: e aplicado/salvo instantaneo pelos botoes de
-    // toggle da aba Geral, fora deste fluxo.
+    // TUDO volta: o texto do botao promete "todas as abas". Tema e filtros
+    // de audio nao passam pelo commit() (salvam na hora, cada um pelo seu
+    // caminho), entao entram explicitamente no fim.
     Confirm.open({
       title: T('settings.buttons.reset'),
       message: T('toast.restoreConfirmMessage'),
@@ -1169,10 +1179,18 @@ const Settings = {
         document.getElementById('settingsRecIndicator').checked = false;
         document.getElementById('settingsRecIndicatorCorner').value = 'top-right';
         document.getElementById('settingsRecIndicatorOpacity').value = 90;
+        document.getElementById('settingsRecIndicatorClickable').checked = true;
         this._syncRecIndicatorOpacityLabel();
         document.getElementById('settingsPlaySoundOnRecord').checked = true;
         document.getElementById('settingsStopOnLock').checked = true;
         document.getElementById('settingsHibernate').checked = true;
+        document.getElementById('settingsMuteWhenDeviceMuted').checked = true;
+        // Transcricao: motor local, idioma do app, servidor padrao (vazio =
+        // http://localhost:8000 no backend) e automatica ao terminar.
+        if (typeof LocalAsr !== 'undefined') LocalAsr.setEngine('local');
+        document.getElementById('settingsTranscribeHost').value = '';
+        document.getElementById('settingsTranscribeLang').value = 'app';
+        document.getElementById('settingsTranscribeOnStop').checked = true;
         document.getElementById('settingsAutoRecordOnMic').checked = false;
         document.getElementById('settingsAutoRecordMicApps').value = '';
         document.getElementById('settingsAutoRecordMicExcept').value = '';
@@ -1206,6 +1224,9 @@ const Settings = {
         // Dispositivos ocultos nao tem campo no DOM — o reset generico acima
         // nao os alcanca. Desfaz explicitamente (volta todos a visiveis).
         if (typeof Devices !== 'undefined') Devices.showAll();
+        // Perfil da gravacao automatica: todos marcados de novo (idem, sem
+        // campo fixo no DOM).
+        if (typeof AutoDevices !== 'undefined') AutoDevices.checkAll();
         // FPS é o único campo em que o reset precisa escrever currentX ANTES
         // (o slider guarda um ÍNDICE de preset, então _applyFpsPresetsToSlider
         // depende de currentRecordingFps pra saber onde sentar). Só que isso
@@ -1220,6 +1241,10 @@ const Settings = {
         // Buffer em memoria: limites e atalho de salvar voltam ao padrao. O
         // liga/desliga fica como esta — ele vive na tela principal, nao aqui.
         if (typeof Replay !== 'undefined') Replay.restoreDefaults();
+        // Tema (padrao: seguir o Windows) e filtros de audio (nenhum ligado)
+        // salvam fora do commit().
+        this.setTheme('system');
+        Bridge.send('reset_audio_filters', {});
         // Re-sincroniza a aba visivel: os campos de outras abas estao com
         // display:none na hora do reset, e alguns controles (fill dos
         // sliders, hints) so recalculam direito quando visiveis.

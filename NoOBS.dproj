@@ -198,6 +198,7 @@ $(PreBuildEvent)]]></PreBuildEvent>
         <DCCReference Include="src\OBSTranscribe.pas"/>
         <DCCReference Include="src\OBSLocalAsr.pas"/>
         <DCCReference Include="src\OBSFileMeta.pas"/>
+        <DCCReference Include="src\WinGpuUsage.pas"/>
         <DCCReference Include="src\OBSNumbersPt.pas"/>
         <DCCReference Include="src\OBSTray.pas"/>
         <DCCReference Include="src\OBSUI.pas"/>

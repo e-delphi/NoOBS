@@ -21,6 +21,9 @@
     set_rec_indicator_opacity : opacity (Integer 20..100) — opacidade do overlay
     set_rec_indicator_clickable : enabled (Boolean) — clicar no overlay para a
                            gravacao; False = o clique atravessa
+    set_run_as_admin     : enabled (Boolean) — abrir o NoOBS como
+                           administrador (runAsAdmin; vale no proximo inicio,
+                           OBSElevate)
     record_start         : —
     record_stop          : —
     set_replay_enabled   : enabled (Boolean) — liga/desliga o buffer em memoria
@@ -261,6 +264,7 @@ uses
   OBSEngine,
   OBSHotkey,
   OBSAutostart,
+  OBSElevate,
   OBSTray,
   OBSTranscribe,
   OBSLocalAsr,
@@ -5979,6 +5983,8 @@ begin
   Obj.AddPair('codec', GetConfigStr('codec', 'auto'));
   Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause/Break'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
+  Obj.AddPair('runAsAdmin', TJSONBool.Create(GetConfigBool('runAsAdmin', False)));
+  Obj.AddPair('elevated', TJSONBool.Create(OBSElevate.IsProcessElevated));
   Obj.AddPair('closeToTray',
     TJSONBool.Create(GetConfigBool('closeToTray', True)));
   Obj.AddPair('minimizeOnRecord',
@@ -6052,6 +6058,15 @@ begin
   // a entrada do Run.
   OBSAutostart.SetAutoStart(AEnable);
   Log('Autostart: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetRunAsAdmin(AEnable: Boolean);
+begin
+  // Vale no proximo inicio: elevar ESTE processo exigiria reabrir o app no
+  // meio de uma gravacao ou do buffer (OBSElevate, no dispatcher do .dpr).
+  SetConfigBool('runAsAdmin', AEnable);
+  Log('Elevate: abrir como administrador = %s (no proximo inicio).',
+    [BoolToStr(AEnable, True)]);
 end;
 
 procedure HandleSetCloseToTray(AEnable: Boolean);
@@ -9189,6 +9204,8 @@ begin
       HandleValidateHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'set_autostart' then
       HandleSetAutostart(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'set_run_as_admin' then
+      HandleSetRunAsAdmin(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_close_to_tray' then
       HandleSetCloseToTray(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_minimize_on_record' then

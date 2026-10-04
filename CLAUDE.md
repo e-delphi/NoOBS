@@ -89,6 +89,7 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `OBSScene`          | Tipos puros (TOBSMonitor, TAudioDevice) + `ComputeCanvas` + `FilterEnabledMonitors`|
 | `OBSStartupCheck`   | Valida presença de obs.dll, libav, WebView2 antes de criar janela                  |
 | `OBSRtwq`           | `RtwqStartup`/`RtwqShutdown` da plataforma RTWQ no arranque/saída — o win-wasapi depende disso pra capturar (Pegadinha #48) |
+| `OBSElevate`        | "Abrir como administrador" (`runAsAdmin`): o dispatcher do `.dpr` reabre o processo pelo verbo `runas` antes de tudo; UAC recusado = segue normal. `AllowFromLowerIL` libera bandeja/2ª instância numa janela elevada (pegadinha #33) |
 | `OBSSingleInstance` | Literais de mutex/window-message compartilhados entre full e hibernate (Pegadinha #36) |
 | `NoOBSTypes`        | Tipos compartilhados entre 2+ units (TGpuVendor, TEncoderCaps, TObsAudioDev)       |
 | `FFmpegLib`         | **Bindings raw** das DLLs libav* + structs ABI + acessors low-level + helpers básicos (ToUtf8, ScanDurationByPackets, AvErrStr) |
@@ -1029,6 +1030,32 @@ Combinação pode falhar se outro app registrou globalmente
 atalho, só não funciona até o conflict sair.
 
 `UnregisterGlobalHotkey` no `Shutdown` libera o registro.
+
+**Jogo rodando como ADMINISTRADOR engole o atalho** — e não há método de
+leitura que contorne. Visto no GTA V (roda elevado; nem o caminho do
+processo é legível de fora): o atalho nem aparecia no log e só voltava
+depois de apertar a tecla Windows, que tira o foco do jogo. Medido com um
+probe não-elevado: com o GTA na frente, ZERO teclas por `GetAsyncKeyState`
+e por raw input com `RIDEV_INPUTSINK` — nem o W de andar. É o UIPI: o
+Windows esconde o teclado de uma janela elevada de quem não é elevado. Com
+o NoOBS em "Executar como administrador", o `RegisterHotKey` de sempre
+chegou na hora. **Não reintroduza** uma segunda via de leitura (a do OBS,
+`GetAsyncKeyState`) por causa disso: ela foi feita, não resolveu o GTA e
+ainda fez o mesmo aperto disparar duas vezes (gravar virava "começa e
+para"). A saída para esse tipo de jogo é o NoOBS rodar elevado.
+
+Daí a opção **"Abrir como administrador"** (`runAsAdmin`, `OBSElevate`):
+o dispatcher do `.dpr` chama `RelaunchElevatedIfWanted` ANTES do mutex de
+instância única — reabre pelo verbo `runas` com os mesmos argumentos e sai;
+UAC recusado (`ERROR_CANCELLED`) segue sem elevação, nunca bloqueia. Vale no
+PRÓXIMO início (elevar o processo vivo seria reabrir no meio de gravação ou
+buffer). Filho de elevado nasce elevado: o vai-e-volta full ↔ hibernação
+não pergunta de novo. Mas a entrada de Run do autostart abre sem elevação,
+então no boot o UAC pergunta. O mesmo UIPI ao contrário: janela ELEVADA não
+recebe mensagens > `WM_USER` de quem não é — o clique no ícone da bandeja
+(vem do Explorer), o `TaskbarCreated` e o `WM_SHOW_INSTANCE` de uma 2ª
+instância comum. `AllowFromLowerIL` (`ChangeWindowMessageFilterEx`) libera
+essas três nas janelas do full e da hibernação.
 
 ### 34. **Validação de runtime na inicialização**
 
@@ -3763,6 +3790,7 @@ recuperáveis manualmente).
 | `localAsrBackend` / `localAsrDevice` | Detectados na instalação pelo `audiocpp_cli --list-devices`: `"vulkan"` + nome da GPU, ou `"cpu"` + vazio (sem Vulkan, ~10× mais lento) |
 | `transcribeOnStop`               | `true` / `false` (default **`true`**) — enfileira a gravação na transcrição assim que ela termina. Com o servidor fora do ar o item espera na fila persistida (pegadinha #60n) |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
+| `runAsAdmin`                     | `true` / `false` (default `false`) — abrir o NoOBS como administrador, pra o atalho funcionar com jogo elevado (pegadinha #33). Vale no próximo início; UAC recusado = abre normal |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |
 | `recIndicatorOpacity`            | `20..100` (default `90`) — opacidade do overlay em %; aplicada ao vivo via `SetLayeredWindowAttributes` |

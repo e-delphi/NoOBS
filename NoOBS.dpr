@@ -67,7 +67,8 @@ uses
   WinRecIndicator in 'src\WinRecIndicator.pas',
   WinWebcam in 'src\WinWebcam.pas',
   NoOBSLockDetector in 'src\NoOBSLockDetector.pas',
-  OBSLang in 'src\OBSLang.pas';
+  OBSLang in 'src\OBSLang.pas',
+  OBSElevate in 'src\OBSElevate.pas';
 
 // Dispatch entre modo "full" (UI completa + libobs + watchers) e
 // modo "hibernate" (so tray icon + hotkey, ~5MB RAM). Flag de linha de
@@ -79,6 +80,9 @@ begin
   CmdLine := LowerCase(string(GetCommandLine));
   OBSLog.Log('===== NoOBS startup =====');
   OBSLog.Log('Dispatcher: cmdline="%s"', [CmdLine]);
+  // "Abrir como administrador": reabre elevado ANTES do mutex de instancia
+  // unica e de qualquer janela. Recusado no UAC, segue normal.
+  if OBSElevate.RelaunchElevatedIfWanted then Exit;
   if Pos('/hibernate', CmdLine) > 0 then
   begin
     OBSLog.Log('Dispatcher: rota -> OBSHibernate.Run (modo minimo).');

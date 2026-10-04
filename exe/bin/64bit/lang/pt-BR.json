@@ -400,6 +400,12 @@
       "label": "Iniciar com o Windows",
       "hint": "O NoOBS sobe automaticamente quando você loga no Windows."
     },
+    "runAsAdmin": {
+      "label": "Abrir como administrador",
+      "hint": "Necessário para o atalho funcionar com jogos que rodam como administrador (ex.: GTA V). O Windows pede confirmação ao abrir; se você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez que o NoOBS abrir.",
+      "stateOn": "Agora: rodando como administrador.",
+      "stateOff": "Agora: rodando sem administrador."
+    },
     "closeToTray": {
       "label": "Minimizar para bandeja",
       "hint": "Permite ao NoOBS usar o ícone na bandeja do sistema. Com esta opção ativa, o botão X da janela manda pra bandeja em vez de encerrar — clique no ícone pra reabrir, ou use o menu do ícone pra fechar de verdade."

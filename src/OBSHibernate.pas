@@ -43,7 +43,7 @@ uses
   Winapi.Windows, Winapi.ShellAPI, Winapi.Messages,
   System.SysUtils, System.Classes,
   OBSConfig, OBSHotkey, OBSLog, OBSSingleInstance, OBSLang, WinMicWatch,
-  WinProcWatch;
+  WinProcWatch, OBSElevate;
 
 const
   // MUTEX_NAME e SHOW_MSG_NAME vem de OBSSingleInstance — compartilhados
@@ -458,6 +458,10 @@ begin
     Exit;
   end;
   Log('Hibernate: janela criada (HWND=%d).', [MainWindow]);
+  // Elevado (runAsAdmin): libera o clique na bandeja e o aviso de uma 2a
+  // instancia, que vem de processos sem elevacao.
+  OBSElevate.AllowFromLowerIL(MainWindow, [WM_SHOW_INSTANCE, WM_TRAYICON,
+    RegisterWindowMessage('TaskbarCreated')]);
 
   // Permite dark mode nesta janela especifica (alem do PreferredAppMode
   // global). Necessario pra que o TrackPopupMenu sirva do dark theme.

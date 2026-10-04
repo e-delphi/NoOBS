@@ -917,6 +917,20 @@
       <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label class="settings-check-row">
+          <input type="checkbox" id="settingsRunAsAdmin">
+          <span data-i18n="settings.runAsAdmin.label">Abrir como administrador</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.runAsAdmin.hint">
+          Necessário para o atalho funcionar com jogos que rodam como
+          administrador (ex.: GTA V). O Windows pede confirmação ao abrir; se
+          você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez
+          que o NoOBS abrir.
+        </div>
+        <div class="settings-hint" id="settingsRunAsAdminState"></div>
+      </div>
+      <hr class="settings-divider" data-panel="general">
+      <div class="settings-field" data-panel="general">
+        <label class="settings-check-row">
           <input type="checkbox" id="settingsCloseToTray"
                  onchange="Settings.onTrayChange()">
           <span data-i18n="settings.closeToTray.label">Minimizar para bandeja</span>

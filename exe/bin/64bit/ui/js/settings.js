@@ -171,6 +171,8 @@ const Settings = {
   currentFilenamePattern: '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}',
   currentHotkey: '',
   currentAutostart: false,
+  currentRunAsAdmin: false,
+  currentElevated: false,
   currentCloseToTray: false,
   currentMinimizeOnRecord: false,
   currentNotifyOnRecord: false,
@@ -345,6 +347,7 @@ const Settings = {
       const windowTitle = document.getElementById('settingsWindowTitle').value.trim();
       const filenamePattern = document.getElementById('settingsFilenamePattern').value.trim();
       const autostart = document.getElementById('settingsAutostart').checked;
+      const runAsAdmin = document.getElementById('settingsRunAsAdmin').checked;
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
@@ -386,6 +389,8 @@ const Settings = {
         Bridge.send('set_filename_pattern', { pattern: filenamePattern });
       if (autostart !== this.currentAutostart)
         Bridge.send('set_autostart', { enabled: autostart });
+      if (runAsAdmin !== this.currentRunAsAdmin)
+        Bridge.send('set_run_as_admin', { enabled: runAsAdmin });
       if (closeToTray !== this.currentCloseToTray)
         Bridge.send('set_close_to_tray', { enabled: closeToTray });
       if (minimizeOnRecord !== this.currentMinimizeOnRecord)
@@ -442,6 +447,7 @@ const Settings = {
       this.currentWindowTitle = windowTitle || 'NoOBS';
       this.currentFilenamePattern = filenamePattern || this.currentFilenamePattern;
       this.currentAutostart = autostart;
+      this.currentRunAsAdmin = runAsAdmin;
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
@@ -510,6 +516,8 @@ const Settings = {
       Displays._updateCount();
     this.currentHotkey = data.hotkey || '';
     this.currentAutostart = !!data.autostart;
+    this.currentRunAsAdmin = !!data.runAsAdmin;
+    this.currentElevated = !!data.elevated;
     this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
     this.currentNotifyOnRecord = !!data.notifyOnRecord;
@@ -595,6 +603,13 @@ const Settings = {
     this._loadHotkeyIntoUi(this.currentHotkey);
     const as = document.getElementById('settingsAutostart');
     if (as) as.checked = this.currentAutostart;
+    const ra = document.getElementById('settingsRunAsAdmin');
+    if (ra) ra.checked = this.currentRunAsAdmin;
+    // Diz como ESTE processo esta rodando: com a opcao ligada e o UAC
+    // recusado, o app abre sem administrador e o usuario precisa saber.
+    const rs = document.getElementById('settingsRunAsAdminState');
+    if (rs) rs.textContent = T(this.currentElevated
+      ? 'settings.runAsAdmin.stateOn' : 'settings.runAsAdmin.stateOff');
     const ct = document.getElementById('settingsCloseToTray');
     if (ct) ct.checked = this.currentCloseToTray;
     const mr = document.getElementById('settingsMinimizeOnRecord');
@@ -1173,6 +1188,7 @@ const Settings = {
         // ao gravar, som de inicio/fim, parar ao bloquear e hibernar vem LIGADOS.
         // notifyOnRecord segue desligado (opt-in).
         document.getElementById('settingsAutostart').checked = true;
+        document.getElementById('settingsRunAsAdmin').checked = false;
         document.getElementById('settingsCloseToTray').checked = true;
         document.getElementById('settingsMinimizeOnRecord').checked = true;
         document.getElementById('settingsNotifyOnRecord').checked = false;

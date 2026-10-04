@@ -164,7 +164,8 @@ uses
   OBSSingleInstance,
   OBSStartupCheck,
   OBSTray,
-  OBSHibernate;
+  OBSHibernate,
+  OBSElevate;
 
 // ---------------------------------------------------------------------
 // Fallback de ICoreWebView2Settings3 pra Delphi 11
@@ -1568,6 +1569,10 @@ begin
   Wnd := CreateWindowEx(0, CLASS_NAME, PChar(CurrentWindowTitle), WS_OVERLAPPEDWINDOW,
     WinX, WinY, WinW, WinH,
     0, 0, HInstance, nil);
+  // Elevado (runAsAdmin), o Windows barra mensagens de quem nao e: o clique
+  // no icone da bandeja (vem do Explorer) e o aviso de uma 2a instancia.
+  OBSElevate.AllowFromLowerIL(Wnd, [WM_SHOW_INSTANCE, OBSTray.WM_TRAYICON,
+    RegisterWindowMessage('TaskbarCreated')]);
 
   // Liga o handler de comandos do tray (Abrir / Fechar).
   OBSTray.OnTrayCommand := OnTrayCommandHandler;

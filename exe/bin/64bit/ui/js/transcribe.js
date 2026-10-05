@@ -373,6 +373,9 @@ const Transcribe = {
   },
 
   render() {
+    // O selo da tela inicial vive fora da aba: atualiza a cada estado e a
+    // cada tique de 1 s (que tambem passa por aqui).
+    if (typeof TranscribeChip !== 'undefined') TranscribeChip.sync();
     this._renderError();
     this._renderCloudHint();
     const box  = document.getElementById('transcribeProgress');
@@ -711,6 +714,7 @@ const LocalAsr = {
       this.setEngine(data.engine);
     }
     this.render();
+    TranscribeChip.sync();
   },
 
   // Motor marcado na TELA (pode ainda não ter sido salvo).
@@ -835,4 +839,42 @@ const LocalAsr = {
     detail.textContent = L('missingHow', { size: this._size(d.total) });
     this._button(actions, d.status === 'error' ? L('retry') : L('install'), () => this.install());
   }
+};
+
+// ===== Selo da transcrição na tela inicial ================================
+// Aparece no cabeçalho do cartão de gravação quando há algo na fila ou
+// transcrevendo, e o motor está pronto pra rodar: o local instalado, ou o
+// servidor escolhido (servidor não se instala). Sem motor pronto a fila só
+// espera, e um selo ali só apontaria pra uma instalação — isso a aba já diz.
+// Clique abre a aba Transcrição. O texto vai na dica (data-hint); no selo,
+// só o número, porque o cartão é estreito.
+const TranscribeChip = {
+  sync() {
+    const el = document.getElementById('transcribeChip');
+    if (!el) return;
+    const st = LocalAsr.state;
+    const engine = (st && st.engine) ||
+      (typeof Settings !== 'undefined' && Settings.currentTranscribeEngine) || 'local';
+    const ready = engine !== 'local' || (!!st && st.status === 'ready');
+    const running = !!Transcribe.running;
+    // QueueLength do backend já conta o item em curso.
+    const total = Transcribe.queue || 0;
+    const waiting = Math.max(0, total - (running ? 1 : 0));
+    const show = ready && (running || waiting > 0);
+    el.hidden = !show;
+    if (!show) return;
+    el.classList.toggle('running', running);
+    document.getElementById('transcribeChipCount').textContent = String(Math.max(total, 1));
+    const hint = running
+      ? (waiting > 0 ? T('transcribeChip.runningQueue', { count: waiting })
+                     : T('transcribeChip.running'))
+      : T('transcribeChip.queued', { count: waiting });
+    el.dataset.hint = hint;
+    el.setAttribute('aria-label', hint);
+  },
+
+  open() {
+    Settings.open();
+    Settings.showTab('transcribe');
+  },
 };

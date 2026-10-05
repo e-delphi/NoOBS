@@ -172,6 +172,7 @@ const Settings = {
   currentHotkey: '',
   currentAutostart: false,
   currentRunAsAdmin: false,
+  currentFullscreenDetect: true,
   currentElevated: false,
   currentCloseToTray: false,
   currentMinimizeOnRecord: false,
@@ -339,6 +340,40 @@ const Settings = {
   // 'change' do modal chama isto a cada alteracao — le todos os campos e envia
   // so os que mudaram (diff contra current*). A hotkey e tratada a parte
   // (onHotkeyChange -> _commitHotkey), pois exige validacao async no backend.
+  // Lista "Pastas ocultas" da aba Arquivos. Cada caixa vale na hora (o
+  // backend reempurra a galeria), como os dispositivos ocultos.
+  renderHiddenFolders(data) {
+    const box = document.getElementById('settingsHiddenFolders');
+    if (!box) return;
+    box.textContent = '';
+    const list = (data && data.folders) || [];
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-hint';
+      empty.textContent = T('settings.hiddenFolders.empty');
+      box.appendChild(empty);
+      return;
+    }
+    list.forEach(f => {
+      const row = document.createElement('label');
+      row.className = 'settings-check-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!f.hidden;
+      cb.addEventListener('change', () =>
+        Bridge.send('set_folder_hidden', { name: f.name, hidden: cb.checked }));
+      const name = document.createElement('span');
+      name.textContent = f.name;
+      const info = document.createElement('span');
+      info.className = 'hidden-folder-count';
+      info.textContent = f.missing ? T('settings.hiddenFolders.missing')
+        : T(f.count === 1 ? 'settings.hiddenFolders.countOne'
+                          : 'settings.hiddenFolders.countMany', { count: f.count });
+      row.append(cb, name, info);
+      box.appendChild(row);
+    });
+  },
+
   commit() {
     try {
       const language = document.getElementById('settingsLanguage').value || '';
@@ -348,6 +383,7 @@ const Settings = {
       const filenamePattern = document.getElementById('settingsFilenamePattern').value.trim();
       const autostart = document.getElementById('settingsAutostart').checked;
       const runAsAdmin = document.getElementById('settingsRunAsAdmin').checked;
+      const fullscreenDetect = document.getElementById('settingsFullscreenDetect').checked;
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
       const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
@@ -391,6 +427,8 @@ const Settings = {
         Bridge.send('set_autostart', { enabled: autostart });
       if (runAsAdmin !== this.currentRunAsAdmin)
         Bridge.send('set_run_as_admin', { enabled: runAsAdmin });
+      if (fullscreenDetect !== this.currentFullscreenDetect)
+        Bridge.send('set_fullscreen_detect', { enabled: fullscreenDetect });
       if (closeToTray !== this.currentCloseToTray)
         Bridge.send('set_close_to_tray', { enabled: closeToTray });
       if (minimizeOnRecord !== this.currentMinimizeOnRecord)
@@ -448,6 +486,7 @@ const Settings = {
       this.currentFilenamePattern = filenamePattern || this.currentFilenamePattern;
       this.currentAutostart = autostart;
       this.currentRunAsAdmin = runAsAdmin;
+      this.currentFullscreenDetect = fullscreenDetect;
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
       this.currentNotifyOnRecord = notifyOnRecord;
@@ -517,6 +556,7 @@ const Settings = {
     this.currentHotkey = data.hotkey || '';
     this.currentAutostart = !!data.autostart;
     this.currentRunAsAdmin = !!data.runAsAdmin;
+    this.currentFullscreenDetect = data.fullscreenDetect !== false;
     this.currentElevated = !!data.elevated;
     this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
@@ -605,6 +645,8 @@ const Settings = {
     if (as) as.checked = this.currentAutostart;
     const ra = document.getElementById('settingsRunAsAdmin');
     if (ra) ra.checked = this.currentRunAsAdmin;
+    const fd = document.getElementById('settingsFullscreenDetect');
+    if (fd) fd.checked = this.currentFullscreenDetect;
     // Diz como ESTE processo esta rodando: com a opcao ligada e o UAC
     // recusado, o app abre sem administrador e o usuario precisa saber.
     const rs = document.getElementById('settingsRunAsAdminState');
@@ -1032,7 +1074,11 @@ const Settings = {
     const body = document.getElementById('settingsBody');
     if (body) body.scrollTop = 0;
     // Previa do nome: codec/fps/qualidade podem ter mudado na aba Video.
-    if (name === 'files') this._renderFilenamePreview();
+    if (name === 'files') {
+      this._renderFilenamePreview();
+      // Lista de pastas ocultas: as subpastas sao lidas do disco na hora.
+      Bridge.send('get_root_folders', {});
+    }
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
     // Filtros de audio: estado e rotulos sao do backend (plugin do OBS).
@@ -1189,6 +1235,7 @@ const Settings = {
         // notifyOnRecord segue desligado (opt-in).
         document.getElementById('settingsAutostart').checked = true;
         document.getElementById('settingsRunAsAdmin').checked = false;
+        document.getElementById('settingsFullscreenDetect').checked = true;
         document.getElementById('settingsCloseToTray').checked = true;
         document.getElementById('settingsMinimizeOnRecord').checked = true;
         document.getElementById('settingsNotifyOnRecord').checked = false;

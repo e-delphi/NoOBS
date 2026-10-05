@@ -406,6 +406,18 @@
       "stateOn": "Agora: rodando como administrador.",
       "stateOff": "Agora: rodando sem administrador."
     },
+    "fullscreenDetect": {
+      "label": "Pausar em aplicativos de tela cheia",
+      "hint": "Com um aplicativo em tela cheia na frente, esconde os indicadores na tela e pausa as prévias dos monitores, que por cima de um jogo derrubam o FPS. Desmarque se o indicador sumir ou as prévias congelarem sem nenhum aplicativo em tela cheia aberto."
+    },
+    "hiddenFolders": {
+      "label": "Pastas ocultas",
+      "hint": "Marque as pastas da pasta de gravação que não devem aparecer no NoOBS, como as que o Windows, a NVIDIA ou a AMD criam para os vídeos delas. Nada é apagado nem movido: a pasta só some da biblioteca e do \"Transcrever pendentes\".",
+      "empty": "A pasta de gravação não tem subpastas.",
+      "missing": "(não existe mais)",
+      "countOne": "1 gravação",
+      "countMany": "{{count}} gravações"
+    },
     "closeToTray": {
       "label": "Minimizar para bandeja",
       "hint": "Permite ao NoOBS usar o ícone na bandeja do sistema. Com esta opção ativa, o botão X da janela manda pra bandeja em vez de encerrar — clique no ícone pra reabrir, ou use o menu do ícone pra fechar de verdade."
@@ -956,5 +968,10 @@
   "display": {
     "monitor": "Monitor",
     "webcam": "Webcam"
+  },
+  "transcribeChip": {
+    "running": "Transcrevendo — clique para ver",
+    "runningQueue": "Transcrevendo, mais {{count}} na fila — clique para ver",
+    "queued": "{{count}} na fila de transcrição — clique para ver"
   }
 }

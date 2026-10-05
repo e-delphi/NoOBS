@@ -21,6 +21,15 @@
     set_rec_indicator_opacity : opacity (Integer 20..100) — opacidade do overlay
     set_rec_indicator_clickable : enabled (Boolean) — clicar no overlay para a
                            gravacao; False = o clique atravessa
+    get_root_folders     : — (responde root_folders: subpastas da pasta de
+                           gravacao com hidden/count, pra lista de pastas
+                           ocultas da aba Arquivos)
+    set_folder_hidden    : name (string), hidden (Boolean) — oculta/mostra
+                           uma subpasta direta da pasta de gravacao na
+                           galeria (config hiddenFolders)
+    set_fullscreen_detect : enabled (Boolean) — esconder indicadores e
+                           pausar as previas com jogo em tela cheia na frente
+                           (fullscreenDetect, padrao ligado)
     set_run_as_admin     : enabled (Boolean) — abrir o NoOBS como
                            administrador (runAsAdmin; vale no proximo inicio,
                            OBSElevate)
@@ -1083,6 +1092,63 @@ begin
     try ASize := ASize + TFile.GetSize(Files[i]); except end;
 end;
 
+// ---------------------------------------------------------------------
+// Pastas ocultas (config 'hiddenFolders')
+// ---------------------------------------------------------------------
+// Subpastas DIRETAS da pasta de gravacao que o usuario nao quer ver no
+// NoOBS — tipicamente as que o Windows (Captures), a NVIDIA e a AMD criam
+// dentro de Videos pras gravacoes delas. Guardadas pelo NOME (minusculo),
+// nao pelo caminho: trocar a pasta de gravacao pra outra que tenha as
+// mesmas pastas continua escondendo. Ocultar NAO apaga nem move nada: a
+// pasta so some da galeria e do "Transcrever pendentes".
+
+function HiddenFolderNames: TArray<string>;
+var
+  V: TJSONValue;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  SetLength(Result, 0);
+  V := GetConfigJson('hiddenFolders');
+  try
+    if not (V is TJSONArray) then Exit;
+    Arr := TJSONArray(V);
+    for i := 0 to Arr.Count - 1 do
+      if Arr.Items[i] is TJSONString then
+        Result := Result + [LowerCase(Arr.Items[i].Value)];
+  finally
+    V.Free;
+  end;
+end;
+
+function IsHiddenFolderName(const AName: string;
+  const AHidden: TArray<string>): Boolean;
+var
+  S: string;
+begin
+  Result := False;
+  for S in AHidden do
+    if S = LowerCase(AName) then Exit(True);
+end;
+
+// A gravacao mora dentro de uma pasta oculta? Decide pelo PRIMEIRO nivel
+// abaixo da pasta de gravacao (as ocultas sao subpastas diretas dela).
+function IsInHiddenFolder(const APath: string;
+  const AHidden: TArray<string>): Boolean;
+var
+  Root, Rel: string;
+  P: Integer;
+begin
+  Result := False;
+  if Length(AHidden) = 0 then Exit;
+  Root := IncludeTrailingPathDelimiter(RecordDir);
+  if not SameText(Copy(APath, 1, Length(Root)), Root) then Exit;
+  Rel := Copy(APath, Length(Root) + 1, MaxInt);
+  P := Pos(PathDelim, Rel);
+  if P = 0 then Exit;   // arquivo solto na raiz
+  Result := IsHiddenFolderName(Copy(Rel, 1, P - 1), AHidden);
+end;
+
 function IsRecordingExt(const APath: string): Boolean;
 // True se a extensao e de um formato de gravacao conhecido.
 begin
@@ -1281,17 +1347,21 @@ end;
 
 function BuildFoldersArray: TJSONArray;
 // Subpastas da pasta navegada, cada uma com quantas gravacoes guarda
-// (recursivo) e quanto ocupam.
+// (recursivo) e quanto ocupam. Na raiz, as pastas ocultas ficam de fora.
 var
   Dirs: TStringDynArray;
   i, Cnt: Integer;
   Sz: Int64;
   Item: TJSONObject;
+  Hidden: TArray<string>;
 begin
   Result := TJSONArray.Create;
   Dirs := ListSubFolders(CurrentBrowseDir);
+  if IsBrowseRoot then Hidden := HiddenFolderNames
+  else SetLength(Hidden, 0);
   for i := 0 to High(Dirs) do
   begin
+    if IsHiddenFolderName(ExtractFileName(Dirs[i]), Hidden) then Continue;
     FolderStats(Dirs[i], Cnt, Sz);
     Item := TJSONObject.Create;
     Item.AddPair('id',       Dirs[i]);
@@ -1969,16 +2039,6 @@ procedure OnLocalAsrChanged; forward;
 // TThumbTimerThread
 // ----------------------------------------------------------------------
 
-// Estado de notificacao do shell (Vista+). Declarado localmente com outro
-// nome pra nao depender de a RTL expor (e nao colidir se expuser).
-function ShellUserNotificationState(out AState: Integer): HRESULT; stdcall;
-  external 'shell32.dll' name 'SHQueryUserNotificationState';
-
-const
-  QUNS_BUSY                    = 2;  // app em tela cheia em 1o plano
-  QUNS_RUNNING_D3D_FULL_SCREEN = 3;  // D3D exclusivo (jogo)
-  QUNS_PRESENTATION_MODE       = 4;
-
 // Diz se a captura das thumbs deve parar, e por que (pro log de transicao).
 //
 // A thumb le a tela INTEIRA por GDI (StretchBlt do DC da tela), o que obriga
@@ -1989,10 +2049,11 @@ const
 //   • janela escondida (bandeja) ou minimizada → ninguem ve;
 //   • app em tela cheia em primeiro plano → o jogo cobre o NoOBS mesmo sem
 //     ele estar minimizado (o caso que o teste de visibilidade nao pega).
+//     Mesma regra do indicador (WinRecIndicator.FullscreenAppActive), com a
+//     mesma chave pra desligar (fullscreenDetect).
 function ThumbPauseReason: string;
 var
   Wnd: HWND;
-  State: Integer;
 begin
   Result := '';
   if PlayerOpen then Exit('player aberto');
@@ -2002,9 +2063,7 @@ begin
     if not IsWindowVisible(Wnd) then Exit('janela escondida');
     if IsIconic(Wnd) then Exit('janela minimizada');
   end;
-  if Succeeded(ShellUserNotificationState(State)) and
-     (State in [QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN,
-                QUNS_PRESENTATION_MODE]) then
+  if WinRecIndicator.FullscreenAppActive then
     Exit('app em tela cheia');
 end;
 
@@ -3232,6 +3291,7 @@ begin
 
   // Captura de thumbs em thread propria (independe do WM_TIMER que e
   // suprimido durante modal sizemove loop — drag/resize de janela).
+  WinRecIndicator.FullscreenDetectEnabled := GetConfigBool('fullscreenDetect', True);
   if ThumbThread = nil then
     ThumbThread := TThumbTimerThread.Create(THUMB_TICK_MS);
 
@@ -5984,6 +6044,8 @@ begin
   Obj.AddPair('hotkey', GetConfigStr('hotkey', 'Pause/Break'));
   Obj.AddPair('autostart', TJSONBool.Create(OBSAutostart.IsAutoStartEnabled));
   Obj.AddPair('runAsAdmin', TJSONBool.Create(GetConfigBool('runAsAdmin', False)));
+  Obj.AddPair('fullscreenDetect',
+    TJSONBool.Create(GetConfigBool('fullscreenDetect', True)));
   Obj.AddPair('elevated', TJSONBool.Create(OBSElevate.IsProcessElevated));
   Obj.AddPair('closeToTray',
     TJSONBool.Create(GetConfigBool('closeToTray', True)));
@@ -6058,6 +6120,15 @@ begin
   // a entrada do Run.
   OBSAutostart.SetAutoStart(AEnable);
   Log('Autostart: %s', [BoolToStr(AEnable, True)]);
+end;
+
+procedure HandleSetFullscreenDetect(AEnable: Boolean);
+begin
+  SetConfigBool('fullscreenDetect', AEnable);
+  // Vale na hora: o indicador reavalia no tique de 500 ms e as previas no
+  // proximo ciclo da ThumbThread.
+  WinRecIndicator.FullscreenDetectEnabled := AEnable;
+  Log('Tela cheia: detectar = %s.', [BoolToStr(AEnable, True)]);
 end;
 
 procedure HandleSetRunAsAdmin(AEnable: Boolean);
@@ -7519,14 +7590,18 @@ function TranscribablePaths(out ACloudOnly: Integer): TArray<string>;
 var
   Files: TStringDynArray;
   i, n, Cloud: Integer;
+  Hidden: TArray<string>;
 begin
   SetLength(Result, 0);
   Files := ListRecordingsRecursive(RecordDir);
+  // Pasta oculta nao entra: o usuario disse que aquilo nao e dele.
+  Hidden := HiddenFolderNames;
   SetLength(Result, Length(Files));
   n := 0;
   Cloud := 0;
   for i := 0 to High(Files) do
   begin
+    if IsInHiddenFolder(Files[i], Hidden) then Continue;
     if OBSTranscribe.HasTranscript(Files[i]) then Continue;
     if IsFileCloudOnly(Files[i]) then
     begin
@@ -7558,6 +7633,70 @@ begin
   // com dezenas de gravacoes sem transcricao — parece defeito.
   Obj.AddPair('cloud', TJSONNumber.Create(Cloud));
   PostOwned(Obj);
+end;
+
+procedure PushRootFolders;
+// Subpastas diretas da pasta de gravacao, pra lista "Pastas ocultas" da
+// aba Arquivos: nome, se esta oculta e quantas gravacoes tem. Oculta que
+// nao existe mais tambem vai (missing), senao nao haveria como desmarcar.
+var
+  Obj, Item: TJSONObject;
+  Arr: TJSONArray;
+  Dirs: TStringDynArray;
+  Hidden: TArray<string>;
+  Seen: TArray<string>;
+  i: Integer;
+  S, Name: string;
+  Found: Boolean;
+begin
+  Hidden := HiddenFolderNames;
+  Dirs := ListSubFolders(RecordDir);
+  Arr := TJSONArray.Create;
+  SetLength(Seen, 0);
+  for i := 0 to High(Dirs) do
+  begin
+    Name := ExtractFileName(Dirs[i]);
+    Seen := Seen + [LowerCase(Name)];
+    Item := TJSONObject.Create;
+    Item.AddPair('name', Name);
+    Item.AddPair('hidden', TJSONBool.Create(IsHiddenFolderName(Name, Hidden)));
+    Item.AddPair('count', TJSONNumber.Create(Length(ListRecordingsRecursive(Dirs[i]))));
+    Arr.AddElement(Item);
+  end;
+  for S in Hidden do
+  begin
+    Found := False;
+    for Name in Seen do
+      if Name = S then Found := True;
+    if Found then Continue;
+    Item := TJSONObject.Create;
+    Item.AddPair('name', S);
+    Item.AddPair('hidden', TJSONBool.Create(True));
+    Item.AddPair('missing', TJSONBool.Create(True));
+    Arr.AddElement(Item);
+  end;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'root_folders');
+  Obj.AddPair('folders', Arr);
+  PostOwned(Obj);
+end;
+
+procedure HandleSetFolderHidden(const AName: string; AHidden: Boolean);
+var
+  Arr: TJSONArray;
+  S, Key: string;
+begin
+  Key := LowerCase(Trim(AName));
+  if (Key = '') or (Pos(PathDelim, Key) > 0) then Exit;
+  Arr := TJSONArray.Create;
+  for S in HiddenFolderNames do
+    if S <> Key then Arr.Add(S);
+  if AHidden then Arr.Add(Key);
+  SetConfigJson('hiddenFolders', Arr);
+  Log('Biblioteca: pasta "%s" %s.', [AName, IfThen(AHidden, 'oculta', 'visivel')]);
+  PushRecordings;
+  PushTranscribePending;
+  PushRootFolders;
 end;
 
 procedure FillQueueDurations(const APaths: TArray<string>); forward;
@@ -9204,6 +9343,12 @@ begin
       HandleValidateHotkey(GetStrField(Obj, 'hotkey'))
     else if MsgType = 'set_autostart' then
       HandleSetAutostart(GetBoolField(Obj, 'enabled'))
+    else if MsgType = 'get_root_folders' then
+      PushRootFolders
+    else if MsgType = 'set_folder_hidden' then
+      HandleSetFolderHidden(GetStrField(Obj, 'name'), GetBoolField(Obj, 'hidden'))
+    else if MsgType = 'set_fullscreen_detect' then
+      HandleSetFullscreenDetect(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_run_as_admin' then
       HandleSetRunAsAdmin(GetBoolField(Obj, 'enabled'))
     else if MsgType = 'set_close_to_tray' then

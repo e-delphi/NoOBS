@@ -904,6 +904,17 @@
           os que estão só na nuvem (OneDrive), para não baixá-los.
         </div>
       </div>
+      <hr class="settings-divider" data-panel="files">
+      <div class="settings-field" data-panel="files">
+        <label data-i18n="settings.hiddenFolders.label">Pastas ocultas</label>
+        <div class="settings-hint" data-i18n="settings.hiddenFolders.hint">
+          Marque as pastas da pasta de gravação que não devem aparecer no
+          NoOBS, como as que o Windows, a NVIDIA ou a AMD criam para os vídeos
+          delas. Nada é apagado nem movido: a pasta só some da biblioteca e do
+          "Transcrever pendentes".
+        </div>
+        <div class="hidden-folders-list" id="settingsHiddenFolders"></div>
+      </div>
       <hr class="settings-divider" data-panel="general">
       <div class="settings-field" data-panel="general">
         <label class="settings-check-row">
@@ -1053,6 +1064,19 @@
             </span>
             <span class="settings-inline-label" id="settingsRecIndicatorOpacityValue">90%</span>
           </div>
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="onrecord">
+      <div class="settings-field" data-panel="onrecord">
+        <label class="settings-check-row">
+          <input type="checkbox" id="settingsFullscreenDetect">
+          <span data-i18n="settings.fullscreenDetect.label">Pausar em aplicativos de tela cheia</span>
+        </label>
+        <div class="settings-hint" data-i18n="settings.fullscreenDetect.hint">
+          Com um aplicativo em tela cheia na frente, esconde os indicadores na
+          tela e pausa as prévias dos monitores, que por cima de um jogo derrubam
+          o FPS. Desmarque se o indicador sumir ou as prévias congelarem sem
+          nenhum aplicativo em tela cheia aberto.
         </div>
       </div>
       <hr class="settings-divider" data-panel="onrecord">
@@ -1619,6 +1643,19 @@
               <span class="rec-state-dot"></span>
               <span id="recStatusText" data-i18n="record.statusReady">Pronto para gravar</span>
             </div>
+            <!-- Selo da transcricao (transcribe.js, TranscribeChip): so
+                 aparece com item na fila ou transcrevendo E o motor pronto.
+                 Clique abre a aba Transcricao. -->
+            <button class="transcribe-chip" id="transcribeChip" type="button" hidden
+                    onclick="TranscribeChip.open()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <path d="M7 15h4M13 15h4M7 11h10"/>
+              </svg>
+              <span id="transcribeChipCount"></span>
+            </button>
             <button class="icon-btn record-settings-btn" id="settingsBtn"
                     onclick="Settings.open()" data-i18n-hint="header.settings" data-hint="Configurações">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"

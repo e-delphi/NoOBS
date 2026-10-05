@@ -36,7 +36,7 @@
   13 -> 34 — o NoOBS em si sem nenhum quadro atrasado. O overlay do
   Adrenalin/Steam nao tem esse custo porque desenha DENTRO do quadro do jogo
   (injecao no Present), o que aqui seria alvo de anticheat. Entao: com
-  SHQueryUserNotificationState dizendo tela cheia, a janela fica ESCONDIDA
+  app em tela cheia na frente (FullscreenAppActive), a janela fica ESCONDIDA
   (continua existindo e contando); o tique de 500 ms a traz de volta quando
   o jogo sai do primeiro plano. Nenhuma atualizacao (salvar, trocar modo ou
   canto) pode traze-la pra frente enquanto isso — era o HWND_TOPMOST do
@@ -97,10 +97,23 @@ procedure HideIndicator;
 
 function IsShowing: Boolean;
 
+var
+  // Config 'fullscreenDetect' (padrao ligado), aplicada pelo OBSBridge.
+  // Desligado, FullscreenAppActive devolve sempre False: indicador e
+  // previas dos monitores nunca se escondem/param por tela cheia.
+  FullscreenDetectEnabled: Boolean = True;
+
+// Ha um app em TELA CHEIA na frente? (jogo, inclusive sem borda; video do
+// navegador em tela cheia). Usado pelo indicador e pelas previas dos
+// monitores (OBSBridge.ThumbPauseReason). Pode ser chamada de qualquer
+// thread. A regra esta no comentario da implementacao.
+function FullscreenAppActive: Boolean;
+
 implementation
 
 uses
-  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Types, OBSLog;
+  Winapi.Windows, Winapi.Messages, Winapi.MultiMon, System.SysUtils,
+  System.Types, OBSLog;
 
 const
   WDA_EXCLUDEFROMCAPTURE = $00000011;   // Win10 2004+ (build 19041)
@@ -126,9 +139,7 @@ function QueryUserNotifState(out AState: Integer): HRESULT; stdcall;
   external 'shell32.dll' name 'SHQueryUserNotificationState';
 
 const
-  QUNS_BUSY                    = 2;  // app em tela cheia em 1o plano
-  QUNS_RUNNING_D3D_FULL_SCREEN = 3;  // D3D exclusivo (jogo)
-  QUNS_PRESENTATION_MODE       = 4;
+  QUNS_RUNNING_D3D_FULL_SCREEN = 3;  // D3D exclusivo (jogo antigo)
 
 var
   FHwnd: HWND = 0;
@@ -144,12 +155,51 @@ var
   FFullscreenHidden: Boolean = False;
 
 // App em tela cheia (jogo, inclusive sem borda; apresentacao) em 1o plano.
+// Tela cheia = a janela EM FOCO cobre o monitor inteiro (ou tela cheia
+// exclusiva do D3D). NAO usamos mais o QUNS_BUSY do
+// SHQueryUserNotificationState: ele conta como "tela cheia" qualquer janela
+// sempre-por-cima do tamanho do monitor. Visto numa maquina com um app de
+// MARCA D'AGUA (transparente, topmost, tela inteira, elevado): o Windows
+// respondia "tela cheia" o tempo todo, o indicador nunca aparecia e as
+// previas dos monitores ficavam congeladas. Marca d'agua nunca tem o foco;
+// jogo sempre tem.
+// Janela maximizada COM barra de titulo nao conta: com a barra de tarefas
+// oculta ela tambem cobre o monitor, e navegador maximizado nao e jogo.
 function FullscreenAppActive: Boolean;
 var
   State: Integer;
+  Fg: HWND;
+  Pid: DWORD;
+  Cls: array[0..63] of Char;
+  ClsName: string;
+  R: TRect;
+  Mon: HMONITOR;
+  MI: TMonitorInfo;
 begin
-  Result := Succeeded(QueryUserNotifState(State)) and
-    (State in [QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, QUNS_PRESENTATION_MODE]);
+  Result := False;
+  if not FullscreenDetectEnabled then Exit;
+  if Succeeded(QueryUserNotifState(State)) and
+     (State = QUNS_RUNNING_D3D_FULL_SCREEN) then
+    Exit(True);
+  Fg := GetForegroundWindow;
+  if (Fg = 0) or (not IsWindowVisible(Fg)) or IsIconic(Fg) then Exit;
+  Pid := 0;
+  GetWindowThreadProcessId(Fg, Pid);
+  if Pid = GetCurrentProcessId then Exit;
+  // A area de trabalho e a barra de tarefas tambem sao janelas do tamanho
+  // do monitor, e ficam "em foco" ao clicar nelas.
+  SetString(ClsName, PChar(@Cls[0]), GetClassName(Fg, @Cls[0], Length(Cls)));
+  if SameText(ClsName, 'Progman') or SameText(ClsName, 'WorkerW') or
+     SameText(ClsName, 'Shell_TrayWnd') then Exit;
+  if IsZoomed(Fg) and
+     ((GetWindowLong(Fg, GWL_STYLE) and WS_CAPTION) = WS_CAPTION) then Exit;
+  if not GetWindowRect(Fg, R) then Exit;
+  Mon := MonitorFromWindow(Fg, MONITOR_DEFAULTTONULL);
+  if Mon = 0 then Exit;
+  MI.cbSize := SizeOf(MI);
+  if not GetMonitorInfo(Mon, @MI) then Exit;
+  Result := (R.Left <= MI.rcMonitor.Left) and (R.Top <= MI.rcMonitor.Top) and
+    (R.Right >= MI.rcMonitor.Right) and (R.Bottom >= MI.rcMonitor.Bottom);
 end;
 
 // Opacidade 20..100 -> alpha 51..255 (clampeada; abaixo de 20% seria

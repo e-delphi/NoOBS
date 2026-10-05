@@ -33,17 +33,31 @@
     display: flex;
     align-items: baseline;
     gap: 8px;
-    /* flex-basis: 200px = encolhe ate 200px na mesma linha; abaixo
-       disso wrappa pra cima do .recordings-actions. */
-    flex: 1 1 200px;
+    /* flex-basis AUTO = a largura do titulo + armazenamento inteiros. O
+       flex-wrap decide a quebra por essa medida: se o texto todo nao cabe
+       ao lado da busca, a busca desce pra 2a linha — nunca o texto do
+       armazenamento quebra em duas linhas. Com basis fixa (200px) havia um
+       estado intermediario, na largura com que o app abre, em que o titulo
+       encolhia ao lado da busca e o texto quebrava. */
+    flex: 1 1 auto;
     min-width: 0;
   }
   .recordings-title h2 {
     font-size: 16px;
     font-weight: 600;
     letter-spacing: -0.01em;
+    flex-shrink: 0;
   }
-  .recordings-title .meta { font-size: 11px; color: var(--text-3); }
+  /* Uma linha SEMPRE. So encolhe (com reticencias) se nem sozinho na
+     linha ele couber — janela estreita demais. */
+  .recordings-title .meta {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
   /* Separador visivel entre os pedacos de info no recMeta (arquivos /
      total / livres). Pipe vertical mais espacado, sutilmente colorido
      pra destacar sem competir com o texto. */

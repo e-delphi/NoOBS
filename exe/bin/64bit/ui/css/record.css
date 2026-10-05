@@ -80,6 +80,40 @@
     flex-shrink: 0;
   }
 
+  /* Selo da transcricao no cabecalho do cartao. margin-left:auto encosta
+     ele no botao de configuracoes (o cabecalho e space-between). Texto e
+     espacamento proprios: o cabecalho e caixa-alta espacada. */
+  .transcribe-chip {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-2);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    text-transform: none;
+    cursor: pointer;
+  }
+  .transcribe-chip[hidden] { display: none; }
+  .transcribe-chip:hover { color: var(--text); border-color: var(--text-3); }
+  .transcribe-chip.running { color: var(--success); border-color: var(--success); }
+  .transcribe-chip.running svg { animation: transcribe-chip-pulse 1.6s ease-in-out infinite; }
+  @keyframes transcribe-chip-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .transcribe-chip.running svg { animation: none; }
+  }
+
   /* Timer com centesimos. Fonte monospace, tabular-nums pra largura
      estavel dos digitos. Atualizado por JS interval (~50ms) — vide
      startRecordingAnimation. */

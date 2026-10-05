@@ -418,6 +418,10 @@ document.addEventListener('DOMContentLoaded', () => {
   RecFolders.wireTrash();
   Displays.init();
   Bridge.init();
+  // Selo da transcricao (TranscribeChip): precisa do estado da fila e do
+  // motor desde o inicio, nao so quando a aba de Transcricao abre.
+  Bridge.send('get_transcribe_state', {});
+  Bridge.send('get_local_asr_state', {});
 });
 
 // Bloqueia drag-and-save de imagens em qualquer lugar do app

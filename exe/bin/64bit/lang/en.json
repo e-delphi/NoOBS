@@ -406,6 +406,18 @@
       "stateOn": "Now: running as administrator.",
       "stateOff": "Now: running without administrator."
     },
+    "fullscreenDetect": {
+      "label": "Pause during full-screen apps",
+      "hint": "With a full-screen app in front, hides the on-screen indicators and pauses the monitor previews, which drop the FPS when on top of a game. Uncheck it if the indicator disappears or the previews freeze with no full-screen app open."
+    },
+    "hiddenFolders": {
+      "label": "Hidden folders",
+      "hint": "Check the folders inside the recording folder that should not show up in NoOBS, such as the ones Windows, NVIDIA or AMD create for their videos. Nothing is deleted or moved: the folder just disappears from the library and from \"Transcribe pending\".",
+      "empty": "The recording folder has no subfolders.",
+      "missing": "(no longer exists)",
+      "countOne": "1 recording",
+      "countMany": "{{count}} recordings"
+    },
     "closeToTray": {
       "label": "Minimize to tray",
       "hint": "Lets NoOBS use the system tray icon. With this option enabled, the window's X button sends to tray instead of quitting — click the icon to reopen, or use the icon's menu to actually quit."
@@ -956,5 +968,10 @@
   "display": {
     "monitor": "Display",
     "webcam": "Webcam"
+  },
+  "transcribeChip": {
+    "running": "Transcribing — click to view",
+    "runningQueue": "Transcribing, {{count}} more in the queue — click to view",
+    "queued": "{{count}} in the transcription queue — click to view"
   }
 }

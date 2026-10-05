@@ -489,6 +489,16 @@ chega inteiro no mesmo push que traz a lista, pra nunca divergir dela.
 O menu de contexto (`showCtxMenu` em `main.js`) passou a ser **montado em
 JS**, com três alvos: card de gravação, card de pasta e o fundo da lista.
 
+**Pastas ocultas** (`hiddenFolders`, aba Arquivos): subpastas DIRETAS da
+pasta de gravação que não aparecem na galeria — as que o Windows
+(`Captures`), a NVIDIA e a AMD criam dentro de Vídeos. Guardadas pelo NOME,
+em minúsculas (trocar a pasta de gravação por outra com as mesmas pastas
+continua escondendo). Só a raiz filtra (`BuildFoldersArray`) e o
+`TranscribablePaths` pula o que está dentro delas (`IsInHiddenFolder`);
+o GC do cache continua vendo tudo, senão desocultar regeraria as prévias.
+A lista da UI vem do `get_root_folders`, e uma oculta que sumiu do disco
+continua listada (`missing`), senão não haveria como desmarcar.
+
 **Soltar na lixeira**: arrastando um card, o botão de excluir da barra
 (`#deleteSelectedBtn`) vira alvo — `RecFolders._trashArm` tira o `disabled`
 de VERDADE (botão desabilitado não recebe `dragover`/`drop`) e acende o
@@ -757,8 +767,9 @@ intervalo do tick.
 
 **A captura PARA quando ninguém pode ver os previews** (`ThumbPauseReason`):
 player aberto, janela escondida/minimizada, ou app em tela cheia em
-primeiro plano (`SHQueryUserNotificationState` = BUSY / D3D full screen /
-apresentação). O `StretchBlt` do DC da tela obriga o DWM a copiar a
+primeiro plano (`WinRecIndicator.FullscreenAppActive`: janela em foco
+cobrindo o monitor, ou D3D exclusivo — a regra e a chave `fullscreenDetect`
+estão na pegadinha #49). O `StretchBlt` do DC da tela obriga o DWM a copiar a
 superfície da GPU pra memória de sistema; com um jogo rodando isso vira
 engasgo intermitente a cada 500 ms — e rodava inclusive durante a gravação
 e com o app na bandeja. O teste de tela cheia existe porque o jogo cobre o
@@ -1538,13 +1549,25 @@ essa affinity; então funciona pro caminho de captura do projeto.
   atrasados e os mesmos 2% do 3D. O culpado era o `HWND_TOPMOST` +
   `SWP_SHOWWINDOW` do `PositionWindow`, chamado em todo `ShowIndicator`
   (salvar, começar/parar, trocar canto). Hoje, com
-  `SHQueryUserNotificationState` em tela cheia (`FullscreenAppActive`, a
-  mesma regra do `ThumbPauseReason`), o `PositionWindow` só posiciona e
+  tela cheia na frente (`FullscreenAppActive`, a mesma regra do
+  `ThumbPauseReason`), o `PositionWindow` só posiciona e
   deixa ESCONDIDO, e o tique de 500 ms (`SyncFullscreen`) mostra de volta
   quando o jogo sai da frente. A janela continua existindo (`IsShowing`
   segue True). O overlay do Adrenalin/Steam não paga isso porque desenha
   DENTRO do quadro do jogo (hook no `Present`) — injeção em jogo é alvo de
   anticheat, não faça.
+  **"Tela cheia" é a janela EM FOCO cobrindo o monitor**, não o
+  `QUNS_BUSY` do `SHQueryUserNotificationState` (sobrou só o
+  `QUNS_RUNNING_D3D_FULL_SCREEN`, tela cheia exclusiva). O `QUNS_BUSY`
+  conta qualquer janela sempre-por-cima do tamanho do monitor: numa
+  máquina com um app de MARCA D'ÁGUA (transparente, topmost, tela
+  inteira) o indicador nunca aparecia e as prévias dos monitores
+  congelavam. Marca d'água nunca tem o foco; jogo sempre tem. Ficam de
+  fora a área de trabalho/barra de tarefas (`Progman`/`WorkerW`/
+  `Shell_TrayWnd`, também do tamanho do monitor) e janela maximizada com
+  barra de título (com a barra de tarefas oculta ela cobre o monitor).
+  E existe a chave `fullscreenDetect` (padrão ligado, aba Gravação, logo abaixo do indicador) pra
+  desligar a regra inteira se ela errar de novo noutra máquina.
 - `SetWindowDisplayAffinity` em si é Win7+ (o import direto é seguro pro
   load); é a FLAG nova que exige 2004+. `GetDpiForSystem` (escala do
   overlay) é 1607+ — resolvido via `GetProcAddress` pra não quebrar o load
@@ -3790,6 +3813,8 @@ recuperáveis manualmente).
 | `localAsrBackend` / `localAsrDevice` | Detectados na instalação pelo `audiocpp_cli --list-devices`: `"vulkan"` + nome da GPU, ou `"cpu"` + vazio (sem Vulkan, ~10× mais lento) |
 | `transcribeOnStop`               | `true` / `false` (default **`true`**) — enfileira a gravação na transcrição assim que ela termina. Com o servidor fora do ar o item espera na fila persistida (pegadinha #60n) |
 | `muteWhenDeviceMuted`            | `true` / `false` (default **`true`**) — enquanto o microfone estiver mudo no ENDPOINT do Windows (`IAudioEndpointVolume::GetMute`), a faixa dele sai em silêncio na gravação. Cobre botão de mudo do fone, mudo do sistema e apps de chamada que propagam o mudo pro Windows; **não** cobre mudo interno do app, que o Windows não vê |
+| `hiddenFolders`                  | array de NOMES (minúsculos) de subpastas diretas da pasta de gravação que não aparecem na galeria nem no "Transcrever pendentes". Nada é apagado nem movido. Aba Arquivos |
+| `fullscreenDetect`               | `true` / `false` (default **`true`**) — com jogo em tela cheia na frente, esconde os indicadores e pausa as prévias dos monitores (`WinRecIndicator.FullscreenAppActive`, pegadinha #49). Vale na hora |
 | `runAsAdmin`                     | `true` / `false` (default `false`) — abrir o NoOBS como administrador, pra o atalho funcionar com jogo elevado (pegadinha #33). Vale no próximo início; UAC recusado = abre normal |
 | `recIndicator`                   | `true` / `false` (default `false`) — overlay de gravação na tela (bolinha + tempo), excluído da própria captura (Pegadinha #49) |
 | `recIndicatorCorner`             | `"top-left"`, `"top-right"` (default), `"bottom-left"`, `"bottom-right"` — canto do overlay no monitor principal |

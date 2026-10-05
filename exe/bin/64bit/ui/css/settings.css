@@ -1489,3 +1489,17 @@
   }
   /* O bloco do buffer nao tem a margem de 10px: so os 6px do gap. */
   #settingsReplayIndicatorWrap > .indicator-click-opt { margin-top: 4px; }
+
+/* Pastas ocultas (aba Arquivos): uma caixa por subpasta da pasta de
+   gravacao, com a contagem de gravacoes ao lado do nome. */
+.hidden-folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.hidden-folders-list .hidden-folder-count {
+  color: var(--text-2);
+  font-size: 12px;
+  margin-left: 6px;
+}

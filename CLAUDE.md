@@ -342,6 +342,21 @@ User seleciona UMA gravação e clica em Exportar (ou botão direito → Exporta
     A barra do CRF corre AO CONTRÁRIO da escala (esquerda 51, direita 0) pra
     que arrastar pra direita melhore a imagem; o `value` do `<input>` é a
     posição, e quem converte é `Export._crf()` — nada mais lê o `.value`.
+  • ÁUDIO fica logo abaixo da linha do tempo e a prévia TOCA as faixas
+    marcadas (`_applyPreviewAudio`): o `<video>` só toca a faixa padrão
+    (a mistura, posição 0); isoladas tocam em `<audio>` com os M4A do
+    `request_audio_tracks` (o `bridge.js` entrega o `audio_tracks_ready` à
+    exportação quando ela espera o id), presas ao relógio do vídeo (correção
+    acima de 0,1 s, como o player). "Áudio original" toca só a mistura —
+    junto das isoladas dobraria cada voz. Mudo/volume são do USUÁRIO
+    (`_userMuted`/`_userVol`): o `<video>` também fica mudo quando a mistura
+    não está marcada, e isso não pode acender o botão de mudo.
+  • Velocidade (`speed`, 1×..512×, aceita "1,5"; setas ↑/↓ andam por uma
+    escada de valores redondos, `SPEED_STEPS`): acelera vídeo e áudio
+    (tom mantido). O teto do seletor de fps passa a ser fps da origem ×
+    velocidade (até 1000; 240 com AV1 por software) e o seletor vai pro
+    teto quando a velocidade muda. Ao lado, a duração final. Pegadinha
+    #51m.
   • Redimensionamento (`scaleAlgo`): escolha do algoritmo do swscale entre
     bicubic (padrão), bilinear e área, com a legenda descrevendo o
     diferencial de cada um. O campo só APARECE quando a saída é menor que a
@@ -1870,6 +1885,84 @@ encoder é `erError`, nunca "concluído". O motivo exato da recusa do libaom
 ainda não foi visto (só a NVIDIA reproduz) — o primeiro `send_packet`
 recusado agora vai pro log.
 
+**l) O vídeo de origem é decodificado NA PLACA (D3D11VA) — o libaom era o
+gargalo da exportação inteira.** Visto numa AMD: exportando 1h50 de AV1 4K
+pra 1080p com `av1_amf`, ~0,85× o tempo real, com o encoder da placa **~9%
+ocupado** e a CPU em ~3 de 16 núcleos — o libaom não paraleliza bem em 4K e
+o encoder passava o tempo esperando quadro. Medido por quadro 4K, nas DLLs
+empacotadas: decode na placa **~1,9 ms (538 q/s)**, cópia da textura pra
+memória (NV12) ~8 ms, escala pra 1080p ~6 ms; o libaom, 17–23 ms.
+
+- **Decoder NATIVO** (`av1`/`hevc`/`h264` por nome, `OpenHwVideoDecoder`)
+  com o `hw_device_ctx` preenchido. Não há setter nem AVOption pra esse
+  campo: vai por offset (`OFFS_CODECCTX_HW_DEVICE_CTX = 560` no avcodec-61),
+  achado MEDINDO — as opções vizinhas `hwaccel_flags`/`extra_hw_frames`
+  setadas por `av_opt_set_int` caem em 568/572 — e confirmado decodificando
+  uma gravação real. Não precisa de callback `get_format`: o padrão do
+  libavcodec escolhe o formato de hardware quando o device está lá.
+- **Só vale se saírem quadros `AV_PIX_FMT_D3D11`** (o `ProbeVideoDecode`
+  devolve o formato). O nativo de H.264/HEVC cai CALADO pro software se a
+  placa recusar o perfil — com 1 thread, pior que o caminho normal —, e o de
+  AV1 nem decodifica. Nos dois casos volta pro `OpenSwVideoDecoder`.
+- **A cópia da placa é a etapa mais cara**, então ela é feita só depois das
+  decisões de descarte (quadros antes do trecho, redução de fps).
+  `av_hwframe_transfer_data` copia só a imagem: o `av_frame_copy_props` traz
+  o pts.
+- **NV12 tem caminho rápido no `BlitRegion`** em vez de passar pelo
+  `NeedsNormalize` (seria uma passada a mais de swscale no 4K inteiro). O
+  croma é UM plano intercalado: o deslocamento em bytes do recorte é o
+  próprio `SrcX` (par). Conferido: recorte deslocado em NV12 e em YUV420P
+  saem idênticos byte a byte.
+- Não use `Decoder.name` no log depois da montagem das faixas de áudio: o
+  laço delas reaproveita a variável. O nome do decoder de vídeo fica em
+  `VDecName`.
+
+**m) Exportação ACELERADA (`speed`, 1×..512×, fração vale): todo quadro é
+decodificado, o teto de fps vira origem × velocidade, e o áudio é esticado
+mantendo o tom.** Nada de avançar por keyframe (o "salto" do player, #61):
+a cadência da saída escolhe os quadros, então a taxa do seletor é
+obedecida. Quatro decisões:
+
+- **Vídeo em CFR pela grade da saída.** Relógio da saída = origem ÷
+  velocidade; cada quadro ocupa o último lugar da grade (`CurSlot`) que já
+  passou, lugar ocupado = descarta. `EncTb = 1/OutFps` e o pts É o lugar —
+  sem isso o relógio da origem (1/1000 no MKV) quantizaria quadros
+  acelerados no mesmo tique. O 1× segue pelo caminho antigo, intocado.
+- **Teto de fps:** origem × velocidade, limitado a `EXPORT_FPS_MAX` (1000 —
+  o MKV guarda o tempo em ms) e `EXPORT_FPS_MAX_SVT` (240, #51g). Medido nas
+  DLLs: `av1_amf`/`hevc_amf`/`h264_amf`/`libx264` abrem e codificam até
+  2000 fps em 1080p; o `libsvtav1` recusa acima de 240. A UI (`_maxFps`)
+  usa o mesmo teto e o seletor vai pro máximo quando a velocidade muda.
+- **Áudio: WSOLA próprio (`TTimeStretch`)**, sem libavfilter (não está
+  bindado). Janela Hann de 40 ms, passo de 20 ms, busca de ±10 ms por
+  correlação normalizada (grossa de 8 em 8, depois fina). Reamostrar
+  deixaria a voz fina. Validado portando a classe linha a linha pra Python
+  sobre o áudio real de uma gravação: duração EXATA no alvo, nível igual
+  (RMS 0,0195 → 0,0192 em 2×) e tom igual (centróide 80–1000 Hz 356 → 346
+  Hz em 2×, 370 → 364 em 8×, 391 → 391 em 512×). Em 512× vira "pescar" 40
+  ms a cada ~10 s — o som de avançar uma fita.
+- **Acelerado, áudio nunca é copiado** (o tempo muda): com mistura, a
+  mistura vai pela `AOuts[0]` (o mesmo `MixCtx`); sem mistura, cada faixa
+  escolhida ganha decoder + AAC próprios e continua separada. Cada trecho
+  é fechado com o número EXATO de amostras da linha do tempo
+  (`AOEndSegment`: completa com silêncio ou corta) — senão o áudio
+  escorregaria do vídeo emenda após emenda. Em velocidade alta a 1ª janela
+  de cada trecho sai "de graça" (até 20 ms a mais); o excesso ainda na fila
+  é cortado e o alvo do trecho seguinte é absoluto, então não acumula.
+- **Arquivo sem taxa declarada some com o seletor.** O MKV de uma UNIÃO
+  saía com `avg_frame_rate` 0/0 (a taxa não está no `codecpar`, e o
+  `avcodec_parameters_copy` não a leva): a tela via "0 fps" e escondia o
+  seletor, e a exportação chutava 30 numa gravação de 60. Três peças: o
+  helper de saída do `FFmpegOps` copia o `avg_frame_rate` (medido: 0/0 → 30/1
+  lido de volta); `EstimateFpsFromPackets` mede (quadros ÷ intervalo nos
+  primeiros 240 pacotes — não a mediana, que com tempo em ms dá 58,8 em 60
+  fps) no `Probe` e no `ExportVideo`; e um `videoInfo` cacheado com
+  `frameRate` 0 é sondado de novo.
+- A transcrição herdada (`ExportTranscript`, parâmetro `ASpeed`), a
+  duração e o fps da meta do arquivo novo são divididos/multiplicados pela
+  velocidade. A legenda gravada usa o relógio da ORIGEM, então acompanha
+  sozinha.
+
 **Bônus, e é o erro mais fácil de cometer:** as caps de encoder do
 `OBSEncoder.DetectEncoderCaps` são do **libobs** (`av1_texture_amf`,
 `obs_nvenc_*`). A exportação usa **libavcodec**, que tem outros nomes
@@ -1975,8 +2068,8 @@ Três consequências que não são óbvias:
   bilinear 2,69, área 2,54, fast_bilinear 6,71 — sim, o "fast" é o mais
   lento). Daí o `scaleAlgo` ser escolha do usuário. Depois disso, os
   ganhos restantes são atacar a serialização (hoje decode → escala →
-  encode rodam em sequência na mesma thread) ou decodificar por hardware
-  (`d3d11va`).
+  encode rodam em sequência na mesma thread). O decode por hardware
+  (`d3d11va`) já foi feito — pegadinha #51l.
 - **Ligar threading no decoder EXIGE drenar o decoder no fim do trecho.**
   Com threading em quadros o decoder segura vários quadros dentro dele; um
   trecho que termina por **EOF do arquivo** (e não por termos visto um
@@ -3123,8 +3216,9 @@ que a conclusão:
   silencia o áudio de qualquer jeito.
 - **`avcodec_find_decoder` para AV1 devolve `libaom-av1`.** Não há
   `libdav1d` no build, e o decoder nativo `av1` é só-hardware (decodificou
-  **0 quadros** sem hwaccel). Ou seja: todo decode de AV1 nosso — thumb,
-  exportação — passa pelo mais lento disponível. As thumbs funcionam, mas
+  **0 quadros** sem hwaccel). Ou seja: o decode de AV1 que não passa pela
+  placa — thumb, e a exportação quando o D3D11VA falha (#51l) — usa o mais
+  lento disponível. As thumbs funcionam, mas
   é bom saber de onde vem a lentidão.
 
 O `no-store` do `ServeFileWithRange` virou `private, max-age` para vídeo

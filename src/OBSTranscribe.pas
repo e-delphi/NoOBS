@@ -168,7 +168,7 @@ procedure DeleteTranscript(const APath: string);
 // os que atravessam um corte ficam, com o tempo aparado. Grava o JSON e o
 // texto da busca. False = origem sem transcricao ou ilegivel.
 function ExportTranscript(const ASrc, ADst: string;
-  const AStarts, AEnds: TArray<Double>): Boolean;
+  const AStarts, AEnds: TArray<Double>; ASpeed: Double = 1): Boolean;
 
 // Testa o servidor: GET /health. Devolve '' se ok, senao a mensagem.
 function CheckHealth(const AHost: string): string;
@@ -1931,7 +1931,7 @@ begin
 end;
 
 function ExportTranscript(const ASrc, ADst: string;
-  const AStarts, AEnds: TArray<Double>): Boolean;
+  const AStarts, AEnds: TArray<Double>; ASpeed: Double): Boolean;
 // Transcricao do arquivo exportado, no relogio DELE: so o que foi dito nos
 // trechos mantidos, com os trechos emendados sem buraco (a mesma linha do
 // tempo que a exportacao produz).
@@ -1976,8 +1976,9 @@ var
       end;
     Result := First >= 0;
     if not Result then Exit;
-    AOutFrom := Max(AFrom, AStarts[First]) - AStarts[First] + Offs[First];
-    AOutTo := Min(ATo, AEnds[Last]) - AStarts[Last] + Offs[Last];
+    // Exportacao acelerada: o relogio da saida anda ASpeed vezes mais rapido.
+    AOutFrom := (Max(AFrom, AStarts[First]) - AStarts[First] + Offs[First]) / ASpeed;
+    AOutTo := (Min(ATo, AEnds[Last]) - AStarts[Last] + Offs[Last]) / ASpeed;
     if AOutTo < AOutFrom then AOutTo := AOutFrom;
   end;
 
@@ -2086,8 +2087,8 @@ var
       Piece := Trim(PieceText(Txt, S, E, PA, PB));
       if Piece = '' then Continue;
       Clone := TJSONObject(ATurn.Clone);
-      SetPair(Clone, 'start', TJSONNumber.Create(PA - AStarts[x] + Offs[x]));
-      SetPair(Clone, 'end', TJSONNumber.Create(PB - AStarts[x] + Offs[x]));
+      SetPair(Clone, 'start', TJSONNumber.Create((PA - AStarts[x] + Offs[x]) / ASpeed));
+      SetPair(Clone, 'end', TJSONNumber.Create((PB - AStarts[x] + Offs[x]) / ASpeed));
       SetPair(Clone, 'text', TJSONString.Create(Piece));
       ADest.AddElement(Clone);
     end;
@@ -2097,6 +2098,7 @@ begin
   Result := False;
   if (Length(AStarts) = 0) or (Length(AStarts) <> Length(AEnds)) then Exit;
   if not HasTranscript(ASrc) then Exit;
+  if ASpeed <= 0 then ASpeed := 1;
   SetLength(Offs, Length(AStarts));
   Acc := 0;
   for i := 0 to High(AStarts) do

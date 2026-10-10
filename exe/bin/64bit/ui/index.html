@@ -243,6 +243,22 @@
         </div>
       </div>
 
+      <!-- Audio: logo depois da linha do tempo — a previa toca as faixas
+           marcadas aqui (Export._applyPreviewAudio). -->
+      <div class="export-field" id="exportAudioField">
+        <label data-i18n="export.audio">Áudio</label>
+        <label class="export-check" id="exportOrigAudioWrap" style="margin-bottom:7px">
+          <input type="checkbox" id="exportOrigAudio"
+                 onchange="Export.onOriginalAudioChange(this.checked)">
+          <span data-i18n="export.originalAudio">Manter o áudio original (as mesmas faixas da gravação)</span>
+        </label>
+        <div class="export-checks" id="exportAudio"></div>
+        <label class="export-check" id="exportMixWrap" style="margin-top:7px">
+          <input type="checkbox" id="exportMixAudio">
+          <span data-i18n="export.mixAudio">Juntar as faixas em uma só</span>
+        </label>
+      </div>
+
       <!-- Resolucao + encoder. `export-video-opt` = campo que so vale com
            video: sem nenhuma tela escolhida ele fica desativado. -->
       <div class="export-field export-video-opt">
@@ -266,6 +282,25 @@
         <label data-i18n="export.scale">Redimensionamento</label>
         <select class="export-input" id="exportScale"></select>
         <div class="export-hint" id="exportScaleHint"></div>
+      </div>
+
+      <!-- Velocidade: vale tambem so com audio (nao e export-video-opt).
+           Texto, nao type="number": o numero com virgula (1,5) e o jeito
+           natural em pt-BR e o campo numerico do Chromium o recusaria. -->
+      <div class="export-field" id="exportSpeedField">
+        <label for="exportSpeed" data-i18n="export.speed">Velocidade</label>
+        <div class="export-row">
+          <input type="text" class="export-input export-speed-input" id="exportSpeed"
+                 value="1" inputmode="decimal" autocomplete="off" spellcheck="false">
+          <span class="export-speed-x">×</span>
+          <div class="export-footer-spacer"></div>
+          <span class="export-estimate" id="exportSpeedValue"></span>
+        </div>
+        <div class="export-hint" data-i18n="export.speedHint">
+          Acelera o vídeo e o áudio (a voz mantém o tom), de 1× até 512×.
+          Todos os quadros são lidos: acelerado, cabem mais quadros por
+          segundo — um vídeo de 60 fps a 2× pode sair com até 120 fps.
+        </div>
       </div>
 
       <!-- Taxa de quadros -->
@@ -295,21 +330,6 @@
           <span class="export-estimate" id="exportQualityValue"></span>
         </div>
         <div class="export-hint" id="exportQualityHint"></div>
-      </div>
-
-      <!-- Audio -->
-      <div class="export-field" id="exportAudioField">
-        <label data-i18n="export.audio">Áudio</label>
-        <label class="export-check" id="exportOrigAudioWrap" style="margin-bottom:7px">
-          <input type="checkbox" id="exportOrigAudio"
-                 onchange="Export.onOriginalAudioChange(this.checked)">
-          <span data-i18n="export.originalAudio">Manter o áudio original (as mesmas faixas da gravação)</span>
-        </label>
-        <div class="export-checks" id="exportAudio"></div>
-        <label class="export-check" id="exportMixWrap" style="margin-top:7px">
-          <input type="checkbox" id="exportMixAudio">
-          <span data-i18n="export.mixAudio">Juntar as faixas em uma só</span>
-        </label>
       </div>
 
       <!-- Legenda queimada: a transcricao desenhada nos quadros. So existe

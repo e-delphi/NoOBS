@@ -110,6 +110,11 @@ const Export = {
     this.durationSec = 0;
     this.parts = [];
     this.playSec = 0;
+    const speedEl = document.getElementById('exportSpeed');
+    if (speedEl) { speedEl.value = '1'; speedEl.classList.remove('invalid'); }
+    this._syncSpeedValue();
+    // Faixas isoladas sao do arquivo anterior.
+    this._dropTracks();
 
     const ov = document.getElementById('exportOverlay');
     ov.classList.remove('running');
@@ -165,6 +170,7 @@ const Export = {
     // mantem o handle aberto e dividir/excluir a gravacao falharia.
     const v = document.getElementById('exportVideo');
     if (v) { try { v.pause(); } catch (e) {} v.removeAttribute('src'); v.load(); }
+    this._dropTracks();
     const wrap = document.querySelector('.export-preview-video');
     if (wrap) wrap.classList.remove('ready');
     // A tela cobre a janela inteira: sem rolar o corpo pro topo, reabrir
@@ -564,16 +570,127 @@ const Export = {
     } else v.pause();
   },
 
+  // Mudo/volume sao do USUARIO (_userMuted/_userVol), nao do <video>: o
+  // video tambem fica mudo quando a mistura nao esta entre as faixas
+  // escolhidas, e isso nao pode acender o botao de mudo.
   toggleMute() {
-    const v = document.getElementById('exportVideo');
-    if (!v) return;
-    v.muted = !v.muted;
+    this._userMuted = !this._userMuted;
     // Sair do mudo com volume zerado nao faria som nenhum.
-    if (!v.muted && v.volume === 0) {
-      v.volume = 1;
+    if (!this._userMuted && this._userVol === 0) {
+      this._userVol = 1;
       document.getElementById('exportVolume').value = 100;
     }
+    this._applyPreviewAudio();
+  },
+
+  // ---- audio da previa ------------------------------------------------
+  //
+  // A previa toca as faixas MARCADAS. O <video> so toca a faixa padrao do
+  // arquivo, que e a mistura (posicao 0); as isoladas tocam em <audio>
+  // proprios, com os mesmos M4A por faixa que o player extrai
+  // (request_audio_tracks), presos ao relogio do video.
+  //   - mistura marcada (ou "audio original"): so o <video>. No original
+  //     tocar a mistura JUNTO com as isoladas dobraria cada voz — e a
+  //     mistura e o que um player toca desse arquivo por padrao;
+  //   - so isoladas: <video> mudo + uma <audio> por faixa marcada, somadas
+  //     (o mesmo que o "juntar faixas" produz);
+  //   - nada marcado: silencio.
+
+  trackUrls: null,         // URL por posicao em audioStreams ([0] = '')
+  trackEls: [],            // <audio> por posicao (so as isoladas usadas)
+  _tracksRequested: false,
+  _userMuted: false,
+  _userVol: 1,
+  _trackTimer: null,
+
+  _audibleTracks() {
+    const n = this.audioStreams.length;
+    if (!n) return [];
+    if (this._useOriginalAudio()) return [0];
+    if (this.selectedAudio.has(this._mixIndex())) return [0];
+    const out = [];
+    this.audioStreams.forEach((s, k) => {
+      if (this.selectedAudio.has(s.index)) out.push(k);
+    });
+    return out;
+  },
+
+  _applyPreviewAudio() {
+    const v = document.getElementById('exportVideo');
+    if (!v) return;
+    const aud = this._audibleTracks();
+    v.volume = this._userVol;
+    v.muted = this._userMuted || !aud.includes(0);
+    const iso = aud.filter(k => k > 0);
+    // Extracao das faixas so quando uma isolada e pedida (leva segundos
+    // numa gravacao longa; o backend cacheia).
+    if (iso.length && !this.trackUrls && !this._tracksRequested && this.currentId) {
+      this._tracksRequested = true;
+      Bridge.send('request_audio_tracks', { id: this.currentId });
+    }
+    if (this.trackUrls) iso.forEach(k => this._trackEl(k));
+    this.trackEls.forEach((a, k) => {
+      if (!a) return;
+      a.volume = this._userVol;
+      a.muted = this._userMuted || !iso.includes(k);
+    });
+    this._syncTracks(true);
     this._syncPlayButtons();
+  },
+
+  _trackEl(k) {
+    if (this.trackEls[k]) return this.trackEls[k];
+    const url = this.trackUrls && this.trackUrls[k];
+    if (!url) return null;
+    const a = new Audio();
+    a.preload = 'auto';
+    a.src = url;
+    this.trackEls[k] = a;
+    return a;
+  },
+
+  onAudioTracks(data) {
+    if (!data || data.id !== this.currentId) return;
+    this.trackUrls = data.urls || [];
+    this._applyPreviewAudio();
+  },
+
+  // As faixas seguem o video: tocando/pausado, posicao (corrige acima de
+  // 0,1 s, como o player) e taxa. Faixa muda fica parada — nao gasta nada.
+  _syncTracks(force) {
+    const v = document.getElementById('exportVideo');
+    if (!v) return;
+    let live = false;
+    this.trackEls.forEach(a => {
+      if (!a) return;
+      if (a.muted) { if (!a.paused) a.pause(); return; }
+      live = true;
+      try { a.playbackRate = v.playbackRate; } catch (e) {}
+      if (force || Math.abs(a.currentTime - v.currentTime) > 0.1) {
+        try { a.currentTime = v.currentTime; } catch (e) {}
+      }
+      if (v.paused || v.ended) { if (!a.paused) a.pause(); }
+      else if (a.paused) { const p = a.play(); if (p && p.catch) p.catch(() => {}); }
+    });
+    if (live && !v.paused) {
+      if (!this._trackTimer)
+        this._trackTimer = setInterval(() => this._syncTracks(false), 250);
+    } else if (this._trackTimer) {
+      clearInterval(this._trackTimer);
+      this._trackTimer = null;
+    }
+  },
+
+  // Solta as faixas (o servidor local segura o arquivo enquanto ha URL).
+  _dropTracks() {
+    if (this._trackTimer) { clearInterval(this._trackTimer); this._trackTimer = null; }
+    this.trackEls.forEach(a => {
+      if (!a) return;
+      try { a.pause(); a.removeAttribute('src'); a.load(); } catch (e) {}
+    });
+    this.trackEls = [];
+    this.trackUrls = null;
+    this._tracksRequested = false;
   },
 
   _syncPlayButtons() {
@@ -589,7 +706,7 @@ const Export = {
     }
     if (mute) {
       mute.disabled = !usable;
-      const silent = v.muted || v.volume === 0;
+      const silent = this._userMuted || this._userVol === 0;
       mute.classList.toggle('muted', silent);
       mute.dataset.hint = silent ? T('export.unmute') : T('export.mute');
     }
@@ -607,10 +724,13 @@ const Export = {
       if (v.paused) return;
       this._setPlaySec(v.currentTime);
     });
-    v.addEventListener('play', () => this._syncPlayButtons());
-    v.addEventListener('pause', () => this._syncPlayButtons());
-    v.addEventListener('ended', () => this._syncPlayButtons());
+    v.addEventListener('play', () => { this._syncPlayButtons(); this._syncTracks(true); });
+    v.addEventListener('pause', () => { this._syncPlayButtons(); this._syncTracks(true); });
+    v.addEventListener('ended', () => { this._syncPlayButtons(); this._syncTracks(true); });
     v.addEventListener('volumechange', () => this._syncPlayButtons());
+    // Cursor arrastado / pulo: as faixas isoladas vao junto.
+    v.addEventListener('seeked', () => this._syncTracks(true));
+    v.addEventListener('ratechange', () => this._syncTracks(true));
 
     // "Pronto" sai de eventos PERSISTENTES, nao de um `loadeddata` de
     // disparo unico: se ele nao vier (midia em cache, troca de arquivo,
@@ -636,9 +756,9 @@ const Export = {
     });
 
     vol.addEventListener('input', () => {
-      v.volume = (+vol.value || 0) / 100;
-      if (v.volume > 0) v.muted = false;
-      this._syncPlayButtons();
+      this._userVol = (+vol.value || 0) / 100;
+      if (this._userVol > 0) this._userMuted = false;
+      this._applyPreviewAudio();
     });
 
     // Espaco toca/pausa — mas nunca enquanto o foco esta num campo de
@@ -666,6 +786,8 @@ const Export = {
     const len = document.getElementById('exportRangeLen');
     if (len) len.textContent =
       T('export.rangeLength', { len: this._fmtTime(this.keptDuration()) });
+    // Cortar muda a duracao final do acelerado.
+    this._syncSpeedValue();
     this._syncPartButtons();
   },
 
@@ -811,6 +933,8 @@ const Export = {
     v.src = data.url;
     v.addEventListener('loadedmetadata',
       () => this._seekTo(this.playSec), { once: true });
+    // Mudo/volume e as faixas valem ja pra fonte nova.
+    this._applyPreviewAudio();
   },
 
   _parseTime(txt) {
@@ -1898,6 +2022,8 @@ const Export = {
     const cb = document.getElementById('exportMixAudio');
     cb.disabled = !canMix;
     if (!canMix) cb.checked = false;
+    // A previa passa a tocar o que esta marcado.
+    this._applyPreviewAudio();
   },
 
   // ---- qualidade ------------------------------------------------------
@@ -1940,28 +2066,120 @@ const Export = {
     return 'export.crfBandLow';
   },
 
+  // ---- velocidade ----------------------------------------------------
+  //
+  // 1x a 512x, fracao vale (com virgula ou ponto). O backend clampa de novo
+  // (EXPORT_SPEED_MAX). Invalido = 1x, com a borda vermelha avisando.
+
+  SPEED_MAX: 512,
+
+  _speed() {
+    const el = document.getElementById('exportSpeed');
+    const raw = el ? String(el.value).trim().replace(',', '.') : '1';
+    const v = Number(raw);
+    if (!raw || !isFinite(v) || v < 1) return 1;
+    return Math.min(this.SPEED_MAX, v);
+  },
+
+  _onSpeedInput() {
+    const el = document.getElementById('exportSpeed');
+    if (el) {
+      const raw = String(el.value).trim().replace(',', '.');
+      const v = Number(raw);
+      el.classList.toggle('invalid',
+        raw !== '' && (!isFinite(v) || v < 1 || v > this.SPEED_MAX));
+    }
+    // A taxa acompanha a velocidade: o teto cresce junto e o seletor vai
+    // pra ele (todo quadro da origem entra, que e o pedido de quem acelera).
+    this._renderFps(false);
+    this._syncSpeedValue();
+  },
+
+  // Degraus das setas: finos perto de 1x (onde 0,25 faz diferenca), largos
+  // la em cima (de 300 pra 301 ninguem nota). Quem quer um valor fora da
+  // escada digita.
+  SPEED_STEPS: [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20,
+                24, 32, 48, 64, 96, 128, 192, 256, 384, 512],
+
+  _stepSpeed(dir) {
+    const cur = this._speed();
+    const steps = this.SPEED_STEPS;
+    let next = cur;
+    if (dir > 0) next = steps.find(s => s > cur + 1e-9) ?? this.SPEED_MAX;
+    else {
+      for (let i = steps.length - 1; i >= 0; i--)
+        if (steps[i] < cur - 1e-9) { next = steps[i]; break; }
+      if (next === cur) next = 1;
+    }
+    const el = document.getElementById('exportSpeed');
+    const loc = (typeof I18n !== 'undefined' && I18n.language) || undefined;
+    if (el) el.value = next.toLocaleString(loc, { maximumFractionDigits: 2, useGrouping: false });
+    this._onSpeedInput();
+  },
+
+  // Ao sair do campo, mostra o numero que vale de fato (clampado).
+  _normalizeSpeedInput() {
+    const el = document.getElementById('exportSpeed');
+    if (!el) return;
+    const s = this._speed();
+    const loc = (typeof I18n !== 'undefined' && I18n.language) || undefined;
+    el.value = s.toLocaleString(loc, { maximumFractionDigits: 2, useGrouping: false });
+    el.classList.remove('invalid');
+    this._renderFps(true);
+    this._syncSpeedValue();
+  },
+
+  _syncSpeedValue() {
+    const el = document.getElementById('exportSpeedValue');
+    if (!el) return;
+    const s = this._speed();
+    el.textContent = s > 1
+      ? T('export.speedResult', { len: this._fmtTime(this.keptDuration() / s) })
+      : '';
+  },
+
   // ---- taxa de quadros ------------------------------------------------
   //
-  // Faixa: 20 ate a taxa da ORIGEM. Fonte com 20fps ou menos nao tem o
-  // que reduzir, entao o controle some.
+  // Faixa: 20 ate a taxa da ORIGEM x VELOCIDADE (acelerado, cada segundo
+  // da saida tem mais quadros da origem), limitada ao que o container e o
+  // encoder aguentam — o mesmo teto do backend (EXPORT_FPS_MAX e
+  // EXPORT_FPS_MAX_SVT). Teto de 20 ou menos: nao ha o que escolher, o
+  // controle some.
 
-  _renderFps() {
+  FPS_MAX: 1000,
+  FPS_MAX_SVT: 240,
+
+  _maxFps() {
+    const src = Math.round(this.srcFps || 0);
+    if (!src) return 0;
+    const s = this._speed();
+    let max = s > 1 ? Math.floor(src * s + 1e-6) : src;
+    const enc = document.getElementById('exportEncoder');
+    const cap = (enc && enc.value === 'av1-sw') ? this.FPS_MAX_SVT : this.FPS_MAX;
+    if (s > 1) max = Math.min(max, cap);
+    return max;
+  },
+
+  // AKeep = manter a escolha atual se ela ainda couber (troca de encoder,
+  // sair do campo). Sem ele o seletor vai pro teto (abrir, mudar velocidade).
+  _renderFps(AKeep) {
     const field = document.getElementById('exportFpsField');
     const sl = document.getElementById('exportFps');
-    const src = Math.round(this.srcFps || 0);
-    if (!src || src <= 20) { field.style.display = 'none'; return; }
+    const max = this._maxFps();
+    if (!max || max <= 20) { field.style.display = 'none'; return; }
     field.style.display = '';
+    const prev = +sl.value || max;
     sl.min = 20;
-    sl.max = src;
-    sl.value = src;
+    sl.max = max;
+    sl.value = AKeep ? Math.min(prev, max) : max;
     this._syncFpsValue();
   },
 
   _targetFps() {
     const sl = document.getElementById('exportFps');
-    const src = Math.round(this.srcFps || 0);
-    if (!src || src <= 20) return 0;          // 0 = mantem a da origem
-    return Math.max(20, Math.min(src, +sl.value || src));
+    const max = this._maxFps();
+    if (!max || max <= 20) return 0;          // 0 = o teto (backend calcula)
+    return Math.max(20, Math.min(max, +sl.value || max));
   },
 
   _syncFpsValue() {
@@ -2038,6 +2256,8 @@ const Export = {
       crop: (!this.noVideo && this._hasCrop()) ? { ...this.crop } : null,
       targetHeight: +document.getElementById('exportResolution').value || 0,
       fps: this._targetFps(),
+      // 1 = normal. Acelera video e audio; o teto do fps cresce junto.
+      speed: this._speed(),
       encoder: document.getElementById('exportEncoder').value || 'auto',
       // CRF cru (0..51). O backend traduz pro controle nativo do encoder
       // escolhido; nao ha alvo de bitrate na exportacao.
@@ -2254,6 +2474,22 @@ const Export = {
     if (q) q.addEventListener('input', () => this._syncQualityValue());
     const f = document.getElementById('exportFps');
     if (f) f.addEventListener('input', () => this._syncFpsValue());
+    const sp = document.getElementById('exportSpeed');
+    if (sp) {
+      sp.addEventListener('input', () => this._onSpeedInput());
+      sp.addEventListener('change', () => this._normalizeSpeedInput());
+      // Setas: proximo/anterior degrau da escada (o campo e texto, entao
+      // nao ganha as setas do type="number" de graca).
+      sp.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+        ev.preventDefault();
+        this._stepSpeed(ev.key === 'ArrowUp' ? 1 : -1);
+      });
+    }
+    // O SVT-AV1 tem teto proprio de fps (240): trocar de encoder pode
+    // baixar o teto do seletor.
+    const enc = document.getElementById('exportEncoder');
+    if (enc) enc.addEventListener('change', () => this._renderFps(true));
     // Sem clique-fora-fecha: e uma TELA, nao um dialogo — nao existe
     // "fora". Sai pelo botao de voltar ou por Esc.
     document.addEventListener('keydown', (ev) => {

@@ -355,7 +355,12 @@ const Bridge = {
       if (Export.isWaitingFor(data && data.id)) Export.onVideoInfo(data);
       else Player.renderInfo(data);
     },
-    audio_tracks_ready(data) { Player.onAudioTracksReady(data); },
+    // Faixas isoladas: a previa da exportacao tambem as toca (as faixas
+    // marcadas la), entao vai pra quem esta esperando o id.
+    audio_tracks_ready(data) {
+      if (Export.isWaitingFor(data && data.id)) Export.onAudioTracks(data);
+      else Player.onAudioTracksReady(data);
+    },
     // A versao em alta resolucao (hi) e da linha do tempo da exportacao;
     // a comum, do player.
     waveform_ready(data) {

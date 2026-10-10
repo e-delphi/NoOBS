@@ -67,10 +67,19 @@ type
     // Altura final desejada. 0 = mantem a altura composta. Nunca faz
     // upscale: se for maior que a origem, e ignorada.
     TargetHeight: Integer;
-    // Taxa de quadros final. 0 = mantem a da origem. Nunca aumenta (nao
-    // ha como inventar quadro). Quadros fora da cadencia sao descartados
-    // ANTES de compor/escalar, entao cada um economiza o trabalho todo.
+    // Taxa de quadros final. 0 = a maior possivel. Nunca passa da taxa da
+    // origem VEZES A VELOCIDADE (nao ha como inventar quadro; acelerado,
+    // cabem mais quadros da origem em cada segundo da saida), nem de
+    // EXPORT_FPS_MAX. Quadros fora da cadencia sao descartados ANTES de
+    // compor/escalar, entao cada um economiza o trabalho todo.
     TargetFps: Integer;
+    // Velocidade da saida: 1 = normal, 2 = o dobro (metade da duracao),
+    // ate EXPORT_SPEED_MAX. Fracao vale (1,5). 0 ou abaixo de 1 = 1. Todo
+    // quadro da origem e decodificado — nada de pular por keyframe —, e a
+    // cadencia da saida escolhe os que entram. O audio e acelerado junto,
+    // mantendo o tom (TTimeStretch), e por isso deixa de ser copiado:
+    // toda faixa escolhida e recodificada.
+    Speed: Double;
     // Nome do encoder no libavcodec ('libx264', 'h264_amf', ...).
     EncoderName: AnsiString;
     // Algoritmo de reamostragem do swscale, no vocabulario do app:
@@ -135,6 +144,15 @@ const
   EXPORT_CRF_MIN     = 0;
   EXPORT_CRF_MAX     = 51;
   EXPORT_CRF_DEFAULT = 23;   // default do x264, bom meio-termo
+
+  // Velocidade maxima da exportacao acelerada.
+  EXPORT_SPEED_MAX = 512;
+  // Teto da taxa de quadros de saida. O MKV guarda o tempo em
+  // MILISSEGUNDOS: acima de 1000 fps dois quadros cairiam no mesmo
+  // instante. Os encoders de hardware e o x264 aceitam mais (medido ate
+  // 2000), mas nenhuma tela mostra isso. O SVT-AV1 para em 240 (#51g).
+  EXPORT_FPS_MAX     = 1000;
+  EXPORT_FPS_MAX_SVT = 240;
 
 // Encoders que EXISTEM de fato no avcodec empacotado e servem pra este
 // GPU. Cuidado: OBSEncoder.DetectEncoderCaps enumera os encoders do
@@ -244,10 +262,83 @@ type
     SrcIdx: Integer;          // stream index no source
     OutIdx: Integer;          // stream index na saida (-1 = entra no mix)
     SrcTb: AVRational;
-    DecCtx: PAVCodecContext;  // so no modo mix
+    DecCtx: PAVCodecContext;  // no modo mix e no acelerado
     Done: Boolean;            // ja passou do fim do trecho
+    AOut: Integer;            // acelerado sem mix: indice em AOuts
   end;
   TAudioTrackArray = TArray<TAudioTrack>;
+
+  // Acelera o audio SEM mudar o tom (WSOLA: sobreposicao de janelas com
+  // busca de forma de onda). Simplesmente reamostrar deixaria a voz fina
+  // (2x = uma oitava acima); o que se espera de um video acelerado e o
+  // que os players fazem: mesma voz, falando mais rapido.
+  //
+  // Como funciona: a saida e montada com janelas de Hann de FW amostras,
+  // uma a cada FHo (metade da janela — com Hann a soma das sobreposicoes
+  // da exatamente 1). Na entrada, cada janela e lida FHi = FHo x
+  // velocidade depois da anterior. Tirar a janela exatamente ali emendaria
+  // ondas fora de fase (chiado, "eco metalico"); por isso a leitura pode
+  // escorregar ate FTol pra cada lado, pro ponto que mais se parece com a
+  // continuacao natural do trecho anterior (correlacao normalizada, grossa
+  // de 8 em 8 amostras e depois fina em volta da melhor).
+  //
+  // Em velocidade alta (100x, 512x) o resultado e "pescar" 40 ms a cada
+  // poucos segundos — o som de avancar uma fita, que e o esperado.
+  //
+  // Planar float (FLTP, o que o AAC decodifica). Um objeto por saida; um
+  // trecho do video por vez — Finish fecha o trecho com a contagem exata
+  // de amostras e reinicia.
+  TTimeStretch = class
+  private
+    FCh, FW, FHo, FTol: Integer;
+    FHi: Double;
+    FIn: TArray<TArray<Single>>;     // entrada guardada, por canal
+    FInBase, FInEnd: Int64;          // faixa absoluta guardada: [Base, End)
+    FKeepFrom: Int64;                // antes disto nada mais sera lido
+    FAcc: TArray<TArray<Single>>;    // sobreposicao em montagem (FW)
+    FWin: TArray<Single>;
+    FTail: TArray<Single>;           // continuacao natural (mono, FHo)
+    FHasTail: Boolean;
+    FK: Int64;                       // janelas ja montadas no trecho
+    FMade: Int64;                    // amostras produzidas no trecho
+    function Sample(ACh: Integer; APos: Int64): Single; inline;
+    function Mono(APos: Int64): Single; inline;
+    function BestStart(ANominal: Int64): Int64;
+    procedure Step(AStart: Int64);
+    procedure Restart;
+  public
+    // Saida pronta, por canal: OutN amostras. Quem consome zera OutN.
+    Outp: TArray<TArray<Single>>;
+    OutN: Integer;
+    constructor Create(AChannels, ASampleRate: Integer; ASpeed: Double);
+    // APlanes = um ponteiro por canal; nil = silencio.
+    procedure Put(APlanes: PPointer; N: Integer);
+    // Monta tudo o que a entrada recebida ja permite.
+    procedure Process;
+    // Fecha o trecho: completa com silencio e corta pra que saiam
+    // EXATAMENTE AMore amostras alem das ja produzidas — e o que mantem o
+    // audio grudado no video emenda apos emenda. Depois, comeca do zero.
+    procedure Finish(AMore: Int64);
+  end;
+
+  // Uma saida de audio RECODIFICADA na exportacao acelerada: a mistura, ou
+  // uma por faixa escolhida. A fila refaz os quadros no tamanho que o
+  // encoder exige (o esticador entrega pedacos de qualquer tamanho).
+  TAudioOut = record
+    Enc: PAVCodecContext;
+    Stream: PAVStream;
+    Tb: AVRational;                  // 1/taxa de amostragem
+    FrameSize: Integer;
+    Ch: Integer;
+    Tpl: PAVFrame;                   // modelo do ch_layout (1o quadro)
+    Buf: TArray<TArray<Single>>;
+    N: Integer;
+    NextPts: Int64;                  // em Tb — contagem continua
+    Stretch: TTimeStretch;
+    OwnsEnc: Boolean;                // False = e o MixCtx (liberado a parte)
+  end;
+  TAudioOutArray = TArray<TAudioOut>;
+  PAudioOut = ^TAudioOut;
 
 // =====================================================================
 // Helpers locais
@@ -316,6 +407,233 @@ function SecToTs(ASec: Double; const ATb: AVRational): Int64; inline;
 begin
   if ATb.num <= 0 then Exit(0);
   Result := Round(ASec / (ATb.num / ATb.den));
+end;
+
+// =====================================================================
+// TTimeStretch
+// =====================================================================
+
+constructor TTimeStretch.Create(AChannels, ASampleRate: Integer;
+  ASpeed: Double);
+var
+  i: Integer;
+begin
+  inherited Create;
+  FCh := Max(1, AChannels);
+  // Janela de 40 ms, passo de 20 ms, busca de +-10 ms: o meio-termo
+  // classico pra voz (janela curta corta silaba; longa vira eco).
+  FHo := Max(64, Round(ASampleRate * 0.020));
+  FW := FHo * 2;
+  FTol := Max(8, Round(ASampleRate * 0.010));
+  FHi := FHo * ASpeed;
+  SetLength(FWin, FW);
+  // Hann PERIODICA: com passo de meia janela as sobreposicoes somam 1.
+  for i := 0 to FW - 1 do
+    FWin[i] := 0.5 - 0.5 * Cos(2 * Pi * i / FW);
+  SetLength(FIn, FCh);
+  SetLength(FAcc, FCh);
+  SetLength(Outp, FCh);
+  for i := 0 to FCh - 1 do
+    SetLength(FAcc[i], FW);
+  SetLength(FTail, FHo);
+  Restart;
+end;
+
+procedure TTimeStretch.Restart;
+var
+  ch: Integer;
+begin
+  FInBase := 0;
+  FInEnd := 0;
+  FKeepFrom := -FTol;
+  FHasTail := False;
+  FK := 0;
+  FMade := 0;
+  for ch := 0 to FCh - 1 do
+    FillChar(FAcc[ch][0], FW * SizeOf(Single), 0);
+end;
+
+function TTimeStretch.Sample(ACh: Integer; APos: Int64): Single;
+begin
+  if (APos < FInBase) or (APos >= FInEnd) then Result := 0
+  else Result := FIn[ACh][APos - FInBase];
+end;
+
+function TTimeStretch.Mono(APos: Int64): Single;
+var
+  ch: Integer;
+begin
+  Result := 0;
+  if (APos < FInBase) or (APos >= FInEnd) then Exit;
+  for ch := 0 to FCh - 1 do
+    Result := Result + FIn[ch][APos - FInBase];
+end;
+
+procedure TTimeStretch.Put(APlanes: PPointer; N: Integer);
+var
+  OldEnd, NewBase: Int64;
+  Keep, Skip, Len, ch, Dst: Integer;
+  Src: PSingle;
+begin
+  if N <= 0 then Exit;
+  OldEnd := FInEnd;
+  FInEnd := FInEnd + N;
+  // Descarta a frente que nenhuma janela vai mais ler. Em velocidade alta
+  // quase toda a entrada cai aqui: so o que esta perto da proxima leitura
+  // e guardado.
+  NewBase := Max(FInBase, Min(FKeepFrom, FInEnd));
+  if NewBase > FInBase then
+  begin
+    Keep := Max(Int64(0), OldEnd - NewBase);
+    if Keep > 0 then
+      for ch := 0 to FCh - 1 do
+        Move(FIn[ch][NewBase - FInBase], FIn[ch][0], Keep * SizeOf(Single));
+    FInBase := NewBase;
+  end;
+  Skip := Max(Int64(0), FInBase - OldEnd);
+  if Skip >= N then Exit;
+  Len := FInEnd - FInBase;
+  Dst := OldEnd + Skip - FInBase;
+  for ch := 0 to FCh - 1 do
+  begin
+    if Length(FIn[ch]) < Len then SetLength(FIn[ch], Max(4096, Len * 2));
+    if APlanes = nil then
+      FillChar(FIn[ch][Dst], (N - Skip) * SizeOf(Single), 0)
+    else
+    begin
+      Src := PSingle(PPointer(NativeUInt(APlanes) + NativeUInt(ch) * SizeOf(Pointer))^);
+      if Src = nil then
+        FillChar(FIn[ch][Dst], (N - Skip) * SizeOf(Single), 0)
+      else
+        Move(PSingle(NativeUInt(Src) + NativeUInt(Skip) * SizeOf(Single))^,
+          FIn[ch][Dst], (N - Skip) * SizeOf(Single));
+    end;
+  end;
+end;
+
+function TTimeStretch.BestStart(ANominal: Int64): Int64;
+const
+  COARSE = 8;   // passo da busca grossa
+var
+  c, Lo, Hi, Best: Int64;
+  i: Integer;
+  Corr, En, Score, BestScore, v: Double;
+
+  function Eval(AStart: Int64; AStep: Integer): Double;
+  var
+    k: Integer;
+  begin
+    Corr := 0;
+    En := 0;
+    k := 0;
+    while k < FHo do
+    begin
+      v := Mono(AStart + k);
+      Corr := Corr + v * FTail[k];
+      En := En + v * v;
+      Inc(k, AStep);
+    end;
+    if En <= 1E-12 then Result := 0
+    else Result := Corr / Sqrt(En);
+  end;
+
+begin
+  Result := ANominal;
+  if not FHasTail then Exit;
+  Lo := ANominal - FTol;
+  Hi := ANominal + FTol;
+  Best := ANominal;
+  BestScore := -1E300;
+  c := Lo;
+  while c <= Hi do
+  begin
+    Score := Eval(c, COARSE);
+    if Score > BestScore then begin BestScore := Score; Best := c; end;
+    Inc(c, COARSE);
+  end;
+  // Refina em volta da melhor, amostra a amostra (de 2 em 2 no produto).
+  c := Best;
+  BestScore := -1E300;
+  for i := -COARSE to COARSE do
+  begin
+    if (c + i < Lo) or (c + i > Hi) then Continue;
+    Score := Eval(c + i, 2);
+    if Score > BestScore then begin BestScore := Score; Result := c + i; end;
+  end;
+end;
+
+procedure TTimeStretch.Step(AStart: Int64);
+var
+  ch, i, Need: Integer;
+begin
+  for ch := 0 to FCh - 1 do
+    for i := 0 to FW - 1 do
+      FAcc[ch][i] := FAcc[ch][i] + FWin[i] * Sample(ch, AStart + i);
+  // A primeira metade nao recebe mais nada: sai pronta.
+  Need := OutN + FHo;
+  for ch := 0 to FCh - 1 do
+  begin
+    if Length(Outp[ch]) < Need then SetLength(Outp[ch], Max(4096, Need * 2));
+    Move(FAcc[ch][0], Outp[ch][OutN], FHo * SizeOf(Single));
+    Move(FAcc[ch][FHo], FAcc[ch][0], (FW - FHo) * SizeOf(Single));
+    FillChar(FAcc[ch][FW - FHo], FHo * SizeOf(Single), 0);
+  end;
+  Inc(OutN, FHo);
+  Inc(FMade, FHo);
+  // Continuacao natural: o que viria logo depois da metade que acabou de
+  // sair. A proxima janela procura o trecho que mais se parece com isto.
+  for i := 0 to FHo - 1 do
+    FTail[i] := Mono(AStart + FHo + i);
+  FHasTail := True;
+  Inc(FK);
+  FKeepFrom := Round(FK * FHi) - FTol;
+end;
+
+procedure TTimeStretch.Process;
+var
+  A: Int64;
+begin
+  while True do
+  begin
+    A := Round(FK * FHi);
+    if A + FTol + FW > FInEnd then Break;   // falta entrada
+    Step(BestStart(A));
+  end;
+end;
+
+procedure TTimeStretch.Finish(AMore: Int64);
+var
+  Need, ATarget: Int64;
+  Extra, ch: Integer;
+begin
+  // OutN pendente conta como ja produzido (FMade inclui).
+  ATarget := FMade + Max(Int64(0), AMore);
+  // Silencio ate produzir o bastante: e ele que fecha a ultima janela com
+  // a descida da Hann, sem estalo.
+  while FMade < ATarget do
+  begin
+    Need := Round(FK * FHi) + FTol + FW - FInEnd;
+    if Need > 0 then
+    begin
+      // Silencio que cairia antes da proxima leitura nem precisa existir.
+      // Tudo o que estava guardado tambem fica antes dela: sai junto.
+      if FInEnd + Need <= FKeepFrom then
+      begin
+        FInEnd := FInEnd + Need;
+        FInBase := FInEnd;
+      end
+      else
+        Put(nil, Integer(Min(Need, Int64(High(Integer) div 8))));
+    end;
+    Process;
+  end;
+  // Produziu demais (a ultima janela passou do alvo): o excesso esta no
+  // fim da saida pronta.
+  Extra := Integer(Min(Int64(OutN), FMade - ATarget));
+  if Extra > 0 then Dec(OutN, Extra);
+  for ch := 0 to FCh - 1 do
+    FillChar(FAcc[ch][0], FW * SizeOf(Single), 0);
+  Restart;
 end;
 
 // =====================================================================
@@ -617,8 +935,9 @@ procedure BlitRegion(const AReg: TCompRegion; ASrc, ADst: PAVFrame);
 // recorte sai de graca deslocando os ponteiros de plano — o linesize
 // (passo da linha) continua sendo o do frame inteiro.
 //
-// Assume ambos em planar YUV 4:2:0 8 bits (o chamador garante, ver
-// NeedsNormalize em ExportVideo). Croma tem metade da resolucao nos dois
+// Destino em planar YUV 4:2:0 8 bits; origem nele ou em NV12 (o chamador
+// garante, ver NeedsNormalize em ExportVideo, e o SwsContext da regiao foi
+// criado com o mesmo formato). Croma tem metade da resolucao nos dois
 // eixos, dai o `div 2` nos offsets dos planos 1 e 2.
 var
   SrcData, DstData: array[0..7] of PByte;
@@ -638,12 +957,24 @@ begin
 
   SrcData[0] := PByte(NativeUInt(ASrc.data[0]) +
     NativeUInt(AReg.SrcY) * NativeUInt(SrcLs[0]) + NativeUInt(AReg.SrcX));
-  SrcData[1] := PByte(NativeUInt(ASrc.data[1]) +
-    NativeUInt(AReg.SrcY div 2) * NativeUInt(SrcLs[1]) +
-    NativeUInt(AReg.SrcX div 2));
-  SrcData[2] := PByte(NativeUInt(ASrc.data[2]) +
-    NativeUInt(AReg.SrcY div 2) * NativeUInt(SrcLs[2]) +
-    NativeUInt(AReg.SrcX div 2));
+  if ASrc.format = AV_PIX_FMT_NV12 then
+  begin
+    // NV12 (decode na placa): um plano so de croma, U e V intercalados.
+    // Cada amostra de croma ocupa 2 bytes e cobre 2 pixels, entao o
+    // deslocamento em bytes e o proprio SrcX (que e par).
+    SrcData[1] := PByte(NativeUInt(ASrc.data[1]) +
+      NativeUInt(AReg.SrcY div 2) * NativeUInt(SrcLs[1]) +
+      NativeUInt(AReg.SrcX));
+  end
+  else
+  begin
+    SrcData[1] := PByte(NativeUInt(ASrc.data[1]) +
+      NativeUInt(AReg.SrcY div 2) * NativeUInt(SrcLs[1]) +
+      NativeUInt(AReg.SrcX div 2));
+    SrcData[2] := PByte(NativeUInt(ASrc.data[2]) +
+      NativeUInt(AReg.SrcY div 2) * NativeUInt(SrcLs[2]) +
+      NativeUInt(AReg.SrcX div 2));
+  end;
 
   DstData[0] := PByte(NativeUInt(ADst.data[0]) +
     NativeUInt(AReg.DstY) * NativeUInt(DstLs[0]) + NativeUInt(AReg.DstX));
@@ -957,12 +1288,22 @@ var
   EncPar: PAVCodecParameters;
   Pkt, EncPkt: PAVPacket;
   Frame, NormFrame, OutFrame, AccFrame: PAVFrame;
+  // Decode na placa (OpenHwVideoDecoder): o device D3D11VA, o quadro que
+  // recebe a copia da textura, e se esse caminho esta valendo. ProbeFmt e
+  // o formato do quadro que o ProbeVideoDecode viu.
+  HwDev: Pointer;
+  HwFrame: PAVFrame;
+  HwDecoding: Boolean;
+  ProbeFmt: Integer;
+  // Nome do decoder de VIDEO pro log. Nao use Decoder.name depois da
+  // montagem das faixas: aquele laco reaproveita a variavel pro audio.
+  VDecName: string;
   NormSws: SwsContext;
   Regs: TCompRegionArray;
   Tracks: TAudioTrackArray;
   OutW, OutH, Fps, OutFps, SrcFmt, SegIdx: Integer;
   DropFrames: Boolean;
-  FrameInterval, NextKeepSec, OutSec: Double;
+  FrameInterval, NextKeepSec, OutSec, FpsMeasured: Double;
   VideoTb, EncTb, MixTb, MixSrcTb, FpsRat: AVRational;
   SegStartTs, SegEndTs: Int64;
   // Ultimo pts entregue ao encoder de video, na time_base DELE. Serve pra
@@ -996,6 +1337,14 @@ var
   FifoN, FifoCh: Integer;
   FifoPts: Int64;                    // pts (MixTb) da 1a amostra da fila
   TplFrame: PAVFrame;                // modelo do ch_layout
+  // Exportacao acelerada (AOpts.Speed). SpeedMode = velocidade diferente de
+  // 1: o relogio da saida anda Speed vezes mais devagar que o da origem, o
+  // video sai em CFR pela grade de quadros da saida (CurSlot = indice do
+  // quadro, que e o pts com EncTb = 1/OutFps) e o audio vai pelas AOuts.
+  Speed: Double;
+  SpeedMode: Boolean;
+  NextSlot, CurSlot: Int64;
+  AOuts: TAudioOutArray;
 
   procedure ReportProgress(ASec: Double);
   // ASec = posicao dentro do trecho corrente, no tempo do ORIGINAL. O que
@@ -1006,7 +1355,7 @@ var
   begin
     if not Assigned(AProgress) then Exit;
     if TotalSec <= 0 then Exit;
-    Pct := (OutOffsetSec + (ASec - SegStartSec)) / TotalSec * 100;
+    Pct := (OutOffsetSec + (ASec - SegStartSec) / Speed) / TotalSec * 100;
     if Pct < 0 then Pct := 0;
     if Pct > 100 then Pct := 100;
     // So notifica a cada 0.5% — quem consome ainda limita por tempo.
@@ -1140,6 +1489,154 @@ var
     Result := FifoEmit(False);
   end;
 
+  // ---- saidas de audio da exportacao acelerada (AOuts) ----
+  // Mesma ideia da fila do MP3 (FifoEmit), generalizada: N saidas, cada
+  // uma com o seu encoder, e o esticador de tempo na frente. Acesso por
+  // ponteiro (o array nao muda de tamanho depois de montado) — e NADA de
+  // `with`: os campos N/Ch colidiriam com variaveis locais (Delphi nao
+  // diferencia maiuscula) e o `with` ganharia em silencio.
+
+  function AOEmit(AIdx: Integer; AFinal: Boolean): Boolean;
+  // Manda pro encoder os quadros completos da fila (AFinal: o resto num
+  // quadro curto — AAC e MP3 aceitam o ultimo menor).
+  var
+    A: PAudioOut;
+    F: PAVFrame;
+    Cnt, c, R: Integer;
+  begin
+    Result := True;
+    A := @AOuts[AIdx];
+    while (A.N >= A.FrameSize) or (AFinal and (A.N > 0)) do
+    begin
+      if A.Tpl = nil then Exit(False);
+      Cnt := Min(A.N, A.FrameSize);
+      F := av_frame_alloc;
+      if F = nil then Exit(False);
+      try
+        F.nb_samples := Cnt;
+        F.format := AV_SAMPLE_FMT_FLTP;
+        PInteger(PByte(F) + OFFS_FRAME_SAMPLE_RATE)^ := A.Tb.den;
+        if av_channel_layout_copy(PByte(F) + OFFS_FRAME_CH_LAYOUT,
+             PByte(A.Tpl) + OFFS_FRAME_CH_LAYOUT) < 0 then Exit(False);
+        R := av_frame_get_buffer(F, 0);
+        if R < 0 then
+        begin
+          Log('Export: av_frame_get_buffer (audio acelerado) falhou (%s).',
+            [AvErrStr(R)]);
+          Exit(False);
+        end;
+        for c := 0 to A.Ch - 1 do
+          if F.data[c] <> nil then
+            Move(A.Buf[c][0], F.data[c]^, Cnt * SizeOf(Single));
+        F.pts := A.NextPts;
+        R := avcodec_send_frame(A.Enc, F);
+        if R < 0 then
+        begin
+          Log('Export: avcodec_send_frame (audio acelerado) falhou (%s).',
+            [AvErrStr(R)]);
+          Exit(False);
+        end;
+      finally
+        av_frame_free(@F);
+      end;
+      Inc(A.NextPts, Cnt);
+      for c := 0 to A.Ch - 1 do
+        if A.N > Cnt then
+          Move(A.Buf[c][Cnt], A.Buf[c][0], (A.N - Cnt) * SizeOf(Single));
+      Dec(A.N, Cnt);
+      if not DrainEncoder(A.Enc, A.Stream, A.Tb) then Exit(False);
+    end;
+  end;
+
+  function AOTakeStretched(AIdx: Integer): Boolean;
+  // Move a saida pronta do esticador pro fim da fila e emite.
+  var
+    A: PAudioOut;
+    c, Cnt: Integer;
+  begin
+    A := @AOuts[AIdx];
+    Cnt := A.Stretch.OutN;
+    if Cnt > 0 then
+    begin
+      for c := 0 to A.Ch - 1 do
+      begin
+        if Length(A.Buf[c]) < A.N + Cnt then
+          SetLength(A.Buf[c], Max(8192, (A.N + Cnt) * 2));
+        Move(A.Stretch.Outp[c][0], A.Buf[c][A.N], Cnt * SizeOf(Single));
+      end;
+      Inc(A.N, Cnt);
+      A.Stretch.OutN := 0;
+    end;
+    Result := AOEmit(AIdx, False);
+  end;
+
+  function AOPush(AIdx: Integer; AFrame: PAVFrame): Boolean;
+  // Um quadro decodificado (FLTP) do trecho corrente entra na saida.
+  var
+    A: PAudioOut;
+  begin
+    Result := True;
+    if (AFrame = nil) or (AFrame.nb_samples <= 0) then Exit;
+    A := @AOuts[AIdx];
+    if A.Tpl = nil then
+    begin
+      // Layout de canais da saida: o do primeiro quadro (as faixas do OBS
+      // sao sempre mono ou estereo, ordem nativa).
+      A.Tpl := av_frame_alloc;
+      if (A.Tpl = nil) or
+         (av_channel_layout_copy(PByte(A.Tpl) + OFFS_FRAME_CH_LAYOUT,
+            PByte(AFrame) + OFFS_FRAME_CH_LAYOUT) < 0) then Exit(False);
+      A.Ch := 1;
+      while (A.Ch < 8) and (AFrame.data[A.Ch] <> nil) do Inc(A.Ch);
+      SetLength(A.Buf, A.Ch);
+      A.Stretch := TTimeStretch.Create(A.Ch, A.Tb.den, Speed);
+    end;
+    A.Stretch.Put(PPointer(@AFrame.data[0]), AFrame.nb_samples);
+    A.Stretch.Process;
+    Result := AOTakeStretched(AIdx);
+  end;
+
+  function AOEndSegment(AIdx: Integer): Boolean;
+  // Fecha o trecho: a saida passa a ter EXATAMENTE o tamanho da linha do
+  // tempo ate aqui (o esticador completa com silencio ou corta o excesso).
+  // E o que impede o audio de escorregar do video emenda apos emenda.
+  var
+    A: PAudioOut;
+    Target, Excess: Int64;
+  begin
+    Result := True;
+    A := @AOuts[AIdx];
+    Target := Round((OutOffsetSec + (SegEndSec - SegStartSec) / Speed) *
+      A.Tb.den);
+    if A.Stretch = nil then
+    begin
+      // Faixa que ainda nao entregou nenhum quadro: nao ha layout pra
+      // montar silencio. O primeiro audio dela comeca no ponto certo da
+      // linha do tempo (o muxer deixa o buraco antes).
+      A.NextPts := Target;
+      Exit;
+    end;
+    // Em velocidade alta a 1a janela do trecho sai "de graca" (le quase
+    // nada de entrada), entao o trecho pode ter produzido ate uma janela a
+    // mais que a linha do tempo. O excesso ainda na fila e cortado aqui; o
+    // que ja foi pro encoder o trecho seguinte desconta (o alvo e absoluto).
+    Excess := (A.NextPts + A.N) - Target;
+    if Excess > 0 then Dec(A.N, Integer(Min(Int64(A.N), Excess)));
+    A.Stretch.Finish(Max(Int64(0), Target - (A.NextPts + A.N)));
+    Result := AOTakeStretched(AIdx);
+  end;
+
+  function AOFinish(AIdx: Integer): Boolean;
+  var
+    A: PAudioOut;
+  begin
+    Result := AOEmit(AIdx, True);
+    if not Result then Exit;
+    A := @AOuts[AIdx];
+    if A.Enc = nil then Exit;
+    avcodec_send_frame(A.Enc, nil);
+    Result := DrainEncoder(A.Enc, A.Stream, A.Tb);
+  end;
   function FlushMixFrame: Boolean;
   // Manda o acumulador de audio pro encoder AAC e limpa. O pts vem no
   // time_base da FAIXA de origem (nao no do video): tira o inicio do
@@ -1149,6 +1646,14 @@ var
   begin
     Result := True;
     if (AccFrame = nil) or (AccFrame.nb_samples <= 0) then Exit;
+    // Acelerado: a mistura e a saida 0 das AOuts (esticador + fila). O pts
+    // la e uma contagem continua, entao o deste quadro nao interessa.
+    if SpeedMode then
+    begin
+      Result := AOPush(0, AccFrame);
+      av_frame_unref(AccFrame);
+      Exit;
+    end;
     if AccFrame.pts <> AV_NOPTS_VALUE then
       AccFrame.pts :=
         av_rescale_q(AccFrame.pts - SecToTs(SegStartSec, MixSrcTb),
@@ -1223,6 +1728,32 @@ var
     end;
   end;
 
+  function HandleSpeedTrackPacket(ATrack: Integer): Boolean;
+  // Acelerado sem mistura: cada faixa e decodificada e vai, esticada, pra
+  // propria saida. (Copiar o pacote, como no 1x, nao da: o tempo muda.)
+  var
+    R: Integer;
+    Sec: Double;
+  begin
+    Result := True;
+    R := avcodec_send_packet(Tracks[ATrack].DecCtx, Pkt);
+    if R < 0 then Exit;   // pacote solto logo apos o seek: ignora
+    while True do
+    begin
+      R := avcodec_receive_frame(Tracks[ATrack].DecCtx, Frame);
+      if (R = AVERROR_EAGAIN) or (R = AVERROR_EOF) then Exit;
+      if R < 0 then Exit(False);
+      try
+        if Frame.format <> AV_SAMPLE_FMT_FLTP then Continue;
+        Sec := PtsToSec(Frame.pts, Tracks[ATrack].SrcTb);
+        if (Sec < SegStartSec) or (Sec >= SegEndSec) then Continue;
+        if not AOPush(Tracks[ATrack].AOut, Frame) then Exit(False);
+      finally
+        av_frame_unref(Frame);
+      end;
+    end;
+  end;
+
   function EncodeVideoFrame(APts: Int64): Boolean;
   var
     R: Integer;
@@ -1258,17 +1789,21 @@ var
   // Roda uma vez, no primeiro quadro util — so ai sabemos o pixel format
   // real que o decoder entrega.
   var
-    k: Integer;
+    k, RegFmt: Integer;
   begin
     Result := False;
     SrcFmt := Frame.format;
+    // NV12 e o que o decode na placa entrega (av_hwframe_transfer_data).
+    // Ele tem caminho rapido proprio no BlitRegion: normalizar pra YUV420P
+    // seria uma passada extra de swscale sobre o quadro 4K inteiro.
     NeedsNormalize := not ((SrcFmt = AV_PIX_FMT_YUV420P) or
-                           (SrcFmt = AV_PIX_FMT_YUVJ420P));
+                           (SrcFmt = AV_PIX_FMT_YUVJ420P) or
+                           (SrcFmt = AV_PIX_FMT_NV12));
     if NeedsNormalize then
     begin
-      // Origem exotica (10 bits, NV12, RGB...): converte o quadro inteiro
-      // pra YUV420P uma vez e recorta dali. As gravacoes do proprio app
-      // caem sempre no caminho rapido e nunca passam por aqui.
+      // Origem exotica (10 bits, RGB...): converte o quadro inteiro pra
+      // YUV420P uma vez e recorta dali. As gravacoes do proprio app caem
+      // sempre num caminho rapido e nunca passam por aqui.
       Log('Export: pix_fmt %d nao e YUV420P — normalizando cada quadro.',
         [SrcFmt]);
       // Bicubic fixo aqui de proposito: origem e destino tem o MESMO
@@ -1291,10 +1826,12 @@ var
     // passada so, sem canvas intermediario. O algoritmo e o escolhido pelo
     // usuario; so pesa quando ha reducao (numa regiao 1:1 nao ha
     // reamostragem e os tres custam o mesmo).
+    if SrcFmt = AV_PIX_FMT_NV12 then RegFmt := AV_PIX_FMT_NV12
+    else RegFmt := AV_PIX_FMT_YUV420P;
     for k := 0 to High(Regs) do
     begin
       Regs[k].Sws := sws_getContext(
-        Regs[k].SrcW, Regs[k].SrcH, AV_PIX_FMT_YUV420P,
+        Regs[k].SrcW, Regs[k].SrcH, RegFmt,
         Regs[k].DstW, Regs[k].DstH, AV_PIX_FMT_YUV420P,
         ScaleFlags, nil, nil, nil);
       if Regs[k].Sws = nil then
@@ -1344,9 +1881,15 @@ var
     // O pts do quadro esta na time_base da ORIGEM; o encoder espera na
     // dele. Quando as duas coincidem (todo encoder menos o SVT-AV1) o
     // av_rescale_q e no-op, entao um caminho so serve pros dois.
-    Result := EncodeVideoFrame(
-      av_rescale_q(Frame.pts - SegStartTs, VideoTb, EncTb) +
-      SecToTs(OutOffsetSec, EncTb));
+    //
+    // Acelerado: EncTb = 1/OutFps e o pts e o lugar na grade (CurSlot) —
+    // saida em taxa constante, sem quantizar o relogio da origem.
+    if SpeedMode then
+      Result := EncodeVideoFrame(CurSlot)
+    else
+      Result := EncodeVideoFrame(
+        av_rescale_q(Frame.pts - SegStartTs, VideoTb, EncTb) +
+        SecToTs(OutOffsetSec, EncTb));
   end;
 
   procedure PumpDecoder;
@@ -1387,7 +1930,19 @@ var
         // cadencia pedida. A decisao vem ANTES de compor/escalar pra que
         // o quadro descartado custe zero. O relogio e o da SAIDA, entao a
         // cadencia atravessa a emenda dos trechos.
-        if DropFrames then
+        if SpeedMode then
+        begin
+          // Acelerado: o quadro ocupa o ultimo lugar da grade da saida que
+          // ja passou (relogio da saida = origem / velocidade). Lugar ja
+          // preenchido = descarta. Lugar pulado (origem mais rala que a
+          // grade) fica com o quadro anterior na tela — o pts so salta.
+          OutSec := OutOffsetSec +
+                    (PtsToSec(Frame.pts, VideoTb) - SegStartSec) / Speed;
+          CurSlot := Floor(OutSec * OutFps + 1E-6);
+          if CurSlot < NextSlot then Continue;
+          NextSlot := CurSlot + 1;
+        end
+        else if DropFrames then
         begin
           OutSec := OutOffsetSec +
                     (PtsToSec(Frame.pts, VideoTb) - SegStartSec);
@@ -1395,6 +1950,25 @@ var
           repeat
             NextKeepSec := NextKeepSec + FrameInterval;
           until NextKeepSec > OutSec;
+        end;
+        // Decode na placa: o quadro e uma textura. Traz pra memoria (NV12)
+        // SO AGORA, depois das decisoes de descarte: a copia custa ~8 ms
+        // num quadro 4K — mais que o proprio decode —, e os quadros antes
+        // do trecho e os da reducao de fps nao precisam dela.
+        if Frame.format = AV_PIX_FMT_D3D11 then
+        begin
+          R := av_hwframe_transfer_data(HwFrame, Frame, 0);
+          // A transferencia so copia a imagem; pts e cia vem a parte.
+          if R >= 0 then R := av_frame_copy_props(HwFrame, Frame);
+          if R < 0 then
+          begin
+            Log('Export: copia do quadro da placa falhou (%s).', [AvErrStr(R)]);
+            av_frame_unref(HwFrame);
+            Failed := True;
+            Break;
+          end;
+          av_frame_unref(Frame);
+          av_frame_move_ref(Frame, HwFrame);
         end;
         if not SetupDone then
         begin
@@ -1432,6 +2006,7 @@ var
     Result := False;
     AErr := 0;
     N := 0;
+    ProbeFmt := AV_PIX_FMT_NONE;
     av_seek_frame(SrcCtx, -1, 0, AVSEEK_FLAG_BACKWARD);
     avcodec_flush_buffers(DecCtx);
     while (N < PROBE_PACKETS) and (av_read_frame(SrcCtx, Pkt) = 0) do
@@ -1447,6 +2022,7 @@ var
       R := avcodec_receive_frame(DecCtx, Frame);
       if R = 0 then
       begin
+        ProbeFmt := Frame.format;
         av_frame_unref(Frame);
         Result := True;
         Break;
@@ -1459,6 +2035,7 @@ var
     if (not Result) and (avcodec_send_packet(DecCtx, nil) >= 0) and
        (avcodec_receive_frame(DecCtx, Frame) = 0) then
     begin
+      ProbeFmt := Frame.format;
       av_frame_unref(Frame);
       Result := True;
     end;
@@ -1487,6 +2064,111 @@ var
     avcodec_free_context(@DecCtx);
     DecCtx := C2;
     Decoder := D;
+    VDecName := string(AnsiString(D.name));
+    Result := True;
+  end;
+
+  function OpenSwVideoDecoder: Boolean;
+  // Decoder de SOFTWARE padrao do build pro codec da origem (pro AV1, o
+  // libaom). Substitui o atual, se houver.
+  var
+    R: Integer;
+  begin
+    Result := False;
+    if DecCtx <> nil then avcodec_free_context(@DecCtx);
+    Decoder := avcodec_find_decoder(VStream.codecpar.codec_id);
+    if Decoder = nil then
+    begin
+      Log('Export: decoder nao encontrado (codec_id=%d).',
+        [VStream.codecpar.codec_id]);
+      Exit;
+    end;
+    DecCtx := avcodec_alloc_context3(Decoder);
+    if DecCtx = nil then Exit;
+    if avcodec_parameters_to_context(DecCtx, VStream.codecpar) < 0 then Exit;
+    // O default do libavcodec pra 'threads' e 1 — NAO "automatico". Sem
+    // esta linha o decode de um canvas 4K roda num nucleo so: a maquina
+    // parece ociosa (1 de 16 nucleos = ~6% no gerenciador) e a exportacao
+    // arrasta. 0 = auto (av_cpu_count). Medido: 173 -> 435 quadros/s.
+    //
+    // Ligar isto EXIGE o dreno do decoder no fim do trecho (mais abaixo):
+    // com threading em quadros o decoder segura varios quadros dentro
+    // dele, e sem o dreno o fim da exportacao sairia cortado.
+    av_opt_set_int(DecCtx, 'threads', 0, 0);
+    VDecName := string(AnsiString(Decoder.name));
+    R := avcodec_open2(DecCtx, Decoder, nil);
+    if R < 0 then
+    begin
+      Log('Export: avcodec_open2 (decoder) falhou (%s).', [AvErrStr(R)]);
+      Exit;
+    end;
+    Result := True;
+  end;
+
+  function OpenHwVideoDecoder: Boolean;
+  // Decoder NATIVO do libavcodec com aceleracao D3D11VA: o decode vai pra
+  // placa (qualquer fabricante). Medido numa gravacao AV1 4K: 538 quadros/s
+  // na placa contra ~45-60 do libaom — que era o gargalo da exportacao
+  // inteira (o encoder de hardware ficava ~90% do tempo esperando quadro).
+  //
+  // O decoder escolhido e o NATIVO ('av1', nao o libaom que o
+  // avcodec_find_decoder devolve): so o nativo tem hwaccel. Sem a placa
+  // ele nao decodifica AV1 nenhum, entao o ProbeVideoDecode confere que
+  // sairam quadros D3D11 de verdade antes de confiar nele.
+  //
+  // O get_format padrao do libavcodec escolhe sozinho o formato de
+  // hardware quando o hw_device_ctx esta preenchido — por isso basta o
+  // campo, sem callback. threads fica no default (1): o trabalho e da
+  // placa, e threading em quadros so multiplicaria as texturas presas.
+  var
+    Name: AnsiString;
+    D: PAVCodec;
+    C2: PAVCodecContext;
+    R: Integer;
+  begin
+    Result := False;
+    case VStream.codecpar.codec_id of
+      AV_CODEC_ID_AV1:  Name := 'av1';
+      AV_CODEC_ID_HEVC: Name := 'hevc';
+      AV_CODEC_ID_H264: Name := 'h264';
+    else
+      Exit;
+    end;
+    D := avcodec_find_decoder_by_name(PAnsiChar(Name));
+    if D = nil then Exit;
+    if HwDev = nil then
+    begin
+      R := av_hwdevice_ctx_create(@HwDev, AV_HWDEVICE_TYPE_D3D11VA,
+        nil, nil, 0);
+      if R < 0 then
+      begin
+        HwDev := nil;
+        Log('Export: sem D3D11VA pra decodificar na placa (%s).', [AvErrStr(R)]);
+        Exit;
+      end;
+    end;
+    C2 := avcodec_alloc_context3(D);
+    if C2 = nil then Exit;
+    if avcodec_parameters_to_context(C2, VStream.codecpar) < 0 then
+    begin
+      avcodec_free_context(@C2);
+      Exit;
+    end;
+    // Ref proprio do contexto: o avcodec_free_context o solta.
+    PPointer(NativeUInt(C2) + OFFS_CODECCTX_HW_DEVICE_CTX)^ :=
+      av_buffer_ref(HwDev);
+    R := avcodec_open2(C2, D, nil);
+    if R < 0 then
+    begin
+      Log('Export: decoder "%s" com D3D11VA nao abriu (%s).',
+        [string(Name), AvErrStr(R)]);
+      avcodec_free_context(@C2);
+      Exit;
+    end;
+    if DecCtx <> nil then avcodec_free_context(@DecCtx);
+    DecCtx := C2;
+    Decoder := D;
+    VDecName := string(AnsiString(D.name));
     Result := True;
   end;
 
@@ -1516,6 +2198,10 @@ begin
   NormFrame := nil;
   OutFrame := nil;
   AccFrame := nil;
+  HwDev := nil;
+  HwFrame := nil;
+  HwDecoding := False;
+  ProbeFmt := AV_PIX_FMT_NONE;
   NormSws := nil;
   Regs := nil;
   Tracks := nil;
@@ -1537,6 +2223,14 @@ begin
   VidSendErrLogged := False;
   Burner := nil;
   AudioOnly := AOpts.NoVideo;
+  Speed := AOpts.Speed;
+  if (Speed < 1) or IsNan(Speed) then Speed := 1;
+  if Speed > EXPORT_SPEED_MAX then Speed := EXPORT_SPEED_MAX;
+  SpeedMode := Abs(Speed - 1) > 1E-6;
+  if not SpeedMode then Speed := 1;
+  NextSlot := 0;
+  CurSlot := 0;
+  AOuts := nil;
   VideoTb.num := 1;
   VideoTb.den := 1000;
   OutW := 0;
@@ -1595,11 +2289,32 @@ begin
     if (VStream <> nil) and (VStream.avg_frame_rate.den > 0) and
        (VStream.avg_frame_rate.num > 0) then
       Fps := Max(1, Round(VStream.avg_frame_rate.num /
-                          VStream.avg_frame_rate.den));
+                          VStream.avg_frame_rate.den))
+    else if VStream <> nil then
+    begin
+      // Sem taxa declarada (o MKV de uma uniao sai assim): mede. O chute
+      // de 30 numa gravacao de 60 dava o teto errado no acelerado e um
+      // "origem 30fps" falso no log.
+      FpsMeasured := EstimateFpsFromPackets(SrcCtx, VIdx);
+      if FpsMeasured > 0 then Fps := Max(1, Round(FpsMeasured));
+      Log('Export: origem sem taxa declarada — medida %.2f fps.', [FpsMeasured]);
+    end;
 
     // Taxa de saida: nunca acima da origem (nao da pra inventar quadro).
+    // Acelerado, cada segundo da saida contem Speed segundos da origem, ou
+    // seja Fps x Speed quadros — esse e o teto (limitado ao que o
+    // container e o encoder aguentam, ver EXPORT_FPS_MAX).
     OutFps := AOpts.TargetFps;
-    if (OutFps <= 0) or (OutFps > Fps) then OutFps := Fps;
+    if SpeedMode then
+    begin
+      i := Max(1, Floor(Fps * Speed + 1E-6));
+      if LowerCase(string(AOpts.EncoderName)) = 'libsvtav1' then
+        i := Min(i, EXPORT_FPS_MAX_SVT)
+      else
+        i := Min(i, EXPORT_FPS_MAX);
+      if (OutFps <= 0) or (OutFps > i) then OutFps := i;
+    end
+    else if (OutFps <= 0) or (OutFps > Fps) then OutFps := Fps;
     if OutFps < 1 then OutFps := 1;
     DropFrames := OutFps < Fps;
     FrameInterval := 1 / OutFps;
@@ -1616,8 +2331,13 @@ begin
       Log('Export: nenhum trecho valido pra exportar.');
       Exit;
     end;
+    // Duracao da SAIDA (e o que o progresso mede).
+    TotalSec := TotalSec / Speed;
     Log('Export: %d trecho(s), %.1fs de saida.',
       [Length(AOpts.Segments), TotalSec]);
+    if SpeedMode then
+      Log('Export: acelerado %.2fx — %d fps na saida (origem %d fps, teto %d).',
+        [Speed, OutFps, Fps, Max(1, Floor(Fps * Speed + 1E-6))]);
 
     if not AudioOnly then
     begin
@@ -1638,31 +2358,11 @@ begin
        string(AOpts.ScaleAlgo)]);
 
     // ---- decoder de video ----
-    Decoder := avcodec_find_decoder(VStream.codecpar.codec_id);
-    if Decoder = nil then
-    begin
-      Log('Export: decoder nao encontrado (codec_id=%d).',
-        [VStream.codecpar.codec_id]);
-      Exit;
-    end;
-    DecCtx := avcodec_alloc_context3(Decoder);
-    if DecCtx = nil then Exit;
-    if avcodec_parameters_to_context(DecCtx, VStream.codecpar) < 0 then Exit;
-    // O default do libavcodec pra 'threads' e 1 — NAO "automatico". Sem
-    // esta linha o decode de um canvas 4K roda num nucleo so: a maquina
-    // parece ociosa (1 de 16 nucleos = ~6% no gerenciador) e a exportacao
-    // arrasta. 0 = auto (av_cpu_count). Medido: 173 -> 435 quadros/s.
-    //
-    // Ligar isto EXIGE o dreno do decoder no fim do trecho (mais abaixo):
-    // com threading em quadros o decoder segura varios quadros dentro
-    // dele, e sem o dreno o fim da exportacao sairia cortado.
-    av_opt_set_int(DecCtx, 'threads', 0, 0);
-    Rc := avcodec_open2(DecCtx, Decoder, nil);
-    if Rc < 0 then
-    begin
-      Log('Export: avcodec_open2 (decoder) falhou (%s).', [AvErrStr(Rc)]);
-      Exit;
-    end;
+    // Placa primeiro (confirmado no ProbeVideoDecode, mais abaixo); sem
+    // ela, o software de sempre.
+    HwDecoding := OpenHwVideoDecoder;
+    if not HwDecoding then
+      if not OpenSwVideoDecoder then Exit;
 
     // ---- encoder de video ----
     Encoder := avcodec_find_encoder_by_name(PAnsiChar(AOpts.EncoderName));
@@ -1688,7 +2388,10 @@ begin
     // faria os quadros chegarem mais rapido que os tiques, e a guarda de
     // monotonicidade os empurraria um a um — o video sairia em camera
     // lenta, silenciosamente. Melhor recusar do que entregar errado.
-    if LowerCase(string(AOpts.EncoderName)) = 'libsvtav1' then
+    //
+    // Acelerado vale o mesmo pra todos: o pts e o lugar na grade da saida
+    // (ver PumpDecoder), entao a time_base E a grade.
+    if SpeedMode or (LowerCase(string(AOpts.EncoderName)) = 'libsvtav1') then
     begin
       EncTb.num := 1;
       EncTb.den := OutFps;
@@ -1920,7 +2623,97 @@ begin
       end;
     end;
 
-    if not DoMix then
+    // Acelerado + mistura: a mistura sai pela AOuts[0], com o encoder que
+    // acabou de ser aberto (o MixCtx continua sendo liberado a parte).
+    if DoMix and SpeedMode then
+    begin
+      SetLength(AOuts, 1);
+      AOuts[0] := Default(TAudioOut);
+      AOuts[0].Enc := MixCtx;
+      AOuts[0].OwnsEnc := False;
+      AOuts[0].Stream := OutMixStream;
+      AOuts[0].Tb := MixTb;
+      AOuts[0].FrameSize := MixFrameSize;
+      if AOuts[0].FrameSize <= 0 then AOuts[0].FrameSize := 1024;
+    end;
+
+    // Acelerado SEM mistura: copiar pacote nao serve (o tempo muda), entao
+    // cada faixa escolhida e decodificada, esticada e recodificada em AAC
+    // na sua propria stream — as faixas continuam separadas como no 1x.
+    if (not DoMix) and SpeedMode then
+    begin
+      MixEncoder := avcodec_find_encoder_by_name('aac');
+      if (MixEncoder = nil) and (Length(Tracks) > 0) then
+      begin
+        Log('Export: encoder AAC ausente — sem audio acelerado.');
+        Exit(erNoEncoder);
+      end;
+      SetLength(AOuts, Length(Tracks));
+      for i := 0 to High(Tracks) do
+      begin
+        AOuts[i] := Default(TAudioOut);
+        AOuts[i].OwnsEnc := True;
+        Tracks[i].AOut := i;
+        S := GetStreamByIndex(SrcCtx, Cardinal(Tracks[i].SrcIdx));
+        AOuts[i].Tb.num := 1;
+        AOuts[i].Tb.den := S.codecpar.sample_rate;
+        if AOuts[i].Tb.den <= 0 then AOuts[i].Tb.den := 48000;
+
+        AOuts[i].Enc := avcodec_alloc_context3(MixEncoder);
+        if AOuts[i].Enc = nil then Exit;
+        EncPar := avcodec_parameters_alloc;
+        if EncPar = nil then Exit;
+        try
+          EncPar.codec_type  := AVMEDIA_TYPE_AUDIO;
+          EncPar.codec_id    := MixEncoder.id;
+          EncPar.format      := AV_SAMPLE_FMT_FLTP;
+          EncPar.sample_rate := AOuts[i].Tb.den;
+          if AOpts.AudioBitrate > 0 then EncPar.bit_rate := AOpts.AudioBitrate
+          else EncPar.bit_rate := MIX_BITRATE;
+          // Mesmo cuidado da mistura: ordem nativa, copiar o record e seguro.
+          EncPar.ch_layout   := S.codecpar.ch_layout;
+          if avcodec_parameters_to_context(AOuts[i].Enc, EncPar) < 0 then Exit;
+        finally
+          avcodec_parameters_free(PPointer(@EncPar));
+        end;
+        av_opt_set_q(AOuts[i].Enc, 'time_base', AOuts[i].Tb, 0);
+        av_opt_set(AOuts[i].Enc, 'flags', '+global_header', 0);
+        Rc := avcodec_open2(AOuts[i].Enc, MixEncoder, nil);
+        if Rc < 0 then
+        begin
+          Log('Export: avcodec_open2 (aac, faixa %d) falhou (%s).',
+            [Tracks[i].SrcIdx, AvErrStr(Rc)]);
+          Exit(erNoEncoder);
+        end;
+        AOuts[i].FrameSize := 0;
+        MixFrameSize := 0;
+        av_opt_get_int(AOuts[i].Enc, 'frame_size', 0, @MixFrameSize);
+        AOuts[i].FrameSize := MixFrameSize;
+        if AOuts[i].FrameSize <= 0 then AOuts[i].FrameSize := 1024;
+
+        OutAStream := avformat_new_stream(OutCtx, nil);
+        if OutAStream = nil then Exit;
+        if avcodec_parameters_from_context(OutAStream.codecpar,
+             AOuts[i].Enc) < 0 then Exit;
+        OutAStream.time_base := AOuts[i].Tb;
+        CopyStreamTag(S, OutAStream, 'title');
+        CopyStreamTag(S, OutAStream, 'language');
+        AOuts[i].Stream := OutAStream;
+        Tracks[i].OutIdx := OutAStream.index;
+
+        // Decoder da faixa (o mesmo do caminho da mistura).
+        Decoder := avcodec_find_decoder(S.codecpar.codec_id);
+        if Decoder <> nil then
+        begin
+          Tracks[i].DecCtx := avcodec_alloc_context3(Decoder);
+          if (Tracks[i].DecCtx <> nil) and
+             ((avcodec_parameters_to_context(Tracks[i].DecCtx, S.codecpar) < 0) or
+              (avcodec_open2(Tracks[i].DecCtx, Decoder, nil) < 0)) then
+            avcodec_free_context(@Tracks[i].DecCtx);
+        end;
+      end;
+    end
+    else if not DoMix then
     begin
       // Stream copy: um stream de saida por faixa escolhida.
       for i := 0 to High(Tracks) do
@@ -1965,8 +2758,9 @@ begin
     Frame := av_frame_alloc;
     OutFrame := av_frame_alloc;
     AccFrame := av_frame_alloc;
+    HwFrame := av_frame_alloc;
     if (Pkt = nil) or (EncPkt = nil) or (Frame = nil) or
-       (OutFrame = nil) or (AccFrame = nil) then Exit;
+       (OutFrame = nil) or (AccFrame = nil) or (HwFrame = nil) then Exit;
 
     if not AudioOnly then
     begin
@@ -1980,14 +2774,33 @@ begin
         Exit;
       end;
 
+      // Decode na placa: so vale se sairam quadros D3D11 de verdade. O
+      // decoder nativo de H.264/HEVC cai calado pro software quando a placa
+      // recusa o perfil (e com 1 thread so, mais lento que o caminho de
+      // software normal); o de AV1 nem isso. Nos dois casos, volta pro
+      // decoder de software de sempre.
+      if HwDecoding then
+      begin
+        if ProbeVideoDecode(Rc) and (ProbeFmt = AV_PIX_FMT_D3D11) then
+          Log('Export: decodificando na placa (D3D11VA, decoder "%s").',
+            [VDecName])
+        else
+        begin
+          Log('Export: decode na placa nao entregou quadro (%s, formato %d) — usando software.',
+            [AvErrStr(Rc), ProbeFmt]);
+          HwDecoding := False;
+          if not OpenSwVideoDecoder then Exit;
+        end;
+      end;
+
       // O decoder escolhido decodifica ESTE arquivo? Abrir sem erro nao
       // garante (o libaom recusa o AV1 da NVENC pacote a pacote). Senao,
       // tenta os decoders de hardware do build pro mesmo codec — o *_cuvid
       // e o NVDEC, e entrega NV12 em memoria, que o NeedsNormalize converte.
-      if not ProbeVideoDecode(Rc) then
+      if (not HwDecoding) and (not ProbeVideoDecode(Rc)) then
       begin
         Log('Export: decoder "%s" nao entregou nenhum quadro (%s); tentando outro.',
-          [string(AnsiString(Decoder.name)), AvErrStr(Rc)]);
+          [VDecName, AvErrStr(Rc)]);
         var Found: Boolean := False;
         for var AltName in TArray<AnsiString>.Create('av1_cuvid', 'hevc_cuvid', 'h264_cuvid') do
         begin
@@ -2114,6 +2927,11 @@ begin
               if (Tracks[i].DecCtx <> nil) and (not HandleMixPacket(i)) then
                 Failed := True;
             end
+            else if SpeedMode then
+            begin
+              if (Tracks[i].DecCtx <> nil) and (not HandleSpeedTrackPacket(i)) then
+                Failed := True;
+            end
             else
             begin
               S := GetStreamByIndex(OutCtx, Cardinal(Tracks[i].OutIdx));
@@ -2173,8 +2991,17 @@ begin
       Failed := True;
       Break;
     end;
+    // Acelerado: cada saida fecha o trecho com o tamanho exato da linha do
+    // tempo (usa o OutOffsetSec ANTES de somar este trecho).
+    for i := 0 to High(AOuts) do
+      if not AOEndSegment(i) then
+      begin
+        Failed := True;
+        Break;
+      end;
+    if Failed then Break;
 
-    OutOffsetSec := OutOffsetSec + (SegEndSec - SegStartSec);
+    OutOffsetSec := OutOffsetSec + (SegEndSec - SegStartSec) / Speed;
     end;  // for SegIdx
 
     if Canceled then Exit(erCanceled);
@@ -2187,7 +3014,14 @@ begin
       avcodec_send_frame(EncCtx, nil);
       DrainEncoder(EncCtx, OutVStream, EncTb);
     end;
-    if DoMix then
+    if SpeedMode then
+    begin
+      // Inclui a mistura (AOuts[0] usa o MixCtx): o que sobrou na fila sai
+      // num ultimo quadro curto e o encoder e drenado.
+      for i := 0 to High(AOuts) do
+        if not AOFinish(i) then Exit(erError);
+    end
+    else if DoMix then
     begin
       // O que sobrou na fila sai num ultimo quadro curto.
       if Rechunk and (not FifoEmit(True)) then Exit(erError);
@@ -2215,6 +3049,13 @@ begin
     Result := erOk;
   finally
     Burner.Free;
+    for i := 0 to High(AOuts) do
+    begin
+      AOuts[i].Stretch.Free;
+      if AOuts[i].Tpl <> nil then av_frame_free(@AOuts[i].Tpl);
+      if AOuts[i].OwnsEnc and (AOuts[i].Enc <> nil) then
+        try avcodec_free_context(@AOuts[i].Enc); except end;
+    end;
     for i := 0 to High(Regs) do
       if Regs[i].Sws <> nil then
         try sws_freeContext(Regs[i].Sws); except end;
@@ -2223,6 +3064,7 @@ begin
     if TplFrame <> nil then av_frame_free(@TplFrame);
     if OutFrame <> nil then av_frame_free(@OutFrame);
     if NormFrame <> nil then av_frame_free(@NormFrame);
+    if HwFrame <> nil then av_frame_free(@HwFrame);
     if Frame <> nil then av_frame_free(@Frame);
     if EncPkt <> nil then av_packet_free(@EncPkt);
     if Pkt <> nil then av_packet_free(@Pkt);
@@ -2232,6 +3074,8 @@ begin
     if MixCtx <> nil then try avcodec_free_context(@MixCtx); except end;
     if EncCtx <> nil then try avcodec_free_context(@EncCtx); except end;
     if DecCtx <> nil then try avcodec_free_context(@DecCtx); except end;
+    // Depois do decoder, que segura um ref proprio do device.
+    if HwDev <> nil then try av_buffer_unref(@HwDev); except end;
     if OutCtx <> nil then
     begin
       // Se saimos no meio (erro/cancelamento) o trailer nao foi escrito;

@@ -115,7 +115,10 @@
                            os turnos vem do cache, nao da UI),
                            keepTranscript (Boolean — o audio escolhido
                            ainda e o transcrito, entao a transcricao vai
-                           junto pro arquivo novo, remapeada pelos cortes)
+                           junto pro arquivo novo, remapeada pelos cortes),
+                           speed (Number 1..512, fracao vale — acelera
+                           video e audio; o teto de fps vira o da origem
+                           x velocidade)
     set_audio_bitrate    : kbps (AAC por faixa; degrau mais proximo)
     get_audio_filters    : -> push audio_filters {ready, filters, mics,
                            testSec, testing} (sobe o libobs se preciso)
@@ -5670,6 +5673,7 @@ begin
       CachedObj: TJSONObject;
       Vsz: TJSONValue;
       CurSz: Int64;
+      NoRate: Boolean;
     begin
       if IsShuttingDown then Exit;
 
@@ -5685,7 +5689,23 @@ begin
           CachedObj := TJSONObject(Cached);
           Vsz := CachedObj.GetValue('size');
           try CurSz := TFile.GetSize(APath); except CurSz := -1; end;
-          if (Vsz is TJSONNumber) and (CurSz > 0) and
+          // Video com frameRate 0 no cache e de antes do Probe medir a taxa
+          // de quem nao a declara (o MKV de uma uniao): reprobe uma vez, e
+          // o resultado novo substitui o cache.
+          NoRate := False;
+          if CachedObj.GetValue('streams') is TJSONArray then
+            for i := 0 to TJSONArray(CachedObj.GetValue('streams')).Count - 1 do
+            begin
+              if not (TJSONArray(CachedObj.GetValue('streams')).Items[i] is TJSONObject) then
+                Continue;
+              StreamObj := TJSONObject(TJSONArray(CachedObj.GetValue('streams')).Items[i]);
+              if (StreamObj.GetValue('kind') <> nil) and
+                 (StreamObj.GetValue('kind').Value = 'video') and
+                 (StreamObj.GetValue('frameRate') is TJSONNumber) and
+                 (TJSONNumber(StreamObj.GetValue('frameRate')).AsDouble <= 0) then
+                NoRate := True;
+            end;
+          if (Vsz is TJSONNumber) and (CurSz > 0) and (not NoRate) and
              (TJSONNumber(Vsz).AsInt64 = CurSz) then
           begin
             // O cache guarda id/fileName de quando foi criado. Apos um
@@ -8736,7 +8756,7 @@ var
   SrcPath, EncPref, FinalPath, Ext: string;
   Meta: TRecordingMeta;
   RegionIdx: TArray<Integer>;
-  CropVal: TJSONValue;
+  CropVal, SpeedVal: TJSONValue;
   CropObj: TJSONObject;
   CropReg: TRecordingRegion;
   Segs, SegObj: TJSONValue;
@@ -8819,6 +8839,15 @@ begin
   Opts.TargetHeight := GetIntField(AObj, 'targetHeight', 0);
   // 0 = mantem a taxa da origem; o FFmpegExport nunca aumenta.
   Opts.TargetFps := GetIntField(AObj, 'fps', 0);
+  // Velocidade (1 = normal, ate EXPORT_SPEED_MAX, fracao vale). Com ela o
+  // teto da taxa de quadros passa a ser fps da origem x velocidade, e o
+  // audio e acelerado mantendo o tom — ver TExportOptions.Speed.
+  SpeedVal := AObj.GetValue('speed');
+  if SpeedVal is TJSONNumber then Opts.Speed := TJSONNumber(SpeedVal).AsDouble
+  else Opts.Speed := 1;
+  // (Opts.Speed <> Opts.Speed) = NaN.
+  if (Opts.Speed < 1) or (Opts.Speed <> Opts.Speed) then Opts.Speed := 1;
+  if Opts.Speed > EXPORT_SPEED_MAX then Opts.Speed := EXPORT_SPEED_MAX;
   Opts.MixAudio := GetBoolField(AObj, 'mixAudio', False);
   // Qualidade: CRF na escala do x264 (0 = sem perdas, 51 = pior). O
   // FFmpegExport traduz pro controle nativo de cada encoder, sempre em
@@ -8951,7 +8980,7 @@ begin
   // do codec usado e a duracao. Sem isto a exportacao perdia tudo e o
   // player do arquivo novo nao oferecia mais "ver so o monitor X".
   OutMeta := Default(TRecordingMeta);
-  OutMeta.DurationSec := Round(TotalSec);
+  OutMeta.DurationSec := Round(TotalSec / Opts.Speed);
   OutMeta.QualityLevel := -1;   // CRF da exportacao nao e o nivel 0..10
   if not Opts.NoVideo then
   begin
@@ -8961,7 +8990,17 @@ begin
     DescribeExportEncoder(string(Opts.EncoderName), OutMeta.Codec,
       OutMeta.CodecHw);
     OutMeta.Fps := Opts.TargetFps;
-    if (OutMeta.Fps <= 0) and HasSrcMeta then OutMeta.Fps := SrcMeta.Fps;
+    if (OutMeta.Fps <= 0) and HasSrcMeta then
+    begin
+      // Sem escolha = o teto, que o FFmpegExport calcula igual: origem x
+      // velocidade, limitado ao EXPORT_FPS_MAX.
+      OutMeta.Fps := Trunc(SrcMeta.Fps * Opts.Speed + 1E-6);
+      if OutMeta.Fps < 1 then OutMeta.Fps := 1;
+      if OutMeta.Fps > EXPORT_FPS_MAX then OutMeta.Fps := EXPORT_FPS_MAX;
+      if (Opts.EncoderName = 'libsvtav1') and
+         (OutMeta.Fps > EXPORT_FPS_MAX_SVT) then
+        OutMeta.Fps := EXPORT_FPS_MAX_SVT;
+    end;
   end;
 
   // Container: MP4 (default, mais compativel) ou MKV. O muxer vai
@@ -9025,9 +9064,9 @@ begin
   TInterlocked.Exchange(ExportCancelFlag, 0);
   ExportLastPushTick := 0;
   PushExportProgress(0);
-  Log('Export: iniciando "%s" -> "%s" (%d trecho(s), %.1fs, encoder=%s).',
+  Log('Export: iniciando "%s" -> "%s" (%d trecho(s), %.1fs, %.2fx, encoder=%s).',
     [ExtractFileName(SrcPath), ExtractFileName(FinalPath),
-     Length(Opts.Segments), TotalSec, string(Opts.EncoderName)]);
+     Length(Opts.Segments), TotalSec, Opts.Speed, string(Opts.EncoderName)]);
 
   TThread.CreateAnonymousThread(
     procedure
@@ -9104,7 +9143,8 @@ begin
       // palavras passa de megabytes.
       if (Res = erOk) and KeepTranscript then
         try
-          if OBSTranscribe.ExportTranscript(SrcPath, FinalPath, SegStarts, SegEnds) then
+          if OBSTranscribe.ExportTranscript(SrcPath, FinalPath, SegStarts, SegEnds,
+               Opts.Speed) then
             Log('Export: transcricao levada pro arquivo exportado.');
         except
           on E: Exception do Log('Export: transcricao nao copiada: %s', [E.Message]);

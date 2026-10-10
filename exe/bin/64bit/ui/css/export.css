@@ -120,6 +120,10 @@ select.export-input {
 }
 .export-input:disabled { opacity: 0.45; cursor: not-allowed; }
 .export-time-input { width: 74px; text-align: center; font-variant-numeric: tabular-nums; }
+/* Velocidade: numero curto (1, 1,5, 512) seguido do "×". */
+.export-speed-input { width: 74px; text-align: right; font-variant-numeric: tabular-nums; }
+.export-speed-input.invalid { border-color: var(--danger, #ef4444); }
+.export-speed-x { font-size: 13px; color: var(--text-2); }
 
 /* ---- Previa do corte ----
    Serve o MESMO arquivo que o player toca. Mudo e sem controles: aqui ele

@@ -196,6 +196,11 @@ begin
         Info.FrameRate := S.avg_frame_rate.num / S.avg_frame_rate.den
       else
         Info.FrameRate := 0;
+      // Arquivo que nao declara a taxa (o MKV de uma UNIAO sai assim): mede
+      // nos primeiros pacotes. Sem isso a exportacao escondia o seletor de
+      // fps e o painel do player nao mostrava a taxa.
+      if (Info.Kind = 'video') and (Info.FrameRate <= 0) then
+        Info.FrameRate := EstimateFpsFromPackets(Fmt, Integer(i));
 
       if (S.duration > 0) and (S.time_base.den > 0) then
         Info.Duration := (S.duration * S.time_base.num) / S.time_base.den

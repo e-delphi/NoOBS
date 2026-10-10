@@ -238,6 +238,23 @@ const
   AV_PIX_FMT_YUVJ420P = 12;   // jpeg-range (full) variant
   AV_PIX_FMT_RGB24    = 2;
   AV_PIX_FMT_NV12     = 23;
+  // Quadro que mora numa textura D3D11 (decode por hardware). Nao tem
+  // dados em memoria: passa por av_hwframe_transfer_data (sai NV12).
+  // Valor conferido com av_get_pix_fmt('d3d11') na avutil-59 empacotada.
+  AV_PIX_FMT_D3D11    = 171;
+
+  // AVHWDeviceType (hwcontext.h) — conferido com
+  // av_hwdevice_find_type_by_name('d3d11va').
+  AV_HWDEVICE_TYPE_D3D11VA = 7;
+
+  // AVCodecContext.hw_device_ctx (AVBufferRef*) — avcodec-61 / FFmpeg 7.x,
+  // Win64. Nao tem AVOption nem setter, entao vai por offset. MEDIDO, nao
+  // contado: as opcoes vizinhas 'hwaccel_flags' e 'extra_hw_frames' caem em
+  // 568 e 572 (setadas por av_opt_set_int e achadas na memoria do contexto),
+  // e o campo e o ponteiro logo antes delas. Confirmado decodificando uma
+  // gravacao AV1 4K real: com o ref em 560 o decoder 'av1' entrega quadros
+  // d3d11. Revalidar se o avcodec subir de major (61 -> 62), como a #26.
+  OFFS_CODECCTX_HW_DEVICE_CTX = 560;
 
   // Sample formats (avutil/samplefmt.h) — so os que usamos. O decoder de
   // AAC entrega FLTP (float planar), que e tambem o formato de entrada do
@@ -258,6 +275,9 @@ const
 
   // Codec IDs (avcodec.h) — os que usamos.
   AV_CODEC_ID_MJPEG = $0007;
+  AV_CODEC_ID_H264  = 27;
+  AV_CODEC_ID_HEVC  = 173;
+  AV_CODEC_ID_AV1   = 225;   // conferido lendo o codecpar de uma gravacao AV1
 
   // Flags
   AVFMT_NOFILE                  = $0001;
@@ -316,6 +336,13 @@ procedure av_format_context_set_pb(ic: AVFormatContext; pb: Pointer);
 // como ultimo recurso quando o duration global e de stream sao 0.
 // Retorna duracao em AV_TIME_BASE (microsegundos).
 function ScanDurationByPackets(ic: AVFormatContext): Int64;
+
+// Taxa de quadros MEDIDA nos primeiros pacotes de um stream de video
+// (quadros / intervalo coberto). Pra quando o arquivo nao declara
+// avg_frame_rate — o MKV que o MergeFiles escreve sai assim, e sem a taxa
+// a exportacao achava 30 numa gravacao de 60. Le alguns MB do inicio e
+// volta o cursor pro comeco. 0 = nao deu pra medir.
+function EstimateFpsFromPackets(ic: AVFormatContext; AStreamIdx: Integer): Double;
 
 // ---------------------------------------------------------------------
 // avcodec
@@ -416,6 +443,27 @@ function av_frame_make_writable(frame: PAVFrame): Integer; cdecl;
 // jeito de obter um frame de AUDIO valido (com ch_layout preenchido) sem
 // tocar nesse campo, que fica fora da parte declarada do AVFrame.
 procedure av_frame_move_ref(dst, src: PAVFrame); cdecl;
+  external LIB_AVUTIL delayed;
+// Copia pts, duracao e demais metadados (nao os dados). O
+// av_hwframe_transfer_data so copia a IMAGEM — sem isto o quadro trazido
+// da GPU chega sem pts.
+function av_frame_copy_props(dst, src: PAVFrame): Integer; cdecl;
+  external LIB_AVUTIL delayed;
+
+// Decode por hardware (hwcontext.h / buffer.h). O "device" e um
+// AVBufferRef*: quem o cria solta com av_buffer_unref; o contexto do
+// decoder recebe um ref proprio (av_buffer_ref) e o solta sozinho no
+// avcodec_free_context.
+function av_hwdevice_ctx_create(device_ctx: PPointer; device_type: Integer;
+  device: PAnsiChar; opts: AVDictionary; flags: Integer): Integer; cdecl;
+  external LIB_AVUTIL delayed;
+// Copia um quadro de textura (AV_PIX_FMT_D3D11) pra memoria. Com dst em
+// branco o formato e o primeiro suportado — NV12 pra 8 bits.
+function av_hwframe_transfer_data(dst, src: PAVFrame; flags: Integer): Integer; cdecl;
+  external LIB_AVUTIL delayed;
+function av_buffer_ref(buf: Pointer): Pointer; cdecl;
+  external LIB_AVUTIL delayed;
+procedure av_buffer_unref(buf: PPointer); cdecl;
   external LIB_AVUTIL delayed;
 
 function avcodec_find_decoder(id: Integer): PAVCodec; cdecl;
@@ -704,6 +752,56 @@ begin
     av_packet_free(@Pkt);
   end;
   Result := Best;
+end;
+
+function EstimateFpsFromPackets(ic: AVFormatContext; AStreamIdx: Integer): Double;
+const
+  AV_NOPTS_VALUE = Int64($8000000000000000);
+  MAX_PKTS  = 240;   // ~4 s a 60 fps; poucos MB lidos
+  MAX_READS = 4000;  // teto de pacotes de qualquer stream (6 faixas de audio)
+var
+  Pkt: PAVPacket;
+  S: PAVStream;
+  N, Reads: Integer;
+  MinPts, MaxPts: Int64;
+begin
+  Result := 0;
+  if (ic = nil) or (AStreamIdx < 0) then Exit;
+  S := GetStreamByIndex(ic, Cardinal(AStreamIdx));
+  if (S = nil) or (S.time_base.den <= 0) or (S.time_base.num <= 0) then Exit;
+  Pkt := av_packet_alloc;
+  if Pkt = nil then Exit;
+  N := 0;
+  Reads := 0;
+  MinPts := High(Int64);
+  MaxPts := Low(Int64);
+  try
+    while (N < MAX_PKTS) and (Reads < MAX_READS) and
+          (av_read_frame(ic, Pkt) = 0) do
+    try
+      Inc(Reads);
+      if (Pkt.stream_index <> AStreamIdx) or (Pkt.pts = AV_NOPTS_VALUE) then
+        Continue;
+      Inc(N);
+      if Pkt.pts < MinPts then MinPts := Pkt.pts;
+      if Pkt.pts > MaxPts then MaxPts := Pkt.pts;
+    finally
+      av_packet_unref(Pkt);
+    end;
+  finally
+    av_packet_free(@Pkt);
+  end;
+  // De volta ao comeco: quem chamou pode querer ler o arquivo do inicio.
+  av_seek_frame(ic, -1, 0, AVSEEK_FLAG_BACKWARD);
+  if (N < 10) or (MaxPts <= MinPts) then Exit;
+  // Quadros pelo intervalo que eles cobrem — NAO a mediana dos intervalos:
+  // com tempo em ms, 60 fps alterna 16 e 17 ms e a mediana daria 58,8.
+  Result := (N - 1) / ((MaxPts - MinPts) * S.time_base.num / S.time_base.den);
+  // Taxas cheias (30, 60, 144) sao o caso comum; arredonda o que estiver a
+  // menos de 0,05% de um inteiro (o erro de medir com tempo em ms em ~4 s
+  // e ~0,03%), e deixa 29,97 (0,1% abaixo de 30) como 29,97.
+  if Abs(Result - Round(Result)) < Result * 0.0005 then Result := Round(Result)
+  else Result := Round(Result * 100) / 100;
 end;
 
 function av_format_context_duration(ic: AVFormatContext): Int64;

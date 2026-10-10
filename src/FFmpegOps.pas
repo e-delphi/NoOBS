@@ -231,6 +231,11 @@ begin
     if avcodec_parameters_copy(DstStream.codecpar, SrcStream.codecpar) < 0 then Exit;
     // codec_tag = 0 deixa o muxer escolher conforme container.
     DstStream.codecpar.codec_tag := 0;
+    // A taxa de quadros NAO esta no codecpar: sem copiar, o MKV sai sem
+    // DefaultDuration e quem le depois ve avg_frame_rate 0/0 — a uniao de
+    // duas gravacoes de 60 fps virava "fps desconhecido" (a exportacao
+    // escondia o seletor de fps). Medido: 0/0 sem a copia, 30/1 com ela.
+    DstStream.avg_frame_rate := SrcStream.avg_frame_rate;
     // Preserva SO o title (nome da faixa de audio) e o language. NAO copia a
     // metadata inteira (av_dict_copy): o Matroska guarda tags DURATION e
     // _STATISTICS_*/NUMBER_OF_* POR STREAM que ficam ERRADAS depois do corte

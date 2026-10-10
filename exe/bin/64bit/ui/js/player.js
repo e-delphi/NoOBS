@@ -1436,8 +1436,54 @@ const Player = {
     panel.classList.toggle('open', opening);
     panel.setAttribute('aria-hidden', opening ? 'true' : 'false');
     this._syncCcUi();
-    if (opening && this.transcriptTurns === null && this.currentId)
+    if (!opening) return;
+    // Fechado, o _syncTranscriptActive não rola o painel — abrir mostrava a
+    // lista onde ela tinha ficado, não onde o vídeo está. Posiciona já e de
+    // novo no fim da transição: a largura sai de 0, o texto quebra em mais
+    // linhas enquanto ela cresce, e a posição medida no começo não vale.
+    // Sem turnos ainda, o applyTranscript posiciona quando eles chegarem.
+    if (this.transcriptTurns === null && this.currentId)
       Bridge.send('request_transcript', { id: this.currentId });
+    else
+      this._trScrollToCurrent();
+    const onEnd = (e) => {
+      if (e.target !== panel || e.propertyName !== 'width') return;
+      panel.removeEventListener('transitionend', onEnd);
+      if (panel.classList.contains('open')) this._trScrollToCurrent();
+    };
+    panel.addEventListener('transitionend', onEnd);
+  },
+
+  // Centraliza no painel o turno do instante atual do vídeo. Entre duas
+  // falas (nenhum turno ativo) vai pro último que já começou — senão o
+  // painel abriria no topo no meio de um silêncio.
+  _trScrollToCurrent() {
+    const turns = this.transcriptTurns;
+    const body = document.getElementById('playerTrBody');
+    const v = document.getElementById('playerVideo');
+    if (!turns || turns.length === 0 || !body || !v) return;
+    this._syncTranscriptActive(true);
+    let idx = this._trActive;
+    if (idx < 0) {
+      const t = v.currentTime || 0;
+      idx = 0;
+      for (let i = 0; i < turns.length; i++) {
+        if ((turns[i].start || 0) > t) break;
+        idx = i;
+      }
+    }
+    // Filtrado pela busca: o mais próximo que ainda está na lista.
+    let el = null;
+    for (const e of body.querySelectorAll('.player-tr-turn')) {
+      el = e;
+      if (parseInt(e.dataset.idx, 10) >= idx) break;
+    }
+    if (!el) return;
+    // scrollTop direto, não scrollIntoView: este só mexe no painel, aquele
+    // rolaria também os ancestrais do player.
+    const br = body.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    body.scrollTop += (er.top - br.top) - (body.clientHeight - er.height) / 2;
   },
 
   applyTranscript(data) {
@@ -1454,6 +1500,8 @@ const Player = {
     this._trPinned = -1;
     this._capCache = null;
     this.renderTranscript();
+    const panel = document.getElementById('playerTrPanel');
+    if (panel && panel.classList.contains('open')) this._trScrollToCurrent();
     if (this._capNotify) {
       this._capNotify = false;
       this._notifyNoCaptions();

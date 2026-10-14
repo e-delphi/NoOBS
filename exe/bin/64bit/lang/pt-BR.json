@@ -36,6 +36,7 @@
     "ariaLabel": "Gravar",
     "statusReady": "Pronto para gravar",
     "statusRecording": "Gravando",
+    "statusRecordingWindow": "Gravando: {{title}}",
     "recordingFor": "Gravando há {{time}}",
     "started": "Gravação iniciada.",
     "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
@@ -59,6 +60,21 @@
     "hotkeyConflict": "Esse atalho já é o de iniciar/parar a gravação. Escolha outra combinação.",
     "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})",
     "prefixFileSuffix": "buffer"
+  },
+  "windowPicker": {
+    "button": "Gravar uma janela",
+    "title": "Gravar uma janela",
+    "subtitle": "Só a janela escolhida entra no vídeo, mesmo coberta por outras. O áudio segue os dispositivos marcados.",
+    "refresh": "Atualizar lista",
+    "close": "Fechar",
+    "search": "Filtrar janelas...",
+    "loading": "Procurando janelas abertas",
+    "empty": "Nenhuma janela aberta para gravar.",
+    "noMatch": "Nenhuma janela com esse nome.",
+    "pick": "Gravar esta janela",
+    "gone": "A janela escolhida não está mais na lista. Abra o seletor de novo.",
+    "appAudio": "Gravar o som do app",
+    "appAudioHint": "Grava também o som que só este programa toca, numa faixa própria com o nome dele. O som do sistema continua nas faixas de sempre."
   },
   "recordings": {
     "title": "Gravações",
@@ -684,7 +700,9 @@
           "asrMirror": "baixando o modelo de transcrição (Google Drive)",
           "alignMirror": "baixando o modelo de alinhamento (Google Drive)"
         }
-      }
+      },
+      "canceling": "Cancelando…",
+      "cancelingLine": "Cancelando a transcrição de “{{name}}”…"
     },
     "replay": {
       "label": "Buffer em memória",
@@ -839,7 +857,8 @@
     "transcribeFailed": "Falha ao transcrever \"{{name}}\"",
     "transcribeQueued": "Transcrição na fila",
     "exportBusy": "Exportação em andamento",
-    "exportBusyMsg": "Espere a exportação atual terminar (ou cancele) para começar outra."
+    "exportBusyMsg": "Espere a exportação atual terminar (ou cancele) para começar outra.",
+    "transcribeCanceled": "Transcrição cancelada"
   },
   "transcript": {
     "trackN": "Faixa {{n}}"
@@ -928,6 +947,7 @@
     "mixHint": "Mistura de todos os dispositivos habilitados. Gravada como a primeira faixa de áudio do arquivo final.",
     "noTrack": "Sem faixa",
     "mixName": "Mix",
+    "appAudio": "{{app}} (som do app)",
     "micsGroup": "Microfones ({{count}})",
     "outputsGroup": "Saídas ({{count}})",
     "groupedAudio": "Áudio agrupado ({{count}})",

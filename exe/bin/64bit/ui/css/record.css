@@ -256,16 +256,31 @@
      linha inteira clicavel. Separado do botao de gravar por um fio, como
      as secoes da barra lateral. O botao de salvar e um .icon-btn comum e
      so existe com o buffer ativo. */
-  .replay-row {
+  /* Rodape: linha do buffer (cresce) + botao "Gravar uma janela". O fio e
+     as margens negativas eram da .replay-row; passaram pra ca quando o
+     botao entrou ao lado dela. */
+  .rec-footer {
     position: relative;
     z-index: 1;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     margin: 14px -6px -6px;
-    padding: 8px 10px 6px;
+    padding-right: 6px;
     border-top: 1px solid var(--border);
-    border-radius: 0 0 7px 7px;
+  }
+  .window-record-btn { width: 28px; height: 28px; }
+  .window-record-btn:not(:disabled):hover { color: var(--success); border-color: var(--success); }
+  .replay-row {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 6px;
+    border-radius: 0 0 0 7px;
     cursor: pointer;
     user-select: none;
     transition: background 0.1s;
@@ -422,3 +437,144 @@
 @keyframes record-finalizing-spin {
   to { transform: rotate(360deg); }
 }
+
+  /* ===== Seletor "Gravar uma janela" (windowpicker.js) =====
+     Mesmo fundo/vidro do .confirm-overlay; o cartao e maior porque e uma
+     grade de previas. Cada janela e um botao: previa no topo (proporcao
+     16:10, imagem em contain sobre fundo escuro), titulo e exe embaixo. */
+  .winpick-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9400;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 160ms ease, visibility 160ms ease;
+  }
+  .winpick-overlay.visible { opacity: 1; visibility: visible; }
+  .winpick-modal {
+    width: 100%;
+    max-width: 680px;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+    transform: scale(0.97);
+    transition: transform 160ms ease;
+  }
+  .winpick-overlay.visible .winpick-modal { transform: scale(1); }
+  .winpick-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 16px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .winpick-title-wrap { flex: 1; min-width: 0; }
+  .winpick-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .winpick-sub { font-size: 12px; color: var(--text-3); margin-top: 3px; line-height: 1.4; }
+  .winpick-body {
+    padding: 12px 18px 18px;
+    overflow-y: auto;
+    min-height: 200px;
+  }
+  .winpick-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .winpick-search { flex: 1; min-width: 0; }
+  .winpick-audio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border-2);
+    border-radius: 7px;
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 120ms, background 120ms;
+  }
+  .winpick-audio:hover { border-color: var(--text-3); }
+  .winpick-audio input { margin: 0; accent-color: var(--success); cursor: pointer; }
+  .winpick-audio:has(input:checked) { border-color: var(--success); background: var(--accent-bg); }
+  .winpick-audio[hidden] { display: none; }
+  .winpick-empty {
+    padding: 40px 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-3);
+  }
+  .winpick-empty[hidden] { display: none; }
+  .winpick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .winpick-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel-2);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .winpick-item:hover,
+  .winpick-item:focus-visible {
+    border-color: var(--success);
+    background: var(--panel-3);
+    outline: none;
+  }
+  .winpick-thumb {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    border-radius: 6px;
+    background: #0b0b0d;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .winpick-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  /* Sem previa ainda (ou a janela nao deixou tirar): icone de janela. */
+  .winpick-thumb svg { width: 34px; height: 34px; color: #4b4b55; }
+  .winpick-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .winpick-info {
+    font-size: 10.5px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }

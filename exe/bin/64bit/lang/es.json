@@ -36,6 +36,7 @@
     "ariaLabel": "Grabar",
     "statusReady": "Listo para grabar",
     "statusRecording": "Grabando",
+    "statusRecordingWindow": "Grabando: {{title}}",
     "recordingFor": "Grabando por {{time}}",
     "started": "Grabación iniciada.",
     "finished": "Grabación finalizada ({{min}}m {{sec}}s).",
@@ -59,6 +60,21 @@
     "hotkeyConflict": "Ese atajo ya se usa para iniciar/detener la grabación. Elige otra combinación.",
     "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})",
     "prefixFileSuffix": "búfer"
+  },
+  "windowPicker": {
+    "button": "Grabar una ventana",
+    "title": "Grabar una ventana",
+    "subtitle": "Solo la ventana elegida entra en el video, aunque otras la cubran. El audio sigue los dispositivos marcados.",
+    "refresh": "Actualizar lista",
+    "close": "Cerrar",
+    "search": "Filtrar ventanas...",
+    "loading": "Buscando ventanas abiertas",
+    "empty": "No hay ventanas abiertas para grabar.",
+    "noMatch": "Ninguna ventana con ese nombre.",
+    "pick": "Grabar esta ventana",
+    "gone": "La ventana elegida ya no está en la lista. Abre el selector de nuevo.",
+    "appAudio": "Grabar el sonido de la app",
+    "appAudioHint": "También graba el sonido que solo este programa reproduce, en una pista propia con su nombre. El sonido del sistema sigue en las pistas de siempre."
   },
   "recordings": {
     "title": "Grabaciones",
@@ -684,7 +700,9 @@
           "asrMirror": "descargando el modelo de transcripción (Google Drive)",
           "alignMirror": "descargando el modelo de alineación (Google Drive)"
         }
-      }
+      },
+      "canceling": "Cancelando…",
+      "cancelingLine": "Cancelando la transcripción de “{{name}}”…"
     },
     "replay": {
       "label": "Búfer en memoria",
@@ -839,7 +857,8 @@
     "transcribeFailed": "No se pudo transcribir \"{{name}}\"",
     "transcribeQueued": "Transcripción en cola",
     "exportBusy": "Exportación en curso",
-    "exportBusyMsg": "Espera a que termine la exportación actual (o cancélala) para empezar otra."
+    "exportBusyMsg": "Espera a que termine la exportación actual (o cancélala) para empezar otra.",
+    "transcribeCanceled": "Transcripción cancelada"
   },
   "transcript": {
     "trackN": "Pista {{n}}"
@@ -928,6 +947,7 @@
     "mixHint": "Mezcla de todos los dispositivos habilitados. Grabada como la primera pista de audio del archivo final.",
     "noTrack": "Sin pista",
     "mixName": "Mezcla",
+    "appAudio": "{{app}} (sonido de la app)",
     "micsGroup": "Micrófonos ({{count}})",
     "outputsGroup": "Salidas ({{count}})",
     "groupedAudio": "Audio agrupado ({{count}})",

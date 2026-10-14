@@ -91,6 +91,12 @@ function Transcribe(const AAudioPath, ALanguage: string;
   AOnProgress: TLocalAsrProgress; ACancel: TLocalAsrCancel;
   out ABody: string; out ACanceled: Boolean): string;
 
+// Interrompe NA HORA o pedido em voo ao servidor local (um bloco leva ~5 s
+// na GPU e ~30 s na CPU): fecha o handle do WinHTTP de outra thread, e a
+// chamada sincrona volta com erro. Quem transcreve ve o cancelamento e nao
+// repete o bloco. O servidor continua de pe pra proxima transcricao.
+procedure AbortRequest;
+
 // Derruba o servidor se esta ocioso ha IDLE_STOP_MS. Chamado pela worker
 // da transcricao quando a fila esta vazia (barato: so compara tempos).
 procedure StopIfIdle;
@@ -345,6 +351,11 @@ var
   GLastNotify: UInt64 = 0;
 
   GServerLock: TCriticalSection = nil;
+  // Pedido em voo ao servidor local (HttpPostLocal) e quem o fecha: o
+  // proprio HttpPostLocal no fim, ou o AbortRequest de outra thread — so um
+  // dos dois, decidido sob GReqLock.
+  GReqLock: TCriticalSection = nil;
+  GActiveReq: HINTERNET = nil;
   GProc: THandle = 0;          // processo do audiocpp_server (0 = parado)
   GJob: THandle = 0;
   GPort: Integer = 0;
@@ -1515,6 +1526,13 @@ begin
     if Conn = nil then Exit(Fail('WinHttpConnect', SEND_TIMEOUT_MS));
     Req := WinHttpOpenRequest(Conn, 'POST', PChar(ARoute), nil, nil, nil, 0);
     if Req = nil then Exit(Fail('WinHttpOpenRequest', SEND_TIMEOUT_MS));
+    // Visivel pro AbortRequest a partir daqui.
+    GReqLock.Enter;
+    try
+      GActiveReq := Req;
+    finally
+      GReqLock.Leave;
+    end;
     Timeout := RequestTimeoutMs;
     WinHttpSetOption(Req, WINHTTP_OPTION_RECEIVE_RESPONSE_TIMEOUT, @Timeout, SizeOf(Timeout));
     Headers := 'Content-Type: ' + AContentType;
@@ -1544,9 +1562,39 @@ begin
     AResponse := TEncoding.UTF8.GetString(Resp.Bytes, 0, Integer(Resp.Size));
   finally
     Resp.Free;
-    if Req <> nil then WinHttpCloseHandle(Req);
+    if Req <> nil then
+    begin
+      // Se o AbortRequest ja fechou o handle, ele tirou o GActiveReq:
+      // fechar de novo seria handle invalido.
+      GReqLock.Enter;
+      try
+        if GActiveReq = Req then
+        begin
+          GActiveReq := nil;
+          WinHttpCloseHandle(Req);
+        end;
+      finally
+        GReqLock.Leave;
+      end;
+    end;
     if Conn <> nil then WinHttpCloseHandle(Conn);
     WinHttpCloseHandle(Session);
+  end;
+end;
+
+procedure AbortRequest;
+begin
+  if GReqLock = nil then Exit;
+  GReqLock.Enter;
+  try
+    if GActiveReq <> nil then
+    begin
+      Log('LocalAsr: pedido em voo interrompido (cancelamento).');
+      WinHttpCloseHandle(GActiveReq);
+      GActiveReq := nil;
+    end;
+  finally
+    GReqLock.Leave;
   end;
 end;
 
@@ -1702,6 +1750,13 @@ begin
   begin
     Result := PostAudio(ARoute, AFields, AWav, AObj, Transport);
     if GShuttingDown then Exit;
+    // Cancelado (o AbortRequest derrubou o pedido, ou chegou durante ele):
+    // nada de repetir o bloco nem reiniciar o servidor.
+    if Assigned(ACancel) and ACancel() then
+    begin
+      if AObj <> nil then FreeAndNil(AObj);
+      Exit(CANCELED_MARK);
+    end;
     if Result.StartsWith(NO_MEMORY_MARK) then
     begin
       Reason := Copy(Result, Length(NO_MEMORY_MARK) + 1, MaxInt);
@@ -2326,6 +2381,7 @@ end;
 initialization
   GLock := TCriticalSection.Create;
   GServerLock := TCriticalSection.Create;
+  GReqLock := TCriticalSection.Create;
 
 finalization
   // Sem liberar os locks: uma thread de instalacao abandonada no fechamento

@@ -290,6 +290,12 @@ procedure obs_source_set_muted(source: obs_source_t; muted: ByteBool);
 procedure obs_source_set_audio_mixers(source: obs_source_t;
   mixers: Cardinal); cdecl; external 'obs.dll' delayed;
 
+// Id versionado do tipo de fonte, ou nil se nenhum plugin registrou o tipo.
+// Usado pra saber se o win-wasapi registrou a captura de audio por processo
+// (wasapi_process_output_capture so existe no Windows 10 2004+).
+function obs_get_latest_input_type_id(unversioned_id: PAnsiChar): PAnsiChar;
+  cdecl; external 'obs.dll' delayed;
+
 procedure obs_enum_sources(enum_proc: obs_enum_sources_proc;
   param: Pointer); cdecl; external 'obs.dll' delayed;
 

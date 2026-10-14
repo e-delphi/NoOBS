@@ -383,8 +383,12 @@ const Bridge = {
     export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },
     export_done(data) { Export.onDone(data); },
     recording_state(data) {
-      applyRecordingState(data.active, data.elapsed, data.sizeText);
+      applyRecordingState(data.active, data.elapsed, data.sizeText,
+                          data.window || '');
     },
+    // Seletor "Gravar uma janela" (windowpicker.js).
+    capture_windows(data) { WindowPicker.onList(data); },
+    capture_window_thumb(data) { WindowPicker.onThumb(data); },
     // O libobs ainda esta fechando o arquivo da gravacao anterior. Desabilita
     // o botao: iniciar agora travaria a main thread no release do output.
     recording_finalizing(data) { applyFinalizingState(!!data.active); },

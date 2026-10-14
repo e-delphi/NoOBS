@@ -44,6 +44,62 @@
   </div>
 </div>
 
+<!-- ===== Seletor "Gravar uma janela" (windowpicker.js) =====
+     Grade das janelas abertas, com previa de cada uma (PrintWindow no
+     backend, servida pelo HTTP local). Clicar numa janela comeca a gravar
+     SO ela. -->
+<div class="winpick-overlay" id="windowPickerOverlay"
+     onmousedown="if(event.target===this)WindowPicker.close()">
+  <div class="winpick-modal" role="dialog" aria-modal="true"
+       aria-labelledby="windowPickerTitle">
+    <div class="winpick-header">
+      <div class="winpick-title-wrap">
+        <div class="winpick-title" id="windowPickerTitle"
+             data-i18n="windowPicker.title">Gravar uma janela</div>
+        <div class="winpick-sub" data-i18n="windowPicker.subtitle">
+          Só a janela escolhida entra no vídeo, mesmo coberta por outras. O áudio segue os dispositivos marcados.
+        </div>
+      </div>
+      <button class="icon-btn" type="button" onclick="WindowPicker.refresh()"
+              data-i18n-hint="windowPicker.refresh" data-hint="Atualizar lista">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+      </button>
+      <button class="icon-btn" type="button" onclick="WindowPicker.close()"
+              data-i18n-hint="windowPicker.close" data-hint="Fechar">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="winpick-body">
+      <div class="winpick-tools">
+        <input type="text" class="search winpick-search" id="windowPickerSearch"
+               data-i18n-placeholder="windowPicker.search" placeholder="Filtrar janelas..."
+               oninput="WindowPicker.render()">
+        <!-- Som SO do app da janela, numa faixa propria (pegadinha #66).
+             Escondido onde o Windows nao tem captura por processo. -->
+        <label class="winpick-audio" id="windowPickerAudioWrap"
+               data-i18n-hint="windowPicker.appAudioHint"
+               data-hint="Grava também o som que só este programa toca, numa faixa própria com o nome dele. O som do sistema continua nas faixas de sempre.">
+          <input type="checkbox" id="windowPickerAudio"
+                 onchange="WindowPicker.onAudioChange(this.checked)">
+          <span data-i18n="windowPicker.appAudio">Gravar o som do app</span>
+        </label>
+      </div>
+      <div class="winpick-empty" id="windowPickerEmpty" hidden></div>
+      <div class="winpick-grid" id="windowPickerGrid"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ===== Tela de exportacao (ocupa a janela inteira, nao e modal) =====
      Preenchido por js/export.js a partir do video_info (duracao, faixas de
      audio, layout de monitores) + encoder_caps.exportEncoders. -->
@@ -1702,6 +1758,10 @@
           </button>
           <div class="record-label" id="recordLabel" data-i18n="record.start">Iniciar gravação</div>
 
+          <!-- Rodape do cartao: a linha do buffer + o botao "Gravar uma
+               janela" ao lado (windowpicker.js). O fio de cima e as margens
+               negativas sao do rodape, nao da linha do buffer. -->
+          <div class="rec-footer">
           <!-- Buffer em memoria (replay.js). Mesmo padrao das linhas de
                dispositivo (.source-item + .toggle verde): clicar na linha
                liga/desliga; o botao de salvar so aparece com o buffer ativo
@@ -1726,6 +1786,20 @@
               </svg>
             </button>
             <div class="toggle"></div>
+          </div>
+            <button class="icon-btn window-record-btn" id="windowRecordBtn"
+                    type="button" onclick="WindowPicker.open()"
+                    data-i18n-hint="windowPicker.button" data-hint="Gravar uma janela"
+                    data-i18n-aria="windowPicker.button" aria-label="Gravar uma janela">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <line x1="3" y1="9" x2="21" y2="9"/>
+                <circle cx="6" cy="6.5" r="0.6" fill="currentColor"/>
+                <circle cx="8.5" cy="6.5" r="0.6" fill="currentColor"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>
@@ -1872,6 +1946,7 @@
 <script src="js/export.js"></script>
 <script src="js/transcribe.js"></script>
 <script src="js/replay.js"></script>
+<script src="js/windowpicker.js"></script>
 <script src="js/main.js"></script>
 
 </body>

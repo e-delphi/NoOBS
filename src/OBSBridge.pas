@@ -35,6 +35,12 @@
                            OBSElevate)
     record_start         : —
     record_stop          : —
+    list_capture_windows : — (responde capture_windows e, uma a uma,
+                           capture_window_thumb — seletor "Gravar janela")
+    record_window        : id (da ultima capture_windows), appAudio
+                           (Boolean) — grava SO aquela janela
+                           (window_capture) e, com appAudio, o som SO do app
+                           numa faixa propria. Pegadinha #66
     set_replay_enabled   : enabled (Boolean) — liga/desliga o buffer em memoria
                            NESTA sessao (nao persiste; quem decide o arranque
                            e 'replayAutoStart')
@@ -185,7 +191,10 @@
                            pra o card ja existir no DOM)
     recording_state      : active, elapsed, sizeBytes + sizeText (tamanho
                            ja gravado do MKV em curso; ausentes enquanto o
-                           muxer nao escreveu nada)
+                           muxer nao escreveu nada), window (titulo, so na
+                           gravacao de janela)
+    capture_windows      : seq, items[{id, title, exe, w, h}]
+    capture_window_thumb : seq, id, thumb (URL do HTTP local)
     recording_added      : item
     encoder_caps         : av1Hw, hevcHw, h264Hw, h264Sw, av1Sw, vendor,
                            vendorLogo, exportEncoders[] ({id,name,hardware}
@@ -285,6 +294,7 @@ uses
   WinAudioMeter,
   WinRecIndicator,
   WinProcWatch,
+  WinWindows,
   WinGpuUsage,
   WinWebcam;
 
@@ -510,6 +520,23 @@ var
   // (auto-gravacao em chamadas). So essas sao auto-paradas quando o mic e
   // liberado — nunca mata uma gravacao manual.
   RecordingStartedByMicWatch: Boolean = False;
+  // Gravacao de UMA janela (seletor "Gravar janela"). Preenchidos pelo
+  // HandleRecordWindow logo antes do HandleRecordStart e zerados no stop:
+  // fora dessa janela de tempo, gravar e sempre o de sempre (telas).
+  // Pegadinha #66.
+  RecordingWindowSpec: string = '';
+  RecordingWindowTitle: string = '';
+  RecordingWindowHandle: NativeUInt = 0;
+  // Gravar tambem o som SO do app da janela (checkbox do seletor), numa
+  // faixa isolada com o nome do app.
+  RecordingWindowAudio: Boolean = False;
+  RecordingWindowApp: string = '';
+  // Ultima lista entregue ao seletor (main thread). O 'record_window' da UI
+  // manda so o id; a string do OBS sai daqui, nunca do JS.
+  CaptureWindows: TCaptureWindowArray;
+  // Cada abertura do seletor e uma rodada; previas de uma rodada velha
+  // (worker ainda capturando) sao descartadas.
+  CaptureWindowsSeq: Integer = 0;
   RecordingStartTickMs: Cardinal = 0;
   // True a partir do momento que o JS sobe e manda 'ready'. Antes
   // disso o `show_notification` pra UI nao funciona — usa fallback
@@ -1578,6 +1605,9 @@ begin
   Obj.AddPair('type', 'recording_state');
   Obj.AddPair('active', TJSONBool.Create(RecordingActive));
   Obj.AddPair('elapsed', TJSONNumber.Create(Elapsed));
+  // Gravando uma janela: a UI diz qual no lugar de "Gravando".
+  if RecordingActive and (RecordingWindowSpec <> '') then
+    Obj.AddPair('window', RecordingWindowTitle);
   // Tamanho ja gravado. Vai junto do tique de 1s (TIMER_RECORDING_TICK),
   // que e quem chama isto durante a gravacao. Zero enquanto o muxer nao
   // escreveu nada — a UI simplesmente nao mostra nada nesse caso.
@@ -4127,9 +4157,11 @@ begin
   // dispositivos e portanto outra cena), gravacao e buffer sao um de cada
   // vez: o que estava guardado e descartado, e o buffer volta sozinho no
   // OnEngineRecordingStopped se o ReplayWanted continuar ligado.
+  // Gravacao de janela tambem fica de fora: a cena do buffer sao as telas,
+  // e os encoders dele estao no canvas delas.
   ContinueReplay := ReplayActive and (Engine <> nil) and
     GetConfigBool('replayIntoRecording', True) and
-    (not RecordingStartedByMicWatch);
+    (not RecordingStartedByMicWatch) and (RecordingWindowSpec = '');
   if ReplayActive and not ContinueReplay then
   begin
     Log('HandleRecordStart: parando o buffer em memoria pra gravar.');
@@ -4187,7 +4219,9 @@ begin
       StopReplayBuffer(False);
     end;
     if not ContinueReplay then
-      Engine.BuildAndStartRecording(OutputPath, RecordingStartedByMicWatch);
+      Engine.BuildAndStartRecording(OutputPath, RecordingStartedByMicWatch,
+        RecordingWindowSpec, RecordingWindowTitle, RecordingWindowHandle,
+        RecordingWindowAudio, RecordingWindowApp);
     // Captura de audio falhou em agendar? As fontes existem e nao estao
     // mutadas, mas nao recebem amostra nenhuma — a gravacao sairia muda e
     // o usuario so descobriria assistindo depois. Avisa AGORA, enquanto da
@@ -4265,6 +4299,7 @@ begin
     on E: Exception do
     begin
       RecordingActive := False;
+      RecordingWindowSpec := '';
       SyncTranscribePause;
       // Reverte os icones caso ja tenhamos trocado pra "recording"
       // antes do erro (defensivo — no-op se nunca trocou).
@@ -4282,6 +4317,170 @@ begin
 end;
 
 procedure HandleRecordStop; forward;
+
+// ---------------------------------------------------------------------
+// Gravar UMA janela (seletor da tela principal). Pegadinha #66.
+// ---------------------------------------------------------------------
+
+function CaptureWindowItemId(AWnd: HWND): string;
+begin
+  // Tambem e a chave da previa no ThumbMap do OBSPlayer (mesmo servidor
+  // das previas dos monitores).
+  Result := 'win' + UIntToStr(NativeUInt(AWnd));
+end;
+
+function AppAudioSupported: Boolean;
+// O som por app (wasapi_process_output_capture) so e registrado pelo
+// win-wasapi no Windows 10 2004+ (build 19041). Com o libobs de pe, a
+// resposta e a dele; antes do warmup, a mesma regra de versao do plugin.
+begin
+  if (Engine <> nil) and Engine.IsInitialized then
+    Result := Engine.AppAudioAvailable
+  else
+    Result := (TOSVersion.Major > 10) or
+      ((TOSVersion.Major = 10) and (TOSVersion.Build >= 19041));
+end;
+
+function WindowAppName(const AWin: TCaptureWindow): string;
+// Nome do app pra faixa: o exe sem extensao (chrome, Discord). Sem exe
+// legivel (processo elevado = 'unknown'), o titulo da janela.
+begin
+  Result := ChangeFileExt(AWin.Exe, '');
+  if (Result = '') or SameText(Result, 'unknown') then
+    Result := AWin.Title;
+end;
+
+procedure PushCaptureWindows(ASeq: Integer; const AList: TCaptureWindowArray);
+var
+  Obj, Item: TJSONObject;
+  Arr: TJSONArray;
+  i: Integer;
+begin
+  if ASeq <> CaptureWindowsSeq then Exit;
+  CaptureWindows := AList;
+  Arr := TJSONArray.Create;
+  for i := 0 to High(AList) do
+  begin
+    Item := TJSONObject.Create;
+    Item.AddPair('id', CaptureWindowItemId(AList[i].Handle));
+    Item.AddPair('title', AList[i].Title);
+    Item.AddPair('exe', AList[i].Exe);
+    Item.AddPair('w', TJSONNumber.Create(AList[i].Width));
+    Item.AddPair('h', TJSONNumber.Create(AList[i].Height));
+    Arr.AddElement(Item);
+  end;
+  Obj := TJSONObject.Create;
+  Obj.AddPair('type', 'capture_windows');
+  Obj.AddPair('seq', TJSONNumber.Create(ASeq));
+  Obj.AddPair('appAudio', TJSONBool.Create(AppAudioSupported));
+  Obj.AddPair('items', Arr);
+  PostOwned(Obj);
+end;
+
+procedure QueueCaptureWindowThumb(ASeq: Integer; const AId, AUrl: string);
+// Procedure propria (e nao um TThread.Queue dentro do laco do worker): a
+// closure captura por referencia, e o id/url ja seriam os do proximo item
+// quando ela rodasse (pegadinha #6).
+begin
+  TThread.Queue(nil,
+    procedure
+    var
+      Obj: TJSONObject;
+    begin
+      if ASeq <> CaptureWindowsSeq then Exit;
+      Obj := TJSONObject.Create;
+      Obj.AddPair('type', 'capture_window_thumb');
+      Obj.AddPair('seq', TJSONNumber.Create(ASeq));
+      Obj.AddPair('id', AId);
+      Obj.AddPair('thumb', AUrl);
+      PostOwned(Obj);
+    end);
+end;
+
+procedure HandleListCaptureWindows;
+// Lista na hora (EnumWindows e barato) e depois tira as previas uma a uma
+// — PrintWindow custa dezenas de ms por janela, e com 20 janelas abertas a
+// lista inteira esperaria mais de um segundo por elas.
+var
+  Seq: Integer;
+begin
+  Inc(CaptureWindowsSeq);
+  Seq := CaptureWindowsSeq;
+  TThread.CreateAnonymousThread(
+    procedure
+    var
+      List: TCaptureWindowArray;
+      i: Integer;
+      Jpeg: TBytes;
+      Id: string;
+    begin
+      try
+        List := WinWindows.EnumerateCaptureWindows;
+      except
+        on E: Exception do
+        begin
+          Log('Janelas: enumeracao falhou: %s', [E.Message]);
+          List := nil;
+        end;
+      end;
+      Log('Janelas: %d gravavel(is).', [Length(List)]);
+      TThread.Queue(nil,
+        procedure
+        begin
+          PushCaptureWindows(Seq, List);
+        end);
+      for i := 0 to High(List) do
+      begin
+        if IsShuttingDown or (Seq <> CaptureWindowsSeq) then Exit;
+        try
+          Jpeg := WinWindows.CaptureWindowThumbJpeg(List[i].Handle, 480, 300);
+        except
+          on E: Exception do
+          begin
+            Log('Janelas: previa de "%s" falhou: %s', [List[i].Title, E.Message]);
+            Jpeg := nil;
+          end;
+        end;
+        if Length(Jpeg) = 0 then Continue;
+        Id := CaptureWindowItemId(List[i].Handle);
+        SetMonitorThumb(Id, Jpeg);
+        QueueCaptureWindowThumb(Seq, Id, GetMonitorThumbUrl(Id));
+      end;
+    end).Start;
+end;
+
+procedure HandleRecordWindow(const AId: string; AAppAudio: Boolean);
+var
+  i: Integer;
+begin
+  if RecordingActive then Exit;
+  for i := 0 to High(CaptureWindows) do
+    if CaptureWindowItemId(CaptureWindows[i].Handle) = AId then
+    begin
+      RecordingWindowSpec := CaptureWindows[i].Spec;
+      RecordingWindowTitle := CaptureWindows[i].Title;
+      RecordingWindowHandle := NativeUInt(CaptureWindows[i].Handle);
+      RecordingWindowAudio := AAppAudio;
+      RecordingWindowApp := WindowAppName(CaptureWindows[i]);
+      Log('HandleRecordWindow: "%s" [%s] somDoApp=%s.',
+        [CaptureWindows[i].Title, CaptureWindows[i].Exe,
+         BoolToStr(AAppAudio, True)]);
+      HandleRecordStart;
+      // Nao subiu (recusada ou falhou): a proxima gravacao volta a ser das
+      // telas.
+      if not RecordingActive then
+      begin
+        RecordingWindowSpec := '';
+        RecordingWindowTitle := '';
+        RecordingWindowHandle := 0;
+        RecordingWindowAudio := False;
+        RecordingWindowApp := '';
+      end;
+      Exit;
+    end;
+  Log('HandleRecordWindow: id %s fora da ultima lista.', [AId]);
+  PostError(OBSLang.T('windowPicker.gone'));
+end;
 
 procedure OnHotkey(AHotkeyId: Integer);
 // Callback de WM_HOTKEY chamado por OBSUI.WindowProc. Roda no UI
@@ -4361,6 +4560,12 @@ begin
   // Qualquer parada (manual, hotkey ou auto) encerra o vinculo com o monitor
   // de mic — a proxima gravacao so sera "auto" se o watcher a iniciar.
   RecordingStartedByMicWatch := False;
+  // Idem pra janela: a proxima gravacao (atalho, mic) volta a ser das telas.
+  RecordingWindowSpec := '';
+  RecordingWindowTitle := '';
+  RecordingWindowHandle := 0;
+  RecordingWindowAudio := False;
+  RecordingWindowApp := '';
 
   // Sinaliza pra UI tocar o som de parada AGORA — Engine.StopRecording
   // pode demorar centenas de ms flushing buffers do MKV, e o user nao
@@ -7562,6 +7767,9 @@ begin
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'transcribe_state');
   Obj.AddPair('running',  TJSONBool.Create(OBSTranscribe.IsRunning));
+  // Cancelar ja pedido, item em curso ainda parando: a UI trava o botao e
+  // mostra "Cancelando…".
+  Obj.AddPair('canceling', TJSONBool.Create(OBSTranscribe.IsCanceling));
   Obj.AddPair('queue',    TJSONNumber.Create(OBSTranscribe.QueueLength));
   Obj.AddPair('total',    TJSONNumber.Create(OBSTranscribe.BatchTotal));
   Obj.AddPair('done',     TJSONNumber.Create(OBSTranscribe.DoneCount));
@@ -9246,6 +9454,11 @@ begin
       HandleRecordStart
     else if MsgType = 'record_stop' then
       HandleRecordStop
+    else if MsgType = 'list_capture_windows' then
+      HandleListCaptureWindows
+    else if MsgType = 'record_window' then
+      HandleRecordWindow(GetStrField(Obj, 'id'),
+        GetBoolField(Obj, 'appAudio', False))
     else if MsgType = 'rename_recording' then
       HandleRenameRecording(GetStrField(Obj, 'id'), GetStrField(Obj, 'newName'))
     else if MsgType = 'open_recording' then

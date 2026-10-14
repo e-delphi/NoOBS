@@ -36,6 +36,7 @@
     "ariaLabel": "Record",
     "statusReady": "Ready to record",
     "statusRecording": "Recording",
+    "statusRecordingWindow": "Recording: {{title}}",
     "recordingFor": "Recording for {{time}}",
     "started": "Recording started.",
     "finished": "Recording finished ({{min}}m {{sec}}s).",
@@ -59,6 +60,21 @@
     "hotkeyConflict": "That shortcut is already used to start/stop recording. Pick another combination.",
     "savedNotify": "Buffer clip saved ({{min}}:{{sec}})",
     "prefixFileSuffix": "buffer"
+  },
+  "windowPicker": {
+    "button": "Record a window",
+    "title": "Record a window",
+    "subtitle": "Only the chosen window goes into the video, even when other windows cover it. Audio follows the selected devices.",
+    "refresh": "Refresh list",
+    "close": "Close",
+    "search": "Filter windows...",
+    "loading": "Looking for open windows",
+    "empty": "No open windows to record.",
+    "noMatch": "No window with that name.",
+    "pick": "Record this window",
+    "gone": "The chosen window is no longer in the list. Open the picker again.",
+    "appAudio": "Record the app sound",
+    "appAudioHint": "Also records the sound only this program plays, on its own track named after it. System sound stays on the usual tracks."
   },
   "recordings": {
     "title": "Recordings",
@@ -684,7 +700,9 @@
           "asrMirror": "downloading the transcription model (Google Drive)",
           "alignMirror": "downloading the alignment model (Google Drive)"
         }
-      }
+      },
+      "canceling": "Canceling…",
+      "cancelingLine": "Canceling the transcription of “{{name}}”…"
     },
     "replay": {
       "label": "Memory buffer",
@@ -839,7 +857,8 @@
     "transcribeFailed": "Could not transcribe \"{{name}}\"",
     "transcribeQueued": "Transcription queued",
     "exportBusy": "Export in progress",
-    "exportBusyMsg": "Wait for the current export to finish (or cancel it) before starting another."
+    "exportBusyMsg": "Wait for the current export to finish (or cancel it) before starting another.",
+    "transcribeCanceled": "Transcription canceled"
   },
   "transcript": {
     "trackN": "Track {{n}}"
@@ -928,6 +947,7 @@
     "mixHint": "Mix of all enabled devices. Recorded as the first audio track of the output file.",
     "noTrack": "No track",
     "mixName": "Mix",
+    "appAudio": "{{app}} (app sound)",
     "micsGroup": "Microphones ({{count}})",
     "outputsGroup": "Outputs ({{count}})",
     "groupedAudio": "Grouped audio ({{count}})",

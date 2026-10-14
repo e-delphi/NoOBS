@@ -61,6 +61,7 @@ uses
   WinAudioMeter in 'src\WinAudioMeter.pas',
   WinMicWatch in 'src\WinMicWatch.pas',
   WinProcWatch in 'src\WinProcWatch.pas',
+  WinWindows in 'src\WinWindows.pas',
   OBSVersion in 'src\OBSVersion.pas',
   OBSUpdate in 'src\OBSUpdate.pas',
   WinPreview in 'src\WinPreview.pas',

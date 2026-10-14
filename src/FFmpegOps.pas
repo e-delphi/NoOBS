@@ -46,12 +46,21 @@ function MergeFiles(const AInputs: TArray<string>; const ADst: string;
 function SpliceContinuation(const AHead, ATail, ADst: string;
   ALeadMs: Integer; out AInfo: string): Boolean;
 
+type
+  // Pergunta "ainda vale continuar?". True = parar. Lida a cada pacote nas
+  // operacoes longas que a transcricao usa, pra o Cancelar valer NO MEIO
+  // delas (extrair 1h50 de audio leva ~6 s; o pico de cada faixa, outro
+  // tanto) e nao so entre uma e outra.
+  TCancelFunc = reference to function: Boolean;
+
 // Extrai faixas de audio do source pra arquivos separados (M4A, AAC stream
 // copy). AOutputs[j] recebe o (j+AAudioStartIndex)-esimo audio stream — use
 // AAudioStartIndex=1 pra pular o mix (track 1) e extrair so as isoladas.
 // Faz UMA passada de demux. Retorna True se todas as faixas foram escritas.
+// ACancel (opcional) interrompe no meio: devolve False.
 function ExtractAudioTracks(const ASrc: string;
-  const AOutputs: TArray<string>; AAudioStartIndex: Integer = 0): Boolean;
+  const AOutputs: TArray<string>; AAudioStartIndex: Integer = 0;
+  ACancel: TCancelFunc = nil): Boolean;
 
 // Extrai um frame em ATimestampSec e salva como JPEG. Faz seek pro
 // keyframe anterior, decoda frames ate alcancar ATimestampSec, scala
@@ -72,8 +81,9 @@ function ExtractFramePng(const ASrc, ADstPng: string; ASec: Double): Boolean;
 // player. Retorna array de Single (Length = ABuckets), cada valor em
 // [0..1] representando o pico absoluto daquela secao do audio.
 // Faz uma passada linear; ~500ms-2s pra gravacao de 10 min.
+// ACancel (opcional) interrompe no meio: devolve False.
 function ComputeAudioPeaks(const ASrc: string; ABuckets: Integer;
-  out APeaks: TArray<Single>): Boolean;
+  out APeaks: TArray<Single>; ACancel: TCancelFunc = nil): Boolean;
 
 type
   // Recebe um bloco de amostras MONO em float [-1..1], na taxa original do
@@ -286,7 +296,7 @@ end;
 
 function RemuxDispatch(const ASrc: string;
   const ATargets: TArray<TArray<Cardinal>>;
-  const AOutputPaths: TArray<string>): Boolean;
+  const AOutputPaths: TArray<string>; ACancel: TCancelFunc = nil): Boolean;
 // Loop generico: abre source, abre N outputs, le pacotes do source e
 // despacha pra cada output que mapeia o stream. Cada target[i] e a
 // lista de stream indices que vao pro output[i].
@@ -332,6 +342,13 @@ begin
     WriteFailed := False;
     while (not WriteFailed) and (av_read_frame(SrcCtx, Pkt) = 0) do
     begin
+      // Cancelado: sai como falha (o arquivo parcial nao serve pra nada).
+      if Assigned(ACancel) and ACancel() then
+      begin
+        av_packet_unref(Pkt);
+        WriteFailed := True;
+        Break;
+      end;
       try
         for i := 0 to High(Outs) do
         begin
@@ -1142,7 +1159,8 @@ begin
 end;
 
 function ExtractAudioTracks(const ASrc: string;
-  const AOutputs: TArray<string>; AAudioStartIndex: Integer): Boolean;
+  const AOutputs: TArray<string>; AAudioStartIndex: Integer;
+  ACancel: TCancelFunc): Boolean;
 // Cada audio stream do source vai pra um arquivo separado. Faz UMA
 // passada de demux — performance equivalente a `ffmpeg -i ... -map ...
 // -map ... -c copy`. AOutputs[i] corresponde ao i-esimo stream de
@@ -1197,7 +1215,7 @@ begin
     T[0] := AudioIdxs[j + AAudioStartIndex];
     Targets[j] := T;
   end;
-  Result := RemuxDispatch(ASrc, Targets, AOutputs);
+  Result := RemuxDispatch(ASrc, Targets, AOutputs, ACancel);
 end;
 
 // =====================================================================
@@ -1714,7 +1732,7 @@ begin
 end;
 
 function ComputeAudioPeaks(const ASrc: string; ABuckets: Integer;
-  out APeaks: TArray<Single>): Boolean;
+  out APeaks: TArray<Single>; ACancel: TCancelFunc): Boolean;
 // Decoda PCM da 1a faixa de audio e produz um array de peaks
 // agrupados em ABuckets fatias temporais iguais. Suporta os formatos
 // AAC mais comuns (FLTP/FLT/S16P/S16). Outros sao ignorados.
@@ -1833,6 +1851,11 @@ begin
     SampleIdx := 0;
     while av_read_frame(SrcCtx, Pkt) = 0 do
     begin
+      if Assigned(ACancel) and ACancel() then
+      begin
+        av_packet_unref(Pkt);
+        Exit;   // Result ainda e False
+      end;
       if Pkt.stream_index = AudioIdx then
       begin
         if avcodec_send_packet(DecCtx, Pkt) = 0 then

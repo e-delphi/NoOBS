@@ -22,6 +22,11 @@ instalar nem configurar nada — só abrir e gravar.
 - **Todos os monitores num arquivo só.** Lado a lado, sem faixa preta de
   monitor que ficou de fora.
 
+- **Ou só uma janela.** O botão ao lado do buffer mostra as janelas
+  abertas com uma prévia de cada; escolhida uma, só ela entra no vídeo,
+  mesmo coberta por outras. Marcando "Gravar o som do app", o som só
+  daquele programa vai junto, numa faixa própria com o nome dele.
+
 - **Cada microfone e alto-falante na própria faixa.** Faixa 1 é a mistura
   de tudo; as outras ficam isoladas por dispositivo, até 6. Abre no
   DaVinci ou no Premiere com os nomes certos, pronto pra separar voz de

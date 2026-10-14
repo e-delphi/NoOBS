@@ -98,6 +98,10 @@ procedure SetOnChanged(ACallback: TTranscribeChanged);
 
 // --- estado pra UI (le da main thread) ---
 function IsRunning: Boolean;
+// Cancelamento pedido e o item em curso ainda nao parou. A UI trava o botao
+// e diz "Cancelando…" enquanto isto for True — sem isso o clique parecia nao
+// ter pegado e a pessoa clicava de novo.
+function IsCanceling: Boolean;
 function QueueLength: Integer;        // inclui o item em curso
 function CurrentName: string;
 function CurrentElapsedSec: Integer;
@@ -563,6 +567,11 @@ end;
 function CancelRequested: Boolean;
 begin
   Result := GCancelCurrent;
+end;
+
+function IsCanceling: Boolean;
+begin
+  Result := GCancelCurrent and GRunning;
 end;
 
 function ShuttingDown: Boolean;
@@ -1576,7 +1585,11 @@ var
   i: Integer;
 begin
   Result := True;   // na duvida, MANDA: perder fala e pior que gastar tempo
-  if not FFmpegOps.ComputeAudioPeaks(AAudioPath, SILENCE_BUCKETS, Peaks) then Exit;
+  // Decodifica a faixa inteira (segundos numa gravacao longa): le o
+  // cancelamento a cada pacote. Cancelado sai "com som" e quem chamou ve o
+  // cancelamento logo em seguida.
+  if not FFmpegOps.ComputeAudioPeaks(AAudioPath, SILENCE_BUCKETS, Peaks,
+    CancelRequested) then Exit;
   if Length(Peaks) = 0 then Exit;
   for i := 0 to High(Peaks) do
     if Peaks[i] >= SILENCE_PEAK_MIN then Exit;
@@ -2764,8 +2777,14 @@ begin
     // UMA passada de demux pra todas as faixas. Streams[0] e o indice do
     // primeiro audio pedido; como PlanTracks devolve sempre um intervalo
     // contiguo comecando em Streams[0], o start index cobre o resto.
-    if not FFmpegOps.ExtractAudioTracks(APath, Files, Streams[0]) then
+    // Com o cancelamento lido a cada pacote: numa gravacao longa extrair
+    // leva segundos, e o Cancelar tem que valer no meio.
+    if not FFmpegOps.ExtractAudioTracks(APath, Files, Streams[0], CancelRequested) then
+    begin
+      if CancelRequested then Exit(CANCELED_MARK);
       Exit(OBSLang.T('error.transcribe.extractFailed'));
+    end;
+    if CancelRequested then Exit(CANCELED_MARK);
 
     // Faixa muda nao vai pro servidor. Com varias faixas isto e o que
     // impede o microfone que ninguem usou de gastar uma fila inteira.
@@ -2775,6 +2794,7 @@ begin
     n := 0;
     for i := 0 to High(Files) do
     begin
+      if CancelRequested then Exit(CANCELED_MARK);
       if not TFile.Exists(Files[i]) then
         Exit(OBSLang.T('error.transcribe.extractMissing'));
       if PerTrack and not TrackHasSound(Files[i]) then
@@ -3281,6 +3301,9 @@ begin
     GLock.Leave;
   end;
   Log('Transcribe: fila cancelada.');
+  // Motor local: o bloco em voo leva de segundos (GPU) a ~30 s (CPU) —
+  // derruba o pedido agora em vez de esperar ele voltar.
+  OBSLocalAsr.AbortRequest;
   SaveQueue;
   // Se a worker esperava o servidor, acorda: com a fila vazia ela sai do
   // modo de espera na hora, em vez de a tela seguir "aguardando" por 30 s.

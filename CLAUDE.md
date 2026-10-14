@@ -49,7 +49,7 @@ exatamente no lugar onde libobs espera.
 ```
 src/      ← .pas (todo código Delphi)
 exe/      ← runtime: build output + OBS bundled em bin/64bit/
-            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (16 mód.) + logos GPU (UI, servida do disco)
+            bin/64bit/ui/   ← index.html + css/ (9 comp.) + js/ (17 mód.) + logos GPU (UI, servida do disco)
             bin/64bit/lang/ ← traduções (pt-BR/en/es)
 NoOBS.dpr, NoOBS.dproj
 clean-obs.bat
@@ -112,13 +112,14 @@ Tipos compartilhados: `NoOBSTypes` (TGpuVendor, TEncoderCaps, TObsAudioDev).
 | `WinProcWatch`      | **Win32**: ToolHelp32 em thread própria pra detectar se um programa da lista do usuário está rodando → ligar/desligar o buffer em memória sozinho (pegadinha #62) |
 | `WinGpuUsage`       | **PDH**: uso da placa POR MOTOR (`GPU Engine` → `Utilization Percentage`), somado por adaptador e tipo, com a parte do próprio NoOBS — alimenta o monitor de desempenho |
 | `WinWebcam`         | **DirectShow**: enumera webcams com friendly name e resolução                      |
+| `WinWindows`        | **Win32**: janelas gravaveis pro seletor "Gravar uma janela" (`EnumWindows` + previa por `PrintWindow`) e a string `titulo:classe:exe` que o `window_capture` do OBS usa pra achar a janela (pegadinha #66) |
 | `WinRecIndicator`   | **Win32**: overlay de gravação na tela (bolinha + tempo), excluído da própria captura via `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` (Pegadinha #49) |
 
 A UI vive em `exe\bin\64bit\ui\`, **modularizada**: `index.html` (shell +
 markup), `css/` (9 arquivos por componente: base, layout, record, displays,
-recordings, player, export, settings, widgets) e `js/` (16 módulos: i18n,
+recordings, player, export, settings, widgets) e `js/` (17 módulos: i18n,
 bridge, displays, recordings, folders, record, widgets, hotkey, settings,
-audiofilters, videotest, player, export, transcribe, replay, main), além
+audiofilters, videotest, player, export, transcribe, replay, windowpicker, main), além
 dos logos de GPU (`amd/nvidia/intel.png`). **Não é embutida em resource** —
 fica em disco, source-controlled, igual ao `lang\` (editar a UI não exige
 recompilar o exe). No startup, `OBSUI.StartNavigate` mapeia essa pasta via
@@ -1143,6 +1144,16 @@ acordava o outro.
 
 **Solução**: `OBSSingleInstance.pas` exporta as constantes; ambas as
 units fazem `uses OBSSingleInstance`. Nunca duplicar esses literais.
+
+**A 2ª instância NÃO pode esperar o log.** O `OBSLog.InitLog` tenta abrir
+o log do dia 30 × 100 ms — existe pra troca de modo, em que o processo
+velho solta o arquivo milissegundos depois. Mas abrir o NoOBS pelo menu
+Iniciar com ele na bandeja cria um processo que só acorda o outro e sai,
+e o outro (full, ou hibernação vinda do `/autostart`, que escreve no log
+COMUM) nunca solta o arquivo: eram **3,2 s** parados antes do
+`PostMessage`, medidos no log. A distinção é o mutex: na troca de modo o
+processo velho o libera ANTES de lançar o novo; mutex de pé (ou acesso
+negado, instância elevada) = instância viva = uma tentativa só.
 
 ### 37. **`Player.close()` precisa resetar TODO o estado, não só zoom/áudio**
 
@@ -3056,6 +3067,24 @@ esvaziar, e uma falha qualquer virava aviso vermelho na tela recém-limpa.
 O `ProcessOne` também checa o cancelamento antes de cada faixa, senão o
 upload inteiro rodava antes de o laço de consulta enxergar o pedido.
 
+**O Cancelar tem que valer NO MEIO dos passos longos, e a tela tem que
+dizer que pegou.** Antes, o flag só era lido entre faixas e entre blocos:
+extrair o áudio (~6 s numa gravação de 1h50), o pico de cada faixa
+(`TrackHasSound`, decodifica a faixa inteira) e o bloco em voo no motor
+local (~5 s na GPU, ~30 s na CPU) iam até o fim — e o botão continuava
+clicável e a tela igual, então a pessoa clicava várias vezes. Hoje:
+`ExtractAudioTracks`/`ComputeAudioPeaks` recebem um `TCancelFunc` lido a
+cada pacote; `CancelAll` chama `OBSLocalAsr.AbortRequest`, que FECHA o
+handle do WinHTTP do pedido em voo de outra thread (a chamada síncrona
+volta com erro na hora — `GReqLock` decide quem fecha o handle, pra não
+fechar duas vezes) e o `PostChunk` não repete o bloco depois de um
+cancelamento; e o `transcribe_state` leva `canceling` (`IsCanceling` =
+pedido feito e item ainda parando). A UI trava o botão no PRIMEIRO clique
+(`_cancelClicked`, antes mesmo do push), troca pra "Cancelando…", a linha de
+progresso diz o que está parando, e um toast avisa quando terminou. No
+caminho do servidor (Docker) o upload em si ainda não é interrompível; a
+consulta do job vê o pedido em até 1 s.
+
 **Gravação apagada não é falha.** Excluir uma gravação tira ela da espera
 (`RemoveFromQueue` no `HandleDeleteRecording`); e se o arquivo sumiu com
 o item em curso, ou por outro caminho (Explorer, pasta movida), o
@@ -3837,6 +3866,75 @@ de quem não mudou. Gravações antigas ganham o bloco na primeira mudança.
 Pendente segue renome/movimentação pelo `RenameCacheEntries`.
 
 ---
+
+### 66. **Gravar UMA janela: a identidade é a string do OBS, não o HWND**
+
+O botão ao lado do buffer (`#windowRecordBtn`, `js/windowpicker.js`) abre
+um seletor com as janelas abertas e prévia de cada uma. Escolhida uma, a
+gravação troca monitores/webcams por uma fonte `window_capture` (plugin
+`win-capture`, que já carregamos); o áudio é o de sempre.
+
+- **A janela é identificada por `"título:classe:exe"`**, com `#`→`#22` e
+  `:`→`#3A` NESSA ordem (`encode_dstr` em
+  `libobs/util/windows/window-helpers.c`). O plugin reprocura a janela por
+  ela a cada tique; o HWND só dimensiona o canvas. O exe é o nome do
+  arquivo do `QueryFullProcessImageName`, e `unknown` quando o processo
+  não abre (elevado) — igual ao OBS, senão a string não casa.
+- **`priority = 2` (EXE)**, não o default do plugin (CLASS): em classe
+  genérica (Chrome, Electron) o CLASS vira "título exato" e a gravação
+  perderia a janela na primeira troca de aba.
+- **App da loja (UWP)**: a janela de topo é do `ApplicationFrameHost`; a
+  identidade sai da FILHA de outro processo (`UwpActualWindow`, espelho do
+  `ms_get_uwp_actual_window`). A prévia usa a de topo.
+- **`method = 2` (WGC) forçado, nunca o "auto".** O auto do plugin só usa
+  WGC pra uma lista de classes (`wgc_*_match_classes` em `window-capture.c`:
+  Chrome, UWP, Office…) e cai em BitBlt no resto. BitBlt só vê GDI: o
+  cabeçalho do Explorer do Windows 11 (abas, barra de endereço — XAML/
+  DirectComposition) saía PRETO. Sem WGC no sistema, o plugin volta pro
+  BitBlt sozinho.
+- **Canvas = área cliente da janela no início** (`client_area`), arredondado
+  pra MÚLTIPLO DE 16 (só na gravação de janela) e com o clamp do encoder
+  (#7). Janela tem largura qualquer; o encoder da AMD deixava o excesso do
+  bloco de 16 como uma coluna VERDE na borda direita. Monitor nunca morde
+  (1920/2560/3840 já são múltiplos). Redimensionar no meio não corta: a fonte vai com
+  `OBS_BOUNDS_SCALE_INNER` no canvas inteiro (encolhe com tarja).
+- **Prévia por `PrintWindow(PW_RENDERFULLCONTENT)`**, que funciona com a
+  janela coberta (o DWM entrega a superfície dela); recortada na área
+  cliente, que é o que será gravado. Pula janela travada
+  (`IsHungAppWindow`): o pedido ficaria preso na thread dela. A lista vai
+  na hora e as prévias depois, uma a uma (dezenas de ms cada), servidas
+  pelo mesmo `ThumbMap` das prévias de monitor (`win<hwnd>`).
+- **O JS só manda o id.** A string vem da última lista guardada no
+  backend (`CaptureWindows`), nunca da UI.
+- **Não continua o buffer** (`replayIntoRecording`): a cena dele são as
+  telas. Gravar janela com o buffer ligado o descarta, como a
+  auto-gravação por mic, e ele volta ao parar. Os `RecordingWindow*` são
+  zerados no stop, então atalho e mic voltam a gravar as telas.
+- **"Gravar o som do app"** (checkbox do seletor, `appAudio` no
+  `record_window`; preferência por máquina em `localStorage`): liga o
+  `capture_audio` do próprio `window_capture`. O plugin cria uma
+  `wasapi_process_output_capture` FILHA (mesma string de janela +
+  priority) e **reroteia** o áudio dela pra fonte da janela
+  (`setup_audio_source` em `win-capture/audio-helpers.c`) — então quem
+  decide a faixa são os mixers da fonte da JANELA, não os da filha. Três
+  regras:
+  - **Uma faixa isolada RESERVADA**: `ComputeAudioTrackAssignments(…,
+    AReservedSlots = 1)` tira um slot dos dispositivos (eles agrupam antes
+    de tomar o lugar) e o som do app fica logo depois da última faixa
+    deles — nunca some por falta de faixa, o teto de 6 continua.
+  - **Título = nome do app** (`tracks.appAudio`, exe sem extensão; o
+    título da janela se o exe não for legível): é o que o player, a
+    exportação e a transcrição por faixa mostram.
+  - **Só entra no Mix se nenhuma saída estiver sendo gravada.** O loopback
+    do alto-falante já contém o som do app; somar os dois dobraria o app na
+    mistura. Com alto-falante marcado ele vai SÓ na faixa isolada.
+  O tipo só existe no Windows 10 2004+ (o `win-wasapi` nem o registra
+  antes do build 19041): `AppAudioAvailable` pergunta ao libobs
+  (`obs_get_latest_input_type_id`), e antes do warmup o Bridge usa a mesma
+  regra de versão — o `capture_windows` leva `appAudio` e a UI esconde o
+  checkbox. Sem o tipo, a gravação segue só com a imagem e o log avisa.
+  Vale só pra gravação de janela: o buffer e a gravação das telas zeram a
+  flag.
 
 ## Caches
 

@@ -69,6 +69,18 @@ type
     // ID do encoder de video que esta gravacao REALMENTE usou (o fallback
     // pode ter escolhido outro que o pedido). Vira meta do arquivo.
     FVideoEncoderId: string;
+    // ---- gravacao de UMA janela (seletor "Gravar janela") ----
+    // Preenchidos pelo BuildAndStartRecording so na gravacao de janela; o
+    // BuildCaptureGraph troca monitores/webcams por uma fonte window_capture
+    // do tamanho da janela. Vazio = gravacao normal (o buffer zera antes de
+    // montar). Pegadinha #66.
+    FWindowSpec: string;      // "titulo:classe:exe" do OBS (WinWindows)
+    FWindowTitle: string;
+    FWindowHandle: NativeUInt;
+    // Som SO do app da janela (capture_audio do window_capture), numa
+    // faixa isolada propria com o nome do app (FWindowApp).
+    FWindowAudio: Boolean;
+    FWindowApp: string;
     // ---- buffer em memoria (replay_buffer) ----
     // Sessao de buffer ativa: a cena e os encoders sao os mesmos da gravacao
     // (BuildCaptureGraph), mas a saida guarda os pacotes na RAM em vez de
@@ -119,8 +131,19 @@ type
     // dispositivos habilitados, marcado na aba Comportamento) em vez de
     // gravar todos os habilitados. Setado quando a gravacao nasce do
     // watcher de mic. Pegadinha #47 + perfil de auto-gravacao.
+    // AWindowSpec <> '': grava SO aquela janela (window_capture) em vez dos
+    // monitores/webcams — o audio segue o de sempre. AWindowHandle so
+    // dimensiona o canvas; quem acha a janela a cada quadro e o plugin, pela
+    // string (pegadinha #66).
+    // AWindowAudio: grava tambem o som SO do app da janela, numa faixa
+    // isolada chamada AWindowApp (pegadinha #66).
     procedure BuildAndStartRecording(const AOutputPath: string;
-      AAutoProfile: Boolean = False);
+      AAutoProfile: Boolean = False; const AWindowSpec: string = '';
+      const AWindowTitle: string = ''; AWindowHandle: NativeUInt = 0;
+      AWindowAudio: Boolean = False; const AWindowApp: string = '');
+    // True se o win-wasapi registrou a captura de audio por processo
+    // (Windows 10 2004+). False tambem com o libobs ainda nao iniciado.
+    function  AppAudioAvailable: Boolean;
     // Pede o stop e retorna NA HORA (nao bloqueia a UI). A conclusao
     // chega depois via FOnStopped quando o sinal "stop" dispara. Modelo
     // identico ao do OBS (SimpleOutput::StopRecording).
@@ -225,7 +248,8 @@ uses
   OBSLang,
   WinPreview,
   WinAudioMeter,
-  WinWebcam;
+  WinWebcam,
+  WinWindows;
 
 const
   // ENCODER_MAX_DIM agora vem dinamico de OBSEncoder.GetEncoderMaxDimension
@@ -750,6 +774,7 @@ var
   Pos, Sc: TVec2;
   PosX: Double;
   Mics, Outputs, ReorderedMics, ReorderedOuts: TArray<TObsAudioDev>;
+  WinW, WinH: Integer;
   MicTracks, OutTracks: TArray<Integer>;
   MicEnabledArr, MicDefaultArr: TArray<Boolean>;
   OutEnabledArr, OutDefaultArr: TArray<Boolean>;
@@ -762,13 +787,40 @@ var
   AudioChannel: Cardinal;
   AEncSettings: obs_data_t;
   TrackNames: TArray<string>;
+  WinSrc: obs_source_t;
+  AppAudio: Boolean;
+  AppTrack: Integer;
 begin
+  WinSrc := nil;
+  AppAudio := False;
+  AppTrack := 0;
   // 1. Inventario de monitores (Win32 — mesmo indexador da UI).
   Log('-- Inventario --');
-  Monitors := MonitorsFromWinPreview;
-  Log('   %d monitor(es) detectado(s).', [Length(Monitors)]);
-  Monitors := FilterEnabledMonitors(Monitors, AAutoProfile);
-  Log('   %d monitor(es) habilitado(s).', [Length(Monitors)]);
+  WinW := 0;
+  WinH := 0;
+  if FWindowSpec <> '' then
+  begin
+    // Gravacao de janela: nada de monitor/webcam, o canvas e a janela.
+    Monitors := nil;
+    if not WinWindows.GetCaptureWindowSize(HWND(FWindowHandle), WinW, WinH) or
+       (WinW < 16) or (WinH < 16) then
+    begin
+      // A janela sumiu entre a escolha e o clique (ou esta minimizada sem
+      // tamanho guardado). O plugin ainda a reencontra pela string se ela
+      // voltar; o canvas so precisa de um tamanho razoavel.
+      WinW := 1920;
+      WinH := 1080;
+      Log('   Janela sem tamanho legivel — canvas %dx%d.', [WinW, WinH]);
+    end;
+    Log('   Janela "%s" (%dx%d) spec=%s', [FWindowTitle, WinW, WinH, FWindowSpec]);
+  end
+  else
+  begin
+    Monitors := MonitorsFromWinPreview;
+    Log('   %d monitor(es) detectado(s).', [Length(Monitors)]);
+    Monitors := FilterEnabledMonitors(Monitors, AAutoProfile);
+    Log('   %d monitor(es) habilitado(s).', [Length(Monitors)]);
+  end;
 
   // Sort por PositionX.
   for i := 0 to High(Monitors) - 1 do
@@ -786,7 +838,14 @@ begin
     BoundingW := BoundingW + Monitors[i].Width;
     if Monitors[i].Height > BoundingH then BoundingH := Monitors[i].Height;
   end;
-  Cams := EnumerateWebcams;
+  if FWindowSpec <> '' then
+  begin
+    Cams := nil;
+    BoundingW := WinW;
+    BoundingH := WinH;
+  end
+  else
+    Cams := EnumerateWebcams;
   for i := 0 to High(Cams) do
     if SrcActive('webcams', Cams[i].Name, False) then
     begin
@@ -834,6 +893,15 @@ begin
   if Odd(CanvasH) then Dec(CanvasH);
   if CanvasW < 2 then CanvasW := 2;
   if CanvasH < 2 then CanvasH := 2;
+  // Janela tem tamanho arbitrario (monitor nunca tem): encoder de hardware
+  // codifica em blocos de 16 e corta o excesso pelo cabecalho — o da AMD
+  // deixava esse excesso como uma coluna VERDE na borda direita. Multiplo
+  // de 16 pra baixo; o SCALE_INNER da fonte poe no maximo 15 px de tarja.
+  if (FWindowSpec <> '') and (CanvasW >= 32) and (CanvasH >= 32) then
+  begin
+    CanvasW := CanvasW and not 15;
+    CanvasH := CanvasH and not 15;
+  end;
 
   // 2. Configura video (canvas). obs_reset_video pode ser chamado
   // entre gravacoes sem problemas — so nao durante output ativo.
@@ -925,6 +993,53 @@ begin
     FCurrentLayout.Regions[RegIdx].H    := Round(Monitors[i].Height * Scale);
 
     PosX := PosX + Monitors[i].Width * Scale;
+  end;
+
+  // 4b. Janela (gravacao de janela). Bounds = canvas inteiro com
+  // SCALE_INNER: se o usuario redimensionar a janela no meio, a imagem
+  // encolhe/estica mantendo a proporcao em vez de cortar ou sobrar canvas.
+  if FWindowSpec <> '' then
+  begin
+    Log('-- Captura de janela --');
+    Settings := MakeSettings;
+    SetStr(Settings, 'window', ToAnsi(FWindowSpec));
+    // WINDOW_PRIORITY_EXE: casa pelo executavel e desempata pelo titulo.
+    // O default do plugin (CLASS) vira "titulo exato" em classes genericas
+    // (Chrome, Electron) e perderia a janela na primeira troca de aba.
+    SetInt(Settings, 'priority', 2);
+    // WGC (2) FORCADO. O "auto" do plugin so usa WGC pra uma lista de
+    // classes (Chrome, UWP, Office...) e cai em BitBlt no resto — e o
+    // BitBlt so ve o que e desenhado por GDI: no Explorer do Windows 11 o
+    // cabecalho (abas, barra de endereco) e XAML/DirectComposition e saia
+    // PRETO. Sem WGC no sistema, o plugin volta pro BitBlt sozinho.
+    SetInt(Settings, 'method', 2);
+    SetBool(Settings, 'cursor', True);
+    SetBool(Settings, 'client_area', True);
+    // Som so do app: o plugin cria uma wasapi_process_output_capture filha
+    // (mesma string de janela + priority) e REROTEIA o audio dela pra esta
+    // fonte (audio-helpers.c). Entao a faixa e decidida pelos mixers DESTA
+    // fonte, la embaixo, depois da atribuicao das faixas dos dispositivos.
+    AppAudio := FWindowAudio and AppAudioAvailable;
+    if FWindowAudio and not AppAudio then
+      Log('   Som do app pedido, mas o tipo wasapi_process_output_capture ' +
+        'nao existe (Windows anterior ao 10 2004?) — so a imagem.');
+    SetBool(Settings, 'capture_audio', AppAudio);
+    Src := CreateSource('window_capture', 'NoOBS Window', Settings);
+    WinSrc := Src;
+    Item := obs_scene_add(GScene, Src);
+    Pos := MakeVec2(0, 0);
+    obs_sceneitem_set_pos(Item, @Pos);
+    obs_sceneitem_set_bounds_type(Item, OBS_BOUNDS_SCALE_INNER);
+    var WBounds := MakeVec2(Single(CanvasW), Single(CanvasH));
+    obs_sceneitem_set_bounds(Item, @WBounds);
+
+    SetLength(FCurrentLayout.Regions, 1);
+    FCurrentLayout.Regions[0].Name := FWindowTitle;
+    FCurrentLayout.Regions[0].Kind := 'window';
+    FCurrentLayout.Regions[0].X    := 0;
+    FCurrentLayout.Regions[0].Y    := 0;
+    FCurrentLayout.Regions[0].W    := CanvasW;
+    FCurrentLayout.Regions[0].H    := CanvasH;
   end;
 
   // 5. Webcams habilitadas.
@@ -1060,8 +1175,16 @@ begin
       SameText(FromAnsi(PAnsiChar(Outputs[j].DeviceId)), DefaultSpkId);
   end;
 
+  // Som do app: reserva UMA faixa isolada (os devices agrupam antes de
+  // tomar o lugar dela) e ela fica logo depois da ultima dos devices.
   ComputeAudioTrackAssignments(MicEnabledArr, MicDefaultArr,
-    OutEnabledArr, OutDefaultArr, MicTracks, OutTracks, TotalTracks);
+    OutEnabledArr, OutDefaultArr, MicTracks, OutTracks, TotalTracks,
+    Ord(AppAudio));
+  if AppAudio then
+  begin
+    AppTrack := TotalTracks + 1;
+    TotalTracks := AppTrack;
+  end;
 
   Log('   habilitados: %d mic(s), %d output(s)',
     [CountTrue(MicEnabledArr), CountTrue(OutEnabledArr)]);
@@ -1130,6 +1253,27 @@ begin
   end;
   if Length(Outputs) = 0 then Log('   (nenhuma saida detectada)');
 
+  // Fonte da janela: com o som do app, faixa propria; sem ele, nada (sem
+  // capture_audio ela nao tem audio, mas o mixer padrao e "todas").
+  // O Mix so recebe o som do app quando NENHUMA saida esta sendo gravada:
+  // o loopback do alto-falante ja contem esse mesmo som, e somar os dois
+  // dobraria o app na mistura (volume dobrado, eco se houver atraso).
+  if WinSrc <> nil then
+  begin
+    if AppAudio then
+    begin
+      TrackBitmask := Cardinal(1 shl (AppTrack - 1));
+      if CountTrue(OutEnabledArr) = 0 then
+        TrackBitmask := TrackBitmask or 1;
+      obs_source_set_audio_mixers(WinSrc, TrackBitmask);
+      Log('-- Som do app --');
+      Log('   %s -> track %d, mix=%s', [FWindowApp, AppTrack,
+        BoolToStr((TrackBitmask and 1) <> 0, True)]);
+    end
+    else
+      obs_source_set_audio_mixers(WinSrc, 0);
+  end;
+
   // 7. Encoder de video.
   Log('-- Encoder --');
   GVideoEncoder := SelectVideoEncoder;
@@ -1153,6 +1297,8 @@ begin
   Log('-- Audio encoders (%d tracks, %d kbps) --', [TotalTracks, AudioKbps]);
   TrackNames := BuildTrackNames(TotalTracks, Mics, Outputs,
     MicTracks, OutTracks);
+  if AppAudio then
+    TrackNames[AppTrack - 1] := OBSLang.T('tracks.appAudio', ['app', FWindowApp]);
   SetLength(GAudioEncoders, TotalTracks);
   for i := 0 to TotalTracks - 1 do
   begin
@@ -1171,7 +1317,9 @@ begin
 end;
 
 procedure TOBSEngine.BuildAndStartRecording(const AOutputPath: string;
-  AAutoProfile: Boolean = False);
+  AAutoProfile: Boolean = False; const AWindowSpec: string = '';
+  const AWindowTitle: string = ''; AWindowHandle: NativeUInt = 0;
+  AWindowAudio: Boolean = False; const AWindowApp: string = '');
 var
   i: Integer;
   OutputSettings: obs_data_t;
@@ -1180,6 +1328,12 @@ begin
     raise Exception.Create('Ja esta gravando.');
 
   ReleaseRecordingObjects;
+  FWindowSpec := AWindowSpec;
+  FWindowTitle := AWindowTitle;
+  FWindowHandle := AWindowHandle;
+  FWindowAudio := (AWindowSpec <> '') and AWindowAudio;
+  FWindowApp := AWindowApp;
+  if FWindowApp = '' then FWindowApp := AWindowTitle;
 
  try
   BuildCaptureGraph(AAutoProfile);
@@ -1281,6 +1435,12 @@ begin
     raise Exception.Create('Ja esta gravando.');
 
   ReleaseRecordingObjects;
+  // O buffer grava sempre as telas, nunca a janela da ultima gravacao.
+  FWindowSpec := '';
+  FWindowTitle := '';
+  FWindowHandle := 0;
+  FWindowAudio := False;
+  FWindowApp := '';
   FReplayDir := ADir;
   FReplayMaxSec := AMaxSec;
   FReplayMaxMb := AMaxMb;
@@ -1796,6 +1956,17 @@ end;
 function TOBSEngine.IsInitialized: Boolean;
 begin
   Result := FInitialized;
+end;
+
+function TOBSEngine.AppAudioAvailable: Boolean;
+begin
+  Result := False;
+  if not FInitialized then Exit;
+  try
+    Result := obs_get_latest_input_type_id('wasapi_process_output_capture') <> nil;
+  except
+    Result := False;
+  end;
 end;
 
 function TOBSEngine.StoppingElapsedMs: UInt64;

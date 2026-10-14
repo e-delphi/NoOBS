@@ -25,8 +25,11 @@ let _lastRecordingActive = null;
 // so re-renderizam o estado (troca de idioma, restaurar da bandeja) nao
 // trazem — sem guardar, a linha piscaria vazia ate o proximo tique.
 let _lastRecordingSizeText = '';
+// Titulo da janela sendo gravada ('' = gravacao das telas). Mesma regra do
+// tamanho: so o push recording_state traz.
+let _lastRecordingWindow = '';
 
-function applyRecordingState(active, elapsedSec, sizeText) {
+function applyRecordingState(active, elapsedSec, sizeText, windowTitle) {
   const btn = document.getElementById('recordBtn');
   const label = document.getElementById('recordLabel');
   const card = document.getElementById('recCard');
@@ -48,13 +51,18 @@ function applyRecordingState(active, elapsedSec, sizeText) {
   const sizeEl = document.getElementById('recSize');
   if (sizeEl) sizeEl.textContent = active ? _lastRecordingSizeText : '';
   if (!active) _lastRecordingSizeText = '';
+  if (typeof windowTitle === 'string') _lastRecordingWindow = windowTitle;
+  if (!active) _lastRecordingWindow = '';
 
   if (active) {
     btn.classList.add('recording');
     card.classList.add('recording');
     document.body.classList.add('recording');
     label.textContent = T('record.stop');
-    statusText.textContent = T('record.statusRecording');
+    statusText.textContent = _lastRecordingWindow
+      ? T('record.statusRecordingWindow', { title: _lastRecordingWindow })
+      : T('record.statusRecording');
+    statusText.title = _lastRecordingWindow;
     startRecordingAnimation(elapsedSec || 0);
   } else {
     btn.classList.remove('recording');
@@ -62,9 +70,14 @@ function applyRecordingState(active, elapsedSec, sizeText) {
     document.body.classList.remove('recording');
     label.textContent = T('record.start');
     statusText.textContent = T('record.statusReady');
+    statusText.removeAttribute('title');
     stopRecordingAnimation();
   }
   updateRecordButtonAvailability();
+  // Gravar janela so faz sentido parado; gravando, o botao grande para.
+  const winBtn = document.getElementById('windowRecordBtn');
+  if (winBtn) winBtn.disabled = !!active;
+  if (active && typeof WindowPicker !== 'undefined') WindowPicker.close();
   // A linha do buffer diz "pausado" enquanto a gravacao manual roda.
   if (typeof Replay !== 'undefined') Replay.render();
 }
@@ -358,7 +371,8 @@ function libraryShortcutsAllowed() {
     const t = (a.tagName || '').toUpperCase();
     if (t === 'INPUT' || t === 'TEXTAREA' || a.isContentEditable) return false;
   }
-  const blockers = ['playerOverlay', 'exportOverlay', 'settingsOverlay', 'confirmOverlay'];
+  const blockers = ['playerOverlay', 'exportOverlay', 'settingsOverlay', 'confirmOverlay',
+                    'windowPickerOverlay'];
   for (let i = 0; i < blockers.length; i++) {
     const el = document.getElementById(blockers[i]);
     if (el && el.classList.contains('visible')) return false;

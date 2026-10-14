@@ -53,11 +53,14 @@ function EnumerateObsAudioDevices(const AKind: AnsiString): TArray<TObsAudioDev>
 // AOutEnabled, AOutDefault: idem pra outputs.
 // Saidas AMicTracks, AOutTracks: track de cada device (0 = mix only).
 // ATotalTracks: total de tracks usadas (inclui Mix).
+// AReservedSlots: faixas isoladas que os devices NAO podem usar (o som do
+// app na gravacao de janela, pegadinha #66). Elas ficam depois da ultima
+// faixa devolvida: quem reservou usa ATotalTracks+1.
 procedure ComputeAudioTrackAssignments(
   const AMicEnabled, AMicDefault: TArray<Boolean>;
   const AOutEnabled, AOutDefault: TArray<Boolean>;
   out AMicTracks, AOutTracks: TArray<Integer>;
-  out ATotalTracks: Integer);
+  out ATotalTracks: Integer; AReservedSlots: Integer = 0);
 
 // Calcula nomes humanos pra cada track (track 0 = Mix). Esses nomes
 // viram a metadata "title" do encoder de audio no MKV — visiveis no
@@ -203,7 +206,7 @@ procedure ComputeAudioTrackAssignments(
   const AMicEnabled, AMicDefault: TArray<Boolean>;
   const AOutEnabled, AOutDefault: TArray<Boolean>;
   out AMicTracks, AOutTracks: TArray<Integer>;
-  out ATotalTracks: Integer);
+  out ATotalTracks: Integer; AReservedSlots: Integer = 0);
 // Ordem fisica das tracks no MKV gravado:
 //   Track 1 = Mix (sempre)
 //   Track 2 = mic default (se habilitado)
@@ -257,7 +260,8 @@ begin
   if HasDefaultMic then Dec(OtherMics);
   OtherOuts := EnabledOuts;
   if HasDefaultOut then Dec(OtherOuts);
-  RemainingSlots := ISOLATED_SLOTS;
+  // A faixa reservada (som do app) sai dos slots dos devices.
+  RemainingSlots := ISOLATED_SLOTS - AReservedSlots;
   if HasDefaultMic then Dec(RemainingSlots);
   if HasDefaultOut then Dec(RemainingSlots);
   OtherTotal := OtherMics + OtherOuts;

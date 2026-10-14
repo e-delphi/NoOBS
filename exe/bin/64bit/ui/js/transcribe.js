@@ -33,6 +33,12 @@ const Transcribe = {
   lastErrorName: '',   // qual gravação falhou — "1 com falha" sozinho não diz
   _lastToastError: '', // último motivo já avisado por toast (ver applyState)
   pending: 0,
+  // Cancelamento: `canceling` vem do backend (pedido feito, item em curso
+  // ainda parando); `_cancelClicked` cobre o intervalo entre o clique e o
+  // primeiro push — sem ele o botao ficava clicavel e mudo nesse meio
+  // tempo, e a pessoa clicava de novo achando que nao tinha pegado.
+  canceling: false,
+  _cancelClicked: false,
   waiting: false,   // fila parada esperando o servidor (não é falha)
   pendingCloud: 0,  // ficaram de fora: só na nuvem (não baixamos em lote)
   queueItems: [],  // [{id,name,duration,current}] na ordem de execução
@@ -66,6 +72,10 @@ const Transcribe = {
   },
 
   cancel() {
+    // Um clique basta: os seguintes nao mandam nada enquanto cancela.
+    if (this.canceling || this._cancelClicked) return;
+    this._cancelClicked = true;
+    this.render();
     Bridge.send('cancel_transcribe', {});
   },
 
@@ -81,7 +91,12 @@ const Transcribe = {
   applyState(data) {
     if (!data) return;
     const failedBefore = this.failed;
+    const wasCanceling = this.canceling || this._cancelClicked;
     this.running   = !!data.running;
+    this.canceling = !!data.canceling;
+    // O clique "pegou" quando o backend confirma (canceling) ou quando o
+    // item ja parou; daí em diante quem manda e o estado dele.
+    if (this.canceling || !this.running) this._cancelClicked = false;
     this.queue     = data.queue || 0;
     this.total     = data.total || 0;
     this.done      = data.done || 0;
@@ -121,6 +136,10 @@ const Transcribe = {
     // tenta de novo sozinho. Sem toast de propósito — a espera aparece só
     // na aba de Transcrição, junto do diagnóstico do servidor.
     this.waiting = !!data.waiting;
+    // Fim do cancelamento: diz que acabou — a barra some, e sem o aviso
+    // nao daria pra saber se parou ou se so sumiu.
+    if (wasCanceling && !this.canceling && !this._cancelClicked && !this.running)
+      Toast.show(T('toast.transcribeCanceled'), '', { ttl: 3000 });
     this.render();
     // O decorrido anda sozinho entre um push e outro: o backend só
     // reempurra quando algo MUDA (etapa, percentual, ETA), e o percentual
@@ -384,7 +403,12 @@ const Transcribe = {
     const cancelBtn  = document.getElementById('settingsTranscribeCancelBtn');
     const pendingBtn = document.getElementById('settingsTranscribePendingBtn');
 
-    if (cancelBtn) cancelBtn.disabled = !this.running && this.queue === 0;
+    const cancelingNow = this.canceling || this._cancelClicked;
+    if (cancelBtn) {
+      cancelBtn.disabled = cancelingNow || (!this.running && this.queue === 0);
+      cancelBtn.textContent = cancelingNow
+        ? T('settings.transcribe.canceling') : T('common.cancel');
+    }
     if (pendingBtn) {
       pendingBtn.disabled = this.pending === 0;
       pendingBtn.textContent = this.pending > 0
@@ -410,6 +434,14 @@ const Transcribe = {
     }
 
     box.hidden = false;
+    // Cancelando: a etapa/percentual deixa de interessar. A linha diz que o
+    // pedido pegou e o que esta parando (pode levar alguns segundos se o
+    // item estava no meio de um passo que nao da pra cortar).
+    if (cancelingNow && this.running) {
+      line.textContent = T('settings.transcribe.cancelingLine',
+        { name: this.current || '—' });
+      return;
+    }
     // "3 de 7" conta o item em curso: o usuário pensa em "estou no 3º",
     // não em "2 terminaram".
     const pos = Math.min(this.done + this.failed + 1, this.total || 1);
@@ -864,8 +896,9 @@ const TranscribeChip = {
     el.hidden = !show;
     if (!show) return;
     el.classList.toggle('running', running);
+    const canceling = Transcribe.canceling || Transcribe._cancelClicked;
     document.getElementById('transcribeChipCount').textContent = String(Math.max(total, 1));
-    const hint = running
+    const hint = canceling ? T('settings.transcribe.canceling') : running
       ? (waiting > 0 ? T('transcribeChip.runningQueue', { count: waiting })
                      : T('transcribeChip.running'))
       : T('transcribeChip.queued', { count: waiting });

@@ -41,7 +41,8 @@ uses
   System.StrUtils,   // EndsText — separa log do full x hibernacao na retencao
   System.IOUtils,
   System.Classes,
-  System.SyncObjs;
+  System.SyncObjs,
+  OBSSingleInstance;   // MUTEX_NAME — instancia viva = nao esperar o log
 
 var
   LogStream: TFileStream = nil;
@@ -164,7 +165,8 @@ end;
 procedure InitLog;
 var
   AppData, Dir, Suffix: string;
-  i: Integer;
+  i, MaxAttempts: Integer;
+  M: THandle;
 begin
   AppData := GetEnvironmentVariable('LOCALAPPDATA');
   if AppData = '' then AppData := GetEnvironmentVariable('APPDATA');
@@ -209,7 +211,24 @@ begin
   // 1a tentativa, o modo completo rodava a sessao INTEIRA sem log (medido:
   // a hibernacao fechou 45 ms depois de lancar o completo, e o dia ficou
   // sem uma linha da transcricao que falhou).
-  for var Attempt := 1 to 30 do
+  //
+  // MAS so espera se ninguem esta vivo segurando o mutex de instancia
+  // unica. Na troca de modo o processo velho LIBERA o mutex antes de lancar
+  // o novo; mutex de pe = outra instancia VIVA, que nunca vai soltar o
+  // arquivo. E esse e o caso de abrir o NoOBS pelo menu Iniciar com ele na
+  // bandeja: este processo so acorda o outro e sai, e esperava os 30 x 100
+  // ms aqui antes disso — medido: 3,2 s entre o clique e a janela comecar a
+  // subir. Acesso negado (instancia elevada, a nossa nao) tambem e "vivo".
+  MaxAttempts := 30;
+  M := OpenMutex(SYNCHRONIZE, False, PChar(MUTEX_NAME));
+  if M <> 0 then
+  begin
+    CloseHandle(M);
+    MaxAttempts := 1;
+  end
+  else if GetLastError = ERROR_ACCESS_DENIED then
+    MaxAttempts := 1;
+  for var Attempt := 1 to MaxAttempts do
   begin
     try
       if FileExists(LogPath) then
@@ -223,7 +242,7 @@ begin
       FreeAndNil(LogStream);
     end;
     if LogStream <> nil then Break;
-    Sleep(100);
+    if Attempt < MaxAttempts then Sleep(100);
   end;
 
   if LogStream <> nil then

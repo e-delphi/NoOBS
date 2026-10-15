@@ -21,10 +21,10 @@ use webview2_com::{
     CreateCoreWebView2EnvironmentCompletedHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler,
 };
-use windows::core::{w, BOOL, HSTRING, PCWSTR, PWSTR};
+use windows::core::{w, Interface, BOOL, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{COLORREF, E_FAIL, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
-use windows::Win32::Graphics::Gdi::{CreateSolidBrush, HBRUSH};
+use windows::Win32::Graphics::Gdi::{CreateSolidBrush, UpdateWindow, HBRUSH};
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};

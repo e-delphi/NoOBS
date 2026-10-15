@@ -17,9 +17,10 @@
 
 use serde_json::{json, Value};
 
-use crate::{config, lang, log, mainthread, ui};
+use crate::{config, lang, log, mainthread, player, record_watch, ui};
 
 mod devices;
+mod library;
 mod recording;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,7 +76,10 @@ pub fn shutdown() {
     log::log("Shutdown: inicio");
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
+    record_watch::stop();
+    log::log("Shutdown: RecordWatch ok");
     recording::shutdown();
+    player::stop_player_server();
     log::log("Shutdown: fim");
 }
 
@@ -134,6 +138,20 @@ pub fn dispatch(raw: &str) {
             devices::set_player_open_all(open);
             log!("PlayerOpen={open}");
         }
+        "rename_recording" => library::handle_rename_recording(str_field(&msg, "id"), str_field(&msg, "newName")),
+        "open_recording" => library::handle_open_recording(str_field(&msg, "id")),
+        "open_record_dir" => library::handle_open_record_dir(),
+        "play_recording" => library::handle_play_recording(str_field(&msg, "id")),
+        "request_transcode" => library::handle_request_transcode(str_field(&msg, "id")),
+        "request_video_info" => library::handle_request_video_info(str_field(&msg, "id")),
+        "request_audio_tracks" => library::handle_request_audio_tracks(str_field(&msg, "id")),
+        "request_waveform" => library::handle_request_waveform(
+            str_field(&msg, "id"),
+            msg.get("buckets").and_then(Value::as_i64).unwrap_or(0),
+            bool_field(&msg, "hi", false),
+        ),
+        "request_keyframes" => library::handle_request_keyframes(str_field(&msg, "id")),
+        "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
         other => not_ported(other),
     }
@@ -152,7 +170,16 @@ fn not_ported(ty: &str) {
 /// watchers de pasta/mic/apps entram com os módulos que os têm.
 fn do_init() {
     push_theme();
+    // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
+    player::start_player_server();
+    log::log("DoInit: PlayerServer ok");
+    // Lista e metadados (duração/miniatura) da pasta de gravação.
+    library::push_recordings();
+    library::scan_recordings_meta();
+    log::log("DoInit: recordings ok");
     devices::do_init();
+    // Refresh automático quando o usuário mexe na pasta pelo Explorer.
+    library::start_record_watch();
     // Warmup do libobs com delay: a UI renderiza primeiro e a 1ª gravação fica
     // instantânea. NUNCA inicializar o libobs direto aqui (pode travar o
     // startup). Falha do warmup → a gravação inicializa sob demanda.

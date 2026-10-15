@@ -16,9 +16,9 @@ use serde_json::json;
 
 use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
-use crate::{config, encoder, lang, log, ui, win_audio_meter, win_preview, win_webcam};
+use crate::{config, encoder, lang, log, player, ui, win_audio_meter, win_preview, win_webcam};
 
-use super::{devices, post_error, post_json};
+use super::{devices, library, post_error, post_json};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -68,6 +68,12 @@ pub fn recording_active() -> bool {
     with_state(|s| s.recording_active)
 }
 
+/// Caminho da gravação em curso (ou da última): a listagem o esconde enquanto o
+/// muxer ainda escreve.
+pub fn last_recording_path() -> String {
+    with_state(|s| s.last_recording_path.clone())
+}
+
 pub fn last_encoder_caps() -> Option<EncoderCaps> {
     with_state(|s| s.last_encoder_caps)
 }
@@ -104,8 +110,8 @@ pub fn format_bytes_live(bytes: i64) -> String {
     const KB: i64 = 1024;
     const MB: i64 = KB * 1024;
     const GB: i64 = MB * 1024;
-    // O Delphi formata com a vírgula do locale; a UI exibe como vier.
-    let comma = |s: String| s.replace('.', ",");
+    // O Delphi formata com o separador do locale; a UI exibe como vier.
+    let comma = |s: String| crate::win::localize_decimal(&s);
     if bytes >= GB {
         let v = bytes as f64 / GB as f64;
         comma(if v < 10.0 { format!("{v:.3} GB") } else { format!("{v:.2} GB") })
@@ -519,18 +525,12 @@ pub fn on_engine_recording_stopped(output_path: &str) {
             quality_level: encoder::recording_quality_level(),
         }
     });
+    // Persiste ANTES do card: o scan de miniatura (worker) já acha o layout pronto.
     if let Some(m) = &meta {
-        log!(
-            "OnEngineRecordingStopped: meta pronta ({}s, {}x{}, {} regiao(oes), codec={}).",
-            m.duration_sec,
-            m.layout.canvas_w,
-            m.layout.canvas_h,
-            m.layout.regions.len(),
-            m.codec
-        );
+        player::save_recording_meta(output_path, m);
     }
-    // TODO(OBSPlayer): SaveRecordingMeta(path, meta) + PushRecordingAdded.
-    // TODO(OBSFileMeta): MarkChanged(path).
+    // TODO(OBSFileMeta): MarkChanged(path) — a cópia no fim do arquivo.
+    library::push_recording_added(output_path, with_state(|s| s.last_recording_duration));
     // TODO(OBSTranscribe): Enqueue quando `transcribeOnStop`.
     // TODO(buffer, #62): religar o buffer por ÚLTIMO (refaz o CurrentLayout).
 }
@@ -682,7 +682,9 @@ mod tests {
     fn bytes_ao_vivo() {
         assert_eq!(format_bytes_live(512), "512 B");
         assert_eq!(format_bytes_live(812 * 1024), "812 KB");
-        assert_eq!(format_bytes_live(1024 * 1024 * 45 + 123 * 1024), "45,120 MB");
-        assert_eq!(format_bytes_live(1024 * 1024 * 1024 * 3), "3,000 GB");
+        // O separador depende do locale do usuário: normaliza antes de comparar.
+        let dot = |s: String| s.replace(crate::win::decimal_separator(), ".");
+        assert_eq!(dot(format_bytes_live(1024 * 1024 * 45 + 123 * 1024)), "45.120 MB");
+        assert_eq!(dot(format_bytes_live(1024 * 1024 * 1024 * 3)), "3.000 GB");
     }
 }

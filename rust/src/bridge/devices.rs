@@ -21,7 +21,7 @@ use crate::engine;
 use crate::types::Webcam;
 use crate::win_audio_meter::{self as wam, AudioDeviceInfo, DeviceKind};
 use crate::win_preview::{self, MonitorInfo};
-use crate::{config, lang, log, mainthread, ui, win_webcam};
+use crate::{config, lang, log, mainthread, player, ui, win_webcam};
 
 use super::recording::{push_refresh_busy, record_dir, recording_active};
 use super::{is_shutting_down, post_json};
@@ -314,7 +314,7 @@ pub fn push_init(include_audio: bool) {
         (json!([]), json!([]))
     };
     let dir = record_dir().to_string_lossy().into_owned();
-    post_json(json!({
+    let mut init = json!({
         "type": "init",
         "i18n": lang::current_bundle(),
         "language": lang::current_language(),
@@ -322,19 +322,16 @@ pub fn push_init(include_audio: bool) {
         "mics": mics,
         "speakers": spks,
         "webcams": build_webcams_json_from(&win_webcam::enumerate_webcams()),
-        // A biblioteca (gravações, pastas, caminho) entra com o OBSPlayer/Bridge
-        // de gravações; até lá a UI recebe a lista vazia na raiz.
-        "recordings": [],
-        "folders": [],
-        "currentDir": dir.trim_end_matches('\\'),
-        "parentDir": "",
-        "atRoot": true,
-        "breadcrumb": [],
         "recordDir": dir,
         "freeBytes": record_dir_free_bytes(),
         "languagePref": config::get_config_str("language", ""),
         "languages": lang::available_languages(),
-    }));
+    });
+    // A biblioteca: gravações da pasta navegada + pastas + caminho.
+    for (k, v) in super::library::init_listing() {
+        init[k] = v;
+    }
+    post_json(init);
 }
 
 // ---------------------------------------------------------------------------
@@ -764,9 +761,7 @@ fn start_thumb_thread() {
 /// Captura cada monitor e empurra a prévia. Em gravação itera o SNAPSHOT do
 /// início (slots fixos) e casa cada slot ao monitor atual por `device_name`; se o
 /// monitor sumiu, manda prévia vazia (a UI mostra preto, não a última imagem).
-///
-/// TODO(OBSPlayer): o Delphi guarda o JPEG no servidor HTTP local e manda só a URL
-/// (sem base64 no IPC). Até o `OBSPlayer` existir a prévia vai como `data:` URL.
+/// O JPEG fica no servidor HTTP local e só a URL vai pelo IPC (sem base64).
 fn push_monitor_thumbs() {
     if is_shutting_down() || THUMB_BUSY.swap(true, Ordering::SeqCst) {
         return;
@@ -784,7 +779,14 @@ fn push_monitor_thumbs() {
         }
         let id = monitor_id_from_index(slot.index);
         let thumb = match current.iter().find(|c| c.device_name.eq_ignore_ascii_case(&slot.device_name)) {
-            Some(m) => capture_thumb_data_url(m),
+            Some(m) => {
+                // Monitor ainda existe: captura com as coordenadas atuais.
+                let jpeg = win_preview::capture_monitor_as_jpeg(m, 480, 270);
+                if !jpeg.is_empty() {
+                    player::set_monitor_thumb(&id, jpeg);
+                }
+                player::get_monitor_thumb_url(&id)
+            }
             None => String::new(), // monitor sumiu: a UI limpa a imagem
         };
         items.push(json!({ "id": id, "thumb": thumb }));
@@ -795,10 +797,6 @@ fn push_monitor_thumbs() {
         }
         THUMB_BUSY.store(false, Ordering::SeqCst);
     });
-}
-
-fn capture_thumb_data_url(m: &MonitorInfo) -> String {
-    win_preview::capture_monitor_as_data_url(m, 480, 270)
 }
 
 /// A thread de prévias não enxerga a `thread_local` da main: o snapshot e a flag

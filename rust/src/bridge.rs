@@ -19,24 +19,44 @@ use serde_json::{json, Value};
 
 use crate::{config, lang, log, mainthread, ui};
 
+mod devices;
 mod recording;
+
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Idle de hibernação: 1 min sem janela visível e sem gravação (porte futuro
 /// do `OBSHibernate`); o id já existe porque a gravação o desarma.
 pub const TIMER_HIBERNATE_IDLE: usize = 7008;
+
+/// Lido por TODAS as workers: abortam cedo quando o app está fechando. Um
+/// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
+/// Delphi buscava com `TInterlocked`.
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+
+pub fn is_shutting_down() -> bool {
+    SHUTTING_DOWN.load(Ordering::SeqCst)
+}
 
 /// Liga a UI a este bridge sem dependência direta de `ui` → `bridge` (o
 /// `initialization` do Delphi). Chamado uma vez, antes de `ui::run`.
 pub fn install_hooks() {
     recording::install();
     ui::set_hooks(ui::Hooks {
-        on_timer: Some(recording::on_timer),
+        on_timer: Some(on_timer),
         on_hotkey: Some(recording::on_hotkey),
-        on_display_change: None,
-        on_device_change: None,
+        on_display_change: Some(devices::on_display_change),
+        on_device_change: Some(devices::on_device_node_change),
         on_should_hide_on_close: Some(should_hide_on_close),
         on_shutdown: Some(shutdown),
     });
+}
+
+/// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
+fn on_timer(id: usize) {
+    if recording::on_timer(id) || devices::on_timer(id) {
+        return;
+    }
+    on_timer_other(id);
 }
 
 /// `WM_CLOSE`: minimizar pra bandeja em vez de fechar? Sim com `closeToTray`
@@ -47,11 +67,14 @@ fn should_hide_on_close() -> bool {
 
 /// Encerra o que está vivo; idempotente (o `ShutdownDone` do Delphi).
 pub fn shutdown() {
-    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    // Chamado de DOIS lugares no Delphi (o Run e a finalization); aqui basta o
+    // hook, mas a guarda fica: repetir o teardown do libobs seria AV.
+    if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
         return;
     }
     log::log("Shutdown: inicio");
+    devices::shutdown();
+    log::log("Shutdown: dispositivos off");
     recording::shutdown();
     log::log("Shutdown: fim");
 }
@@ -101,9 +124,16 @@ pub fn dispatch(raw: &str) {
         "record_stop" => recording::handle_record_stop(),
         "set_theme" => handle_set_theme(str_field(&msg, "theme")),
         "set_language" => handle_set_language(str_field(&msg, "language")),
-        "toggle_source" => handle_toggle_source(str_field(&msg, "id"), bool_field(&msg, "enabled", false)),
-        "set_source_hidden" => handle_set_source_hidden(str_field(&msg, "id"), bool_field(&msg, "hidden", false)),
-        "set_auto_source" => handle_set_auto_source(str_field(&msg, "id"), bool_field(&msg, "enabled", true)),
+        "toggle_source" => devices::handle_toggle_source(str_field(&msg, "id"), bool_field(&msg, "enabled", false)),
+        "set_source_hidden" => devices::handle_set_source_hidden(str_field(&msg, "id"), bool_field(&msg, "hidden", false)),
+        "set_auto_source" => devices::handle_set_auto_source(str_field(&msg, "id"), bool_field(&msg, "enabled", true)),
+        "player_state" => {
+            // O modal do player abriu/fechou: suspende medidores e prévias
+            // enquanto aberto (a sidebar está atrás dele).
+            let open = bool_field(&msg, "open", false);
+            devices::set_player_open_all(open);
+            log!("PlayerOpen={open}");
+        }
         "open_url" => handle_open_url(str_field(&msg, "url")),
         other => not_ported(other),
     }
@@ -117,12 +147,12 @@ fn not_ported(ty: &str) {
 // init / tema / idioma
 // ---------------------------------------------------------------------------
 
-/// `DoInit` mínimo: tema + `init` (bundle i18n). O restante (servidor do
-/// player, enumeração de áudio em worker, timers, warmup do libobs 1,5 s
-/// depois) entra com os módulos de domínio.
+/// `DoInit`: tema + `init` + dispositivos (áudio em worker, prévias, medidores,
+/// hot-plug) + warmup do libobs. O servidor do player, a biblioteca e os
+/// watchers de pasta/mic/apps entram com os módulos que os têm.
 fn do_init() {
     push_theme();
-    push_init();
+    devices::do_init();
     // Warmup do libobs com delay: a UI renderiza primeiro e a 1ª gravação fica
     // instantânea. NUNCA inicializar o libobs direto aqui (pode travar o
     // startup). Falha do warmup → a gravação inicializa sob demanda.
@@ -130,17 +160,6 @@ fn do_init() {
     // Atalho global (falha de registro não é fatal — pegadinha #33).
     recording::apply_hotkey_from_config();
     log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
-}
-
-fn push_init() {
-    post_json(json!({
-        "type": "init",
-        "i18n": lang::current_bundle(),
-        "language": lang::current_language(),
-        "languagePref": config::get_config_str("language", ""),
-        "languages": lang::available_languages(),
-        "recordDir": config::get_config_str("recordDir", ""),
-    }));
 }
 
 /// `HKCU\...\Themes\Personalize\AppsUseLightTheme`: 0 = dark, 1 = light.
@@ -204,42 +223,6 @@ fn handle_set_language(code: &str) {
         "languagePref": pref,
         "i18n": lang::current_bundle(),
     }));
-}
-
-// ---------------------------------------------------------------------------
-// dispositivos
-// ---------------------------------------------------------------------------
-
-/// Prefixos de id que a UI usa (`PFX_*` do Delphi): `monitor:0`, `mic:Nome`…
-fn split_source_id(id: &str) -> Option<(&'static str, &str)> {
-    const PREFIXES: [(&str, &str); 4] = [
-        ("monitor:", "monitors"),
-        ("webcam:", "webcams"),
-        ("mic:", "mics"),
-        ("out:", "speakers"),
-    ];
-    PREFIXES
-        .iter()
-        .find_map(|(p, cat)| id.strip_prefix(p).map(|rest| (*cat, rest)))
-}
-
-fn handle_toggle_source(id: &str, enabled: bool) {
-    let Some((cat, name)) = split_source_id(id) else { return };
-    // Monitores/webcams mudam o canvas: bloqueado durante a gravação.
-    // (RecordingActive virá do módulo do engine.)
-    config::set_source_bool(cat, name, enabled);
-}
-
-fn handle_set_source_hidden(id: &str, hidden: bool) {
-    if let Some((cat, name)) = split_source_id(id) {
-        config::set_source_hidden(cat, name, hidden);
-    }
-}
-
-fn handle_set_auto_source(id: &str, enabled: bool) {
-    if let Some((cat, name)) = split_source_id(id) {
-        config::set_source_auto_record(cat, name, enabled);
-    }
 }
 
 // ---------------------------------------------------------------------------

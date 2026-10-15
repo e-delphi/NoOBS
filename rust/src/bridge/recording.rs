@@ -16,9 +16,9 @@ use serde_json::json;
 
 use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
-use crate::{config, encoder, lang, log, ui, win_preview};
+use crate::{config, encoder, lang, log, ui, win_audio_meter, win_preview, win_webcam};
 
-use super::{post_error, post_json};
+use super::{devices, post_error, post_json};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -312,14 +312,16 @@ pub fn push_encoder_caps_once() {
 // Entradas de captura
 // ---------------------------------------------------------------------------
 
-/// Coleta o que a máquina oferece. Webcams e endpoints padrão entram com as
-/// units `WinWebcam`/`WinAudioMeter`.
+/// Coleta o que a máquina oferece: monitores (Win32), webcams (DirectShow) e os
+/// endpoints padrão do Windows (WASAPI, do cache já populado pelo worker).
 fn gather_capture_inputs() -> CaptureInputs {
+    let devs = win_audio_meter::enumerate_audio_devices();
+    let default_of = |kind| devs.iter().find(|d| d.kind == kind && d.is_default).map(|d| d.device_id.clone()).unwrap_or_default();
     CaptureInputs {
         monitors: win_preview::monitors_from_win_preview(),
-        webcams: Vec::new(),
-        default_mic_id: String::new(),
-        default_spk_id: String::new(),
+        webcams: win_webcam::enumerate_webcams(),
+        default_mic_id: default_of(win_audio_meter::DeviceKind::Input),
+        default_spk_id: default_of(win_audio_meter::DeviceKind::Output),
     }
 }
 
@@ -420,7 +422,11 @@ fn start_recording_inner() -> Result<(), String> {
     });
     // TODO(buffer, #62): StartPerfMonitor / SyncTranscribePause.
     // TODO(OBSTray/OBSUI): bolinha vermelha na bandeja e na taskbar.
-    // TODO(WinMicWatch): zerar MicMuteApplied (sessão nova = fontes novas).
+    // Snapshot dos monitores no início: os slots de prévia ficam fixos mesmo se
+    // o usuário desplugar um monitor gravando. Sessão nova = fontes novas: sem
+    // zerar o mudo aplicado, o 1º tique acharia que nada mudou.
+    devices::set_recording_for_thumbs(true);
+    devices::clear_mic_mute_applied();
     ui::set_timer(TIMER_RECORDING_TICK, RECORDING_TICK_MS);
     push_recording_state();
     // TODO(OBSTray): minimizar ao gravar (`minimizeOnRecord`), notificação da
@@ -474,8 +480,10 @@ pub fn handle_record_stop() {
 
     // TODO(OBSTray): notificação de fim, restaurar a janela escondida pelo
     // auto-minimizar ou armar o idle de hibernação (OnWindowHiddenForHibernate).
-    // TODO(handlers restantes): aplicar PendingAudioRefresh / PendingMonitorRefresh /
-    // PendingWebcamRefresh adiados durante a gravação.
+
+    // O que mudou de dispositivo durante a gravação é aplicado agora.
+    devices::set_recording_for_thumbs(false);
+    devices::apply_pending_refreshes();
 
     // A partir daqui o libobs ainda está fechando o arquivo. Trava o botão até
     // o sinal "stop" chegar (on_engine_recording_stopped) ou o timeout.
@@ -596,8 +604,8 @@ fn on_warmup() {
     // TODO(buffer, #62): `replayAutoStart` / `/start-replay` → ReplayWanted.
 }
 
-/// `OnTimer` do Bridge (um `WM_TIMER` por id).
-pub fn on_timer(id: usize) {
+/// Timers de gravação; `false` = id que não é meu.
+pub fn on_timer(id: usize) -> bool {
     match id {
         TIMER_RECORDING_TICK => {
             if recording_active() {
@@ -611,8 +619,9 @@ pub fn on_timer(id: usize) {
             log!("TIMER_STOP_TIMEOUT: sinal \"stop\" nao chegou — forcando finalizacao.");
             engine::with_engine(|e| e.force_complete_stop());
         }
-        _ => super::on_timer_other(id),
+        _ => return false,
     }
+    true
 }
 
 /// Liga os callbacks do engine ao Bridge (`Engine.OnStopped := ...`).

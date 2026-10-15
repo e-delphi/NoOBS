@@ -11,6 +11,7 @@
 #![windows_subsystem = "windows"]
 
 mod audio_tracks;
+mod audio_watch;
 mod bridge;
 mod config;
 mod encoder;
@@ -27,7 +28,9 @@ mod startup_check;
 mod types;
 mod ui;
 mod win;
+mod win_audio_meter;
 mod win_preview;
+mod win_webcam;
 
 fn main() {
     // Dispatch entre o modo "full" (UI + libobs + watchers) e o "hibernate"

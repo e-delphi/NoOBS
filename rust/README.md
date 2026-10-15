@@ -33,7 +33,7 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `WinAudioMeter`       | `win_audio_meter.rs`      | portado: enumeração com cache, medidor por canal, sessão de captura por mic (#12), mudo do endpoint (#59), política de abertura |
 | `WinWebcam`           | `win_webcam.rs` (+ testes)| portado (DirectShow, filtro de câmeras de software, nome por fabricante) |
 | `OBSAudioWatch`       | `audio_watch.rs`          | portado (`IMMNotificationClient` via `#[implement]`) |
-| `OBSAudioFilters`     | — | a portar |
+| `OBSAudioFilters`     | `audio_filters.rs` (+ `bridge/filters.rs`) | portado: lista/edição genérica das propriedades da INSTÂNCIA, cadeia por ordem de inserção, teste A/B pela fonte `noobs_audio_feed`; `get/set/reset/test_audio_filters` ligados |
 | `FFmpegOps`           | `ffmpeg_ops.rs` (+ testes)| portado inteiro: remux, união, emenda do buffer por conteúdo (#62), extração de faixas, miniatura JPEG (#42) / PNG exato, picos de waveform, PCM mono em blocos, grade de keyframes (#61) |
 | `OBSPlayer`           | `player.rs` (+ testes)    | portado inteiro: servidor HTTP (`TcpListener`, Range, CORS restrito), cache por hash do path (#55), `<hash>.json` sob lock, GC, rename |
 | `OBSRecordWatch`      | `record_watch.rs`         | portado (`FindFirstChangeNotification`, debounce, `update_dir` com snapshot do callback — #54) |

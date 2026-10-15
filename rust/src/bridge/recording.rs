@@ -336,7 +336,7 @@ fn gather_capture_inputs() -> CaptureInputs {
     }
 }
 
-fn with_engine_result<R>(f: impl FnOnce(&mut engine::Engine) -> Result<R, String>) -> Result<R, String> {
+pub fn with_engine_result<R>(f: impl FnOnce(&mut engine::Engine) -> Result<R, String>) -> Result<R, String> {
     engine::with_engine(f).unwrap_or_else(|| Err("engine indisponível".into()))
 }
 

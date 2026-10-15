@@ -17,10 +17,11 @@
 
 use serde_json::{json, Value};
 
-use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui};
+use crate::{config, engine, file_meta, lang, log, mainthread, player, record_watch, ui};
 
 mod devices;
 pub mod export;
+mod filters;
 mod library;
 mod recording;
 pub mod transcribe;
@@ -46,6 +47,7 @@ pub fn is_shutting_down() -> bool {
 /// `initialization` do Delphi). Chamado uma vez, antes de `ui::run`.
 pub fn install_hooks() {
     recording::install();
+    filters::install();
     ui::set_hooks(ui::Hooks {
         on_timer: Some(on_timer),
         on_hotkey: Some(recording::on_hotkey),
@@ -58,7 +60,7 @@ pub fn install_hooks() {
 
 /// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
 fn on_timer(id: usize) {
-    if recording::on_timer(id) || devices::on_timer(id) {
+    if recording::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -78,6 +80,7 @@ pub fn shutdown() {
         return;
     }
     log::log("Shutdown: inicio");
+    filters::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
     record_watch::stop();
@@ -170,6 +173,10 @@ pub fn dispatch(raw: &str) {
         "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
+        "get_audio_filters" => filters::handle_get_audio_filters(),
+        "set_audio_filter" => filters::handle_set_audio_filter(&msg),
+        "reset_audio_filters" => filters::handle_reset_audio_filters(),
+        "test_audio_filters" => filters::handle_test_audio_filters(str_field(&msg, "device")),
         "set_transcribe_host" => transcribe::handle_set_transcribe_host(str_field(&msg, "host")),
         "test_transcribe_host" => transcribe::handle_test_transcribe_host(str_field(&msg, "host")),
         "set_transcribe_language" => transcribe::handle_set_transcribe_language(str_field(&msg, "language")),
@@ -301,6 +308,11 @@ fn handle_set_language(code: &str) {
         "languagePref": pref,
         "i18n": lang::current_bundle(),
     }));
+    // Rótulos dos filtros de áudio vêm do plugin do OBS: troca o idioma dele também (só se o
+    // libobs já subiu; senão o init já pega o novo).
+    if engine::with_engine(|e| e.is_initialized()).unwrap_or(false) {
+        crate::audio_filters::set_obs_locale_from_app(&lang::current_language());
+    }
 }
 
 // ---------------------------------------------------------------------------

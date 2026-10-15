@@ -10,6 +10,7 @@
 
 #![windows_subsystem = "windows"]
 
+mod audio_filters;
 mod audio_tracks;
 mod audio_watch;
 mod bridge;

@@ -35,6 +35,7 @@
                            OBSElevate)
     record_start         : —
     record_stop          : —
+    record_pause         : paused (Boolean) — pausa/retoma a gravacao em curso
     list_capture_windows : — (responde capture_windows e, uma a uma,
                            capture_window_thumb — seletor "Gravar janela")
     record_window        : id (da ultima capture_windows), appAudio
@@ -192,7 +193,8 @@
     recording_state      : active, elapsed, sizeBytes + sizeText (tamanho
                            ja gravado do MKV em curso; ausentes enquanto o
                            muxer nao escreveu nada), window (titulo, so na
-                           gravacao de janela)
+                           gravacao de janela), paused (gravacao pausada;
+                           o elapsed fica parado no instante da pausa)
     capture_windows      : seq, items[{id, title, exe, w, h}]
     capture_window_thumb : seq, id, thumb (URL do HTTP local)
     recording_added      : item
@@ -538,6 +540,12 @@ var
   // (worker ainda capturando) sao descartadas.
   CaptureWindowsSeq: Integer = 0;
   RecordingStartTickMs: Cardinal = 0;
+  // Gravacao pausada (obs_output_pause). O relogio da gravacao para em
+  // RecordingPauseTick e, ao retomar, o RecordingStartTickMs anda pra frente
+  // o tempo pausado — assim todo lugar que faz "agora - inicio" (tela,
+  // indicador, duracao do card) continua certo sem saber da pausa.
+  RecordingPaused: Boolean = False;
+  RecordingPauseTick: Cardinal = 0;
   // True a partir do momento que o JS sobe e manda 'ready'. Antes
   // disso o `show_notification` pra UI nao funciona — usa fallback
   // de tray balloon (NIF_INFO). Caso classico: /start-record vindo
@@ -1591,6 +1599,14 @@ begin
     Result := (Int64(Attr.nFileSizeHigh) shl 32) or Int64(Attr.nFileSizeLow);
 end;
 
+// "Agora" no relogio da gravacao: parado no instante da pausa enquanto ela
+// durar. Elapsed = RecordingNowTick - RecordingStartTickMs.
+function RecordingNowTick: Cardinal;
+begin
+  if RecordingPaused then Result := RecordingPauseTick
+  else Result := GetTickCount;
+end;
+
 procedure PushRecordingState;
 var
   Obj: TJSONObject;
@@ -1599,12 +1615,19 @@ var
 begin
   Elapsed := 0;
   if RecordingActive then
-    Elapsed := Integer((GetTickCount - RecordingStartTickMs) div 1000);
+    Elapsed := Integer((RecordingNowTick - RecordingStartTickMs) div 1000);
 
   Obj := TJSONObject.Create;
   Obj.AddPair('type', 'recording_state');
   Obj.AddPair('active', TJSONBool.Create(RecordingActive));
   Obj.AddPair('elapsed', TJSONNumber.Create(Elapsed));
+  // O mesmo tempo em ms: o cronometro da tela mostra centesimos, e com o
+  // segundo inteiro a pausa congelava sempre em ".00" (e cada tique de 1 s
+  // puxava o relogio de volta pro segundo cheio).
+  if RecordingActive then
+    Obj.AddPair('elapsedMs', TJSONNumber.Create(Int64(RecordingNowTick - RecordingStartTickMs)));
+  if RecordingActive and RecordingPaused then
+    Obj.AddPair('paused', TJSONBool.Create(True));
   // Gravando uma janela: a UI diz qual no lugar de "Gravando".
   if RecordingActive and (RecordingWindowSpec <> '') then
     Obj.AddPair('window', RecordingWindowTitle);
@@ -4091,6 +4114,9 @@ begin
       GetConfigInt('recIndicatorOpacity', 90),
       WinRecIndicator.imRecording, 0,
       GetConfigBool('recIndicatorClickable', True));
+    // Mostrado (de novo) no meio de uma pausa: volta pausado.
+    if RecordingPaused then
+      WinRecIndicator.SetPaused(True, RecordingStartTickMs);
   except
     on E: Exception do
       Log('RecIndicator: falha ao mostrar overlay: %s', [E.Message]);
@@ -4243,6 +4269,7 @@ begin
       [GetTickCount64 - TStep]);
 
     RecordingActive := True;
+    RecordingPaused := False;
     StartPerfMonitor;
     SyncTranscribePause;
     LastRecordingPath := OutputPath;
@@ -4317,6 +4344,39 @@ begin
 end;
 
 procedure HandleRecordStop; forward;
+
+procedure HandleRecordPause(APause: Boolean);
+// Pausa/retoma (botao ao lado do de gravar). O arquivo continua o MESMO:
+// a libobs desconta o intervalo dos timestamps, entao o video sai sem o
+// trecho pausado e sem buraco.
+var
+  Now0: Cardinal;
+begin
+  if (not RecordingActive) or (Engine = nil) then Exit;
+  if APause = RecordingPaused then Exit;
+  if not Engine.SetRecordingPaused(APause) then
+  begin
+    if APause then PostError(OBSLang.T('record.pauseFailed'));
+    PushRecordingState;
+    Exit;
+  end;
+  Now0 := GetTickCount;
+  if APause then
+    RecordingPauseTick := Now0
+  else
+    RecordingStartTickMs := RecordingStartTickMs + (Now0 - RecordingPauseTick);
+  RecordingPaused := APause;
+  try
+    if WinRecIndicator.IsShowing and
+       (WinRecIndicator.CurrentMode = WinRecIndicator.imRecording) then
+      WinRecIndicator.SetPaused(APause, RecordingStartTickMs);
+  except end;
+  if APause then
+    MaybeNotifyRecord('NoOBS', OBSLang.T('record.pausedNotify'))
+  else
+    MaybeNotifyRecord('NoOBS', OBSLang.T('record.resumedNotify'));
+  PushRecordingState;
+end;
 
 // ---------------------------------------------------------------------
 // Gravar UMA janela (seletor da tela principal). Pegadinha #66.
@@ -4585,7 +4645,9 @@ begin
   // ex.: config off ou Windows sem suporte a exclusao de captura).
   try WinRecIndicator.HideIndicator; except end;
 
-  Elapsed := Integer((GetTickCount - RecordingStartTickMs) div 1000);
+  // Parando pausada, a pausa nao conta (o arquivo tambem nao a tem).
+  Elapsed := Integer((RecordingNowTick - RecordingStartTickMs) div 1000);
+  RecordingPaused := False;
 
   // Caminho do arquivo ja e conhecido (geramos no start). O arquivo so
   // estara COMPLETO quando o sinal "stop" do output disparar — por isso
@@ -9454,6 +9516,8 @@ begin
       HandleRecordStart
     else if MsgType = 'record_stop' then
       HandleRecordStop
+    else if MsgType = 'record_pause' then
+      HandleRecordPause(GetBoolField(Obj, 'paused'))
     else if MsgType = 'list_capture_windows' then
       HandleListCaptureWindows
     else if MsgType = 'record_window' then

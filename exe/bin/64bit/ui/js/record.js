@@ -57,6 +57,17 @@ function triggerRecordRipple() {
   }
 }
 
+// Pausar/retomar. Trava o botao ate o backend responder (o push de
+// recording_state destrava) — dois cliques rapidos mandariam pausa e
+// retomada cruzadas.
+function toggleRecordPause() {
+  if (!document.body.classList.contains('recording')) return;
+  const btn = document.getElementById('recordPauseBtn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  Bridge.send('record_pause', { paused: !btn.classList.contains('paused') });
+}
+
 function toggleRecord() {
   const isRecording = document.body.classList.contains('recording');
   // Ripple so no start. No stop nao faz sentido visualmente — a UI

@@ -418,6 +418,14 @@ procedure obs_output_stop(output: obs_output_t);
 function obs_output_active(output: obs_output_t): ByteBool;
   cdecl; external 'obs.dll' delayed;
 
+// Pausa/retoma uma saida com OBS_OUTPUT_CAN_PAUSE (o ffmpeg_muxer tem). A
+// pausa e nos ENCODERS da saida: o intervalo pausado nao vira pacote e os
+// timestamps seguintes sao descontados dele (obs-output.c).
+function obs_output_pause(output: obs_output_t; pause: ByteBool): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+function obs_output_paused(output: obs_output_t): ByteBool;
+  cdecl; external 'obs.dll' delayed;
+
 function obs_output_get_last_error(output: obs_output_t): PAnsiChar;
   cdecl; external 'obs.dll' delayed;
 

@@ -3936,6 +3936,34 @@ gravação troca monitores/webcams por uma fonte `window_capture` (plugin
   Vale só pra gravação de janela: o buffer e a gravação das telas zeram a
   flag.
 
+### 67. **Pausar a gravação: a pausa é nos ENCODERS, e o relógio anda pra frente**
+
+Botão no rodapé do cartão, ao lado do "Gravar uma janela"
+(`#recordPauseBtn`): sempre visível, desativado fora da gravação, âmbar
+quando pausado (clique = retomar). Um anel em volta do botão de gravar
+chegou a ser feito e foi descartado: ficou estranho e obrigava a reservar
+espaço em volta do botão. `record_pause` → `HandleRecordPause` →
+`TOBSEngine.SetRecordingPaused` → `obs_output_pause` (o `ffmpeg_muxer` tem
+`OBS_OUTPUT_CAN_PAUSE`). O arquivo continua o MESMO e sai sem o trecho
+pausado e sem buraco: a libobs desconta o intervalo dos timestamps.
+
+- **A pausa é nos encoders da saída** (`obs_encoded_output_pause`), não na
+  saída. Na gravação que CONTINUA o buffer (#62) os encoders ainda
+  alimentam a saída que escreve o começo dela nos primeiros ~1–2 s
+  (`FReplaySaveCommitPending`/`FReplaySaveSince`): ali a pausa é RECUSADA
+  com aviso (`record.pauseFailed`), senão cortaria o trecho.
+- **Relógio**: pausar guarda `RecordingPauseTick`; retomar soma o tempo
+  pausado ao `RecordingStartTickMs`. Todo "agora − início" (tela, indicador,
+  duração do card) passa pelo `RecordingNowTick`, que fica parado durante a
+  pausa — ninguém mais precisa saber que ela existe.
+- **Indicador na tela** (`WinRecIndicator.SetPaused`): duas barras âmbar no
+  lugar da bolinha, tempo parado. `ShowIndicator` zera a pausa; quem mostra
+  de novo no meio de uma pausa (`ShowRecIndicatorFromConfig`) reaplica.
+- O botão trava no clique até o próximo `recording_state` (o backend sempre
+  empurra, com sucesso ou falha), senão dois cliques rápidos cruzariam
+  pausa e retomada.
+- Parar pausada é parar normal: o `obs_output_stop` fecha a pausa sozinho.
+
 ## Caches
 
 | Cache                                   | Conteúdo                                  |

@@ -22,6 +22,9 @@ instalar nem configurar nada — só abrir e gravar.
 - **Todos os monitores num arquivo só.** Lado a lado, sem faixa preta de
   monitor que ficou de fora.
 
+- **Pausa sem abrir outro arquivo.** O botão de pausa, ao lado do de gravar janela, pausa e
+  retoma; o vídeo sai inteiro, sem o trecho pausado.
+
 - **Ou só uma janela.** O botão ao lado do buffer mostra as janelas
   abertas com uma prévia de cada; escolhida uma, só ela entra no vídeo,
   mesmo coberta por outras. Marcando "Gravar o som do app", o som só

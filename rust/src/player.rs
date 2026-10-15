@@ -87,8 +87,8 @@ pub fn hash_name(path: &str) -> String {
 /// um rename. Sem isso o cache fica órfão (só limpo no próximo GC) e a gravação
 /// renomeada perde miniatura/duração até regenerar.
 pub fn rename_cache_entries(old_path: &str, new_path: &str) {
-    // TODO(OBSFileMeta): `OBSFileMeta.RenamePath` — a escrita pendente no fim do
-    // arquivo segue o arquivo.
+    // A escrita pendente no fim do arquivo segue o arquivo.
+    crate::file_meta::rename_path(old_path, new_path);
     let dir = cache_dir_for();
     let (old_hash, new_hash) = (hash_name(old_path), hash_name(new_path));
     if old_hash == new_hash {
@@ -438,8 +438,9 @@ pub fn ensure_recording_meta(path: &str) -> Option<(i32, String)> {
     }
     let thumb = cache_dir_for().join(format!("{}.jpg", hash_name(path)));
 
-    // TODO(OBSFileMeta): `ImportIfNewer(path)` ANTES de ler a meta — arquivo vindo
-    // de outra máquina traz layout, transcrição e falantes no fim dele.
+    // ANTES de ler a meta: arquivo vindo de outra máquina traz layout, transcrição
+    // e falantes no fim dele (e a duração do bloco evita o Probe).
+    crate::file_meta::import_if_newer(path);
 
     let mut meta = load_recording_meta(path).unwrap_or(RecordingMeta { quality_level: -1, ..Default::default() });
     let mut duration = meta.duration_sec;

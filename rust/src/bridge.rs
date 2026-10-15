@@ -17,7 +17,7 @@
 
 use serde_json::{json, Value};
 
-use crate::{config, lang, log, mainthread, player, record_watch, ui};
+use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui};
 
 mod devices;
 pub mod export;
@@ -29,6 +29,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Idle de hibernação: 1 min sem janela visível e sem gravação (porte futuro
 /// do `OBSHibernate`); o id já existe porque a gravação o desarma.
 pub const TIMER_HIBERNATE_IDLE: usize = 7008;
+/// Dados lidos do fim de um arquivo (`file_meta`) mudam o que o card mostra.
+pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 
 /// Lido por TODAS as workers: abortam cedo quando o app está fechando. Um
 /// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
@@ -81,11 +83,17 @@ pub fn shutdown() {
     log::log("Shutdown: RecordWatch ok");
     recording::shutdown();
     player::stop_player_server();
+    file_meta::shutdown();
     log::log("Shutdown: fim");
 }
 
 /// Timers dos módulos ainda não portados caem aqui.
 fn on_timer_other(id: usize) {
+    if id == TIMER_FILEMETA_REFRESH {
+        ui::kill_timer(TIMER_FILEMETA_REFRESH);
+        library::push_recordings();
+        return;
+    }
     log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");
 }
 
@@ -176,6 +184,16 @@ fn do_init() {
     // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
     player::start_player_server();
     log::log("DoInit: PlayerServer ok");
+    // Worker que escreve os dados no fim do arquivo (pendentes da sessão anterior
+    // voltam). Arquivo importado de outra máquina refaz os cards (pegadinha #65).
+    file_meta::set_on_imported(|_| {
+        mainthread::queue(|| {
+            if !is_shutting_down() {
+                ui::set_timer(TIMER_FILEMETA_REFRESH, 800);
+            }
+        });
+    });
+    file_meta::start();
     // Lista e metadados (duração/miniatura) da pasta de gravação.
     library::push_recordings();
     library::scan_recordings_meta();

@@ -37,8 +37,9 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `FFmpegOps`           | `ffmpeg_ops.rs` (+ testes)| portado inteiro: remux, união, emenda do buffer por conteúdo (#62), extração de faixas, miniatura JPEG (#42) / PNG exato, picos de waveform, PCM mono em blocos, grade de keyframes (#61) |
 | `OBSPlayer`           | `player.rs` (+ testes)    | portado inteiro: servidor HTTP (`TcpListener`, Range, CORS restrito), cache por hash do path (#55), `<hash>.json` sob lock, GC, rename |
 | `OBSRecordWatch`      | `record_watch.rs`         | portado (`FindFirstChangeNotification`, debounce, `update_dir` com snapshot do callback — #54) |
-| `FFmpegExport`, `ExportCaptions` (+ `TimeStretch`, `bridge/export.rs`) | `ffmpeg_export.rs`, `export_captions.rs`, `time_stretch.rs` | portado (falta ligar a transcrição herdada ao OBSTranscribe e o `MarkChanged` ao OBSFileMeta) |
-| `OBSFileMeta`, `OBSTranscribe`, `OBSLocalAsr`, `OBSNumbersPt` | — | a portar |
+| `FFmpegExport`, `ExportCaptions` (+ `TimeStretch`, `bridge/export.rs`) | `ffmpeg_export.rs`, `export_captions.rs`, `time_stretch.rs` | portado (falta a transcrição herdada, que entra com o OBSTranscribe) |
+| `OBSFileMeta` | `file_meta.rs` | portado (bloco no fim do MKV/MP4, worker com pendentes persistidos, importação no `ensure_recording_meta`) |
+| `OBSTranscribe`, `OBSLocalAsr`, `OBSNumbersPt` | — | a portar |
 | `OBSHibernate`, `OBSTray`, `OBSElevate`, `OBSHotkey`, `OBSAutostart`, `OBSUpdate`, `Win*` | — | a portar |
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)

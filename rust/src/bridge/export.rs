@@ -474,8 +474,8 @@ pub fn handle_export_recording(msg: &Value) {
                     // TODO(OBSTranscribe): `LoadSpeakerNames(src)` → meta `speakers` quando
                     // `keep_transcript`.
                     let _ = keep_transcript;
-                    // TODO(OBSFileMeta): `MarkChanged(final)` — meta + transcrição +
-                    // falantes numa escrita só no fim do arquivo exportado.
+                    // Meta + transcrição + falantes numa escrita só no fim do arquivo exportado.
+                    crate::file_meta::mark_changed(&final_path_s);
                     push_recording_added(&final_path_s, out_meta.duration_sec);
                     push_export_done(true, false, &final_path_s);
                 }

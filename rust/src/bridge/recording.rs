@@ -534,7 +534,7 @@ pub fn on_engine_recording_stopped(output_path: &str) {
     if let Some(m) = &meta {
         player::save_recording_meta(output_path, m);
     }
-    // TODO(OBSFileMeta): MarkChanged(path) — a cópia no fim do arquivo.
+    crate::file_meta::mark_changed(output_path);
     library::push_recording_added(output_path, with_state(|s| s.last_recording_duration));
     // TODO(OBSTranscribe): Enqueue quando `transcribeOnStop`.
     // TODO(buffer, #62): religar o buffer por ÚLTIMO (refaz o CurrentLayout).

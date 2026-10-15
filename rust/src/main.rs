@@ -18,6 +18,7 @@ mod encoder;
 mod engine;
 mod export_captions;
 mod ffi;
+mod file_meta;
 mod ffmpeg_export;
 mod ffmpeg_ops;
 mod lang;

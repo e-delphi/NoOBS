@@ -1,8 +1,8 @@
 name: Claude Code
 
 # Responde a @claude em issues, PRs e revisões.
-# Requer o app https://github.com/apps/claude instalado no repositório e o
-# secret CLAUDE_CODE_OAUTH_TOKEN (gerado com `claude setup-token`).
+# Requer o app https://github.com/apps/claude instalado no repositório
+# e o secret CLAUDE_CODE_OAUTH_TOKEN.
 
 on:
   issue_comment:
@@ -21,22 +21,24 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+
     runs-on: ubuntu-latest
     timeout-minutes: 360
+
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write
       actions: read
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      # Alvo Windows pro `cargo check` do porte em rust/: o check não linka,
-      # então roda no runner Linux e pega erro de tipo/import antes do PR.
+      # Instala o target Windows para validar o código Rust.
       - name: Rust target Windows
         run: rustup target add x86_64-pc-windows-msvc
 
@@ -44,9 +46,9 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Tarefas grandes (ex.: conversão de linguagem) precisam de muitos
-          # turnos; WebFetch libera a consulta aos cabeçalhos do FFmpeg/OBS;
-          # cargo valida o porte em Rust.
+
+          show_full_output: true
+
           claude_args: |
             --max-turns 300
             --allowedTools "WebFetch,Bash(cargo:*)"

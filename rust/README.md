@@ -26,10 +26,13 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSRtwq`             | `rtwq.rs`                 | portado |
 | `OBSStartupCheck`     | `startup_check.rs`        | portado |
 | `OBSUI`               | `ui.rs` + `mainthread.rs` | portado (janela, WebView2, hotkey, ciclo de vida); faltam bandeja, splash com texto, dark menu |
-| `OBSBridge`           | `bridge.rs` + `bridge/recording.rs` | em andamento: init + warmup, tema, idioma, toggles, open_url e **gravação** (`record_start`/`record_stop`, stop assíncrono #41, tique de 1 s, nome por modelo, caps de encoder, hotkey padrão). Pendências marcadas como `TODO(<Unit>)` no código, uma por unit ainda não portada |
+| `OBSBridge`           | `bridge.rs` + `bridge/recording.rs` + `bridge/devices.rs` | em andamento: init + warmup, tema, idioma, open_url; **gravação** (`record_start`/`record_stop`, stop assíncrono #41, tique de 1 s, nome por modelo, caps de encoder, hotkey padrão); **tela inicial** (`init` com monitores/mics/saídas/webcams, `audio_sources_refreshed`, refresh por hot-plug com diff e dedup por assinatura, medidores de nível, mudo do endpoint, prévias dos monitores, toggles/ocultar/perfil automático). Pendências marcadas como `TODO(<Unit>)` no código, uma por unit ainda não portada |
 | `OBSEngine`           | `engine.rs` (+ testes)    | portado inteiro: init/módulos, grafo de captura, gravação, stop por sinal, `replay_buffer` (#62), janela (#66), teardown + watchdog |
 | `OBSAudioTracks`      | `audio_tracks.rs` (+ testes) | portado (atribuição de faixas, nomes, enumeração com timeout) |
-| `WinPreview`          | `win_preview.rs`          | monitores portados; faltam as prévias (BitBlt → JPEG) |
+| `WinPreview`          | `win_preview.rs`          | portado: monitores (+ taxa de atualização) e prévias BitBlt → JPEG (RAII de GDI, pegadinha #9) |
+| `WinAudioMeter`       | `win_audio_meter.rs`      | portado: enumeração com cache, medidor por canal, sessão de captura por mic (#12), mudo do endpoint (#59), política de abertura |
+| `WinWebcam`           | `win_webcam.rs` (+ testes)| portado (DirectShow, filtro de câmeras de software, nome por fabricante) |
+| `OBSAudioWatch`       | `audio_watch.rs`          | portado (`IMMNotificationClient` via `#[implement]`) |
 | `OBSAudioFilters`     | — | a portar |
 | `FFmpegOps`, `FFmpegExport`, `ExportCaptions`    | — | a portar |
 | `OBSPlayer`, `OBSFileMeta`, `OBSTranscribe`, `OBSLocalAsr`, `OBSNumbersPt` | — | a portar |

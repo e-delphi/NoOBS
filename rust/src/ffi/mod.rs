@@ -14,12 +14,12 @@ macro_rules! dll_api {
     (
         $(#[$meta:meta])*
         pub struct $Api:ident;
-        $( fn $name:ident($($arg:ident : $ty:ty),* $(,)?) $(-> $ret:ty)?; )*
+        $( $(#[$fmeta:meta])* fn $name:ident($($arg:ident : $ty:ty),* $(,)?) $(-> $ret:ty)?; )*
     ) => {
         $(#[$meta])*
         pub struct $Api {
             _lib: ::libloading::Library,
-            $( pub $name: unsafe extern "C" fn($($ty),*) $(-> $ret)?, )*
+            $( $(#[$fmeta])* pub $name: unsafe extern "C" fn($($ty),*) $(-> $ret)?, )*
         }
 
         impl $Api {

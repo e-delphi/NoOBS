@@ -17,6 +17,7 @@ mod config;
 mod encoder;
 mod engine;
 mod ffi;
+mod ffmpeg_ops;
 mod lang;
 mod log;
 mod mainthread;

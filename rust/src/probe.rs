@@ -63,45 +63,25 @@ fn media_type_to_kind(t: i32) -> &'static str {
     }
 }
 
-/// Fecha o contexto ao sair do escopo (o `try/finally` do Delphi).
-struct InputGuard {
-    ic: *mut av::AVFormatContext,
-}
-
-impl Drop for InputGuard {
-    fn drop(&mut self) {
-        if let Ok(a) = av::api() {
-            unsafe { (a.format.avformat_close_input)(&mut self.ic) }
-        }
-    }
-}
-
 /// Inspeciona `path`. `None` se o arquivo não existe, as DLLs faltam ou o
 /// libavformat não consegue abri-lo.
 pub fn probe(path: &Path) -> Option<ProbeReport> {
-    let size = std::fs::metadata(path).ok()?.len();
+    // Tamanho pelo sistema de arquivos (o libavformat não expõe direto); 0 se falhar.
+    let size = std::fs::metadata(path).map(|m| m.len()).ok()?;
     let a = av::api().ok()?;
-    let c_path = av::to_utf8(&path.to_string_lossy());
-
-    let mut ic: *mut av::AVFormatContext = std::ptr::null_mut();
-    let rc = unsafe {
-        (a.format.avformat_open_input)(&mut ic, c_path.as_ptr(), std::ptr::null(), std::ptr::null_mut())
-    };
-    if rc < 0 || ic.is_null() {
-        return None;
-    }
-    let guard = InputGuard { ic };
+    let input = av::Input::open(&path.to_string_lossy()).ok()?;
+    let ic = input.ptr();
 
     unsafe {
-        if (a.format.avformat_find_stream_info)(guard.ic, std::ptr::null_mut()) < 0 {
+        if !input.find_stream_info() {
             return None;
         }
 
         let mut report = ProbeReport {
             file_path: path.to_string_lossy().into_owned(),
-            format: av::iformat_name(guard.ic),
-            duration: av::duration(guard.ic) as f64 / av::AV_TIME_BASE as f64,
-            bit_rate: av::bit_rate(guard.ic),
+            format: av::iformat_name(ic),
+            duration: av::container_duration_us(ic) as f64 / av::AV_TIME_BASE as f64,
+            bit_rate: av::container_bit_rate(ic),
             size,
             streams: Vec::new(),
         };
@@ -109,8 +89,10 @@ pub fn probe(path: &Path) -> Option<ProbeReport> {
         // Último recurso de duração: varre os pacotes (MKV sem Duration EBML,
         // comum quando o trailer não foi escrito — pegadinha #27).
         if report.duration == 0.0 {
-            report.duration = av::scan_duration_by_packets(guard.ic) as f64 / av::AV_TIME_BASE as f64;
-            (a.format.av_seek_frame)(guard.ic, -1, 0, av::AVSEEK_FLAG_BACKWARD);
+            report.duration = av::scan_duration_by_packets(ic) as f64 / av::AV_TIME_BASE as f64;
+            // A varredura consome o cursor até o EOF; voltar ao início deixa o
+            // contexto limpo para qualquer leitura futura.
+            input.rewind();
         }
         // Último fallback de bit_rate: tamanho ÷ duração.
         if report.bit_rate == 0 && report.size > 0 && report.duration > 0.0 {
@@ -119,8 +101,8 @@ pub fn probe(path: &Path) -> Option<ProbeReport> {
 
         // `for i in 0..n` com n unsigned é seguro em Rust (range vazio com 0),
         // ao contrário do `0 to N-1` do Delphi (pegadinha #24).
-        for i in 0..av::nb_streams(guard.ic) {
-            let Some(s) = av::stream(guard.ic, i) else { continue };
+        for i in 0..av::nb_streams(ic) {
+            let Some(s) = av::stream(ic, i) else { continue };
             let mut info = StreamInfo {
                 index: s.index,
                 title: av::metadata_string(s.metadata, "title"),
@@ -141,7 +123,7 @@ pub fn probe(path: &Path) -> Option<ProbeReport> {
             }
             // Arquivo sem taxa declarada (MKV de uma união): mede nos pacotes.
             if info.kind == "video" && info.frame_rate <= 0.0 {
-                info.frame_rate = av::estimate_fps_from_packets(guard.ic, i as i32);
+                info.frame_rate = av::estimate_fps_from_packets(ic, i as i32);
             }
             info.duration = if s.duration > 0 && s.time_base.den > 0 {
                 (s.duration * s.time_base.num as i64) as f64 / s.time_base.den as f64

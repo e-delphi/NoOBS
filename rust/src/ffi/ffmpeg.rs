@@ -29,11 +29,43 @@ pub const AVMEDIA_TYPE_AUDIO: i32 = 1;
 pub const AVMEDIA_TYPE_DATA: i32 = 2;
 pub const AVMEDIA_TYPE_SUBTITLE: i32 = 3;
 
+pub const AV_CODEC_ID_MJPEG: i32 = 7;
 pub const AV_CODEC_ID_H264: i32 = 27;
 pub const AV_CODEC_ID_HEVC: i32 = 173;
 pub const AV_CODEC_ID_AV1: i32 = 225;
 
 pub const AV_LOG_QUIET: c_int = -8;
+
+// pixel formats (avutil/pixfmt.h)
+pub const AV_PIX_FMT_NONE: c_int = -1;
+pub const AV_PIX_FMT_YUV420P: c_int = 0;
+pub const AV_PIX_FMT_RGB24: c_int = 2;
+pub const AV_PIX_FMT_YUVJ420P: c_int = 12;
+pub const AV_PIX_FMT_NV12: c_int = 23;
+/// Quadro numa textura D3D11 (decode por hardware): conferido com
+/// `av_get_pix_fmt('d3d11')` na avutil-59 empacotada.
+pub const AV_PIX_FMT_D3D11: c_int = 171;
+pub const AV_HWDEVICE_TYPE_D3D11VA: c_int = 7;
+/// FLTP: o decoder de AAC entrega isso e o encoder `aac` também o recebe — a
+/// mixagem de faixas não precisa de swresample.
+pub const AV_SAMPLE_FMT_FLTP: c_int = 8;
+pub const AV_PICTURE_TYPE_NONE: c_int = 0;
+
+pub const AVFMT_NOFILE: c_int = 0x0001;
+pub const AVFMT_GLOBALHEADER: c_int = 0x0040;
+pub const AV_CODEC_FLAG_GLOBAL_HEADER: c_int = 0x0040_0000;
+pub const AVIO_FLAG_WRITE: c_int = 2;
+pub const AVERROR_EAGAIN: c_int = -11;
+/// `FFERRTAG('E','O','F',' ')` como int32.
+pub const AVERROR_EOF: c_int = -541_478_725;
+pub const AVINDEX_KEYFRAME: c_int = 1;
+pub const AV_PKT_FLAG_KEY: c_int = 0x0001;
+
+/// Algoritmos de reamostragem do swscale (tabela de opções do `SwsContext`,
+/// conferidos contra a swscale-8 empacotada).
+pub const SWS_BILINEAR: c_int = 2;
+pub const SWS_BICUBIC: c_int = 4;
+pub const SWS_AREA: c_int = 32;
 
 // --- offsets de AVFormatContext (avformat-61, Win64) — pegadinha #26 --------
 pub const OFFS_IFORMAT: usize = 8;
@@ -144,10 +176,52 @@ pub struct AVPacket {
 }
 
 pub type AVFormatContext = c_void;
+/// `AVCodecContext` NÃO é ABI-estável: só opaco; campos por `av_opt_*`.
+pub type AVCodecContext = c_void;
+pub type SwsContext = c_void;
+
+/// `AVFrame` — campos públicos do início; o resto é truncado de propósito (o
+/// alocador resolve o tamanho real). Os campos de áudio fora daqui (`sample_rate`,
+/// `ch_layout`) vão por offset (`OFFS_FRAME_*`).
+#[repr(C)]
+pub struct AVFrame {
+    pub data: [*mut u8; 8],
+    pub linesize: [c_int; 8],
+    pub extended_data: *mut *mut u8,
+    pub width: c_int,
+    pub height: c_int,
+    pub nb_samples: c_int,
+    pub format: c_int,
+    pub key_frame: c_int,
+    pub pict_type: c_int,
+    pub sample_aspect_ratio: AVRational,
+    pub pts: i64,
+    pub pkt_dts: i64,
+    pub time_base: AVRational,
+}
+
+/// `AVCodec` — prefixo público.
+#[repr(C)]
+pub struct AVCodec {
+    pub name: *const c_char,
+    pub long_name: *const c_char,
+    pub codec_type: c_int,
+    pub id: c_int,
+}
+
+/// `AVIndexEntry`. Em C `flags` e `size` são bitfields de um mesmo int
+/// (`flags:2, size:30`); no MSVC o primeiro ocupa os bits BAIXOS.
+#[repr(C)]
+pub struct AVIndexEntry {
+    pub pos: i64,
+    pub timestamp: i64,
+    pub flags_size: c_int,
+    pub min_distance: c_int,
+}
 
 dll_api! {
-    /// avformat + avcodec + avutil (funções usadas pelo probe/remux/thumb).
-    /// Cada DLL tem a sua tabela; ver `FfmpegApi`.
+    /// avformat + avcodec + avutil + swscale. Cada DLL tem a sua tabela; ver
+    /// `FfmpegApi`. Falta de QUALQUER símbolo derruba o carregamento inteiro.
     pub struct AvFormatApi;
     fn avformat_version() -> u32;
     fn avformat_open_input(ps: *mut *mut AVFormatContext, url: *const c_char, fmt: *const c_void, options: *mut *mut c_void) -> c_int;
@@ -155,6 +229,18 @@ dll_api! {
     fn avformat_close_input(ps: *mut *mut AVFormatContext);
     fn av_read_frame(ic: *mut AVFormatContext, pkt: *mut AVPacket) -> c_int;
     fn av_seek_frame(ic: *mut AVFormatContext, stream_index: c_int, ts: i64, flags: c_int) -> c_int;
+    // Índice de busca de um stream (lavf 59+). No MKV vem dos Cues, que o demuxer
+    // só lê no PRIMEIRO seek — abrir o arquivo não basta.
+    fn avformat_index_get_entries_count(st: *const AVStream) -> c_int;
+    fn avformat_index_get_entry(st: *mut AVStream, idx: c_int) -> *const AVIndexEntry;
+    fn avformat_alloc_output_context2(ctx: *mut *mut AVFormatContext, oformat: *const c_void, format_name: *const c_char, filename: *const c_char) -> c_int;
+    fn avformat_new_stream(s: *mut AVFormatContext, c: *const AVCodec) -> *mut AVStream;
+    fn avio_open2(s: *mut *mut c_void, url: *const c_char, flags: c_int, int_cb: *const c_void, options: *mut *mut c_void) -> c_int;
+    fn avio_closep(s: *mut *mut c_void) -> c_int;
+    fn avformat_write_header(s: *mut AVFormatContext, options: *mut *mut c_void) -> c_int;
+    fn av_write_trailer(s: *mut AVFormatContext) -> c_int;
+    fn av_interleaved_write_frame(s: *mut AVFormatContext, pkt: *mut AVPacket) -> c_int;
+    fn avformat_free_context(s: *mut AVFormatContext);
 }
 
 dll_api! {
@@ -164,6 +250,27 @@ dll_api! {
     fn av_packet_alloc() -> *mut AVPacket;
     fn av_packet_free(pkt: *mut *mut AVPacket);
     fn av_packet_unref(pkt: *mut AVPacket);
+    fn av_packet_rescale_ts(pkt: *mut AVPacket, tb_src: AVRational, tb_dst: AVRational);
+    /// Cópia nova do pacote (referencia os mesmos dados; libera com `av_packet_free`).
+    fn av_packet_clone(src: *const AVPacket) -> *mut AVPacket;
+    fn avcodec_find_decoder(id: c_int) -> *const AVCodec;
+    fn avcodec_find_encoder(id: c_int) -> *const AVCodec;
+    fn avcodec_find_encoder_by_name(name: *const c_char) -> *const AVCodec;
+    fn avcodec_find_decoder_by_name(name: *const c_char) -> *const AVCodec;
+    fn avcodec_alloc_context3(codec: *const AVCodec) -> *mut AVCodecContext;
+    fn avcodec_free_context(avctx: *mut *mut AVCodecContext);
+    fn avcodec_parameters_to_context(codec: *mut AVCodecContext, par: *const AVCodecParameters) -> c_int;
+    fn avcodec_parameters_copy(dst: *mut AVCodecParameters, src: *const AVCodecParameters) -> c_int;
+    fn avcodec_parameters_alloc() -> *mut AVCodecParameters;
+    fn avcodec_parameters_free(par: *mut *mut AVCodecParameters);
+    fn avcodec_parameters_from_context(par: *mut AVCodecParameters, codec: *const AVCodecContext) -> c_int;
+    fn avcodec_open2(avctx: *mut AVCodecContext, codec: *const AVCodec, options: *mut *mut c_void) -> c_int;
+    fn avcodec_send_packet(avctx: *mut AVCodecContext, avpkt: *const AVPacket) -> c_int;
+    fn avcodec_receive_frame(avctx: *mut AVCodecContext, frame: *mut AVFrame) -> c_int;
+    fn avcodec_send_frame(avctx: *mut AVCodecContext, frame: *const AVFrame) -> c_int;
+    fn avcodec_receive_packet(avctx: *mut AVCodecContext, avpkt: *mut AVPacket) -> c_int;
+    /// Descarta o estado interno do codec. OBRIGATÓRIO depois de um seek.
+    fn avcodec_flush_buffers(avctx: *mut AVCodecContext);
 }
 
 dll_api! {
@@ -175,15 +282,42 @@ dll_api! {
     fn av_dict_free(pm: *mut *mut c_void);
     fn av_rescale_q(a: i64, bq: AVRational, cq: AVRational) -> i64;
     fn av_strerror(errnum: c_int, buf: *mut c_char, size: usize) -> c_int;
-    fn av_frame_alloc() -> *mut c_void;
-    fn av_frame_free(frame: *mut *mut c_void);
+    fn av_freep(ptr: *mut c_void);
+    fn av_free(ptr: *mut c_void);
+    fn av_image_get_buffer_size(pix_fmt: c_int, width: c_int, height: c_int, align: c_int) -> c_int;
+    fn av_image_fill_arrays(dst_data: *mut *mut u8, dst_linesize: *mut c_int, src: *const u8, pix_fmt: c_int, width: c_int, height: c_int, align: c_int) -> c_int;
+    // av_frame_* são do AVUTIL, não do avcodec (pegadinha #25).
+    fn av_frame_alloc() -> *mut AVFrame;
+    fn av_frame_free(frame: *mut *mut AVFrame);
+    fn av_frame_unref(frame: *mut AVFrame);
+    /// Aloca os buffers a partir de width/height/format (vídeo) ou
+    /// nb_samples/format/ch_layout (áudio), que o chamador preenche ANTES.
+    fn av_frame_get_buffer(frame: *mut AVFrame, align: c_int) -> c_int;
+    /// Garante frame gravável (buffer não compartilhado).
+    fn av_frame_make_writable(frame: *mut AVFrame) -> c_int;
+    /// Move a posse do conteúdo de `src` para `dst` (`src` fica em branco).
+    fn av_frame_move_ref(dst: *mut AVFrame, src: *mut AVFrame);
+    /// Copia pts/duração/metadados (não os dados). O `av_hwframe_transfer_data`
+    /// só copia a IMAGEM — sem isto o quadro vindo da GPU chega sem pts.
+    fn av_frame_copy_props(dst: *mut AVFrame, src: *const AVFrame) -> c_int;
     fn av_opt_set_int(obj: *mut c_void, name: *const c_char, val: i64, flags: c_int) -> c_int;
+    fn av_opt_set_q(obj: *mut c_void, name: *const c_char, val: AVRational, flags: c_int) -> c_int;
     fn av_opt_set(obj: *mut c_void, name: *const c_char, val: *const c_char, flags: c_int) -> c_int;
+    fn av_opt_get_int(obj: *mut c_void, name: *const c_char, flags: c_int, out_val: *mut i64) -> c_int;
+    fn av_channel_layout_copy(dst: *mut c_void, src: *const c_void) -> c_int;
+    // Decode por hardware: o "device" é um AVBufferRef*.
+    fn av_hwdevice_ctx_create(device_ctx: *mut *mut c_void, device_type: c_int, device: *const c_char, opts: *mut c_void, flags: c_int) -> c_int;
+    fn av_hwframe_transfer_data(dst: *mut AVFrame, src: *const AVFrame, flags: c_int) -> c_int;
+    fn av_buffer_ref(buf: *const c_void) -> *mut c_void;
+    fn av_buffer_unref(buf: *mut *mut c_void);
 }
 
 dll_api! {
     pub struct SwScaleApi;
     fn swscale_version() -> u32;
+    fn sws_getContext(src_w: c_int, src_h: c_int, src_format: c_int, dst_w: c_int, dst_h: c_int, dst_format: c_int, flags: c_int, src_filter: *mut c_void, dst_filter: *mut c_void, param: *const f64) -> *mut SwsContext;
+    fn sws_freeContext(ctx: *mut SwsContext);
+    fn sws_scale(c: *mut SwsContext, src_slice: *const *const u8, src_stride: *const c_int, src_slice_y: c_int, src_slice_h: c_int, dst: *const *mut u8, dst_stride: *const c_int) -> c_int;
 }
 
 pub struct FfmpegApi {
@@ -359,9 +493,415 @@ pub unsafe fn estimate_fps_from_packets(ic: *mut AVFormatContext, stream_idx: i3
     }
     (a.codec.av_packet_free)(&mut pkt);
     (a.format.av_seek_frame)(ic, -1, 0, AVSEEK_FLAG_BACKWARD);
-    if n < 2 || max_pts <= min_pts {
+    if n < 10 || max_pts <= min_pts {
         return 0.0;
     }
+    // Quadros pelo intervalo que eles cobrem — NÃO a mediana dos intervalos: com
+    // tempo em ms, 60 fps alterna 16 e 17 ms e a mediana daria 58,8.
     let span = (max_pts - min_pts) as f64 * tb.num as f64 / tb.den as f64;
-    if span > 0.0 { (n - 1) as f64 / span } else { 0.0 }
+    if span <= 0.0 {
+        return 0.0;
+    }
+    let fps = (n - 1) as f64 / span;
+    // Taxas cheias (30, 60, 144) são o caso comum: arredonda o que estiver a
+    // menos de 0,05% de um inteiro (o erro de medir com tempo em ms em ~4 s é
+    // ~0,03%) e deixa 29,97 (0,1% abaixo de 30) como 29,97.
+    if (fps - fps.round()).abs() < fps * 0.0005 {
+        fps.round()
+    } else {
+        (fps * 100.0).round() / 100.0
+    }
+}
+
+/// Atribui o `AVIOContext*` ao campo `pb` (encapsula o offset ABI).
+///
+/// # Safety
+/// `ic` válido; `pb` aberto por `avio_open2`.
+pub unsafe fn set_pb(ic: *mut AVFormatContext, pb: *mut c_void) {
+    if !ic.is_null() {
+        ((ic as *mut u8).add(OFFS_PB) as *mut *mut c_void).write_unaligned(pb);
+    }
+}
+
+fn tb_us() -> AVRational {
+    AVRational { num: 1, den: AV_TIME_BASE as c_int }
+}
+
+/// Duração do container em µs. Campo direto; se zero (comum em MKV), o máximo
+/// das durações dos streams (cada um na sua time_base, via `av_rescale_q` —
+/// multiplicar à mão estoura Int64 em time_bases finos).
+///
+/// # Safety
+/// `ic` válido.
+pub unsafe fn container_duration_us(ic: *const AVFormatContext) -> i64 {
+    if ic.is_null() {
+        return 0;
+    }
+    let direct = duration(ic);
+    if direct > 0 {
+        return direct;
+    }
+    let Ok(a) = api() else { return 0 };
+    let mut best = 0i64;
+    for i in 0..nb_streams(ic) {
+        let Some(s) = stream(ic, i) else { continue };
+        if s.duration > 0 && s.time_base.den > 0 {
+            best = best.max((a.util.av_rescale_q)(s.duration, s.time_base, tb_us()));
+        }
+    }
+    best
+}
+
+/// Bitrate em bps: campo direto; se zero, a soma dos streams.
+///
+/// # Safety
+/// `ic` válido.
+pub unsafe fn container_bit_rate(ic: *const AVFormatContext) -> i64 {
+    if ic.is_null() {
+        return 0;
+    }
+    let direct = bit_rate(ic);
+    if direct > 0 {
+        return direct;
+    }
+    let mut total = 0i64;
+    for i in 0..nb_streams(ic) {
+        if let Some(cp) = stream(ic, i).and_then(|s| s.codecpar.as_ref()) {
+            if cp.bit_rate > 0 {
+                total += cp.bit_rate;
+            }
+        }
+    }
+    total
+}
+
+/// µs → timestamp na `tb` (ou `AV_NOPTS_VALUE` se a base é inválida).
+pub fn us_to_ts(us: i64, tb: AVRational) -> i64 {
+    match api() {
+        Ok(a) if tb.den > 0 => unsafe { (a.util.av_rescale_q)(us, tb_us(), tb) },
+        _ => AV_NOPTS_VALUE,
+    }
+}
+
+/// timestamp na `tb` → µs (`AV_NOPTS_VALUE` propaga).
+pub fn ts_to_us(ts: i64, tb: AVRational) -> i64 {
+    match api() {
+        Ok(a) if ts != AV_NOPTS_VALUE && tb.den > 0 => unsafe { (a.util.av_rescale_q)(ts, tb, tb_us()) },
+        _ => AV_NOPTS_VALUE,
+    }
+}
+
+/// Contexto de entrada aberto: fecha no `Drop` (o `try/finally` do Delphi).
+pub struct Input {
+    ic: *mut AVFormatContext,
+}
+
+impl Input {
+    /// Abre `path` (UTF-8, pegadinha #29). `Err(rc)` do `avformat_open_input`.
+    pub fn open(path: &str) -> Result<Self, c_int> {
+        let a = api().map_err(|_| -1)?;
+        let c_path = to_utf8(path);
+        let mut ic: *mut AVFormatContext = std::ptr::null_mut();
+        let rc = unsafe { (a.format.avformat_open_input)(&mut ic, c_path.as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+        if rc < 0 || ic.is_null() {
+            if !ic.is_null() {
+                unsafe { (a.format.avformat_close_input)(&mut ic) };
+            }
+            return Err(if rc < 0 { rc } else { -1 });
+        }
+        Ok(Self { ic })
+    }
+
+    /// `avformat_open_input` com retry curto: cobre o arquivo estar
+    /// MOMENTANEAMENTE aberto por outra thread (geração de prévia/duração da
+    /// biblioteca, ~200–500 ms). Sem isto, unir logo após adicionar falhava com
+    /// "arquivo em uso". Só chamar de worker (dorme).
+    pub fn open_with_retry(path: &str) -> Option<Self> {
+        const MAX_RETRIES: u32 = 10;
+        const RETRY_MS: u64 = 200;
+        let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        for attempt in 0..MAX_RETRIES {
+            match Self::open(path) {
+                Ok(i) => return Some(i),
+                Err(rc) => {
+                    if attempt == 0 {
+                        crate::log!("OpenInput: \"{name}\" ocupado (rc={rc}) — tentando de novo.");
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(RETRY_MS));
+                }
+            }
+        }
+        crate::log!("OpenInput: desistiu de \"{name}\" apos {MAX_RETRIES} tentativas.");
+        None
+    }
+
+    /// Assume a posse de um contexto já aberto (ex.: com opções no `open_input`).
+    pub fn from_raw(ic: *mut AVFormatContext) -> Self {
+        Self { ic }
+    }
+
+    pub fn find_stream_info(&self) -> bool {
+        match api() {
+            Ok(a) => unsafe { (a.format.avformat_find_stream_info)(self.ic, std::ptr::null_mut()) >= 0 },
+            Err(_) => false,
+        }
+    }
+
+    pub fn ptr(&self) -> *mut AVFormatContext {
+        self.ic
+    }
+
+    pub fn nb_streams(&self) -> u32 {
+        unsafe { nb_streams(self.ic) }
+    }
+
+    pub fn stream(&self, idx: u32) -> Option<&AVStream> {
+        unsafe { stream(self.ic, idx) }
+    }
+
+    /// `av_seek_frame(-1, 0, BACKWARD)`: volta ao começo.
+    pub fn rewind(&self) {
+        if let Ok(a) = api() {
+            unsafe { (a.format.av_seek_frame)(self.ic, -1, 0, AVSEEK_FLAG_BACKWARD) };
+        }
+    }
+}
+
+impl Drop for Input {
+    fn drop(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.format.avformat_close_input)(&mut self.ic) }
+        }
+    }
+}
+
+/// `AVPacket` alocado; libera no `Drop`.
+pub struct Packet(*mut AVPacket);
+
+impl Packet {
+    pub fn alloc() -> Option<Self> {
+        let a = api().ok()?;
+        let p = unsafe { (a.codec.av_packet_alloc)() };
+        (!p.is_null()).then_some(Self(p))
+    }
+    pub fn ptr(&self) -> *mut AVPacket {
+        self.0
+    }
+    pub fn unref(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.codec.av_packet_unref)(self.0) }
+        }
+    }
+    /// Cópia que referencia os mesmos dados.
+    pub fn clone_pkt(&self) -> Option<Self> {
+        let a = api().ok()?;
+        let p = unsafe { (a.codec.av_packet_clone)(self.0) };
+        (!p.is_null()).then_some(Self(p))
+    }
+}
+
+impl std::ops::Deref for Packet {
+    type Target = AVPacket;
+    fn deref(&self) -> &AVPacket {
+        unsafe { &*self.0 }
+    }
+}
+impl std::ops::DerefMut for Packet {
+    fn deref_mut(&mut self) -> &mut AVPacket {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl Drop for Packet {
+    fn drop(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.codec.av_packet_free)(&mut self.0) }
+        }
+    }
+}
+
+/// `AVFrame` alocado; libera no `Drop`.
+pub struct Frame(*mut AVFrame);
+
+impl Frame {
+    pub fn alloc() -> Option<Self> {
+        let a = api().ok()?;
+        let f = unsafe { (a.util.av_frame_alloc)() };
+        (!f.is_null()).then_some(Self(f))
+    }
+    pub fn ptr(&self) -> *mut AVFrame {
+        self.0
+    }
+    pub fn unref(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.util.av_frame_unref)(self.0) }
+        }
+    }
+}
+
+impl std::ops::Deref for Frame {
+    type Target = AVFrame;
+    fn deref(&self) -> &AVFrame {
+        unsafe { &*self.0 }
+    }
+}
+impl std::ops::DerefMut for Frame {
+    fn deref_mut(&mut self) -> &mut AVFrame {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.util.av_frame_free)(&mut self.0) }
+        }
+    }
+}
+
+/// Lista de opções para o `AVDictionary` do `avformat_write_header` etc.
+pub struct Dict(*mut c_void);
+
+impl Dict {
+    pub fn new() -> Self {
+        Self(std::ptr::null_mut())
+    }
+    pub fn set(&mut self, key: &str, value: &str) {
+        if let Ok(a) = api() {
+            unsafe { (a.util.av_dict_set)(&mut self.0, to_utf8(key).as_ptr(), to_utf8(value).as_ptr(), 0) };
+        }
+    }
+    pub fn as_mut_ptr(&mut self) -> *mut *mut c_void {
+        &mut self.0
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_null()
+    }
+}
+
+impl Drop for Dict {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            if let Ok(a) = api() {
+                unsafe { (a.util.av_dict_free)(&mut self.0) }
+            }
+        }
+    }
+}
+
+/// Copia UMA tag de metadata (ex.: `title`, `language`) de um stream pro outro,
+/// se existir — no lugar de `av_dict_copy`, para NÃO arrastar tags que ficam
+/// inválidas após corte/remux (DURATION, `_STATISTICS_*`, `NUMBER_OF_*`: o
+/// demuxer lê DURATION e reportaria a duração do arquivo original).
+///
+/// # Safety
+/// Streams válidos.
+pub unsafe fn copy_stream_tag(src: &AVStream, dst: *mut AVStream, key: &str) {
+    let Ok(a) = api() else { return };
+    let k = to_utf8(key);
+    let e = (a.util.av_dict_get)(src.metadata, k.as_ptr(), std::ptr::null(), 0);
+    if !e.is_null() && !(*e).value.is_null() {
+        (a.util.av_dict_set)(&mut (*dst).metadata, k.as_ptr(), (*e).value, 0);
+    }
+}
+
+/// `AVCodecContext` alocado; libera no `Drop`.
+pub struct CodecCtx(*mut AVCodecContext);
+
+impl CodecCtx {
+    pub fn alloc(codec: *const AVCodec) -> Option<Self> {
+        let a = api().ok()?;
+        let c = unsafe { (a.codec.avcodec_alloc_context3)(codec) };
+        (!c.is_null()).then_some(Self(c))
+    }
+    pub fn ptr(&self) -> *mut AVCodecContext {
+        self.0
+    }
+    /// `avcodec_open2` sem opções; devolve o `rc`.
+    pub fn open(&self, codec: *const AVCodec) -> c_int {
+        match api() {
+            Ok(a) => unsafe { (a.codec.avcodec_open2)(self.0, codec, std::ptr::null_mut()) },
+            Err(_) => -1,
+        }
+    }
+    /// `threads` do libavcodec tem default **1**, não "auto" (pegadinha #52):
+    /// 0 = automático.
+    pub fn set_threads_auto(&self) {
+        if let Ok(a) = api() {
+            unsafe { (a.util.av_opt_set_int)(self.0, c"threads".as_ptr(), 0, 0) };
+        }
+    }
+    /// Abre um decoder para o stream (`find_decoder` + `parameters_to_context` + `open2`).
+    pub fn open_decoder_for(par: &AVCodecParameters, threads_auto: bool) -> Option<Self> {
+        let a = api().ok()?;
+        let codec = unsafe { (a.codec.avcodec_find_decoder)(par.codec_id) };
+        if codec.is_null() {
+            return None;
+        }
+        let ctx = Self::alloc(codec)?;
+        if unsafe { (a.codec.avcodec_parameters_to_context)(ctx.0, par) } < 0 {
+            return None;
+        }
+        if threads_auto {
+            ctx.set_threads_auto();
+        }
+        (ctx.open(codec) >= 0).then_some(ctx)
+    }
+}
+
+impl Drop for CodecCtx {
+    fn drop(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.codec.avcodec_free_context)(&mut self.0) }
+        }
+    }
+}
+
+/// `SwsContext` (swscale) com liberação automática.
+pub struct Sws(*mut SwsContext);
+
+impl Sws {
+    pub fn new(src_w: c_int, src_h: c_int, src_fmt: c_int, dst_w: c_int, dst_h: c_int, dst_fmt: c_int, flags: c_int) -> Option<Self> {
+        let a = api().ok()?;
+        let p = unsafe {
+            (a.scale.sws_getContext)(src_w, src_h, src_fmt, dst_w, dst_h, dst_fmt, flags, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
+        };
+        (!p.is_null()).then_some(Self(p))
+    }
+    /// Escala o quadro inteiro `src` (altura `src_h`) para `dst`.
+    pub fn scale(&self, src: &AVFrame, src_h: c_int, dst: &AVFrame) {
+        if let Ok(a) = api() {
+            unsafe {
+                (a.scale.sws_scale)(
+                    self.0,
+                    src.data.as_ptr() as *const *const u8,
+                    src.linesize.as_ptr(),
+                    0,
+                    src_h,
+                    dst.data.as_ptr() as *const *mut u8,
+                    dst.linesize.as_ptr(),
+                );
+            }
+        }
+    }
+}
+
+impl Drop for Sws {
+    fn drop(&mut self) {
+        if let Ok(a) = api() {
+            unsafe { (a.scale.sws_freeContext)(self.0) }
+        }
+    }
+}
+
+/// Índice do primeiro stream do tipo pedido.
+///
+/// # Safety
+/// `ic` válido.
+pub unsafe fn first_stream_of_type(ic: *const AVFormatContext, media_type: i32) -> Option<u32> {
+    (0..nb_streams(ic)).find(|&i| {
+        stream(ic, i)
+            .and_then(|s| s.codecpar.as_ref())
+            .is_some_and(|cp| cp.codec_type == media_type)
+    })
 }

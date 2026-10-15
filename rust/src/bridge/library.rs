@@ -292,9 +292,9 @@ fn add_recording_badges(item: &mut Value, meta: &RecordingMeta) {
     }
 }
 
-/// `TranscriptState` — selo "transcrita" ('' = nenhum). TODO(OBSTranscribe).
-fn transcript_state(_path: &str) -> String {
-    String::new()
+/// `TranscriptState` — selo "transcrita" ('' = nenhum).
+fn transcript_state(path: &str) -> String {
+    crate::transcribe::transcript_state(path).to_owned()
 }
 
 fn build_recordings_array() -> Value {
@@ -1014,7 +1014,9 @@ pub fn handle_delete_recording(path: &str) {
             }
             // Limpa o cache desse arquivo agora (o GC pegaria no próximo start).
             player::garbage_collect_cache(&list_recordings_recursive(&record_dir().to_string_lossy()));
-            // TODO(OBSTranscribe): `DeleteTranscript(path)` + `RemoveFromQueue(path)`.
+            // A transcrição é por gravação: sem isto ficaria órfã no cache e ainda
+            // apareceria na busca por texto; esperando na fila, sai junto, sem aviso.
+            super::transcribe::forget_recording(&path);
             post_json(json!({
                 "type": "recording_removed",
                 "id": path,

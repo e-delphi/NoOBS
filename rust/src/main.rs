@@ -34,6 +34,7 @@ mod scene;
 mod single_instance;
 mod startup_check;
 mod time_stretch;
+mod transcribe;
 mod types;
 mod ui;
 mod win;

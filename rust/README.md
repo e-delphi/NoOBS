@@ -41,7 +41,7 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSFileMeta` | `file_meta.rs` | portado (bloco no fim do MKV/MP4, worker com pendentes persistidos, importação no `ensure_recording_meta`) |
 | `OBSNumbersPt` | `numbers_pt.rs` | portado |
 | `OBSLocalAsr` | `local_asr.rs` (+ `win_http.rs` WinHTTP com cancelamento, `win_proc.rs` `RunHidden`) | portado (instalação com retomada/SHA-256/espelho, servidor sob Job Object, reamostrador, pipeline de 2 passadas); falta a fila que o chama (OBSTranscribe) |
-| `OBSTranscribe` | — | a portar |
+| `OBSTranscribe` | `transcribe.rs` (+ `transcribe/merge.rs`, `bridge/transcribe.rs`) | portado: fila persistida/reordenável/manual×automática/pausa, espera do servidor, 2 motores, dedup de eco por palavra, transcrição herdada pela exportação, diagnóstico WSL→Docker→container, falantes e busca. Handlers de `transcribe_*`, `local_asr_*`, `root_folders` ligados ao dispatch; o push de `transcribeHost`/`transcribeEngine` no `settings` entra com o PushSettings (etapa 9) |
 | `OBSHibernate`, `OBSTray`, `OBSElevate`, `OBSHotkey`, `OBSAutostart`, `OBSUpdate`, `Win*` | — | a portar |
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)

@@ -30,6 +30,7 @@ use crate::types::{RecordingMeta, RecordingRegion};
 use crate::{encoder, lang, log, mainthread, player};
 
 use super::devices::record_dir_free_bytes;
+use super::transcribe::SPEAKERS_META_KEY;
 use super::library::{format_bytes_short, is_path_in_record_dir, is_recording_ext, list_recordings_recursive, push_recording_added, sanitize_file_name};
 use super::recording::{last_encoder_caps, record_dir, recording_active};
 use super::{is_shutting_down, post_error, post_json};
@@ -130,7 +131,7 @@ fn describe_export_encoder(name: &str) -> (&'static str, bool) {
 /// Turnos da transcrição para a legenda queimada: só tempo e texto, lidos do
 /// cache — nunca da UI. `<hash>.transcript.json`.
 fn load_caption_turns(path: &str) -> Vec<CaptionTurn> {
-    let file = player::cache_root_dir().join(format!("{}.transcript.json", player::hash_name(path)));
+    let file = crate::transcribe::transcript_path(path);
     let Ok(body) = std::fs::read_to_string(file) else { return Vec::new() };
     let Ok(Value::Object(root)) = serde_json::from_str::<Value>(&body) else { return Vec::new() };
     let Some(turns) = root.get("turns").and_then(Value::as_array) else { return Vec::new() };
@@ -450,10 +451,14 @@ pub fn handle_export_recording(msg: &Value) {
             let _ = std::fs::remove_file(&opts.dst_path);
         }
 
-        // TODO(OBSTranscribe): `ExportTranscript(src, final, seg_starts, seg_ends,
-        // speed)` aqui na worker — leitura e escrita de arquivo; o JSON com palavras
-        // passa de megabytes numa gravação longa.
-        let _ = (&seg_starts, &seg_ends, speed);
+        // Transcrição herdada, no relógio do arquivo novo. Aqui na worker: é leitura e escrita
+        // de arquivo, e numa gravação longa o JSON com palavras passa de megabytes.
+        if res == ExportResult::Ok
+            && keep_transcript
+            && crate::transcribe::export_transcript(&src_path, &final_path.to_string_lossy(), &seg_starts, &seg_ends, speed)
+        {
+            log!("Export: transcricao levada pro arquivo exportado.");
+        }
 
         let final_path_s = final_path.to_string_lossy().into_owned();
         mainthread::queue(move || {
@@ -471,9 +476,12 @@ pub fn handle_export_recording(msg: &Value) {
                     // Os nomes de falante vão depois (o save_recording_meta reescreve o
                     // <hash>.json inteiro).
                     player::save_recording_meta(&final_path_s, &out_meta);
-                    // TODO(OBSTranscribe): `LoadSpeakerNames(src)` → meta `speakers` quando
-                    // `keep_transcript`.
-                    let _ = keep_transcript;
+                    if keep_transcript {
+                        let names = player::load_meta_sub_object_json(&src_path, SPEAKERS_META_KEY);
+                        if names.trim().len() > 2 {
+                            player::save_meta_sub_object_json(&final_path_s, SPEAKERS_META_KEY, &names);
+                        }
+                    }
                     // Meta + transcrição + falantes numa escrita só no fim do arquivo exportado.
                     crate::file_meta::mark_changed(&final_path_s);
                     push_recording_added(&final_path_s, out_meta.duration_sec);

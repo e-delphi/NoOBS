@@ -23,6 +23,7 @@ mod devices;
 pub mod export;
 mod library;
 mod recording;
+pub mod transcribe;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -83,6 +84,7 @@ pub fn shutdown() {
     log::log("Shutdown: RecordWatch ok");
     recording::shutdown();
     player::stop_player_server();
+    transcribe::shutdown();
     file_meta::shutdown();
     log::log("Shutdown: fim");
 }
@@ -113,6 +115,10 @@ fn str_field<'a>(obj: &'a Value, key: &str) -> &'a str {
 
 fn bool_field(obj: &Value, key: &str, default: bool) -> bool {
     obj.get(key).and_then(Value::as_bool).unwrap_or(default)
+}
+
+fn int_field(obj: &Value, key: &str, default: i32) -> i32 {
+    obj.get(key).and_then(Value::as_f64).map_or(default, |f| f as i32)
 }
 
 /// Entrada única das mensagens vindas do JS.
@@ -164,6 +170,28 @@ pub fn dispatch(raw: &str) {
         "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
+        "set_transcribe_host" => transcribe::handle_set_transcribe_host(str_field(&msg, "host")),
+        "test_transcribe_host" => transcribe::handle_test_transcribe_host(str_field(&msg, "host")),
+        "set_transcribe_language" => transcribe::handle_set_transcribe_language(str_field(&msg, "language")),
+        "set_transcribe_on_stop" => transcribe::handle_set_transcribe_on_stop(bool_field(&msg, "enabled", false)),
+        "check_transcribe_setup" => transcribe::handle_check_transcribe_setup(str_field(&msg, "host"), int_field(&msg, "seq", 0)),
+        "transcribe_setup_action" => transcribe::handle_transcribe_setup_action(str_field(&msg, "action")),
+        "set_transcribe_engine" => transcribe::handle_set_transcribe_engine(str_field(&msg, "engine")),
+        "local_asr_install" => crate::local_asr::start_install(),
+        "local_asr_cancel" => crate::local_asr::cancel_install(),
+        "local_asr_remove" => transcribe::handle_local_asr_remove(),
+        "get_local_asr_state" => transcribe::push_local_asr_state(false),
+        "transcribe_recording" => transcribe::handle_transcribe_recording(str_field(&msg, "id")),
+        "transcribe_pending" => transcribe::handle_transcribe_pending(),
+        "cancel_transcribe" => transcribe::handle_cancel_transcribe(),
+        "move_transcribe_item" => transcribe::handle_move_transcribe_item(str_field(&msg, "id"), int_field(&msg, "to", 0)),
+        "remove_transcribe_item" => transcribe::handle_remove_transcribe_item(str_field(&msg, "id")),
+        "get_transcribe_state" => transcribe::handle_get_transcribe_state(),
+        "request_transcript" => transcribe::handle_request_transcript(str_field(&msg, "id")),
+        "set_speaker_name" => transcribe::handle_set_speaker_name(str_field(&msg, "id"), str_field(&msg, "speaker"), str_field(&msg, "name")),
+        "search_transcripts" => transcribe::handle_search_transcripts(str_field(&msg, "query")),
+        "get_root_folders" => transcribe::push_root_folders(),
+        "set_folder_hidden" => transcribe::handle_set_folder_hidden(str_field(&msg, "name"), bool_field(&msg, "hidden", false)),
         other => not_ported(other),
     }
 }
@@ -194,6 +222,8 @@ fn do_init() {
         });
     });
     file_meta::start();
+    // Fila de transcrição: só registra os callbacks e restaura a salva.
+    transcribe::do_init();
     // Lista e metadados (duração/miniatura) da pasta de gravação.
     library::push_recordings();
     library::scan_recordings_meta();

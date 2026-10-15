@@ -459,16 +459,7 @@ fn file_name(p: &str) -> String {
 // cache
 // ---------------------------------------------------------------------------
 
-/// `<hash>.transcript.json` — a resposta inteira da transcrição (mesma chave do
-/// `OBSTranscribe.TranscriptPath`).
-pub fn transcript_path(path: &str) -> PathBuf {
-    player::cache_root_dir().join(format!("{}.transcript.json", player::hash_name(path)))
-}
-
-/// `<hash>.txt` — só o texto puro (o que a busca varre).
-pub fn transcript_text_path(path: &str) -> PathBuf {
-    player::cache_root_dir().join(format!("{}.txt", player::hash_name(path)))
-}
+use crate::transcribe::{transcript_path, transcript_text_path};
 
 fn read_cache_marks(path: &str) -> (String, String) {
     let v: Value = serde_json::from_str(&player::load_meta_subset(path, &[KEY_REV, KEY_SIG])).unwrap_or(Value::Null);

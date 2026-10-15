@@ -380,6 +380,7 @@ pub fn handle_record_start() {
                 s.recording_active = false;
                 s.window = None;
             });
+            super::transcribe::sync_pause(false);
             post_error(lang::t_with("error.recordStartFailed", &[("error", &e)]));
             push_recording_state();
             log!("HandleRecordStart: FALHOU apos {}ms: {e}", t0.elapsed().as_millis());
@@ -431,7 +432,10 @@ fn start_recording_inner() -> Result<(), String> {
         s.last_recording_duration = 0;
         s.recording_start = Some(Instant::now());
     });
-    // TODO(buffer, #62): StartPerfMonitor / SyncTranscribePause.
+    // Transcrever durante a gravação disputaria a máquina com a captura: segura as
+    // automáticas até ela terminar.
+    super::transcribe::sync_pause(true);
+    // TODO(buffer, #62): StartPerfMonitor.
     // TODO(OBSTray/OBSUI): bolinha vermelha na bandeja e na taskbar.
     // Snapshot dos monitores no início: os slots de prévia ficam fixos mesmo se
     // o usuário desplugar um monitor gravando. Sessão nova = fontes novas: sem
@@ -478,6 +482,8 @@ pub fn handle_record_stop() {
         s.last_recording_path = output_path;
         s.last_recording_duration = elapsed;
     });
+    // O buffer em memória (#62) entra aqui com `ReplayActive` quando for portado.
+    super::transcribe::sync_pause(false);
     // TODO(OBSTray/OBSUI): tirar a bolinha vermelha dos ícones.
     push_recording_state();
 
@@ -536,7 +542,9 @@ pub fn on_engine_recording_stopped(output_path: &str) {
     }
     crate::file_meta::mark_changed(output_path);
     library::push_recording_added(output_path, with_state(|s| s.last_recording_duration));
-    // TODO(OBSTranscribe): Enqueue quando `transcribeOnStop`.
+    // TRANSCRIÇÃO AUTOMÁTICA. Enfileira já com o arquivo íntegro (o sinal "stop" garante o
+    // trailer escrito).
+    super::transcribe::enqueue_after_capture(output_path);
     // TODO(buffer, #62): religar o buffer por ÚLTIMO (refaz o CurrentLayout).
 }
 

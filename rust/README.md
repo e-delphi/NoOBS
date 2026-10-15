@@ -39,7 +39,9 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSRecordWatch`      | `record_watch.rs`         | portado (`FindFirstChangeNotification`, debounce, `update_dir` com snapshot do callback — #54) |
 | `FFmpegExport`, `ExportCaptions` (+ `TimeStretch`, `bridge/export.rs`) | `ffmpeg_export.rs`, `export_captions.rs`, `time_stretch.rs` | portado (falta a transcrição herdada, que entra com o OBSTranscribe) |
 | `OBSFileMeta` | `file_meta.rs` | portado (bloco no fim do MKV/MP4, worker com pendentes persistidos, importação no `ensure_recording_meta`) |
-| `OBSTranscribe`, `OBSLocalAsr`, `OBSNumbersPt` | — | a portar |
+| `OBSNumbersPt` | `numbers_pt.rs` | portado |
+| `OBSLocalAsr` | `local_asr.rs` (+ `win_http.rs` WinHTTP com cancelamento, `win_proc.rs` `RunHidden`) | portado (instalação com retomada/SHA-256/espelho, servidor sob Job Object, reamostrador, pipeline de 2 passadas); falta a fila que o chama (OBSTranscribe) |
+| `OBSTranscribe` | — | a portar |
 | `OBSHibernate`, `OBSTray`, `OBSElevate`, `OBSHotkey`, `OBSAutostart`, `OBSUpdate`, `Win*` | — | a portar |
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)

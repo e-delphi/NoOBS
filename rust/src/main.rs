@@ -22,6 +22,8 @@ mod file_meta;
 mod ffmpeg_export;
 mod ffmpeg_ops;
 mod lang;
+mod numbers_pt;
+mod local_asr;
 mod log;
 mod mainthread;
 mod player;
@@ -36,6 +38,8 @@ mod types;
 mod ui;
 mod win;
 mod win_audio_meter;
+mod win_http;
+mod win_proc;
 mod win_preview;
 mod win_webcam;
 

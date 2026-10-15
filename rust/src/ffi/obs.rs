@@ -46,6 +46,8 @@ impl CallData {
 /// `void (*signal_callback_t)(void *data, calldata_t *cd)` — chamado numa
 /// thread INTERNA do libobs: só pode enfileirar trabalho para a main.
 pub type SignalCallback = unsafe extern "C" fn(data: *mut c_void, cd: CalldataPtr);
+/// `bool (*)(void *param, obs_source_t *source)`; `true` continua a enumeração.
+pub type EnumSourceCallback = unsafe extern "C" fn(param: *mut c_void, source: ObsSource) -> bool;
 pub type LogHandler =
     unsafe extern "C" fn(level: i32, msg: *const c_char, args: *mut c_void, p: *mut c_void);
 pub type AudioCaptureCallback = unsafe extern "C" fn(
@@ -67,6 +69,7 @@ pub const VIDEO_CS_709: i32 = 2;
 pub const VIDEO_RANGE_PARTIAL: i32 = 1;
 pub const OBS_SCALE_BICUBIC: i32 = 2;
 pub const SPEAKERS_STEREO: i32 = 2;
+pub const OBS_BOUNDS_STRETCH: i32 = 1;
 pub const OBS_BOUNDS_SCALE_INNER: i32 = 2;
 pub const OBS_VIDEO_SUCCESS: i32 = 0;
 
@@ -167,6 +170,8 @@ dll_api! {
     fn video_output_get_skipped_frames(video: VideoT) -> u32;
     fn video_output_get_total_frames(video: VideoT) -> u32;
     fn obs_set_output_source(channel: u32, source: ObsSource);
+    fn obs_enum_scenes(cb: EnumSourceCallback, param: *mut c_void);
+    fn obs_enum_sources(cb: EnumSourceCallback, param: *mut c_void);
 
     // obs_data
     fn obs_data_create() -> ObsDataRaw;

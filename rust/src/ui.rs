@@ -156,6 +156,26 @@ pub fn unregister_global_hotkey(id: i32) {
     }
 }
 
+/// `SetTimer` na janela principal (`WM_TIMER` → hook `on_timer`). Mesmo id
+/// reaproveitado substitui o timer anterior — por isso os ids são únicos.
+pub fn set_timer(id: usize, interval_ms: u32) {
+    let hwnd = main_window();
+    if !hwnd.0.is_null() {
+        unsafe {
+            SetTimer(Some(hwnd), id, interval_ms, None);
+        }
+    }
+}
+
+pub fn kill_timer(id: usize) {
+    let hwnd = main_window();
+    if !hwnd.0.is_null() {
+        unsafe {
+            let _ = KillTimer(Some(hwnd), id);
+        }
+    }
+}
+
 fn window_title() -> String {
     let t = config::get_config_str("windowTitle", "NoOBS");
     if t.trim().is_empty() { "NoOBS".into() } else { t }

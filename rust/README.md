@@ -19,15 +19,18 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSConfig`           | `config.rs`               | portado |
 | `OBSLog`              | `log.rs` (`log!`)         | portado |
 | `OBSLang`             | `lang.rs` (+ testes)      | portado |
-| `OBSEncoder`          | `encoder.rs` (+ testes)   | portado (tabelas de qualidade, limites, plano de settings); falta `SelectVideoEncoder`/`DetectEncoderCaps` |
+| `OBSEncoder`          | `encoder.rs` (+ testes)   | portado (tabelas, limites, plano de settings, `select_video_encoder`, `detect_encoder_caps`, `predict_video_encoder_id`, overrides de keyframe/qualidade) |
 | `LibOBS`              | `ffi/obs.rs`              | portado (tabela de funções + `ObsData` RAII) |
 | `FFmpegLib`           | `ffi/ffmpeg.rs`           | portado (structs, offsets, scan de duração, fps); faltam decode/encode/swscale |
 | `OBSProbe`            | `probe.rs`                | portado |
 | `OBSRtwq`             | `rtwq.rs`                 | portado |
 | `OBSStartupCheck`     | `startup_check.rs`        | portado |
 | `OBSUI`               | `ui.rs` + `mainthread.rs` | portado (janela, WebView2, hotkey, ciclo de vida); faltam bandeja, splash com texto, dark menu |
-| `OBSBridge`           | `bridge.rs`               | esqueleto: init, tema, idioma, toggles, open_url |
-| `OBSEngine`, `OBSAudioTracks`, `OBSAudioFilters` | — | a portar |
+| `OBSBridge`           | `bridge.rs` + `bridge/recording.rs` | em andamento: init + warmup, tema, idioma, toggles, open_url e **gravação** (`record_start`/`record_stop`, stop assíncrono #41, tique de 1 s, nome por modelo, caps de encoder, hotkey padrão). Pendências marcadas como `TODO(<Unit>)` no código, uma por unit ainda não portada |
+| `OBSEngine`           | `engine.rs` (+ testes)    | portado inteiro: init/módulos, grafo de captura, gravação, stop por sinal, `replay_buffer` (#62), janela (#66), teardown + watchdog |
+| `OBSAudioTracks`      | `audio_tracks.rs` (+ testes) | portado (atribuição de faixas, nomes, enumeração com timeout) |
+| `WinPreview`          | `win_preview.rs`          | monitores portados; faltam as prévias (BitBlt → JPEG) |
+| `OBSAudioFilters`     | — | a portar |
 | `FFmpegOps`, `FFmpegExport`, `ExportCaptions`    | — | a portar |
 | `OBSPlayer`, `OBSFileMeta`, `OBSTranscribe`, `OBSLocalAsr`, `OBSNumbersPt` | — | a portar |
 | `OBSHibernate`, `OBSTray`, `OBSElevate`, `OBSHotkey`, `OBSAutostart`, `OBSUpdate`, `Win*` | — | a portar |

@@ -9,8 +9,14 @@
 //! arquivo de bits de lixo). A gravação usa SEMPRE qualidade constante
 //! adaptativa, nunca alvo de bitrate, e `bitrate` nunca entra junto.
 
+use std::cell::Cell;
+use std::ffi::{c_char, CString};
+
 use crate::config;
-use crate::types::EncoderCaps;
+use crate::ffi::cstr_to_string;
+use crate::ffi::obs::{api, cstring, ObsData, ObsEncoder};
+use crate::log;
+use crate::types::{EncoderCaps, GpuVendor};
 
 type QualityTable = [i32; 11];
 
@@ -177,7 +183,7 @@ pub fn plan_constant_quality(id: &str, level: i32, max_bitrate_kbps: i32) -> Set
 }
 
 /// Aplica o plano num `obs_data_t` (libobs, main thread).
-pub fn apply_constant_quality(settings: crate::ffi::obs::ObsData, id: &str, level: i32) {
+pub fn apply_constant_quality(settings: &ObsData, id: &str, level: i32) {
     let max = config::get_config_int("recordingMaxBitrate", DEFAULT_MAX_BITRATE);
     for (key, value) in plan_constant_quality(id, level, max) {
         match value {
@@ -207,6 +213,245 @@ pub fn max_dimension_for(codec_pref: &str, caps: &EncoderCaps) -> i32 {
 
 pub fn max_dimension(caps: &EncoderCaps) -> i32 {
     max_dimension_for(&config::get_config_str("codec", "auto"), caps)
+}
+
+pub const HEVC_IDS: [&str; 6] = [
+    "obs_nvenc_hevc_tex",
+    "jim_hevc_nvenc",
+    "obs_qsv11_hevc",
+    "h265_texture_amf",
+    "obs_nvenc_hevc",
+    "amd_amf_hevc",
+];
+pub const H264_IDS: [&str; 6] = [
+    "obs_nvenc_h264_tex",
+    "jim_nvenc",
+    "obs_qsv11_h264",
+    "h264_texture_amf",
+    "obs_nvenc_h264",
+    "obs_x264",
+];
+
+thread_local! {
+    // Main thread only (como todo o libobs). Ver `set_keyframe_sec_override`.
+    static KEYFRAME_SEC_OVERRIDE: Cell<i32> = const { Cell::new(0) };
+    static QUALITY_LEVEL_OVERRIDE: Cell<i32> = const { Cell::new(-1) };
+}
+
+/// Keyframe curto SÓ no buffer em memória (0 = sem override).
+pub fn set_keyframe_sec_override(sec: i32) {
+    KEYFRAME_SEC_OVERRIDE.with(|c| c.set(sec));
+}
+
+/// Nível fixo (0..10) para o teste de qualidade; -1 = sem override.
+pub fn set_quality_level_override(level: i32) {
+    QUALITY_LEVEL_OVERRIDE.with(|c| c.set(level));
+}
+
+/// Lista os IDs de encoder registrados (`obs_enum_encoder_types`).
+fn registered_encoder_ids() -> Vec<String> {
+    let Ok(a) = api() else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    unsafe {
+        let mut p: *const c_char = std::ptr::null();
+        while (a.obs_enum_encoder_types)(i, &mut p) {
+            if !p.is_null() {
+                out.push(cstr_to_string(p));
+            }
+            i += 1;
+            p = std::ptr::null();
+        }
+    }
+    out
+}
+
+/// OBS recente devolve um encoder "phantom" para ID não registrado — por isso
+/// a existência é validada pela enumeração antes de criar.
+pub fn encoder_type_exists(id: &str) -> bool {
+    registered_encoder_ids().iter().any(|e| e == id)
+}
+
+/// Classifica os encoders registrados por vendor. libobs já iniciado.
+pub fn detect_encoder_caps() -> EncoderCaps {
+    let mut caps = EncoderCaps::default();
+    for raw in registered_encoder_ids() {
+        let id = raw.to_lowercase();
+        if id == "obs_x264" || id == "ffmpeg_x264" {
+            caps.h264_sw = true;
+        } else if id == AV1_SW_ID {
+            // AV1 por CPU não mexe no vendor: vem no obs-ffmpeg, em qualquer máquina.
+            caps.av1_sw = true;
+        } else if id.contains("nvenc") {
+            if caps.vendor == GpuVendor::Unknown {
+                caps.vendor = GpuVendor::Nvidia;
+            }
+            if id.contains("av1") {
+                caps.av1_hw = true;
+            } else if id.contains("hevc") {
+                caps.hevc_hw = true;
+            } else {
+                caps.h264_hw = true;
+            }
+        } else if id.contains("amf") {
+            if caps.vendor == GpuVendor::Unknown {
+                caps.vendor = GpuVendor::Amd;
+            }
+            if id.contains("av1") {
+                caps.av1_hw = true;
+            } else if id.contains("h265") {
+                caps.hevc_hw = true;
+            } else if id.contains("h264") {
+                caps.h264_hw = true;
+            }
+        } else if id.contains("qsv") {
+            if caps.vendor == GpuVendor::Unknown {
+                caps.vendor = GpuVendor::Intel;
+            }
+            if id.contains("av1") {
+                caps.av1_hw = true;
+            } else if id.contains("hevc") {
+                caps.hevc_hw = true;
+            } else if id.contains("h264") {
+                caps.h264_hw = true;
+            }
+        }
+    }
+    caps
+}
+
+fn try_create_video_encoder(id: &str) -> Option<ObsEncoder> {
+    if !encoder_type_exists(id) {
+        return None;
+    }
+    let a = api().ok()?;
+    let settings = ObsData::create().ok()?;
+
+    let mut level = recording_quality_level();
+    let ov = QUALITY_LEVEL_OVERRIDE.with(Cell::get);
+    if (0..=10).contains(&ov) {
+        level = ov;
+    }
+    log!(
+        "Encoder quality: nivel={level} (equivale a crf {} na referencia x264)",
+        quality_level_to_crf(level)
+    );
+    // TODO nível aplica qualidade constante, inclusive o padrão (pegadinha #53).
+    apply_constant_quality(&settings, id, level);
+
+    // Sem keyint o default é "auto" (~8 s). Configurável 1..10 s (default 2).
+    let mut keyframe = config::get_config_int("recordingKeyframeSec", 2);
+    let ko = KEYFRAME_SEC_OVERRIDE.with(Cell::get);
+    if ko > 0 {
+        keyframe = ko;
+    }
+    let keyframe = keyframe.clamp(1, 10);
+    settings.set_int("keyint_sec", keyframe.into());
+    log!("Encoder keyint: {keyframe}s");
+
+    let id_c = cstring(id);
+    let name = CString::new("NoOBS Video Encoder").unwrap_or_default();
+    let enc = unsafe {
+        (a.obs_video_encoder_create)(id_c.as_ptr(), name.as_ptr(), settings.raw(), std::ptr::null_mut())
+    };
+    (!enc.is_null()).then_some(enc)
+}
+
+fn try_first(ids: &[&str], skip_x264: bool) -> Option<ObsEncoder> {
+    for id in ids {
+        if skip_x264 && *id == "obs_x264" {
+            continue;
+        }
+        if let Some(e) = try_create_video_encoder(id) {
+            log!("Encoder: {id}");
+            return Some(e);
+        }
+    }
+    None
+}
+
+fn try_h264_sw() -> Option<ObsEncoder> {
+    let e = try_create_video_encoder("obs_x264");
+    if e.is_some() {
+        log!("Encoder: obs_x264");
+    }
+    e
+}
+
+fn try_av1_sw() -> Option<ObsEncoder> {
+    let e = try_create_video_encoder(AV1_SW_ID);
+    if e.is_some() {
+        log!("Encoder: {AV1_SW_ID} (CPU)");
+    }
+    e
+}
+
+/// Cria o encoder de vídeo conforme a preferência `codec` (auto | av1-hw |
+/// hevc-hw | h264-hw | h264-sw | av1-sw). A cadeia automática prioriza
+/// compatibilidade: H.264 hw → x264 → AV1 hw → HEVC hw. O `av1-sw` NUNCA entra
+/// nela: satura todos os núcleos e a gravação concorre com o que o usuário faz.
+pub fn select_video_encoder() -> Result<ObsEncoder, String> {
+    let pref = config::get_config_str("codec", "auto").to_lowercase();
+    log!("Codec preferido: {pref}");
+    let (preferred, why) = match pref.as_str() {
+        "av1-hw" => (try_first(&AV1_IDS, false), "av1-hw indisponivel"),
+        "hevc-hw" => (try_first(&HEVC_IDS, false), "hevc-hw indisponivel"),
+        "h264-hw" => (try_first(&H264_IDS, true), "h264-hw indisponivel"),
+        "h264-sw" => (try_h264_sw(), "h264-sw indisponivel (estranho)"),
+        "av1-sw" => (try_av1_sw(), "av1-sw indisponivel"),
+        _ => (None, ""),
+    };
+    if let Some(e) = preferred {
+        return Ok(e);
+    }
+    if !why.is_empty() {
+        log!("Codec {why}, caindo pro fallback.");
+    }
+    try_first(&H264_IDS, true)
+        .or_else(try_h264_sw)
+        .or_else(|| try_first(&AV1_IDS, false))
+        .or_else(|| try_first(&HEVC_IDS, false))
+        .ok_or_else(|| "Nenhum encoder de video disponivel.".to_owned())
+}
+
+/// Espelho do `select_video_encoder`: qual ID de encoder SERÁ usado (o arquivo
+/// nasce antes do encoder, e o `{CODEC}` do nome precisa saber). Vazio se nenhum.
+pub fn predict_video_encoder_id() -> String {
+    let registered = registered_encoder_ids();
+    let first_of = |ids: &[&str], skip_x264: bool| -> String {
+        ids.iter()
+            .find(|id| !(skip_x264 && **id == "obs_x264") && registered.iter().any(|r| r == **id))
+            .map(|s| (*s).to_owned())
+            .unwrap_or_default()
+    };
+    let pref = config::get_config_str("codec", "auto").to_lowercase();
+    let chosen = match pref.as_str() {
+        "av1-hw" => first_of(&AV1_IDS, false),
+        "hevc-hw" => first_of(&HEVC_IDS, false),
+        "h264-hw" => first_of(&H264_IDS, true),
+        "h264-sw" if registered.iter().any(|r| r == "obs_x264") => "obs_x264".to_owned(),
+        "av1-sw" if registered.iter().any(|r| r == AV1_SW_ID) => AV1_SW_ID.to_owned(),
+        _ => String::new(),
+    };
+    if !chosen.is_empty() {
+        return chosen;
+    }
+    let mut r = first_of(&H264_IDS, true);
+    if r.is_empty() {
+        r = first_of(&["obs_x264"], false);
+    }
+    if r.is_empty() {
+        r = first_of(&AV1_IDS, false);
+    }
+    if r.is_empty() {
+        r = first_of(&HEVC_IDS, false);
+    }
+    r
+}
+
+/// `GetEncoderMaxDimension`: consulta as caps reais do libobs (pegadinha #7).
+pub fn encoder_max_dimension() -> i32 {
+    max_dimension(&detect_encoder_caps())
 }
 
 #[cfg(test)]

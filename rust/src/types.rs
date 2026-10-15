@@ -29,6 +29,17 @@ pub struct ObsAudioDev {
     pub device_id: String,
 }
 
+/// Webcam DirectShow (porte de `TWebcamInfo` do `WinWebcam.pas`).
+#[derive(Debug, Clone, Default)]
+pub struct Webcam {
+    /// Moniker display name (passado ao OBS).
+    pub device_id: String,
+    /// Friendly name (mostrado na UI).
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+}
+
 /// Região do canvas ocupada por um source (monitor ou webcam), em pixels.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecordingRegion {

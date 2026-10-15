@@ -10,9 +10,11 @@
 
 #![windows_subsystem = "windows"]
 
+mod audio_tracks;
 mod bridge;
 mod config;
 mod encoder;
+mod engine;
 mod ffi;
 mod lang;
 mod log;
@@ -25,6 +27,7 @@ mod startup_check;
 mod types;
 mod ui;
 mod win;
+mod win_preview;
 
 fn main() {
     // Dispatch entre o modo "full" (UI + libobs + watchers) e o "hibernate"
@@ -45,6 +48,7 @@ fn main() {
         log::log("Dispatcher: modo hibernate ainda não portado.");
     } else {
         log::log("Dispatcher: rota -> ui::run (modo full).");
+        bridge::install_hooks();
         ui::run();
         log::log("Dispatcher: ui::run retornou — processo encerrando.");
     }

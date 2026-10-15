@@ -19,6 +19,48 @@ use serde_json::{json, Value};
 
 use crate::{config, lang, log, mainthread, ui};
 
+mod recording;
+
+/// Idle de hibernação: 1 min sem janela visível e sem gravação (porte futuro
+/// do `OBSHibernate`); o id já existe porque a gravação o desarma.
+pub const TIMER_HIBERNATE_IDLE: usize = 7008;
+
+/// Liga a UI a este bridge sem dependência direta de `ui` → `bridge` (o
+/// `initialization` do Delphi). Chamado uma vez, antes de `ui::run`.
+pub fn install_hooks() {
+    recording::install();
+    ui::set_hooks(ui::Hooks {
+        on_timer: Some(recording::on_timer),
+        on_hotkey: Some(recording::on_hotkey),
+        on_display_change: None,
+        on_device_change: None,
+        on_should_hide_on_close: Some(should_hide_on_close),
+        on_shutdown: Some(shutdown),
+    });
+}
+
+/// `WM_CLOSE`: minimizar pra bandeja em vez de fechar? Sim com `closeToTray`
+/// ligado ou gravando (nunca interromper a gravação por engano).
+fn should_hide_on_close() -> bool {
+    config::get_config_bool("closeToTray", true) || recording::recording_active()
+}
+
+/// Encerra o que está vivo; idempotente (o `ShutdownDone` do Delphi).
+pub fn shutdown() {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    log::log("Shutdown: inicio");
+    recording::shutdown();
+    log::log("Shutdown: fim");
+}
+
+/// Timers dos módulos ainda não portados caem aqui.
+fn on_timer_other(id: usize) {
+    log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");
+}
+
 /// Envia um objeto JSON à UI (qualquer thread: vai pela fila da main).
 pub fn post_json(value: Value) {
     mainthread::queue(move || ui::post_json_now(&value.to_string()));
@@ -55,6 +97,8 @@ pub fn dispatch(raw: &str) {
     match ty {
         "ui_log" => log!("UI: {}", str_field(&msg, "message")),
         "ready" => do_init(),
+        "record_start" => recording::handle_record_start(),
+        "record_stop" => recording::handle_record_stop(),
         "set_theme" => handle_set_theme(str_field(&msg, "theme")),
         "set_language" => handle_set_language(str_field(&msg, "language")),
         "toggle_source" => handle_toggle_source(str_field(&msg, "id"), bool_field(&msg, "enabled", false)),
@@ -79,6 +123,13 @@ fn not_ported(ty: &str) {
 fn do_init() {
     push_theme();
     push_init();
+    // Warmup do libobs com delay: a UI renderiza primeiro e a 1ª gravação fica
+    // instantânea. NUNCA inicializar o libobs direto aqui (pode travar o
+    // startup). Falha do warmup → a gravação inicializa sob demanda.
+    recording::schedule_warmup();
+    // Atalho global (falha de registro não é fatal — pegadinha #33).
+    recording::apply_hotkey_from_config();
+    log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
 }
 
 fn push_init() {

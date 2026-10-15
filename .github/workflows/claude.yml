@@ -1,9 +1,5 @@
 name: Claude Code
 
-# Responde a @claude em issues, PRs e revisões.
-# Requer o app https://github.com/apps/claude instalado no repositório
-# e o secret CLAUDE_CODE_OAUTH_TOKEN.
-
 on:
   issue_comment:
     types: [created]
@@ -33,22 +29,49 @@ jobs:
       actions: read
 
     steps:
+      # Mantém a branch-base na raiz.
+      # A Claude Code Action seleciona a branch do PR.
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Instala o target Windows para validar o código Rust.
-      - name: Rust target Windows
+      - name: Install Rust Windows target
         run: rustup target add x86_64-pc-windows-msvc
 
       - name: Run Claude Code
+        id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-
           show_full_output: true
-
           claude_args: |
             --max-turns 300
             --allowedTools "WebFetch,Bash(cargo:*)"
+
+      # Mostra o diagnóstico quando a execução falhar.
+      - name: Diagnose Claude failure
+        if: failure()
+        shell: bash
+        run: |
+          FILE="/home/runner/work/_temp/claude-execution-output.json"
+
+          if [ -f "$FILE" ]; then
+            echo "=== Diagnóstico da execução do Claude ==="
+            jq '
+              .. | objects |
+              with_entries(
+                select(
+                  .key | test(
+                    "error|is_error|subtype|num_turns|total_cost";
+                    "i"
+                  )
+                )
+              ) |
+              select(length > 0)
+            ' "$FILE"
+          else
+            echo "Arquivo de diagnóstico não encontrado: $FILE"
+            find /home/runner/work/_temp -maxdepth 1 \
+              -type f -name '*claude*' -print
+          fi

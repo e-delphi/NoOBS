@@ -35,12 +35,18 @@ jobs:
         with:
           fetch-depth: 1
 
+      # Alvo Windows pro `cargo check` do porte em rust/: o check não linka,
+      # então roda no runner Linux e pega erro de tipo/import antes do PR.
+      - name: Rust target Windows
+        run: rustup target add x86_64-pc-windows-msvc
+
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Tarefas grandes (ex.: conversão de linguagem) precisam de muitos
-          # turnos; WebFetch libera a consulta aos cabeçalhos do FFmpeg/OBS.
+          # turnos; WebFetch libera a consulta aos cabeçalhos do FFmpeg/OBS;
+          # cargo valida o porte em Rust.
           claude_args: |
             --max-turns 300
-            --allowedTools WebFetch
+            --allowedTools "WebFetch,Bash(cargo:*)"

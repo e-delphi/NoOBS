@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use crate::{config, lang, log, mainthread, player, record_watch, ui};
 
 mod devices;
+pub mod export;
 mod library;
 mod recording;
 
@@ -151,6 +152,8 @@ pub fn dispatch(raw: &str) {
             bool_field(&msg, "hi", false),
         ),
         "request_keyframes" => library::handle_request_keyframes(str_field(&msg, "id")),
+        "export_recording" => export::handle_export_recording(&msg),
+        "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
         other => not_ported(other),

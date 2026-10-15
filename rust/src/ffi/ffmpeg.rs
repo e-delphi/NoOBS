@@ -409,14 +409,17 @@ pub fn to_utf8(s: &str) -> std::ffi::CString {
     super::obs::cstring(s)
 }
 
-/// `av_strerror` legível.
+/// `av_strerror` legível, no formato `-22 (Invalid argument)`. Só para log — nunca
+/// mostre ao usuário, que vê as mensagens do `lang`. Código desconhecido: o número cru.
 pub fn av_err_str(code: c_int) -> String {
-    let Ok(a) = api() else { return format!("erro {code}") };
-    let mut buf = [0 as c_char; 128];
+    let Ok(a) = api() else { return code.to_string() };
+    let mut buf = [0 as c_char; 256];
     unsafe {
-        (a.util.av_strerror)(code, buf.as_mut_ptr(), buf.len());
-        super::cstr_to_string(buf.as_ptr())
+        if (a.util.av_strerror)(code, buf.as_mut_ptr(), buf.len()) == 0 {
+            return format!("{code} ({})", super::cstr_to_string(buf.as_ptr()));
+        }
     }
+    code.to_string()
 }
 
 /// Valor de uma tag de metadata (ex.: `title`).
@@ -777,6 +780,26 @@ impl Dict {
     pub fn is_empty(&self) -> bool {
         self.0.is_null()
     }
+    /// Chaves que sobraram (o `avcodec_open2` deixa no dicionário o que o encoder
+    /// NÃO consumiu). Itera com a chave vazia + `AV_DICT_IGNORE_SUFFIX` (2).
+    pub fn leftover_keys(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.0.is_null() {
+            return out;
+        }
+        let Ok(a) = api() else { return out };
+        let empty = c"";
+        let mut prev: *const AVDictionaryEntry = std::ptr::null();
+        loop {
+            let e = unsafe { (a.util.av_dict_get)(self.0, empty.as_ptr(), prev, 2) };
+            if e.is_null() {
+                break;
+            }
+            out.push(unsafe { super::cstr_to_string((*e).key) });
+            prev = e;
+        }
+        out
+    }
 }
 
 impl Drop for Dict {
@@ -868,6 +891,14 @@ impl Sws {
         };
         (!p.is_null()).then_some(Self(p))
     }
+    /// `sws_scale` com ponteiros de plano/passos montados à mão (recorte por
+    /// deslocamento de ponteiro — o `linesize` continua sendo o do quadro inteiro).
+    pub fn scale_raw(&self, src_data: &[*const u8; 8], src_ls: &[c_int; 8], src_h: c_int, dst_data: &[*mut u8; 8], dst_ls: &[c_int; 8]) {
+        if let Ok(a) = api() {
+            unsafe { (a.scale.sws_scale)(self.0, src_data.as_ptr(), src_ls.as_ptr(), 0, src_h, dst_data.as_ptr(), dst_ls.as_ptr()) };
+        }
+    }
+
     /// Escala o quadro inteiro `src` (altura `src_h`) para `dst`.
     pub fn scale(&self, src: &AVFrame, src_h: c_int, dst: &AVFrame) {
         if let Ok(a) = api() {

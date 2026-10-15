@@ -876,7 +876,10 @@ pub fn handle_rename_recording(old_path: &str, new_name: &str) {
     if old_path.is_empty() || new_name.is_empty() {
         return;
     }
-    // TODO(FFmpegExport): `ExportInUse(old_path)` → `error.exportBusyFile`.
+    if super::export::export_in_use(old_path) {
+        post_error(lang::t("error.exportBusyFile"));
+        return;
+    }
     if !is_path_in_record_dir(old_path) {
         log!("HandleRenameRecording: path fora da pasta de gravacao, ignorado: {old_path}");
         return;
@@ -985,7 +988,10 @@ pub fn handle_delete_recording(path: &str) {
     if path.is_empty() {
         return;
     }
-    // TODO(FFmpegExport): `ExportInUse(path)` → `error.exportBusyFile`.
+    if super::export::export_in_use(path) {
+        post_error(lang::t("error.exportBusyFile"));
+        return;
+    }
     if !is_path_in_record_dir(path) {
         log!("HandleDeleteRecording: path fora da pasta de gravacao, ignorado: {path}");
         return;

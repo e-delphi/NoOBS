@@ -280,6 +280,11 @@ fn push_encoder_caps() {
     // Guarda para a exportação, que roda muito depois do warmup e não pode
     // depender de o libobs estar respondendo naquele instante.
     with_state(|s| s.last_encoder_caps = Some(caps));
+    // Encoders do LIBAVCODEC (não do libobs — pegadinha #51), já filtrados por existência.
+    let export_encoders: Vec<serde_json::Value> = crate::ffmpeg_export::list_export_encoders(&caps)
+        .into_iter()
+        .map(|e| json!({ "id": e.id, "name": e.libav_name, "hardware": e.hardware }))
+        .collect();
     post_json(json!({
         "type": "encoder_caps",
         "av1Hw": caps.av1_hw,
@@ -289,7 +294,7 @@ fn push_encoder_caps() {
         "av1Sw": caps.av1_sw,
         "vendor": vendor,
         "vendorLogo": logo,
-        "exportEncoders": [],
+        "exportEncoders": export_encoders,
     }));
     log!(
         "Encoder caps: av1-hw={} hevc-hw={} h264-hw={} h264-sw={} av1-sw={} vendor={vendor}",

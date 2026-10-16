@@ -15,9 +15,13 @@ fn main() {
         .expect("falha ao compilar noobs.rc (rc.exe do Windows SDK)");
 
     // Recalcula a versão quando o HEAD ou o índice mudam (commit, checkout,
-    // arquivo alterado → `-dirty`).
+    // arquivo alterado → `-dirty`) e quando uma TAG é criada: criar a tag no
+    // commit atual não mexe em nenhum dos dois, e o exe sairia com a versão
+    // de antes da tag.
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
+    println!("cargo:rerun-if-changed=../.git/refs/tags");
+    println!("cargo:rerun-if-changed=../.git/packed-refs");
     let version = Command::new("git")
         .args(["describe", "--tags", "--always", "--dirty"])
         .output()

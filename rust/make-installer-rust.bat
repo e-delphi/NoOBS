@@ -51,7 +51,9 @@ if defined DEV echo [make-installer-rust] AVISO: build de desenvolvimento ^(fora
 REM --- 4) Gera ------------------------------------------------------------
 REM  Apaga um arquivo homonimo antes: se o makensis falhar, a sobra de uma
 REM  execucao anterior pareceria o instalador recem-gerado.
+REM  Tag da versao Rust ja termina em -rust (v0.44.0-beta-rust): nao repete.
 set "OUT=NoOBS-!VER!-rust.exe"
+if /i "!VER:~-5!"=="-rust" set "OUT=NoOBS-!VER!.exe"
 if exist "!OUT!" erase /q "!OUT!"
 
 echo [make-installer-rust] gerando !OUT! ...

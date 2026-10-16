@@ -95,6 +95,10 @@ pub fn shutdown() {
     ui::kill_timer(TIMER_HIBERNATE_IDLE);
     crate::mic_watch::stop();
     crate::proc_watch::stop();
+    // Como o Shutdown do Delphi: a exportação pode estar no meio de um arquivo
+    // longo e o laço dela olha o PRÓPRIO flag de cancelamento, não o de
+    // shutdown — sem isto ela seguia até o processo morrer, sem limpar o .part.
+    export::signal_cancel();
     video_test::shutdown();
     replay::shutdown();
     filters::shutdown();

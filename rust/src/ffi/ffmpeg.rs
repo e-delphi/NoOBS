@@ -34,8 +34,6 @@ pub const AV_CODEC_ID_H264: i32 = 27;
 pub const AV_CODEC_ID_HEVC: i32 = 173;
 pub const AV_CODEC_ID_AV1: i32 = 225;
 
-pub const AV_LOG_QUIET: c_int = -8;
-
 // pixel formats (avutil/pixfmt.h)
 pub const AV_PIX_FMT_NONE: c_int = -1;
 pub const AV_PIX_FMT_YUV420P: c_int = 0;
@@ -49,11 +47,7 @@ pub const AV_HWDEVICE_TYPE_D3D11VA: c_int = 7;
 /// FLTP: o decoder de AAC entrega isso e o encoder `aac` também o recebe — a
 /// mixagem de faixas não precisa de swresample.
 pub const AV_SAMPLE_FMT_FLTP: c_int = 8;
-pub const AV_PICTURE_TYPE_NONE: c_int = 0;
 
-pub const AVFMT_NOFILE: c_int = 0x0001;
-pub const AVFMT_GLOBALHEADER: c_int = 0x0040;
-pub const AV_CODEC_FLAG_GLOBAL_HEADER: c_int = 0x0040_0000;
 pub const AVIO_FLAG_WRITE: c_int = 2;
 pub const AVERROR_EAGAIN: c_int = -11;
 /// `FFERRTAG('E','O','F',' ')` como int32.
@@ -223,7 +217,6 @@ dll_api! {
     /// avformat + avcodec + avutil + swscale. Cada DLL tem a sua tabela; ver
     /// `FfmpegApi`. Falta de QUALQUER símbolo derruba o carregamento inteiro.
     pub struct AvFormatApi;
-    fn avformat_version() -> u32;
     fn avformat_open_input(ps: *mut *mut AVFormatContext, url: *const c_char, fmt: *const c_void, options: *mut *mut c_void) -> c_int;
     fn avformat_find_stream_info(ic: *mut AVFormatContext, options: *mut *mut c_void) -> c_int;
     fn avformat_close_input(ps: *mut *mut AVFormatContext);
@@ -245,7 +238,6 @@ dll_api! {
 
 dll_api! {
     pub struct AvCodecApi;
-    fn avcodec_version() -> u32;
     fn avcodec_get_name(id: c_int) -> *const c_char;
     fn av_packet_alloc() -> *mut AVPacket;
     fn av_packet_free(pkt: *mut *mut AVPacket);
@@ -275,15 +267,11 @@ dll_api! {
 
 dll_api! {
     pub struct AvUtilApi;
-    fn avutil_version() -> u32;
-    fn av_log_set_level(level: c_int);
     fn av_dict_get(m: *const c_void, key: *const c_char, prev: *const AVDictionaryEntry, flags: c_int) -> *mut AVDictionaryEntry;
     fn av_dict_set(pm: *mut *mut c_void, key: *const c_char, value: *const c_char, flags: c_int) -> c_int;
     fn av_dict_free(pm: *mut *mut c_void);
     fn av_rescale_q(a: i64, bq: AVRational, cq: AVRational) -> i64;
     fn av_strerror(errnum: c_int, buf: *mut c_char, size: usize) -> c_int;
-    fn av_freep(ptr: *mut c_void);
-    fn av_free(ptr: *mut c_void);
     fn av_image_get_buffer_size(pix_fmt: c_int, width: c_int, height: c_int, align: c_int) -> c_int;
     fn av_image_fill_arrays(dst_data: *mut *mut u8, dst_linesize: *mut c_int, src: *const u8, pix_fmt: c_int, width: c_int, height: c_int, align: c_int) -> c_int;
     // av_frame_* são do AVUTIL, não do avcodec (pegadinha #25).
@@ -314,8 +302,10 @@ dll_api! {
 
 dll_api! {
     pub struct SwScaleApi;
-    fn swscale_version() -> u32;
+    // Nome = símbolo exportado pela swscale-8.dll (o macro faz stringify!).
+    #[allow(non_snake_case)]
     fn sws_getContext(src_w: c_int, src_h: c_int, src_format: c_int, dst_w: c_int, dst_h: c_int, dst_format: c_int, flags: c_int, src_filter: *mut c_void, dst_filter: *mut c_void, param: *const f64) -> *mut SwsContext;
+    #[allow(non_snake_case)]
     fn sws_freeContext(ctx: *mut SwsContext);
     fn sws_scale(c: *mut SwsContext, src_slice: *const *const u8, src_stride: *const c_int, src_slice_y: c_int, src_slice_h: c_int, dst: *const *mut u8, dst_stride: *const c_int) -> c_int;
 }
@@ -776,9 +766,6 @@ impl Dict {
     }
     pub fn as_mut_ptr(&mut self) -> *mut *mut c_void {
         &mut self.0
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_null()
     }
     /// Chaves que sobraram (o `avcodec_open2` deixa no dicionário o que o encoder
     /// NÃO consumiu). Itera com a chave vazia + `AV_DICT_IGNORE_SUFFIX` (2).

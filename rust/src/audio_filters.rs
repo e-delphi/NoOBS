@@ -148,11 +148,6 @@ fn registered_audio_filter_ids() -> Vec<String> {
     result
 }
 
-/// Há algum filtro de áudio registrado? (`obs-filters.dll` carregou.)
-pub fn audio_filters_available() -> bool {
-    !registered_audio_filter_ids().is_empty()
-}
-
 // ---------------------------------------------------------------------------
 // Config: { "<id>": { "enabled": bool, "settings": { ... } } }
 // ---------------------------------------------------------------------------

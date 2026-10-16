@@ -135,14 +135,13 @@ pub struct CaptureInputs {
 }
 
 /// Gravação de UMA janela (`window_capture`) em vez de monitores/webcams.
-/// O HWND só dimensiona o canvas; quem acha a janela a cada quadro é o plugin,
-/// pela string (pegadinha #66).
+/// O tamanho só dimensiona o canvas (lido na hora de gravar); quem acha a
+/// janela a cada quadro é o plugin, pela string (pegadinha #66).
 #[derive(Debug, Clone, Default)]
 pub struct WindowCapture {
     /// `"titulo:classe:exe"` do OBS (WinWindows).
     pub spec: String,
     pub title: String,
-    pub handle: isize,
     /// Tamanho da área cliente (0 se a janela não tem tamanho legível).
     pub width: i32,
     pub height: i32,
@@ -1706,13 +1705,6 @@ impl Engine {
             log!("obs_output_pause({pause}) recusado pela libobs.");
         }
         ok
-    }
-
-    pub fn is_recording_paused(&self) -> bool {
-        if !self.recording || self.output.is_null() {
-            return false;
-        }
-        api().map(|a| unsafe { (a.obs_output_paused)(self.output) }).unwrap_or(false)
     }
 
     /// Pede o stop e retorna NA HORA (não bloqueia a UI). A conclusão chega

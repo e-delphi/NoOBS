@@ -1893,7 +1893,6 @@ impl<'a> Export<'a> {
             );
         }
 
-        let mut encoder: *const AVCodec = std::ptr::null();
         if !audio_only {
             // ---- composição ----
             let (cw, ch) = match self.vstream_par() {
@@ -1919,7 +1918,7 @@ impl<'a> Export<'a> {
             }
 
             // ---- encoder de vídeo ----
-            encoder = unsafe { (a.codec.avcodec_find_encoder_by_name)(to_utf8(&opts.encoder_name).as_ptr()) };
+            let encoder: *const AVCodec = unsafe { (a.codec.avcodec_find_encoder_by_name)(to_utf8(&opts.encoder_name).as_ptr()) };
             if encoder.is_null() {
                 log!("Export: encoder \"{}\" nao existe no avcodec.", opts.encoder_name);
                 return Err(NoEncoder);

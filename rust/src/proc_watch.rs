@@ -147,10 +147,6 @@ pub fn update_filter(apps_filter: &str) {
     }
 }
 
-pub fn is_running() -> bool {
-    WATCHER.lock().unwrap_or_else(|p| p.into_inner()).is_some()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

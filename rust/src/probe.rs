@@ -27,7 +27,6 @@ pub struct StreamInfo {
 
 #[derive(Debug, Clone, Default)]
 pub struct ProbeReport {
-    pub file_path: String,
     pub format: String,
     pub duration: f64,
     pub bit_rate: i64,
@@ -42,10 +41,6 @@ impl ProbeReport {
 
     pub fn audio_streams(&self) -> impl Iterator<Item = &StreamInfo> {
         self.streams.iter().filter(|s| s.kind == "audio")
-    }
-
-    pub fn has_video(&self) -> bool {
-        self.video_stream().is_some()
     }
 
     pub fn audio_track_count(&self) -> usize {
@@ -78,7 +73,6 @@ pub fn probe(path: &Path) -> Option<ProbeReport> {
         }
 
         let mut report = ProbeReport {
-            file_path: path.to_string_lossy().into_owned(),
             format: av::iformat_name(ic),
             duration: av::container_duration_us(ic) as f64 / av::AV_TIME_BASE as f64,
             bit_rate: av::container_bit_rate(ic),

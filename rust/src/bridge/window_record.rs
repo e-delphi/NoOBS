@@ -135,7 +135,6 @@ pub fn handle_record_window(id: &str, app_audio: bool) {
     recording::set_recording_window(Some(WindowCapture {
         spec: w.spec.clone(),
         title: w.title.clone(),
-        handle: w.handle,
         width,
         height,
         audio: app_audio,

@@ -60,12 +60,6 @@ pub struct HttpError {
     pub limit_ms: i32,
 }
 
-impl HttpError {
-    pub fn is_abort(&self) -> bool {
-        self.stage == "abort"
-    }
-}
-
 impl std::fmt::Display for HttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.code == 12002 {

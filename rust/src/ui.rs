@@ -662,7 +662,7 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windo
         let h = WebMessageReceivedEventHandler::create(Box::new(|_, args| {
             if let Some(args) = args {
                 let mut p = PWSTR::null();
-                if unsafe { args.TryGetWebMessageAsString(&mut p) }.is_ok() {
+                if args.TryGetWebMessageAsString(&mut p).is_ok() {
                     let s = take_pwstr(p);
                     match s.as_str() {
                         "dark" => set_dark_mode(true),
@@ -679,14 +679,12 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windo
         let h = PermissionRequestedEventHandler::create(Box::new(|_, args| {
             if let Some(args) = args {
                 let mut kind = COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
-                unsafe {
-                    let _ = args.PermissionKind(&mut kind);
-                    let _ = args.SetState(if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
-                        COREWEBVIEW2_PERMISSION_STATE_ALLOW
-                    } else {
-                        COREWEBVIEW2_PERMISSION_STATE_DENY
-                    });
-                }
+                let _ = args.PermissionKind(&mut kind);
+                let _ = args.SetState(if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
+                    COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                } else {
+                    COREWEBVIEW2_PERMISSION_STATE_DENY
+                });
             }
             Ok(())
         }));
@@ -696,14 +694,12 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windo
         let h = NavigationStartingEventHandler::create(Box::new(|_, args| {
             if let Some(args) = args {
                 let mut p = PWSTR::null();
-                if unsafe { args.Uri(&mut p) }.is_ok() {
+                if args.Uri(&mut p).is_ok() {
                     let uri = take_pwstr(p);
                     if !(uri.starts_with(&format!("https://{UI_HOST}")) || uri.starts_with("about:")) {
                         let short: String = uri.chars().take(120).collect();
                         log!("NavigationStarting: cancelando navegação pra \"{short}\"");
-                        unsafe {
-                            let _ = args.SetCancel(true);
-                        }
+                        let _ = args.SetCancel(true);
                     }
                 }
             }
@@ -714,14 +710,12 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windo
         // Janela nova bloqueada; http(s) vai pro navegador do sistema.
         let h = NewWindowRequestedEventHandler::create(Box::new(|_, args| {
             if let Some(args) = args {
-                unsafe {
-                    let _ = args.SetHandled(true);
-                    let mut p = PWSTR::null();
-                    if args.Uri(&mut p).is_ok() {
-                        let uri = take_pwstr(p);
-                        if uri.starts_with("http://") || uri.starts_with("https://") {
-                            shell_open(&uri);
-                        }
+                let _ = args.SetHandled(true);
+                let mut p = PWSTR::null();
+                if args.Uri(&mut p).is_ok() {
+                    let uri = take_pwstr(p);
+                    if uri.starts_with("http://") || uri.starts_with("https://") {
+                        shell_open(&uri);
                     }
                 }
             }

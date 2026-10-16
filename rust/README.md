@@ -53,7 +53,7 @@ usam o mesmo mutex de instância única, o mesmo `config.json` e o mesmo cache.
 |-----------------------|---------------------------|--------|
 | `OBSSingleInstance`   | `single_instance.rs`      | portado |
 | `NoOBSTypes`          | `types.rs`                | portado |
-| `OBSScene`            | `scene.rs` (+ testes)     | portado |
+| `OBSScene`            | `scene.rs`                | portado (o `ComputeCanvas` ficou de fora: sem uso também no Delphi) |
 | `OBSConfig`           | `config.rs`               | portado |
 | `OBSLog`              | `log.rs` (`log!`)         | portado |
 | `OBSLang`             | `lang.rs` (+ testes)      | portado |
@@ -113,5 +113,5 @@ usam o mesmo mutex de instância única, o mesmo `config.json` e o mesmo cache.
   para FFI; `obs_shutdown` na mesma thread do `obs_startup`; RTWQ antes do
   `CoInitialize`; BOM não se aplica (Rust é UTF-8).
 
-Os testes unitários (`cargo test`) cobrem canvas, i18n, as tabelas de
+Os testes unitários (`cargo test`) cobrem i18n, as tabelas de
 qualidade/limites de encoder, faixas de áudio, atalhos e o filtro de apps.

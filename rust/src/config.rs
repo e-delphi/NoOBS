@@ -191,8 +191,3 @@ pub fn set_source_auto_record(category: &str, id: &str, value: bool) {
 pub fn get_source_active_for_auto(category: &str, id: &str, _default: bool) -> bool {
     !get_source_hidden(category, id) && get_source_auto_record(category, id)
 }
-
-/// Descarta o cache em memória; a próxima leitura recarrega do disco.
-pub fn reset_config_cache() {
-    with_store(|m| *m = load_from_disk());
-}

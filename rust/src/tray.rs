@@ -86,10 +86,6 @@ fn base_data(hwnd: HWND) -> NOTIFYICONDATAW {
     NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, ..Default::default() }
 }
 
-pub fn is_installed() -> bool {
-    with(|s| s.added)
-}
-
 pub fn install(hwnd: HWND, tooltip: &str) {
     if with(|s| s.added) {
         return;

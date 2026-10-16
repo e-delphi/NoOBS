@@ -117,10 +117,6 @@ impl OutputFile {
         Some(out)
     }
 
-    pub fn ctx(&self) -> *mut AVFormatContext {
-        self.ctx
-    }
-
     pub fn stream(&self, idx: u32) -> Option<&AVStream> {
         unsafe { stream(self.ctx, idx) }
     }
@@ -887,7 +883,7 @@ fn extract_frame_jpeg_inner(src: &str, dst_jpeg: &str, timestamp_sec: i32, targe
     }
 
     let mut pkt = Packet::alloc().ok_or("av_packet_alloc falhou")?;
-    let mut frame = Frame::alloc().ok_or("av_frame_alloc falhou")?;
+    let frame = Frame::alloc().ok_or("av_frame_alloc falhou")?;
     let mut got = false;
     while !got {
         if unsafe { (a.format.av_read_frame)(input.ptr(), pkt.ptr()) } < 0 {
@@ -1113,7 +1109,7 @@ pub fn compute_audio_peaks(src: &str, buckets: usize, cancel: Option<CancelFn>) 
 
     // Pico entre TODOS os canais por amostra: áudio só no canal direito (ou com
     // o canal 0 mudo) gerava waveform achatada.
-    let mut consume = |frame: &Frame, hi: &mut Vec<f32>, hi_count: &mut usize, sample_idx: &mut i64| {
+    let consume = |frame: &Frame, hi: &mut Vec<f32>, hi_count: &mut usize, sample_idx: &mut i64| {
         if frame.data[0].is_null() {
             return;
         }

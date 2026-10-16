@@ -325,14 +325,6 @@ pub fn queued_paths() -> Vec<String> {
     with(|i| i.queue.clone())
 }
 
-pub fn is_manual(path: &str) -> bool {
-    with(|i| i.manual.contains(&path.to_lowercase()))
-}
-
-pub fn is_paused() -> bool {
-    with(|i| i.paused)
-}
-
 /// Segura os itens AUTOMÁTICOS sem esvaziar a fila: nenhum automático NOVO começa enquanto
 /// pausado (o que já está em curso segue até o fim). Usado pelo Bridge enquanto grava ou o
 /// buffer em memória está ligado — transcrever lê a gravação inteira do disco e sobe dezenas

@@ -59,12 +59,9 @@ pub type AudioCaptureCallback = unsafe extern "C" fn(
 
 pub const LOG_ERROR: i32 = 100;
 pub const LOG_WARNING: i32 = 200;
-pub const LOG_INFO: i32 = 300;
-pub const LOG_DEBUG: i32 = 400;
 
 // --- enums (MSVC x64: 4 bytes) ---------------------------------------------
 pub const VIDEO_FORMAT_NV12: i32 = 2;
-pub const VIDEO_FORMAT_BGRA: i32 = 7;
 pub const VIDEO_CS_709: i32 = 2;
 pub const VIDEO_RANGE_PARTIAL: i32 = 1;
 pub const OBS_SCALE_BICUBIC: i32 = 2;
@@ -149,7 +146,6 @@ dll_api! {
     // ciclo de vida
     fn obs_startup(locale: *const c_char, module_config_path: *const c_char, store: *mut c_void) -> bool;
     fn obs_shutdown();
-    fn obs_initialized() -> bool;
     fn obs_reset_video(ovi: *mut ObsVideoInfo) -> i32;
     fn obs_reset_audio(oai: *const ObsAudioInfo) -> bool;
     fn obs_set_locale(locale: *const c_char);
@@ -196,7 +192,6 @@ dll_api! {
     fn obs_source_update(source: ObsSource, settings: ObsDataRaw);
     fn obs_source_set_muted(source: ObsSource, muted: bool);
     fn obs_source_set_audio_mixers(source: ObsSource, mixers: u32);
-    fn obs_source_get_name(source: ObsSource) -> *const c_char;
     fn obs_source_get_settings(source: ObsSource) -> ObsDataRaw;
     fn obs_get_latest_input_type_id(unversioned_id: *const c_char) -> *const c_char;
     fn obs_source_filter_add(source: ObsSource, filter: ObsSource);
@@ -207,7 +202,6 @@ dll_api! {
     fn obs_enum_filter_types(idx: usize, id: *mut *const c_char) -> bool;
     fn obs_get_source_output_flags(id: *const c_char) -> u32;
     fn obs_source_get_display_name(id: *const c_char) -> *const c_char;
-    fn obs_get_source_defaults(id: *const c_char) -> ObsDataRaw;
     fn os_gettime_ns() -> u64;
 
     // scenes
@@ -217,7 +211,6 @@ dll_api! {
     fn obs_scene_add(scene: ObsScene, source: ObsSource) -> ObsSceneItem;
     fn obs_sceneitem_set_pos(item: ObsSceneItem, pos: *const Vec2);
     fn obs_sceneitem_set_scale(item: ObsSceneItem, scale: *const Vec2);
-    fn obs_sceneitem_set_visible(item: ObsSceneItem, visible: bool) -> bool;
     fn obs_sceneitem_set_bounds_type(item: ObsSceneItem, ty: i32);
     fn obs_sceneitem_set_bounds(item: ObsSceneItem, bounds: *const Vec2);
 
@@ -242,7 +235,6 @@ dll_api! {
     // pausa é nos ENCODERS da saída: o intervalo pausado não vira pacote e os
     // timestamps seguintes são descontados dele (obs-output.c).
     fn obs_output_pause(output: ObsOutput, pause: bool) -> bool;
-    fn obs_output_paused(output: ObsOutput) -> bool;
     fn obs_output_get_last_error(output: ObsOutput) -> *const c_char;
 
     // sinais e procedimentos (stop assíncrono — #41; replay_buffer — #62)
@@ -338,11 +330,6 @@ impl ObsData {
         }
     }
 
-    pub fn set_double(&self, key: &str, val: f64) {
-        if let Ok(a) = api() {
-            unsafe { (a.obs_data_set_double)(self.0, cstring(key).as_ptr(), val) }
-        }
-    }
 }
 
 impl Drop for ObsData {

@@ -13,9 +13,6 @@ use windows::Win32::Graphics::Gdi::{
 
 use crate::scene::ObsMonitor;
 
-/// `MONITORINFOF_PRIMARY` (winuser.h) — a `windows` crate não o exporta.
-const MONITORINFOF_PRIMARY: u32 = 1;
-
 #[derive(Debug, Clone, Default)]
 pub struct MonitorInfo {
     pub index: i32,
@@ -25,7 +22,6 @@ pub struct MonitorInfo {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-    pub is_primary: bool,
     /// Hz (ex.: 60, 120, 144, 240).
     pub refresh_rate: i32,
 }
@@ -63,7 +59,6 @@ unsafe extern "system" fn monitor_enum_proc(hmon: HMONITOR, _hdc: HDC, _rc: *mut
             y: r.top,
             width: r.right - r.left,
             height: r.bottom - r.top,
-            is_primary: mi.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
             refresh_rate,
         });
     }

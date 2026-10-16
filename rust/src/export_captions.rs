@@ -97,12 +97,12 @@ fn wide(s: &str) -> Vec<u16> {
 
 impl CaptionBurner {
     pub fn new(out_w: i32, out_h: i32, turns: &[CaptionTurn]) -> Result<Self, String> {
-        let font_px = ((out_h as f64 * CAPTION_FONT_FRACTION).round() as i32).clamp(CAPTION_FONT_MIN, CAPTION_FONT_MAX);
-        let max_text_w = ((out_w as f64 * CAPTION_WIDTH_FRACTION).round() as i32).min(font_px * CAPTION_WIDTH_EMS);
+        let font_px = ((out_h as f64 * CAPTION_FONT_FRACTION).round_ties_even() as i32).clamp(CAPTION_FONT_MIN, CAPTION_FONT_MAX);
+        let max_text_w = ((out_w as f64 * CAPTION_WIDTH_FRACTION).round_ties_even() as i32).min(font_px * CAPTION_WIDTH_EMS);
         // Contorno proporcional à letra: ~1/14 da altura dela.
         let radius = (font_px / 14).max(2);
         let pad = radius + 2;
-        let bottom = (out_h as f64 * CAPTION_BOTTOM_FRACTION).round() as i32;
+        let bottom = (out_h as f64 * CAPTION_BOTTOM_FRACTION).round_ties_even() as i32;
 
         let mut me = Self {
             out_w,

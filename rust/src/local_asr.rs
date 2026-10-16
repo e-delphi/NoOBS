@@ -410,15 +410,20 @@ fn download_resume(url: &str, part: &Path, name: &str, size: i64, base: i64, sta
         if !write_err.is_empty() {
             return msg(dl_err(name, &write_err));
         }
-        if ignored_range {
+        // Status decidido também quando o corpo veio VAZIO (o `sink` nem foi chamado):
+        // um 404/416 sem corpo virava "0 de N bytes" em vez do código, e um 200 vazio
+        // depois de um pedaço não recomeçava como o Delphi.
+        let status = match result {
+            Err(e) => return msg(dl_err(name, &e.to_string())),
+            Ok(status) => status,
+        };
+        if ignored_range || (status == 200 && have > 0) {
             log!("LocalAsr: {name} ignorou o Range — recomecando o download.");
             let _ = std::fs::remove_file(part);
             continue;
         }
-        match result {
-            Err(e) => return msg(dl_err(name, &e.to_string())),
-            Ok(status) if bad_status => return msg(dl_err(name, &format!("HTTP {status}"))),
-            Ok(_) => {}
+        if bad_status || !(status == 200 || status == 206) {
+            return msg(dl_err(name, &format!("HTTP {status}")));
         }
         let got = file_size64(part);
         if got != size {

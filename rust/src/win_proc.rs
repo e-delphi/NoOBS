@@ -44,7 +44,11 @@ pub fn run_hidden(exe: &str, args: &str, timeout_ms: u64) -> (i32, String) {
         if start.elapsed() > Duration::from_millis(timeout_ms) {
             let _ = child.kill();
             let _ = child.wait();
-            break -1;
+            // Estourou o tempo: NÃO espera as threads de leitura. Um neto que herdou o
+            // pipe (o próprio filho morto não o segura mais) o manteria aberto e o
+            // `join` travaria o diagnóstico para sempre — o Delphi também saía sem ler
+            // mais nada aqui. As threads terminam sozinhas quando o pipe fechar.
+            return (-1, String::new());
         }
         std::thread::sleep(Duration::from_millis(50));
     };

@@ -106,6 +106,15 @@ pub fn install(hwnd: HWND, tooltip: &str) {
     });
     if !ok {
         log::log("Tray: Shell_NotifyIconW(NIM_ADD) falhou.");
+        return;
+    }
+    // O ícone pode nascer DEPOIS de a gravação começar: o start chama
+    // `set_recording(true)` com a janela ainda visível (sem ícone, no-op) e só
+    // então o "minimizar ao gravar" esconde a janela e cria o ícone. Sem isto a
+    // 1ª gravação da sessão ficava sem a bolinha na bandeja (a 2ª tinha, porque
+    // o ícone já existia). O Delphi tem o mesmo caminho.
+    if with(|s| s.cb.on_is_recording).is_some_and(|f| f()) {
+        set_recording(true);
     }
 }
 
@@ -163,9 +172,8 @@ pub fn set_recording(on: bool) {
     let mut d = base_data(hwnd);
     d.uFlags = NIF_ICON;
     d.hIcon = icon;
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_MODIFY, &d);
-    }
+    let ok = unsafe { Shell_NotifyIconW(NIM_MODIFY, &d) }.as_bool();
+    log!("Tray: icone de gravando {} (ok={ok}).", if on { "ligado" } else { "desligado" });
 }
 
 fn show_menu(hwnd: HWND) {

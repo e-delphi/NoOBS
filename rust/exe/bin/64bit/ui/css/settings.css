@@ -1,0 +1,1505 @@
+  /* ===== Settings modal ===== */
+  .settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 8500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 180ms ease, visibility 180ms ease;
+  }
+  .settings-overlay.visible { opacity: 1; visibility: visible; }
+  .settings-modal {
+    width: 100%;
+    max-width: 760px;
+    /* Limita altura pra caber em telas 1366x768 (descontando taskbar +
+       titlebar). Body rola se passar disso. */
+    max-height: min(92vh, 660px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-header {
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .settings-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+  }
+  /* Botao de voltar — unico botao do cabecalho, a ESQUERDA do titulo.
+     (O "?" de Sobre virou item do menu lateral; o "X" de fechar saiu, o
+     voltar cumpre esse papel.) */
+  .settings-back-btn {
+    background: transparent;
+    border: 0;
+    color: var(--text-2);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    transition: background 120ms, color 120ms;
+  }
+  /* --surface-2/--text-1 NAO existem no base.css: o hover era invalido e
+     nao pintava nada. Trocado pelas vars reais. */
+  .settings-back-btn:hover {
+    background: var(--panel-3);
+    color: var(--text);
+  }
+  /* O "Sobre" virou uma ABA das Configuracoes (nao e mais modal proprio):
+     o scroll e a altura passaram a ser do .settings-body, entao as regras
+     de layout do modal antigo (.about-modal/.about-body/.about-scroll/
+     .about-fixed-footer) sairam junto com o markup delas. */
+  .about-logo {
+    text-align: center;
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+  }
+  .about-icon {
+    width: 48px;
+    height: 48px;
+    display: block;
+    margin: 0 auto 8px;
+    color: var(--danger, #ef4444);
+  }
+  .about-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .about-tagline {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-top: 2px;
+  }
+  .about-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    /* Separa visualmente do bloco de recursos abaixo. */
+    padding-bottom: 8px;
+    margin-bottom: 4px;
+  }
+  .about-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .about-label {
+    flex-shrink: 0;
+    width: 96px;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  .about-value { color: var(--text); }
+  .about-link {
+    color: var(--success);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .about-link:hover { text-decoration: underline; }
+  .about-footer-note {
+    margin-top: 4px;
+    padding-top: 4px;
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.5;
+  }
+  /* Paragrafo descritivo + listas (recursos / tecnologia) no About.
+     .about-desc agora e container de varios <p>; gap entre eles cria
+     respiro visual entre os 3 momentos da descricao (origem, proposta,
+     posicionamento). */
+  .about-desc {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-2);
+    margin-bottom: 8px;
+  }
+  .about-desc p + p { margin-top: 8px; }
+  .about-section-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    margin: 4px 0 4px;
+    font-weight: 600;
+  }
+  .about-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 4px;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.55;
+  }
+  .about-list li {
+    padding: 1px 0 1px 14px;
+    position: relative;
+  }
+  .about-list li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .about-list b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  /* Body rola quando os campos nao cabem na altura maxima do modal. */
+  .settings-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+  }
+  /* Compacta gap entre campos pra economizar altura. */
+  .settings-body > .settings-field + .settings-field,
+  .settings-body > .settings-divider + .settings-field,
+  .settings-body > .settings-field + .settings-divider {
+    margin-top: 10px;
+  }
+  .settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* Divisor sutil entre campos de configuracao. */
+  .settings-divider {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 6px 0;
+  }
+  /* Campo (e o divisor dele) que nao se aplica ao modo atual. O !important
+     vence o display inline que o Settings.showTab poe ao trocar de aba. */
+  .settings-field.settings-off,
+  .settings-divider.settings-off { display: none !important; }
+  /* Toggle de tema: 2 botoes segmentados (Claro / Escuro). */
+  .theme-toggle {
+    display: inline-flex;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+    align-self: flex-start;
+  }
+  .theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 120ms, color 120ms;
+  }
+  /* Hover: so um leve fundo de feedback — NAO muda a cor do texto, senao um
+     botao inativo sob o mouse fica com cor diferente dos outros inativos
+     (parecia que "Claro" tinha cor diferente por so ele nao estar sob o cursor). */
+  .theme-toggle-btn:not(.active):hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+  /* Ativo: pilha bem visivel (var --border-2 contrasta com o container em
+     ambos os temas) + texto claro. Antes usava var(--surface-1)/(--text-1),
+     que NAO existem no base.css → fundo transparente + cor herdada, deixando
+     o ativo quase igual aos inativos. */
+  .theme-toggle-btn.active {
+    background: var(--border-2);
+    color: var(--text);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .settings-field label {
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .settings-input-row {
+    display: flex;
+    gap: 8px;
+  }
+  /* Dois campos lado a lado dentro de um .settings-field (ex.: os limites
+     de tempo e memoria do buffer, que sao um par). A dica fica fora das
+     colunas, cobrindo a largura toda. */
+  .settings-pair {
+    display: flex;
+    gap: 10px;
+  }
+  .settings-pair-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .settings-pair-col .settings-input { width: 100%; }
+  /* Rotulo inline antes de um controle na mesma linha (ex.: "Canto" + o
+     dropdown do indicador de gravacao na tela). */
+  .settings-inline-label {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  #settingsRecIndicatorCornerWrap { margin-top: 10px; }
+  #settingsRecIndicatorCornerWrap .settings-input-row {
+    margin-top: 8px;
+    align-items: center;
+  }
+  #settingsRecIndicatorCornerWrap .settings-input-row:first-child { margin-top: 0; }
+  #settingsRecIndicatorCornerWrap .settings-input { flex: 1; }
+  .rec-indicator-opacity-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--success);   /* cor primaria do app (igual aos checkboxes) */
+  }
+  #settingsRecIndicatorOpacityValue {
+    min-width: 42px;
+    justify-content: flex-end;
+  }
+  /* Previa do indicador — replica a pilha do overlay real. Cores FIXAS
+     (nao seguem o tema): o overlay na tela e sempre escuro. A opacidade e
+     setada por JS (_syncRecIndicatorOpacityLabel) espelhando o slider, pra
+     mostrar como fica a transparencia sobre o fundo da tela. */
+  .rec-indicator-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border-radius: 8px;
+    background: #18181b;                 /* RGB(24,24,27) — pill do overlay */
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    transition: opacity 90ms linear;
+  }
+  .rec-indicator-preview-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #f03e3e;                 /* RGB(240,62,62) — bolinha "on" */
+    flex-shrink: 0;
+  }
+  /* Previa do indicador do BUFFER: mesma pilha, bolinha verde — igual ao
+     overlay no modo imBuffer (WinRecIndicator). */
+  .replay-indicator-preview .rec-indicator-preview-dot {
+    background: #10b981;                 /* RGB(16,185,129) */
+  }
+  .rec-indicator-preview-time {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .settings-check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  /* Aparencia unica pros checkboxes do app (verde do tema, nao o azul
+     default do navegador). Ao criar uma lista nova de marcar/desmarcar,
+     acrescente o seletor AQUI em vez de duplicar a regra. */
+  .settings-check-row input[type="checkbox"],
+  .devices-row input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--success);
+    cursor: pointer;
+    margin: 0;
+  }
+  /* Estado desabilitado: checkbox cinza, label esmaecido, cursor padrao.
+     Aplicado via JS quando dependencias (master switch) nao satisfeitas. */
+  .settings-check-row.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .settings-check-row.disabled input[type="checkbox"] {
+    cursor: not-allowed;
+  }
+  /* Hotkey builder: 4 checkboxes (modificadores) + "+" + dropdown (tecla principal). */
+  .hotkey-builder {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .hotkey-mods {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .hotkey-mod {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    transition: background 120ms, border-color 120ms;
+  }
+  .hotkey-mod:hover { background: var(--panel-3); }
+  .hotkey-mod input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--success);
+    cursor: pointer;
+  }
+  .hotkey-mod:has(input:checked) {
+    background: color-mix(in srgb, var(--success) 18%, var(--panel-2));
+    border-color: var(--success);
+  }
+  .hotkey-key {
+    flex: 1;
+    min-width: 120px;
+  }
+  .hotkey-plus {
+    color: var(--text-3);
+    font-weight: 600;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .settings-input {
+    flex: 1;
+    padding: 8px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 150ms ease;
+  }
+  .settings-input:focus { border-color: var(--success); }
+  /* select hereda .settings-input mas precisa de seta customizada
+     (browser nao estiliza o caret default em todos os temas). */
+  select.settings-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) calc(50% - 2px),
+      calc(100% - 11px) calc(50% - 2px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+    cursor: pointer;
+  }
+  /* Slider de qualidade de gravacao — 5 posicoes (-2 a +2). */
+  .quality-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  /* Slider customizado — estilizamos track + thumb explicitamente pra
+     ter controle exato das dimensoes. Sem isso, o thumb usa o tamanho
+     default do WebView2 (que varia entre versoes / temas / OS), e o
+     alinhamento dos ticks com o centro do thumb fica impossivel de
+     calibrar (cada ambiente renderiza com radius diferente — uns 4-5px,
+     outros ate 8px). Fixando em 14px, o raio e exato 7px, e o padding
+     61px das classes .quality-ticks / .fps-ticks alinha perfeitamente.
+     Trade-off: perdemos o look "nativo" do Windows, mas em troca temos
+     consistencia visual com o resto da UI (cor --success) e ticks
+     alinhados. */
+  /* Slider customizado — estilizamos track + thumb explicitamente. Com
+     `appearance: none` o tamanho do thumb fica EXATO (14px), sem
+     depender de defaults do WebView2/OS theme que variam de 8 a 16px.
+     Isso e pre-requisito pra alinhar os ticks com o centro do thumb. */
+  .quality-slider-row input[type="range"] {
+    width: 100%;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    display: block;
+  }
+  /* Track com fill verde a esquerda do thumb. --val (0..1) e atualizado
+     via JS pelo helper Settings._syncSliderFill toda vez que o slider
+     muda. O ponto de troca do gradient bate exato com o centro do thumb:
+     7px (raio do thumb a partir do inicio do track) + ratio * (100% - 14px). */
+  .quality-slider-row input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .quality-slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    border: none;
+    cursor: pointer;
+    /* Centra o thumb verticalmente na track de 4px: (14-4)/2 = 5 */
+    margin-top: -5px;
+  }
+  .quality-end-label {
+    font-size: 11px;
+    color: var(--text-2);
+    min-width: 44px;
+  }
+  .quality-end-label:last-of-type { text-align: right; }
+
+  /* Wrapper que envolve <input> + <ticks>. Ocupa o espaco do meio do
+     row (flex: 1, entre os labels). Como o wrapper TEM A MESMA LARGURA
+     do input (input com width: 100%), os ticks dentro dele alinham
+     naturalmente com o thumb — basta compensar o raio do thumb (7px)
+     nas pontas. Sem isso (estrutura antiga com ticks fora do row),
+     o calculo dependia de label-width + gap + thumb-radius, que e
+     fragil. */
+  .slider-with-ticks {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  /* CENTRALIZAR cada tick no centro do thumb naquela posicao. Math:
+       thumb-center = ratio * (slider-width - thumb-width) + thumb-radius
+       tick-left    = thumb-center - tick-width/2
+     CSS resolve isso com `left: thumb-center` + `translateX(-50%)`,
+     que desloca o tick PRA ESQUERDA por metade da PROPRIA largura
+     (independente do que esteja escrito — "20", "160", "-2", "+1"
+     todos centralizam certo). Sem isso (flex space-between ou
+     translateX:0/-100% nas pontas), o ALINHAMENTO bate pela borda
+     do texto, nao pelo centro — primeiro tick aparece a direita do
+     thumb, ultimo a esquerda. */
+  .slider-with-ticks .quality-ticks {
+    position: relative;
+    height: 14px;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .slider-with-ticks .quality-ticks span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  /* 11 ticks evenly-spaced (0..10). Cada um em ratio n/10 — igual ao ratio
+     do thumb pra aquele valor na faixa 0..10. Posicao = thumb-center
+     naquele valor. Primeiro e ultimo usam 7px / 100%-7px direto (o raio do
+     thumb), que e o mesmo que ratio 0 e 1 na formula. */
+  .slider-with-ticks .quality-ticks span:nth-child(1)  { left: 7px; }
+  .slider-with-ticks .quality-ticks span:nth-child(2)  { left: calc(7px + 0.1 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(3)  { left: calc(7px + 0.2 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(4)  { left: calc(7px + 0.3 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(5)  { left: calc(7px + 0.4 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(6)  { left: calc(7px + 0.5 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(7)  { left: calc(7px + 0.6 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(8)  { left: calc(7px + 0.7 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(9)  { left: calc(7px + 0.8 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(10) { left: calc(7px + 0.9 * (100% - 14px)); }
+  .slider-with-ticks .quality-ticks span:nth-child(11) { left: calc(100% - 7px); }
+  /* Tick marks do slider de FPS — mesma logica, posicionamento via JS
+     porque a quantidade de ticks varia com maxMonitorHz. */
+  .slider-with-ticks .fps-ticks {
+    position: relative;
+    height: 14px;
+    padding: 0;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .fps-ticks .fps-tick {
+    position: absolute;
+    top: 0;
+    /* SEMPRE centraliza — independente do tick ser o primeiro, ultimo
+       ou intermediario. translateX(-50%) desloca o label pra esquerda
+       pela metade da propria largura, alinhando o centro do texto com
+       o centro do thumb naquela posicao. Antes tinha .at-start /
+       .at-end fazendo translateX(0) / -100% pra "encostar nas bordas",
+       o que desalinhava (texto comecava AO INVES DE CENTRAR no thumb). */
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .settings-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    line-height: 1.4;
+  }
+  /* Aviso dentro de um campo de Configuracoes — mesmo tamanho da hint,
+     mas em ambar (o mesmo #f59e0b dos outros avisos do app) e com barra
+     lateral, pra distinguir "atencao" de "explicacao" sem gritar.
+     Usa [hidden] do HTML pra aparecer/sumir; display:none precisa vir
+     depois da regra base pra ganhar da especificidade. */
+  .settings-warn {
+    font-size: 11px;
+    line-height: 1.4;
+    color: #b45309;
+    border-left: 2px solid #f59e0b;
+    padding-left: 8px;
+  }
+  :root[data-theme="dark"] .settings-warn { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .settings-warn { color: #fbbf24; }
+  }
+  .settings-warn[hidden] { display: none; }
+  /* Logo do fabricante da GPU ao lado direito do dropdown de codec.
+     Mora dentro do mesmo .settings-input-row do dropdown — assim o gap
+     label-para-row fica identico aos outros campos. Logo centralizado
+     no eixo cross sem afetar a altura da row (dropdown define a altura). */
+  .settings-gpu-logo {
+    height: 32px;
+    width: auto;
+    max-width: 80px;
+    object-fit: contain;
+    flex-shrink: 0;
+    align-self: center;
+    display: none;  /* so aparece quando data-show=1 (vendor detectado). */
+  }
+  .settings-gpu-logo[data-show="1"] { display: block; }
+  .settings-btn {
+    padding: 8px 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .settings-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .settings-btn.primary {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+  }
+  .settings-btn.primary:hover { filter: brightness(1.1); }
+  .settings-footer {
+    padding: 10px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel-2);
+    flex-shrink: 0;
+  }
+  .settings-footer-right {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* ===== Confirm modal ===== */
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9500;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 160ms ease, visibility 160ms ease;
+  }
+  .confirm-overlay.visible { opacity: 1; visibility: visible; }
+  .confirm-modal {
+    width: 100%;
+    max-width: 420px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
+    transform: scale(0.96);
+    transition: transform 160ms ease;
+  }
+  .confirm-overlay.visible .confirm-modal { transform: scale(1); }
+  .confirm-body {
+    padding: 22px 22px 8px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .confirm-icon {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Fundo translucido = tema-aware (sutil no dark, claro no light). Cor do
+       icone via var --danger-2. Antes o JS fixava #fef2f2 inline (rosa claro),
+       que estourava branco no tema escuro. */
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger-2);
+  }
+  /* Variante azul (dialogos de "unir video"). Usa as vars de accent, que
+     ja adaptam entre light/dark. */
+  .confirm-icon.merge {
+    background: var(--accent-bg);
+    color: var(--accent-2);
+  }
+  .confirm-icon svg { width: 24px; height: 24px; fill: currentColor; }
+  .confirm-text { flex: 1; min-width: 0; }
+  .confirm-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .confirm-msg {
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .confirm-footer {
+    padding: 14px 22px 18px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .confirm-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    transition: background 150ms ease, border-color 150ms ease;
+  }
+  .confirm-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .confirm-btn.danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  .confirm-btn.danger:hover { filter: brightness(1.1); }
+
+  /* ===== Banner persistente (na sidebar) ===== */
+  .banner {
+    background: #facc15;
+    color: #1c1917;
+    border: 1px solid #ca8a04;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+    line-height: 1.4;
+    display: none;
+  }
+  .banner.show { display: block; }
+  .banner .banner-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  /* Variante VERDE: novidade boa (nova versao), nao pendencia. Os outros
+     banners sao ambar porque avisam de algo travado esperando o usuario. */
+  .banner.banner-good {
+    background: #16a34a;
+    border-color: #15803d;
+    color: #f0fdf4;
+    position: relative;
+    padding-right: 28px;   /* espaco do X, pra o texto nao passar por baixo */
+  }
+  .banner.banner-good .about-link {
+    color: #f0fdf4;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .banner-close {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+    cursor: pointer;
+    opacity: 0.75;
+    border-radius: 4px;
+  }
+  .banner-close:hover { opacity: 1; background: rgba(0, 0, 0, 0.15); }
+
+  /* ===== Layout de abas (menu lateral) =====
+     Grid no proprio modal: o <nav> e IRMAO do .settings-body, entao nao ha
+     wrapper extra e os campos mantiveram a indentacao/estrutura original. */
+  /* Configuracoes ocupa a JANELA INTEIRA — e uma "tela" do app, nao um
+     dialogo. Sobrescreve o max-width/max-height de .settings-modal; About e
+     Confirm compartilham essa classe e seguem centralizados e pequenos. */
+  #settingsOverlay { padding: 0; }
+  .settings-tabbed {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "header header"
+      "tabs   body";
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .settings-tabbed > .settings-header { grid-area: header; }
+  .settings-tabbed > .settings-tabs   { grid-area: tabs; }
+  .settings-tabbed > .settings-body {
+    grid-area: body;
+    /* Sem min-height:0 o item da linha 1fr nao encolhe e o overflow-y:auto
+       do body nunca entra em acao — o modal e que estouraria. */
+    min-height: 0;
+  }
+  /* O modal ocupa a janela toda, mas o CONTEUDO nao acompanha: input de
+     1700px e linha de texto dessa largura sao ruins de ler. Limita a coluna
+     (encostada no menu) sem limitar o painel. */
+  .settings-tabbed > .settings-body > .settings-field {
+    max-width: 760px;
+  }
+
+  .settings-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 8px;
+    border-right: 1px solid var(--border);
+    background: var(--panel-2);
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .settings-tab {
+    text-align: left;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.12s, color 0.12s;
+  }
+  .settings-tab:not(.active):hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+    color: var(--text);
+  }
+  /* Aba ativa no verde do app (--success, o mesmo do botao de gravar e do
+     preenchimento dos sliders) — nao no azul de --accent. Nao existe uma
+     var de "fundo verde", entao deriva do proprio --success com color-mix,
+     assim funciona nos dois temas. */
+  .settings-tab.active {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+    font-weight: 600;
+  }
+
+  /* Janela estreita: o menu vira uma faixa horizontal rolavel no topo,
+     em vez de espremer a coluna de conteudo. */
+  @media (max-width: 640px) {
+    .settings-tabbed {
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "header"
+        "tabs"
+        "body";
+      grid-template-rows: auto auto 1fr;
+    }
+    .settings-tabs {
+      flex-direction: row;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid var(--border);
+      padding: 8px;
+    }
+  }
+
+  /* ===== Lista de dispositivos (aba "Dispositivos") ===== */
+  .devices-group { margin-top: 14px; }
+  .devices-group:first-child { margin-top: 4px; }
+  .devices-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-3);
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .devices-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .devices-row:hover { background: var(--panel-2); }
+  .devices-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text);
+    /* Nome de device pode ser longo (ex.: "Microfone (Realtek(R) Audio)") —
+       corta em vez de esticar o modal. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .devices-info {
+    font-size: 11.5px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  /* Lista de dispositivos do perfil de auto-gravacao (aba "Gravação").
+     Reusa as classes .devices-* acima; so precisa de um respiro pra separar
+     do campo de excecoes e um label proprio. */
+  #settingsAutoRecordDevicesWrap {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  #settingsAutoRecordDevicesWrap > label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+
+
+  /* Destaque quando ha versao nova — verde do app, mesmo do restante. */
+  .settings-hint.update-available {
+    color: var(--success);
+    font-weight: 600;
+  }
+
+  /* ===== Progresso da transcrição (aba Transcrição) =====
+     A barra é MEDIÇÃO, não estimativa: o percentual vem do GET
+     /jobs/{id} e mede o trecho de áudio já coberto pelos segmentos.
+     Chega a 100% sem mentir, e anda aos saltos (janelas de 30s). */
+  .transcribe-progress {
+    margin-top: 10px;
+  }
+  .transcribe-progress[hidden] { display: none; }
+  .transcribe-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+  .transcribe-fill {
+    height: 100%;
+    width: 0;
+    background: var(--success);
+    border-radius: 3px;
+    transition: width 400ms linear;
+  }
+  .transcribe-line {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* MOTIVO da falha. Cor de perigo porque é a única coisa nesta aba
+     que exige ação do usuário; `word-break` porque a mensagem vem do
+     servidor e pode ser um JSON de validação sem espaços. */
+  .transcribe-error {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--danger-2);
+    overflow-wrap: anywhere;
+  }
+  .transcribe-error[hidden] { display: none; }
+
+  /* ===== Diagnóstico do servidor de transcrição =====
+     Uma etapa por linha, com o ícone dizendo o estado. Só a etapa que
+     falta ganha o bloco de instrução — o resto é lista curta de "ok",
+     pra o olho ir direto no que fazer. */
+  .transcribe-setup[hidden] { display: none; }
+  .transcribe-setup {
+    margin-top: 12px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .transcribe-setup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .transcribe-setup-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .ts-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .ts-icon {
+    flex: none;
+    width: 14px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .ts-row.ok   .ts-icon { color: var(--success); }
+  .ts-row.fail .ts-icon { color: var(--danger-2); }
+  .ts-row.wait .ts-icon { color: var(--text-3); }
+  .ts-row.fail { color: var(--text); }
+  /* Instrução da etapa que falta: recuada sob o texto da linha. */
+  .ts-detail {
+    margin: 4px 0 8px 22px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+  .ts-detail p { margin: 0 0 6px; }
+  .ts-detail p:last-child { margin-bottom: 0; }
+  /* Comando copiável. `pre-wrap` + `anywhere` porque o docker run é
+     longo e a coluna das Configurações é estreita: quebrar a linha na
+     tela não muda o que vai pro clipboard. */
+  .ts-cmd {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 6px 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--panel-3);
+    border: 1px solid var(--border-2);
+  }
+  .ts-cmd code {
+    flex: 1;
+    min-width: 0;
+    font-family: Consolas, 'Cascadia Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+  .ts-cmd .settings-btn { flex: none; }
+  .ts-actions { margin: 6px 0; }
+
+  /* ===== Onde transcrever + motor local =====
+     Os rádios usam a mesma aparência dos checkboxes do app. O quadro do
+     motor local tem a moldura do diagnóstico do servidor — é o equivalente
+     dele no modo local: diz o que falta e oferece o botão que resolve. */
+  .engine-options {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 4px 0 6px;
+  }
+  .settings-check-row input[type="radio"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--success);
+    cursor: pointer;
+    margin: 0;
+  }
+  #transcribeServerBox[hidden],
+  .local-asr[hidden],
+  .local-asr [hidden] { display: none; }
+  .local-asr {
+    margin-top: 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .local-asr-status {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .local-asr-status.ok   { color: var(--success); }
+  .local-asr-status.fail { color: var(--danger-2); overflow-wrap: anywhere; }
+  .local-asr .transcribe-bar { margin: 8px 0 2px; }
+  .local-asr-detail {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .local-asr .settings-btn.danger { color: var(--danger-2); }
+
+  /* ===== Fila de transcrição =====
+     Lista arrastável. As linhas têm altura confortável de propósito: o
+     alvo de arrasto é o item inteiro, e uma tira de 20px seria briga com
+     o mouse. `user-select: none` porque arrastar sobre texto selecionável
+     vira seleção em vez de drag. */
+  .transcribe-queue {
+    margin-top: 10px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    overflow: hidden;
+    user-select: none;
+  }
+  .transcribe-queue[hidden] { display: none; }
+
+  .tq-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    font-size: 12px;
+    color: var(--text-2);
+    border-top: 1px solid var(--border-2);
+    background: transparent;
+  }
+  .tq-item:first-child { border-top: none; }
+  .tq-item[draggable="true"] { cursor: grab; }
+  .tq-item.dragging { opacity: .45; cursor: grabbing; }
+  /* Linha por cima da qual o item arrastado vai cair. */
+  .tq-item.drop-before { box-shadow: inset 0 2px 0 0 var(--success); }
+  .tq-item.drop-after  { box-shadow: inset 0 -2px 0 0 var(--success); }
+
+  .tq-grip {
+    flex: none;
+    width: 12px;
+    text-align: center;
+    color: var(--text-3);
+    line-height: 1;
+  }
+  .tq-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tq-dur {
+    flex: none;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .tq-del {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .tq-del:hover { background: var(--danger); color: #fff; }
+
+  /* O item EM CURSO: fica, mas não se arrasta nem se remove. O ponto
+     verde é o mesmo sinal do resto do app pra "acontecendo agora". */
+  .tq-item.current {
+    color: var(--text);
+    background: var(--panel-3);
+    cursor: default;
+  }
+  .tq-item.current .tq-grip { color: var(--success); }
+  .tq-badge {
+    flex: none;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--success);
+  }
+
+  /* ===== Teste de qualidade de video (aba Video) =====
+     Barras = tamanho por hora de cada nivel; o palco mostra um quadro do
+     nivel A ou B, ajustado ou em tamanho real (js/videotest.js). */
+  .vtest-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .vtest-status { margin-top: 6px; }
+  .vtest-status[hidden], .vtest-progress[hidden], .vtest-result[hidden] { display: none; }
+  .vtest-status.recording { color: var(--danger-2); font-weight: 600; }
+  .vtest-progress {
+    height: 4px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+  .vtest-progress > div {
+    height: 100%;
+    width: 0;
+    background: var(--success);
+    transition: width 200ms ease;
+  }
+  .vtest-result { margin-top: 10px; }
+  .vtest-levels {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 6px 0;
+  }
+  .vtest-row {
+    display: grid;
+    grid-template-columns: 96px 1fr 120px 64px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .vtest-row:hover { background: var(--panel-2); }
+  .vtest-row.sel-a { border-color: var(--success); }
+  .vtest-row.sel-b { border-color: var(--accent); }
+  .vtest-row.current .vtest-name { font-weight: 600; }
+  .vtest-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--border-2);
+    overflow: hidden;
+  }
+  .vtest-fill {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    background: var(--text-2);
+  }
+  .vtest-row.current .vtest-fill { background: var(--success); }
+  .vtest-size { text-align: right; font-variant-numeric: tabular-nums; }
+  .vtest-rel { color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .vtest-row.current .vtest-rel { color: var(--success); }
+  .vtest-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .vtest-ab { display: flex; gap: 6px; }
+  .vtest-ab .settings-btn { padding: 6px 10px; font-size: 12px; }
+  .vtest-ab .settings-btn.active { border-color: var(--success); color: var(--success); }
+  .vtest-swap { padding: 6px 10px; font-size: 12px; }
+  /* Vista: palco que rola + divisor e etiquetas por cima, parados. */
+  .vtest-view {
+    position: relative;
+    margin-top: 8px;
+  }
+  /* Palco: ajustado cabe na largura; ampliado rola e arrasta. Pixelated no
+     zoom pra o bloco do encoder aparecer como bloco, nao borrado. */
+  .vtest-stage {
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    background: #000;
+    cursor: grab;
+  }
+  .vtest-stage.dragging { cursor: grabbing; }
+  .vtest-stage.fit { overflow: hidden; cursor: default; }
+  .vtest-canvas { position: relative; width: max-content; }
+  .vtest-stage.fit .vtest-canvas { width: 100%; }
+  .vtest-canvas img, .vtest-canvas video {
+    display: block;
+    max-width: none;
+    image-rendering: pixelated;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  /* A por cima do B, no mesmo lugar; o recorte (clip-path) vem do JS. */
+  .vtest-canvas [hidden] { display: none; }
+  .vtest-canvas #vtImgA, .vtest-canvas #vtVidA { position: absolute; top: 0; left: 0; }
+  .vtest-stage.fit .vtest-canvas img,
+  .vtest-stage.fit .vtest-canvas video { width: 100%; height: auto; image-rendering: auto; }
+  /* Barra do player: tocar/pausar, quadro a quadro e posicao. */
+  .vtest-player {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .vtest-player[hidden] { display: none; }
+  .vtest-player .settings-btn { padding: 4px 10px; font-size: 13px; min-width: 34px; }
+  /* Barra de posicao no estilo dos outros sliders: trilho de 4px com o
+     preenchimento na cor do app ate o centro do ponteiro (--val). */
+  .vtest-player input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .vtest-player input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .vtest-player input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: none;
+    border-radius: 50%;
+    background: var(--success);
+    cursor: pointer;
+  }
+  .vtest-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* Divisor: faixa larga pra pegar, linha fina no meio e alca redonda. O
+     top/left descontam a borda de 1px do palco. */
+  .vtest-divider {
+    position: absolute;
+    top: 1px;
+    width: 16px;
+    margin-left: -7px;
+    cursor: ew-resize;
+    z-index: 2;
+  }
+  .vtest-divider::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0; left: 7px;
+    width: 2px;
+    background: #fff;
+    box-shadow: 0 0 3px rgba(0, 0, 0, .7);
+  }
+  .vtest-divider > span {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 26px; height: 26px;
+    margin: -13px 0 0 -12px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .6);
+  }
+  .vtest-divider > span::before {
+    content: '‹ ›';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #111;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -1px;
+  }
+  .vtest-view.splitting, .vtest-view.splitting * { cursor: ew-resize !important; user-select: none; }
+  /* Seletor de nivel de cada lado, por cima da imagem. */
+  .vtest-tag {
+    position: absolute;
+    top: 8px;
+    padding: 3px 6px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, .7);
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 3;
+  }
+  .vtest-tag option { background: var(--panel); color: var(--text); }
+  .vtest-tag.a { left: 8px; border-left: 3px solid var(--success); }
+  .vtest-tag.b { right: 8px; border-right: 3px solid var(--accent); }
+
+  /* ===== Filtros de audio do microfone (aba Audio) =====
+     Um cartao por filtro, com a moldura do quadro do motor local. Os
+     campos vem do plugin do OBS e sao montados em JS (audiofilters.js). */
+  .afilter-test {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .afilter-test .settings-input { flex: 1; min-width: 0; }
+  .afilter-test-status.recording { color: var(--danger-2); font-weight: 600; }
+  /* Mesmo ambar do .settings-warn: teste sem filtro nenhum ligado. */
+  .afilter-test-status.warn { color: #b45309; }
+  :root[data-theme="dark"] .afilter-test-status.warn { color: #fbbf24; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .afilter-test-status.warn { color: #fbbf24; }
+  }
+  .afilter-test-result[hidden] { display: none; }
+  .afilter-test-result {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 6px 0 4px;
+  }
+  .afilter-ab { display: flex; align-items: center; gap: 8px; }
+  .afilter-ab .settings-btn.active {
+    border-color: var(--success);
+    color: var(--success);
+  }
+  .afilter-summary { margin-top: 10px; }
+  .afilter {
+    margin-top: 8px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .afilter.on { border-color: var(--success); }
+  .afilter-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .afilter-head .settings-check-row { margin: 0; }
+  .afilter-toggle { flex-shrink: 0; }
+  .afilter-desc { margin-top: 2px; }
+  .afilter-body {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .afilter-group { margin: 6px 0 2px; }
+  .afilter-group-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-bottom: 2px;
+  }
+  .afilter-prop { margin: 6px 0; }
+  .afilter-prop-label { font-size: 12px; color: var(--text-2); margin-bottom: 3px; }
+  .afilter-num { display: flex; align-items: center; gap: 10px; }
+  .afilter-num .settings-input { width: 120px; flex: 0 0 auto; }
+  .afilter-num-val {
+    font-size: 12px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    min-width: 72px;
+    text-align: right;
+  }
+  /* Mesmo slider das outras abas (pegadinha #39): thumb de 14px e trilho
+     preenchido ate o centro dele pela --val. */
+  .afilter-num input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+  }
+  .afilter-num input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right,
+      var(--success) 0,
+      var(--success) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) calc(7px + var(--val, 0) * (100% - 14px)),
+      var(--border-2) 100%);
+  }
+  .afilter-num input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--success);
+    border: none;
+    margin-top: -5px;
+  }
+  .afilter-num input[type="range"]:disabled { opacity: .5; cursor: default; }
+  .afilter-reset { margin-top: 6px; }
+
+  /* "Clicar no indicador": logo abaixo do texto do check principal, com
+     folga dos dois lados pra nao colar nem nele nem no Canto. */
+  /* O bloco do Canto ja traz 10px de margem e o campo 6px de gap: -6px
+     deixa 10px ate o texto de cima, perto sem colar. */
+  .indicator-click-opt {
+    margin: -6px 0 14px;
+    /* Check e descricao no mesmo ritmo dos outros campos (.settings-field). */
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  /* O bloco do buffer nao tem a margem de 10px: so os 6px do gap. */
+  #settingsReplayIndicatorWrap > .indicator-click-opt { margin-top: 4px; }
+
+/* Pastas ocultas (aba Arquivos): uma caixa por subpasta da pasta de
+   gravacao, com a contagem de gravacoes ao lado do nome. */
+.hidden-folders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.hidden-folders-list .hidden-folder-count {
+  color: var(--text-2);
+  font-size: 12px;
+  margin-left: 6px;
+}

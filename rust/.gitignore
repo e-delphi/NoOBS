@@ -1,1 +1,19 @@
 target/
+
+# rust\exe\ e o runtime da versao Rust (mesmo layout do exe\ do Delphi).
+# O OBS empacotado (DLLs, data, obs-plugins) e o NoOBS.exe compilado ficam
+# fora do git; a UI e as traducoes desta versao SAO versionadas aqui.
+# Cascata: un-ignora a pasta ANTES dos arquivos (git nao desce em
+# diretorio ignorado).
+exe/*
+!exe/bin/
+exe/bin/*
+!exe/bin/64bit/
+exe/bin/64bit/*
+!exe/bin/64bit/lang/
+!exe/bin/64bit/lang/*.json
+!exe/bin/64bit/ui/
+!exe/bin/64bit/ui/*
+
+# Instaladores gerados pelo make-installer-rust.bat.
+NoOBS-*.exe

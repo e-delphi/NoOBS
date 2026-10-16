@@ -1,0 +1,423 @@
+const Bridge = {
+  send(type, payload = {}) {
+    try {
+      window.chrome.webview.postMessage(JSON.stringify({ type, ...payload }));
+    } catch (e) {
+      console.warn('Bridge.send falhou:', e);
+    }
+  },
+  init() {
+    if (!window.chrome || !window.chrome.webview) {
+      console.warn('chrome.webview nao disponivel — modo standalone.');
+      return;
+    }
+    window.chrome.webview.addEventListener('message', (e) => {
+      let data;
+      try {
+        data = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+      } catch (err) {
+        console.warn('Bridge: mensagem JSON invalida ignorada:', err);
+        return;
+      }
+      if (!data || !data.type) return;
+      const handler = Bridge.handlers[data.type];
+      if (handler) handler(data);
+      else console.log('Bridge: tipo nao tratado:', data.type, data);
+    });
+    Bridge.send('ready');
+  },
+  handlers: {
+    init(data) {
+      // i18n vem ANTES de qualquer render — quem usar T() ja pega o
+      // bundle carregado. Sem bundle, T() retorna '[key]' e os textos
+      // hardcoded no HTML servem de fallback ate o user trocar idioma.
+      if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
+      // Textos montados em JS no DOMContentLoaded (antes do bundle chegar)
+      // sairam como '[chave]' — refaz com o bundle carregado.
+      try { VideoTest.onLanguageChanged(); } catch (e) {}
+      // Devices.setAll guarda a lista completa (pro modal "Dispositivos") e
+      // devolve so os visiveis — os ocultos somem da tela inicial.
+      Displays.monitors = Devices.setAll('monitors', data.monitors);
+      Displays.webcams  = Devices.setAll('webcams',  data.webcams);
+      Displays.render();
+      renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
+      renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
+      // freeBytes antes de renderRecordings — updateRecMeta usa.
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      // Estado de navegacao antes do render: renderRecordings desenha o
+      // grupo de pastas a partir dele.
+      RecFolders.apply(data);
+      renderRecordings(data.recordings);
+      if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
+      hideLoading();
+      updateRecordButtonAvailability();
+    },
+    language_changed(data) {
+      // Backend trocou de idioma — re-aplica bundle. Como apply() faz
+      // walk pelos data-i18n, todos os elementos marcados se atualizam
+      // sem reload da pagina.
+      if (data.i18n) I18n.setBundle(data.i18n, data.language || '');
+      // Atualiza textos dinamicos que dependem de funcoes JS (re-render
+      // de listas, botoes com label condicional, etc).
+      try { Settings._syncMinimizeOnRecordLabel(); } catch (e) {}
+      try { Settings._syncQualityHint(); } catch (e) {}
+      try { Settings._syncFpsHint(); } catch (e) {}
+      try { Settings._syncCodecMaxRes(); } catch (e) {}
+      try { Settings._updateHotkeyPreview(); } catch (e) {}
+      // "CRF 23" + a faixa descritiva sao montados em JS (sem data-i18n
+      // por causa do placeholder), entao nao vem no walk do apply().
+      try { Export._syncQualityValue(); } catch (e) {}
+      // Rotulos e legenda do redimensionamento sao montados em JS.
+      try { Export._renderScale(); } catch (e) {}
+      // Lista de telas ("Tela inteira", "Nenhuma") e textos da legenda sao
+      // montados em JS.
+      try { if (Export.currentId) { Export._renderRegions(); Export._syncCaptionUi(); } } catch (e) {}
+      try { Displays.render(); } catch (e) {}
+      // Re-renderiza a legenda de faixas (textos compostos em JS, sem
+      // data-i18n por terem placeholders dinamicos como "Faixa N").
+      try { buildTrackLegend(); } catch (e) {}
+      // Status do buffer em memoria (texto montado em JS com {{held}}).
+      try { Replay.render(); } catch (e) {}
+      // Re-render do estado de gravacao pra atualizar label/status do
+      // botao de gravar (T('record.start'/'stop'/'statusReady'/...)).
+      // Re-aplica estado de gravacao pra atualizar label (T('record.start'/stop'))
+      // e statusText. Usa cache _lastRecordingActive — true/false/null pre-boot.
+      try {
+        if (_lastRecordingActive !== null)
+          applyRecordingState(_lastRecordingActive);  // sem tempo: mantem o relogio
+      } catch (e) {}
+      try { updateRecordButtonAvailability(); } catch (e) {}
+      // Re-render recordings — date groups (Hoje/Ontem/...) + nomes de
+      // mes ficam stale; cache populado no proprio renderRecordings.
+      try {
+        if (typeof renderRecordings === 'function' &&
+            window._lastRecordingsItems) {
+          renderRecordings(window._lastRecordingsItems);
+        }
+      } catch (e) {}
+      // Re-render do meta (X arquivos · Y usados · Z livres) — buildRecMetaHtml
+      // usa T() pluralizado. recalcRecMetaFromDom le do DOM atual.
+      try { recalcRecMetaFromDom(); } catch (e) {}
+      // Etapa da transcrição é traduzida em tempo de render (o código
+      // vem da API em inglês), então precisa repintar na troca de idioma.
+      try { Transcribe.render(); } catch (e) {}
+      // Diagnóstico e seletor de idioma da transcrição: textos montados
+      // em JS, e o "Idioma do NoOBS (…)" muda de nome com a interface.
+      try { TranscribeSetup.rerender(); } catch (e) {}
+      // Quadro do motor local: textos (e tamanhos formatados) em JS.
+      try { LocalAsr.render(); } catch (e) {}
+      try { Settings._fillTranscribeLangs(); } catch (e) {}
+      // Filtros de audio: os rotulos dos campos vem do plugin, no idioma novo.
+      try { AudioFilters.onLanguageChanged(); } catch (e) {}
+      try { VideoTest.onLanguageChanged(); } catch (e) {}
+      // Rótulos e dica da taxa do áudio também são montados em JS. Refaz
+      // com o que está NA TELA, não o salvo: o modal pode estar aberto.
+      try {
+        const ab = document.getElementById('settingsAudioBitrate');
+        Settings._fillAudioBitrates(parseInt(ab && ab.value, 10) ||
+                                    Settings.currentAudioBitrate);
+      } catch (e) {}
+      // A fila tem o selo "agora" e o title do botão de remover, os
+      // dois traduzidos em tempo de render. Fora do render() de
+      // propósito: aquele roda a cada segundo e refazer a lista ali
+      // mataria um arrasto em curso.
+      try { Transcribe.renderQueue(); } catch (e) {}
+      // Caminho da pasta: "Gravações" (raiz) e "Voltar" sao traduzidos e
+      // ficam fora do walk do apply() — o breadcrumb e montado em JS.
+      try { RecFolders.renderPath(); } catch (e) {}
+      Toast.show(T('toast.languageChanged'), '', { ttl: 1800 });
+    },
+    init_pending(data) { showLoading(data && data.message); },
+    window_hidden() {
+      // Backend escondeu a janela main (minimize pra bandeja, etc).
+      // Fecha o player se estiver aberto — quando o user reabrir o
+      // app, comeca limpo em vez de reencontrar o player fantasma.
+      const ov = document.getElementById('playerOverlay');
+      if (ov && ov.classList.contains('visible')) {
+        try { Player.close(); } catch (e) {}
+      }
+    },
+    // Notificacao do Windows pedida pelo Delphi (gravacao iniciou/parou).
+    //
+    // Usa a Web Notifications API do Chromium (WebView2 expoe nativamente
+    // e o host ja aprovou a permissao via TPermissionRequestedHandler).
+    // O Chromium se vira com AUMID + Action Center, sem precisarmos
+    // mexer com WinRT em Delphi.
+    //
+    // tag fixa "noobs-record": notificacoes novas SUBSTITUEM a anterior
+    // (em vez de empilhar na Central). renotify: true forca o popup a
+    // reaparecer mesmo com mesma tag.
+    //
+    // setTimeout + close(): remove a notificacao da Central de
+    // Notificacoes depois do popup ter sumido — usuario nao quer ver
+    // historico de "Gravacao iniciada/parou" se acumulando ali.
+    // (Inspirado no padrao do conversa-web/sound.ts.)
+    show_notification(data) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') {
+        // Permissao deveria estar 'granted' pelo handler do host. Se
+        // por algum motivo nao estiver, pede agora (no-op se 'denied').
+        Notification.requestPermission().then(p => {
+          if (p === 'granted') Bridge.handlers.show_notification(data);
+        });
+        return;
+      }
+      try {
+        if (Bridge._lastNotif) {
+          try { Bridge._lastNotif.onclose = null; Bridge._lastNotif.close(); } catch (e) {}
+        }
+        const opts = {
+          body: data.body || '',
+          tag: 'noobs-record',
+          renotify: true,
+          silent: false,
+        };
+        // Icone do app (data URL ja recebido via app_icon push do
+        // backend). Aparece tanto no popup quanto na Central. Se ainda
+        // nao chegou, o toast sai sem icone — sem fallback de URL
+        // remota, que poderia atrasar/falhar o display.
+        if (Bridge._appIconDataUrl) opts.icon = Bridge._appIconDataUrl;
+
+        const n = new Notification(data.title || 'NoOBS', opts);
+        Bridge._lastNotif = n;
+
+        // Clique no popup (ou na entrada na Central) restaura a janela
+        // principal — usuario espera "clicou na notificacao, app abre".
+        n.onclick = () => {
+          try { n.close(); } catch (e) {}
+          Bridge.send('tray_show');
+        };
+
+        // Auto-fecha apos 5s pra nao acumular na Central de Notificacoes.
+        setTimeout(() => {
+          try { n.close(); } catch (e) {}
+          if (Bridge._lastNotif === n) Bridge._lastNotif = null;
+        }, 5000);
+      } catch (e) {
+        console.warn('show_notification falhou:', e);
+      }
+    },
+    app_icon(data) {
+      // Backend extraiu o icon.ico do exe e mandou como data URL.
+      // Guarda no Bridge pra reuso (modal Sobre + icone das notificacoes
+      // do Windows). Esconde o SVG fallback no modal.
+      if (data && data.dataUrl) {
+        Bridge._appIconDataUrl = data.dataUrl;
+      }
+      const img = document.getElementById('aboutAppIcon');
+      const fb  = document.getElementById('aboutAppIconFallback');
+      if (img && data && data.dataUrl) {
+        img.src = data.dataUrl;
+        img.style.display = '';
+        if (fb) fb.style.display = 'none';
+      }
+    },
+    open_settings() {
+      // Pedido do backend (1a execucao apos instalacao). Pequeno delay
+      // pra modal abrir depois dos pushes iniciais terem renderizado.
+      setTimeout(() => Settings.open(), 200);
+    },
+    hotkey_validation_result(data) {
+      // Resposta do backend pra validateHotkeyWithBackend(). Resolve a
+      // Promise pendente (se houver) com { ok, reason }.
+      if (_pendingHotkeyValidation) {
+        const cb = _pendingHotkeyValidation;
+        _pendingHotkeyValidation = null;
+        cb({ ok: !!data.ok, reason: data.reason || '' });
+      }
+    },
+    theme(data) {
+      applyTheme(data.theme);
+      // pref = o MODO ('system'/'dark'/'light'). Fallback pro tema resolvido
+      // se um backend antigo (sem a mudanca) nao mandar pref — evita destacar
+      // "sistema" por engano quando o modo real e fixo.
+      if (typeof Settings !== 'undefined' && Settings.applyThemePref)
+        Settings.applyThemePref(data.pref || data.theme);
+    },
+    recordings_loaded(data) {
+      // Espaco livre vem ANTES de renderRecordings pra que updateRecMeta
+      // (chamada dentro do render) ja pegue o valor novo.
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      RecFolders.apply(data);
+      renderRecordings(data.recordings);
+      if (data.recordDir !== undefined) Settings.currentRecDir = data.recordDir;
+    },
+    // Chega DEPOIS do recordings_loaded da mesma operacao — o card ja
+    // existe no DOM e pode receber o cursor pra renomear.
+    folder_created(data) { RecFolders.onCreated(data && data.id); },
+    settings(data) { Settings.applySettings(data); },
+    transcribe_state(data)   { Transcribe.applyState(data); },
+    transcribe_pending(data) { Transcribe.applyPending(data); },
+    transcribe_queue(data)   { Transcribe.applyQueue(data); },
+    transcribe_health(data)  { Transcribe.onHealth(data); },
+    transcribe_setup(data)   { TranscribeSetup.apply(data); },
+    local_asr_state(data)    { LocalAsr.apply(data); },
+    // A tela de exportacao pede a transcricao pra legenda da previa; quem
+    // estiver esperando por ESTE id fica com ela (os dois nunca abrem juntos).
+    transcript(data) {
+      if (Export.isWaitingFor(data && data.id)) { Export.onTranscript(data); return; }
+      Player.applyTranscript(data);
+    },
+    transcript_search(data)  { onTranscriptSearchResult(data); },
+    update_result(data) { Updates.applyResult(data); },
+    record_dir_picked(data) { Settings.setPickedPath(data.path); },
+    monitor_thumbs(data) { updateMonitorThumbs(data.items); },
+    audio_meters(data) { updateAudioMeters(data.items); },
+    audio_device_changed(data) {
+      const banner = document.getElementById('audioRefreshBanner');
+      if (banner) banner.classList.toggle('show', !!data.pending);
+    },
+    audio_sources_refreshed(data) {
+      renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
+      renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
+      if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
+      const banner = document.getElementById('audioRefreshBanner');
+      if (banner) banner.classList.remove('show');
+      // silent=true vem do load inicial do app; toast so faz sentido
+      // pra hot-plug subsequente (user plugou/desplugou dispositivo).
+      if (!data.silent)
+        Toast.show(T('toast.devicesUpdated'),
+          formatDeviceChanges(data.changes),
+          { warn: true, ttl: 4500 });
+      updateRecordButtonAvailability();
+    },
+    monitor_changed(data) {
+      const banner = document.getElementById('monitorRefreshBanner');
+      if (banner) banner.classList.toggle('show', !!data.pending);
+    },
+    refresh_busy(data) {
+      if (data.busy) {
+        const msg = data.what === 'monitors' ? T('toast.updatingMonitors')
+                  : data.what === 'audio'    ? T('toast.updatingAudio')
+                  : data.what === 'starting' ? T('toast.startingRecord')
+                  : T('toast.updating');
+        showLoading(msg);
+      } else {
+        hideLoading();
+      }
+    },
+    monitors_refreshed(data) {
+      Displays.monitors = Devices.setAll('monitors', data.monitors);
+      Displays.render();
+      if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
+      const banner = document.getElementById('monitorRefreshBanner');
+      if (banner) banner.classList.remove('show');
+      // So mostra toast se houve mudanca real (lista de changes nao vazia)
+      // — refresh pode ter sido disparado por WM_DISPLAYCHANGE sem
+      // mudanca visivel (ex.: troca de orientacao reportada como evento).
+      const changes = data.changes || [];
+      if (changes.length > 0)
+        Toast.show(T('toast.monitorsUpdated'),
+          formatDeviceChanges(changes),
+          { warn: true, ttl: 4500 });
+      updateRecordButtonAvailability();
+    },
+    webcams_refreshed(data) {
+      Displays.webcams = Devices.setAll('webcams', data.webcams);
+      Displays.render();
+      if (Devices.isOpen()) Devices.render();
+      if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
+      // Mesmo titulo que audio_sources_refreshed pra que o dedup do
+      // Toast.show coalesce as duas notificacoes quando hot-plug USB
+      // dispara refresh de audio + webcam ao mesmo tempo.
+      const changes = data.changes || [];
+      if (changes.length > 0)
+        Toast.show(T('toast.devicesUpdated'),
+          formatDeviceChanges(changes),
+          { warn: true, ttl: 4500 });
+      updateRecordButtonAvailability();
+    },
+    recording_meta(data) { updateRecordingMeta(data); },
+    play_pending(data) { Player.showPending(data.id); },
+    // A tela de exportacao usa a MESMA URL que o player — quem estiver
+    // esperando por este id fica com ela (os dois nunca abrem juntos).
+    play_url(data) {
+      if (Export.isWaitingFor(data && data.id)) { Export.onPlayUrl(data); return; }
+      Player.play(data.url, data.name, data.mode, data.id, data.startClockSec);
+    },
+    merge_pending() {
+      setMergeBusy(true);
+      Toast.show(T('toast.mergeStarted'), T('toast.mergeStartedMsg'), { ttl: 3000 });
+    },
+    merge_done(data) {
+      setMergeBusy(false);
+      if (data && data.ok) {
+        RecSelection.clear();
+        Toast.show(T('toast.mergeDone'), T('toast.mergeDoneMsg'), { ttl: 5000 });
+      }
+    },
+    // O mesmo probe serve o painel de info do player E o dialogo de
+    // exportacao — os dois nunca estao abertos ao mesmo tempo, entao quem
+    // estiver esperando por ESTE id fica com a resposta.
+    video_info(data) {
+      if (Export.isWaitingFor(data && data.id)) Export.onVideoInfo(data);
+      else Player.renderInfo(data);
+    },
+    // Faixas isoladas: a previa da exportacao tambem as toca (as faixas
+    // marcadas la), entao vai pra quem esta esperando o id.
+    audio_tracks_ready(data) {
+      if (Export.isWaitingFor(data && data.id)) Export.onAudioTracks(data);
+      else Player.onAudioTracksReady(data);
+    },
+    // A versao em alta resolucao (hi) e da linha do tempo da exportacao;
+    // a comum, do player.
+    waveform_ready(data) {
+      if (data && data.hi) { Export.onWaveform(data); return; }
+      Waveform.onReady(data);
+    },
+    keyframes(data) { Player.onKeyframes(data); },
+    // Buffer em memoria (replay.js).
+    replay_state(data) { Replay.applyState(data); },
+    // Filtros de audio (aba Audio): lista inteira, um filtro so, e o teste A/B.
+    audio_filters(data)     { AudioFilters.apply(data); },
+    audio_filter(data)      { AudioFilters.applyOne(data); },
+    audio_filter_test(data) { AudioFilters.onTest(data); },
+    video_test(data) { VideoTest.onState(data); },
+    replay_saved(data) { Replay.onSaved(data); },
+    replay_restarted() { Replay.onRestarted(); },
+    root_folders(msg) { Settings.renderHiddenFolders(msg); },
+    encoder_caps(data) { Settings.applyEncoderCaps(data); Export.applyEncoderCaps(data); },
+    // O `id` diz em qual card a barra vive (a tela pode estar fechada).
+    export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },
+    export_done(data) { Export.onDone(data); },
+    recording_state(data) {
+      // elapsedMs (fracao de segundo) quando vier; elapsed e o inteiro.
+      const el = typeof data.elapsedMs === 'number' ? data.elapsedMs / 1000 : data.elapsed;
+      applyRecordingState(data.active, el, data.sizeText,
+                          data.window || '', !!data.paused);
+    },
+    // Seletor "Gravar uma janela" (windowpicker.js).
+    capture_windows(data) { WindowPicker.onList(data); },
+    capture_window_thumb(data) { WindowPicker.onThumb(data); },
+    // O libobs ainda esta fechando o arquivo da gravacao anterior. Desabilita
+    // o botao: iniciar agora travaria a main thread no release do output.
+    recording_finalizing(data) { applyFinalizingState(!!data.active); },
+    // Sinal cedo do backend ao comecar HandleRecordStop — tocamos o som
+    // de parada AGORA em vez de esperar o flush dos buffers do MKV.
+    // Cobre o caso da hotkey/tray, onde o UI nao passa pelo toggleRecord.
+    recording_stopping() {
+      if (Settings && Settings.currentPlaySoundOnRecord)
+        RecordingSounds.playStop();
+    },
+    recording_added(data) {
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      addRecordingCard(data.item);
+    },
+    recording_renamed(data) { renameRecordingCard(data.oldId, data.newId, data.newName); },
+    recording_removed(data) {
+      if (typeof data.freeBytes === 'number') _lastFreeBytes = data.freeBytes;
+      removeRecordingCard(data.id);
+    },
+    error(data) {
+      console.error('Bridge error:', data.message);
+      // Toast nao-bloqueante. loadingText nao serve porque o loading
+      // some logo apos o erro (recording_state=false volta o estado
+      // normal) e a mensagem desaparece com ele.
+      Toast.show(T('toast.errorTitle'), data.message || T('toast.unknownError'),
+                 { warn: true, ttl: 8000 });
+    }
+  }
+};
+

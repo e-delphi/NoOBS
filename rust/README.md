@@ -11,24 +11,41 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 
 ## Compilar, rodar e empacotar
 
+Esta pasta é um projeto **independente** do Delphi da raiz: nada aqui lê
+arquivos de fora de `rust\`, e o Delphi não lê nada daqui.
+
+```
+rust\
+  src\                 código Rust
+  exe\                 runtime (mesmo layout do exe\ do Delphi)
+    bin\64bit\         obs.dll, DLLs do FFmpeg, NoOBS.exe, ui\, lang\
+    data\, obs-plugins\
+  build.bat            compila e põe o exe em exe\bin\64bit\NoOBS.exe
+  make-installer-rust.bat, installer.nsi, icon.ico
+```
+
 ```bat
-cd rust
-cargo build --release
-sync-runtime.bat
+build.bat
 exe\bin\64bit\NoOBS.exe
 ```
 
-`sync-runtime.bat` monta `rust\exe\` (fora do git): cópia do `exe\` do
-Delphi (`bin\64bit`, `data`, `obs-plugins`) com o exe do Rust como
-`NoOBS.exe` e **sem** o `WebView2Loader.dll` — o loader vem estático no exe
-(`WebView2LoaderStatic.lib`, via `webview2-com-sys`). UI e traduções
-continuam com a fonte em `exe\bin\64bit\`: editou lá, rode o script de
-novo. `sync-runtime.bat debug` usa o build de debug.
+`build.bat debug` usa o build de debug (compila mais rápido).
+`make-installer-rust.bat` chama o `build.bat` e gera
+`NoOBS-<versão>-rust.exe` nesta pasta (precisa do NSIS).
 
-O instalador sai de `make-installer-rust.bat` na raiz (compila, sincroniza e
-gera `NoOBS-<versão>-rust.exe`). Feche o NoOBS do Delphi antes de rodar o do
-Rust: os dois usam o mesmo mutex de instância única, o mesmo `config.json` e
-o mesmo cache.
+- **No git**: código, scripts, `installer.nsi`, `icon.ico`, e a UI (`ui\`) e
+  as traduções (`lang\`) desta versão, em `exe\bin\64bit\`. Elas são uma
+  cópia própria: mudança feita na UI do Delphi não chega aqui sozinha (e
+  vice-versa).
+- **Fora do git**: o OBS empacotado (DLLs, `data\`, `obs-plugins\`) e o
+  `NoOBS.exe` compilado. Numa máquina nova, copie o OBS portátil 32.1.2 pra
+  `exe\` (os mesmos arquivos do runtime do Delphi).
+- **Sem `WebView2Loader.dll`**: no alvo MSVC o `webview2-com-sys` liga o
+  `WebView2LoaderStatic.lib`, então o loader já vai dentro do exe.
+
+As duas versões instalam no mesmo lugar e com o mesmo nome: um instalador
+substitui o outro. Rodando lado a lado, feche uma antes de abrir a outra —
+usam o mesmo mutex de instância única, o mesmo `config.json` e o mesmo cache.
 
 ## Mapa Delphi → Rust
 

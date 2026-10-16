@@ -314,6 +314,14 @@ fn do_init() {
     library::scan_recordings_meta();
     log::log("DoInit: recordings ok");
     devices::do_init();
+    // Configurações JÁ no arranque, como o PushSettings do DoInit do Delphi.
+    // Sem isso a tela de Configurações abria com tudo desmarcado: com ela
+    // aberta o `applySettings` ignora a resposta do `get_settings` (protege o
+    // que o usuário está editando), então nada corrigia as caixas — e salvar
+    // gravava as opções ligadas como desligadas. Também deixa certos desde o
+    // início os valores que a UI usa fora da tela (som ao gravar etc.).
+    settings::push_settings();
+    recording::push_recording_state();
     // Refresh automático quando o usuário mexe na pasta pelo Explorer.
     library::start_record_watch();
     // Warmup do libobs com delay: a UI renderiza primeiro e a 1ª gravação fica

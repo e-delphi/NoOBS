@@ -693,7 +693,9 @@ static THUMB_BUSY: AtomicBool = AtomicBool::new(false);
 /// A prévia lê a tela INTEIRA por GDI, o que obriga o DWM a copiar a superfície
 /// da GPU pra memória — com um jogo rodando vira engasgo a cada tique. Só
 /// capturamos quando alguém pode estar olhando (pegadinha #22).
-/// TODO(WinRecIndicator): somar "app em tela cheia" (`FullscreenAppActive`).
+/// Inclui app em tela cheia na frente: o jogo cobre o NoOBS sem que ele esteja
+/// minimizado, e a visibilidade sozinha não pegaria (mesma regra e mesma chave
+/// `fullscreenDetect` do indicador).
 fn thumb_pause_reason() -> &'static str {
     use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindowVisible};
     if player_open_atomic() {
@@ -709,6 +711,9 @@ fn thumb_pause_reason() -> &'static str {
                 return "janela minimizada";
             }
         }
+    }
+    if crate::rec_indicator::fullscreen_app_active() {
+        return "app em tela cheia";
     }
     ""
 }

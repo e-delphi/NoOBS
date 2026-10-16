@@ -16,7 +16,7 @@ use serde_json::json;
 
 use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
-use crate::{config, encoder, lang, log, player, tray, ui, win_audio_meter, win_preview, win_webcam};
+use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, win_audio_meter, win_preview, win_webcam};
 
 use super::{devices, library, post_error, post_json, shell};
 
@@ -500,7 +500,10 @@ fn start_recording_inner() -> Result<(), String> {
         }
     }
     shell::maybe_notify_record("NoOBS", &lang::t("record.started"));
-    // TODO(WinRecIndicator): indicador de tela (`recIndicator`).
+    // Indicador NA TELA (opcional, padrão desligado), excluído da gravação.
+    if config::get_config_bool("recIndicator", false) {
+        show_rec_indicator_from_config();
+    }
     Ok(())
 }
 
@@ -529,7 +532,8 @@ pub fn handle_record_stop() {
     }
 
     ui::kill_timer(TIMER_RECORDING_TICK);
-    // TODO(WinRecIndicator): esconder o indicador de tela.
+    // Idempotente: no-op se não estava visível.
+    rec_indicator::hide();
 
     // O caminho já é conhecido (geramos no start). O arquivo só estará COMPLETO
     // quando o sinal "stop" do output disparar — por isso o card e a meta saem
@@ -606,7 +610,11 @@ pub fn handle_record_pause(pause: bool) {
             s.pause_at = None;
         }
     });
-    // TODO(WinRecIndicator): símbolo de pausa e tempo parado no indicador de tela.
+    if rec_indicator::is_showing() && rec_indicator::current_mode() == rec_indicator::Mode::Recording {
+        if let Some(start) = with_state(|s| s.recording_start) {
+            rec_indicator::set_paused(pause, start);
+        }
+    }
     shell::maybe_notify_record("NoOBS", &lang::t(if pause { "record.pausedNotify" } else { "record.resumedNotify" }));
     push_recording_state();
 }
@@ -654,6 +662,110 @@ pub fn on_engine_recording_stopped(output_path: &str) {
 // ---------------------------------------------------------------------------
 // Hotkey global
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Indicador de tela (WinRecIndicator) e bloqueio de tela
+// ---------------------------------------------------------------------------
+
+/// Mostra o indicador lendo TODAS as preferências (canto, opacidade, clique).
+/// Usado pelo start e pelos handlers das Configurações.
+pub fn show_rec_indicator_from_config() {
+    let (start, paused) = with_state(|s| (s.recording_start.unwrap_or_else(Instant::now), s.recording_paused));
+    rec_indicator::show(
+        rec_indicator::parse_corner(&config::get_config_str("recIndicatorCorner", "top-right")),
+        start,
+        config::get_config_int("recIndicatorOpacity", 90),
+        rec_indicator::Mode::Recording,
+        0,
+        config::get_config_bool("recIndicatorClickable", true),
+    );
+    // Mostrado (de novo) no meio de uma pausa: volta pausado.
+    if paused {
+        rec_indicator::set_paused(true, start);
+    }
+}
+
+/// Clique no overlay — chega DENTRO do `WndProc` dele, e o stop destrói essa
+/// janela: por isso é diferido para a fila da main.
+fn on_indicator_click() {
+    crate::mainthread::queue(|| {
+        if recording_active() {
+            log!("RecIndicator: clique no overlay — parando a gravacao.");
+            handle_record_stop();
+        }
+        // TODO(buffer, #62): no modo buffer o clique SALVA o trecho.
+    });
+}
+
+/// Callback do detector de bloqueio (thread dele). Só o LOCK age, e só com
+/// `stopOnLock` (lido aqui, não na criação: liga/desliga sem reiniciar).
+fn on_lock_changed(locked: bool) {
+    log!("LockDetector: sessao {}.", if locked { "bloqueada" } else { "desbloqueada" });
+    if !locked || !config::get_config_bool("stopOnLock", true) {
+        return;
+    }
+    crate::mainthread::queue(|| {
+        if super::is_shutting_down() || !recording_active() {
+            return;
+        }
+        log!("LockDetector: parando gravacao por bloqueio de tela.");
+        handle_record_stop();
+    });
+}
+
+/// `DoInit`: indicador e detector de bloqueio (sempre ativo: custo desprezível).
+pub fn init_indicator_and_lock() {
+    rec_indicator::set_fullscreen_detect(config::get_config_bool("fullscreenDetect", true));
+    rec_indicator::set_on_click(on_indicator_click);
+    lock_detector::start(on_lock_changed);
+}
+
+pub fn handle_set_rec_indicator(enable: bool) {
+    config::set_config_bool("recIndicator", enable);
+    log!("RecIndicator: {enable}");
+    // Gravando: aplica/remove na hora.
+    if recording_active() {
+        if enable {
+            show_rec_indicator_from_config();
+        } else {
+            rec_indicator::hide();
+        }
+    }
+}
+
+pub fn handle_set_rec_indicator_corner(corner: &str) {
+    config::set_config_str("recIndicatorCorner", corner);
+    log!("RecIndicatorCorner: {corner}");
+    if recording_active() && config::get_config_bool("recIndicator", false) && rec_indicator::is_showing() {
+        show_rec_indicator_from_config();
+    }
+}
+
+/// Slider ao vivo: aplica na janela existente sem recriar.
+pub fn handle_set_rec_indicator_opacity(pct: i32) {
+    config::set_config_int("recIndicatorOpacity", pct);
+    log!("RecIndicatorOpacity: {pct}");
+    if rec_indicator::is_showing() {
+        rec_indicator::set_opacity(pct);
+    }
+}
+
+/// Desligado, o clique atravessa o indicador (ele pode cobrir um botão).
+pub fn handle_set_rec_indicator_clickable(enable: bool) {
+    config::set_config_bool("recIndicatorClickable", enable);
+    log!("RecIndicatorClickable: {enable}");
+    if rec_indicator::is_showing() && rec_indicator::current_mode() == rec_indicator::Mode::Recording {
+        rec_indicator::set_clickable(enable);
+    }
+}
+
+/// Vale na hora: o indicador reavalia no tique de 500 ms; as prévias, no
+/// próximo ciclo.
+pub fn handle_set_fullscreen_detect(enable: bool) {
+    config::set_config_bool("fullscreenDetect", enable);
+    rec_indicator::set_fullscreen_detect(enable);
+    log!("Tela cheia: detectar = {enable}.");
+}
 
 pub fn on_hotkey(id: i32) {
     log!("Hotkey: id={id} disparado.");
@@ -736,6 +848,9 @@ pub fn install() {
 pub fn shutdown() {
     ui::unregister_global_hotkey(HK_RECORD_TOGGLE);
     ui::unregister_global_hotkey(HK_RECORD_TOGGLE_ALT);
+    // O overlay some junto com o app.
+    rec_indicator::hide();
+    lock_detector::stop();
     if engine::exists() {
         // Sync: no shutdown não há message loop para drenar o sinal.
         engine::with_engine(|e| {

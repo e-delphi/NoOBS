@@ -236,6 +236,11 @@ pub fn dispatch(raw: &str) {
         "set_notify_on_record" => shell::handle_set_config_bool("notifyOnRecord", bool_field(&msg, "enabled", false)),
         "set_play_sound_on_record" => shell::handle_set_config_bool("playSoundOnRecord", bool_field(&msg, "enabled", false)),
         "set_stop_on_lock" => shell::handle_set_config_bool("stopOnLock", bool_field(&msg, "enabled", false)),
+        "set_rec_indicator" => recording::handle_set_rec_indicator(bool_field(&msg, "enabled", false)),
+        "set_rec_indicator_corner" => recording::handle_set_rec_indicator_corner(str_field(&msg, "corner")),
+        "set_rec_indicator_opacity" => recording::handle_set_rec_indicator_opacity(int_field(&msg, "opacity", 90)),
+        "set_rec_indicator_clickable" => recording::handle_set_rec_indicator_clickable(bool_field(&msg, "enabled", true)),
+        "set_fullscreen_detect" => recording::handle_set_fullscreen_detect(bool_field(&msg, "enabled", true)),
         other => not_ported(other),
     }
 }
@@ -282,6 +287,8 @@ fn do_init() {
     recording::schedule_warmup();
     // Atalho global (falha de registro não é fatal — pegadinha #33).
     shell::apply_hotkey_from_config();
+    // Indicador de tela + parar ao bloquear a tela.
+    recording::init_indicator_and_lock();
     // Auto-gravação em chamadas (se ligada) e checagem diária de atualização.
     settings::start_mic_watch_if_enabled();
     settings::start_update_timer();

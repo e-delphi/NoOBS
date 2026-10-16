@@ -48,7 +48,9 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSAutostart`, `OBSElevate` | `autostart.rs`, `elevate.rs` | portado |
 | `WinMicWatch`, `WinProcWatch` | `mic_watch.rs`, `proc_watch.rs` (+ testes) | portado (usados pela hibernação; o bridge os liga junto com o buffer e a auto-gravação) |
 | `OBSVersion`, `OBSUpdate` | `version.rs` (+ testes), `update.rs` | portado (versão do `git describe` pelo `build.rs`; checagem diária ancorada às 6 h pelo WinHTTP) |
-| `WinRecIndicator`, `WinWindows`, `WinGpuUsage`, `NoOBSLockDetector` | — | a portar |
+| `WinRecIndicator` | `rec_indicator.rs` (+ testes) | portado (overlay excluído da captura — #49 —, modos gravação/buffer, pausa, sai da frente de tela cheia, clique opcional, bolinha por GDI+) |
+| `NoOBSLockDetector` | `lock_detector.rs` | portado (janela só-mensagens + `WTSRegisterSessionNotification`) |
+| `WinWindows`, `WinGpuUsage` | — | a portar |
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)
 

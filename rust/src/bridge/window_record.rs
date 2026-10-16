@@ -127,12 +127,17 @@ pub fn handle_record_window(id: &str, app_audio: bool) {
         return;
     };
     log!("HandleRecordWindow: \"{}\" [{} / {}] somDoApp={app_audio}.", w.title, w.exe, w.class_name);
+    // Tamanho lido AGORA, como o Delphi (GetCaptureWindowSize no
+    // BuildCaptureGraph): a janela pode ter sido redimensionada ou minimizada
+    // depois de a lista ser montada. Sem tamanho legível o engine cai no
+    // canvas 1920x1080.
+    let (width, height) = win_windows::capture_window_size(w.handle).unwrap_or((0, 0));
     recording::set_recording_window(Some(WindowCapture {
         spec: w.spec.clone(),
         title: w.title.clone(),
         handle: w.handle,
-        width: w.width,
-        height: w.height,
+        width,
+        height,
         audio: app_audio,
         app: w.app_name(),
     }));

@@ -183,11 +183,19 @@ pub fn fullscreen_app_active() -> bool {
 
 /// 20..100% → alfa 51..255 (abaixo de 20% seria invisível demais).
 fn opacity_to_alpha(pct: i32) -> u8 {
-    (pct.clamp(20, 100) * 255 / 100) as u8
+    mul_div(pct.clamp(20, 100), 255, 100) as u8
+}
+
+/// `MulDiv` do Win32 (o que o Delphi usava): arredonda ao inteiro mais
+/// próximo em vez de truncar — em 120 DPI, 6 px lógicos são 8, não 7.
+fn mul_div(v: i32, num: i32, den: i32) -> i32 {
+    let p = v as i64 * num as i64;
+    let half = den as i64 / 2;
+    (if p >= 0 { (p + half) / den as i64 } else { (p - half) / den as i64 }) as i32
 }
 
 fn sx(dpi: i32, v: i32) -> i32 {
-    v * dpi / 96
+    mul_div(v, dpi, 96)
 }
 
 fn elapsed_str(s: &State) -> String {
@@ -574,5 +582,7 @@ mod tests {
         assert_eq!(opacity_to_alpha(5), 51);
         assert_eq!(opacity_to_alpha(100), 255);
         assert_eq!(opacity_to_alpha(150), 255);
+        assert_eq!(opacity_to_alpha(90), 230);
+        assert_eq!(sx(120, 6), 8);
     }
 }

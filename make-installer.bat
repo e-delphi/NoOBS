@@ -19,6 +19,9 @@ REM  ENTRA no nome de proposito: build de dev nao pode parecer release.
 REM
 REM  Este .bat NAO compila o Delphi (a Community Edition nao compila por
 REM  linha de comando). Compile em Release/Win64 no RAD Studio antes.
+REM
+REM  A versao Rust usa o make-installer-rust.bat, que compila e chama este
+REM  com NOOBS_RUNTIME (pasta do runtime) e NOOBS_FLAVOR (sufixo do nome).
 REM ---------------------------------------------------------------------
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -36,12 +39,21 @@ if not defined MAKENSIS (
 )
 
 REM --- 2) O exe precisa existir ------------------------------------------
-REM  O instalador empacota exe\bin\64bit\*.* inteiro; sem o NoOBS.exe ali
-REM  o pacote sairia "valido" e sem o aplicativo dentro.
-set "APPEXE=exe\bin\64bit\NoOBS.exe"
+REM  Sem ele o pacote sairia "valido" e sem o aplicativo dentro.
+REM  NOOBS_RUNTIME / NOOBS_FLAVOR vem do make-installer-rust.bat: a pasta
+REM  do runtime (rust\exe) e o sufixo do nome. Sem eles, exe\ do Delphi.
+set "RUNTIME=exe"
+if defined NOOBS_RUNTIME set "RUNTIME=%NOOBS_RUNTIME%"
+set "APPEXE=%RUNTIME%\bin\64bit\NoOBS.exe"
+set "FLAVOR="
+if defined NOOBS_FLAVOR set "FLAVOR=-%NOOBS_FLAVOR%"
 if not exist "%APPEXE%" (
   echo [make-installer] ERRO: %APPEXE% nao existe.
-  echo                  Compile em Release/Win64 no RAD Studio antes de empacotar.
+  if defined NOOBS_RUNTIME (
+    echo                  Rode cargo build --release e rust\sync-runtime.bat antes.
+  ) else (
+    echo                  Compile em Release/Win64 no RAD Studio antes de empacotar.
+  )
   exit /b 1
 )
 
@@ -69,8 +81,9 @@ if defined DEV echo [make-installer] AVISO: build de desenvolvimento ^(fora de u
 
 REM  O exe carrega o APP_VERSION do momento em que foi COMPILADO. Se a tag
 REM  mudou depois disso, o nome do instalador e a tela "Sobre" divergem.
+REM  So vale pro Delphi: o Rust tira a versao do git describe no build.
 set "INCVER="
-if exist "src\Version.inc" for /f "tokens=2 delims='" %%v in ('type "src\Version.inc"') do set "INCVER=%%v"
+if not defined NOOBS_RUNTIME if exist "src\Version.inc" for /f "tokens=2 delims='" %%v in ('type "src\Version.inc"') do set "INCVER=%%v"
 if defined INCVER if /i not "v!INCVER!"=="!VER!" if /i not "!INCVER!"=="!VER!" (
   echo [make-installer] AVISO: o exe foi compilado como !INCVER! e o instalador vai sair como !VER!.
   echo                  Recompile no RAD Studio se quiser os dois iguais.
@@ -79,11 +92,11 @@ if defined INCVER if /i not "v!INCVER!"=="!VER!" if /i not "!INCVER!"=="!VER!" (
 REM --- 5) Gera ------------------------------------------------------------
 REM  Apaga um arquivo homonimo antes: se o makensis falhar, a sobra de uma
 REM  execucao anterior pareceria o instalador recem-gerado.
-set "OUT=NoOBS-!VER!.exe"
+set "OUT=NoOBS-!VER!!FLAVOR!.exe"
 if exist "!OUT!" erase /q "!OUT!"
 
-echo [make-installer] gerando !OUT! ...
-"%MAKENSIS%" /DOUTFILE=!OUT! installer.nsi
+echo [make-installer] gerando !OUT! com !APPEXE! ...
+"%MAKENSIS%" /DOUTFILE=!OUT! "/DRUNTIME=!RUNTIME!" installer.nsi
 if errorlevel 1 (
   echo [make-installer] ERRO: makensis falhou.
   exit /b 1

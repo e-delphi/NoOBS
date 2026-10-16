@@ -41,7 +41,8 @@ pub fn validate_runtime() -> Vec<Missing> {
 
     // -- críticos
     check(exe.join("obs.dll"), false, Kind::Critical, "Core libobs — sem ele não dá pra gravar.");
-    check(exe.join("WebView2Loader.dll"), false, Kind::Critical, "Loader do WebView2 — a UI não abre sem isso.");
+    // Sem `WebView2Loader.dll`: no alvo MSVC o `webview2-com-sys` liga o
+    // `WebView2LoaderStatic.lib`, então o loader já está dentro do exe.
     // FFmpeg: caminho único de toda operação de mídia (probe/remux/extract/thumb).
     check(exe.join("avcodec-61.dll"), false, Kind::Critical, "avcodec — decoders/encoders.");
     check(exe.join("avformat-61.dll"), false, Kind::Critical, "avformat — leitura/escrita de containers (MKV/MP4).");

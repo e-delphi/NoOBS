@@ -4178,6 +4178,20 @@ O nome sai certo de primeira, sem renomear depois: o `OutFile` do
 passa `/DOUTFILE=...` pro makensis (compilar o `.nsi` na mão continua
 funcionando). Se o makensis falhar, não sobra arquivo com nome de release.
 
+**Versão Rust** (porte em `rust\`, ver `rust\README.md`): `make-installer-rust.bat`
+compila em release, monta `rust\exe\` (`rust\sync-runtime.bat`) e chama o
+mesmo `make-installer.bat` com `NOOBS_RUNTIME=rust\exe` e o sufixo `-rust`
+no nome (`NoOBS-<versão>-rust.exe`). O `installer.nsi` lê o runtime de
+`${RUNTIME}` (padrão `exe`) e instala o exe dessa pasta como `NoOBS.exe` — o
+nome que a detecção do app rodando, os atalhos e a entrada de Run usam. Os
+dois instaladores vão pro MESMO lugar: um substitui o outro.
+
+`rust\exe\` é cópia do `exe\` fora do git (robocopy `/MIR`), com o exe do
+Rust no lugar do Delphi e SEM o `WebView2Loader.dll`: no alvo MSVC o
+`webview2-com-sys` liga o `WebView2LoaderStatic.lib`, então o loader já
+está dentro do exe. A UI e o `lang\` continuam com a fonte da verdade em
+`exe\bin\64bit\` — editou lá, rode o `sync-runtime.bat` de novo.
+
 Logs em `%LOCALAPPDATA%\NoOBS\logs\NoOBS_<data>.log` (um por dia, mantém 3
 dias). Tail do mais recente em PowerShell:
 

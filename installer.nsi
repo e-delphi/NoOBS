@@ -14,6 +14,13 @@ Name "NoOBS"
   !define OUTFILE "NoOBS-Setup.exe"
 !endif
 OutFile "${OUTFILE}"
+; De qual pasta sai o runtime (bin\64bit, data, obs-plugins): "exe" do
+; Delphi (padrao) ou "rust\exe" da versao Rust (make-installer-rust.bat
+; passa /DRUNTIME=rust\exe; a pasta e montada pelo rust\sync-runtime.bat,
+; sem o WebView2Loader.dll, que o exe do Rust ja traz estatico).
+!ifndef RUNTIME
+  !define RUNTIME "exe"
+!endif
 InstallDir "$LOCALAPPDATA\NoOBS"
 InstallDirRegKey HKCU "Software\NoOBS" "InstallDir"
 RequestExecutionLevel user
@@ -219,13 +226,16 @@ Section "NoOBS" SecMain
     SetAutoClose true
 
     SetOutPath "$INSTDIR\bin\64bit"
-    File /r "exe\bin\64bit\*.*"
+    ; O exe do app entra explicito, e copias de teste na pasta
+    ; (noobs-rust.exe, NoOBS-delphi.exe...) ficam de fora.
+    File /r /x NoOBS.exe /x noobs-*.exe /x NoOBS-*.exe "${RUNTIME}\bin\64bit\*.*"
+    File "${RUNTIME}\bin\64bit\NoOBS.exe"
 
     SetOutPath "$INSTDIR\data"
-    File /r "exe\data\*.*"
+    File /r "${RUNTIME}\data\*.*"
 
     SetOutPath "$INSTDIR\obs-plugins"
-    File /r "exe\obs-plugins\*.*"
+    File /r "${RUNTIME}\obs-plugins\*.*"
 
     ; Pasta de traducoes ja foi instalada via `File /r "exe\bin\64bit\*.*"`
     ; acima — a subpasta lang\*.json e parte de exe\bin\64bit\. Sem

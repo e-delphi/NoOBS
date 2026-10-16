@@ -6,8 +6,29 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 `postMessage` UI ↔ backend — a UI não muda.
 
 > Compila no Windows (`cargo build` em `rust/`; o `build.rs` usa o `rc.exe`
-> do Windows SDK para embutir o ícone) e roda ao lado da `obs.dll`, em
-> `exe\bin\64bit\`. `cargo test` cobre o que não depende das DLLs.
+> do Windows SDK para embutir o ícone) e roda ao lado da `obs.dll`.
+> `cargo test` cobre o que não depende das DLLs.
+
+## Compilar, rodar e empacotar
+
+```bat
+cd rust
+cargo build --release
+sync-runtime.bat
+exe\bin\64bit\NoOBS.exe
+```
+
+`sync-runtime.bat` monta `rust\exe\` (fora do git): cópia do `exe\` do
+Delphi (`bin\64bit`, `data`, `obs-plugins`) com o exe do Rust como
+`NoOBS.exe` e **sem** o `WebView2Loader.dll` — o loader vem estático no exe
+(`WebView2LoaderStatic.lib`, via `webview2-com-sys`). UI e traduções
+continuam com a fonte em `exe\bin\64bit\`: editou lá, rode o script de
+novo. `sync-runtime.bat debug` usa o build de debug.
+
+O instalador sai de `make-installer-rust.bat` na raiz (compila, sincroniza e
+gera `NoOBS-<versão>-rust.exe`). Feche o NoOBS do Delphi antes de rodar o do
+Rust: os dois usam o mesmo mutex de instância única, o mesmo `config.json` e
+o mesmo cache.
 
 ## Mapa Delphi → Rust
 

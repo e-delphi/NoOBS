@@ -108,11 +108,11 @@ pub fn install(hwnd: HWND, tooltip: &str) {
         log::log("Tray: Shell_NotifyIconW(NIM_ADD) falhou.");
         return;
     }
-    // O ícone pode nascer DEPOIS de a gravação começar: o start chama
-    // `set_recording(true)` com a janela ainda visível (sem ícone, no-op) e só
-    // então o "minimizar ao gravar" esconde a janela e cria o ícone. Sem isto a
-    // 1ª gravação da sessão ficava sem a bolinha na bandeja (a 2ª tinha, porque
-    // o ícone já existia). O Delphi tem o mesmo caminho.
+    // Rede de segurança: o ícone pode nascer DEPOIS de a gravação começar (o
+    // start chama `set_recording(true)`, e sem ícone isso é no-op). Com
+    // `closeToTray` o ícone já nasce no `do_init`, como no Delphi; isto cobre
+    // o resto (ligar a bandeja nas Configurações no meio de uma gravação, ou
+    // um ícone recriado depois).
     if with(|s| s.cb.on_is_recording).is_some_and(|f| f()) {
         set_recording(true);
     }

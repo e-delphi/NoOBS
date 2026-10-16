@@ -339,6 +339,47 @@ fn do_init() {
     replay::do_init();
     settings::start_update_timer();
     log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
+    // Com "minimizar pra bandeja ao fechar" ligado, o ícone fica na bandeja
+    // mesmo com a janela aberta (avisa que o [X] vai pra bandeja) — como o
+    // DoInit do Delphi. Sem ele, o ícone só nascia quando a 1ª gravação
+    // escondia a janela, e nascia sem a bolinha de gravando.
+    if config::get_config_bool("closeToTray", true) {
+        ui::ensure_tray_icon();
+    }
+    // 1ª execução depois de instalar: abre as Configurações pro usuário ajustar
+    // antes de começar a usar.
+    if consume_first_run_flag() {
+        log::log("DoInit: primeira execucao detectada — abrindo Configuracoes.");
+        post_json(json!({ "type": "open_settings" }));
+    }
+}
+
+/// `HKCU\Software\NoOBS\FirstRun` = 1 (escrito pelo instalador na instalação):
+/// devolve true UMA vez e apaga o valor.
+fn consume_first_run_flag() -> bool {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegDeleteKeyValueW, RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut value = 0u32;
+    let mut size = 4u32;
+    let found = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\NoOBS"),
+            w!("FirstRun"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut _),
+            Some(&mut size),
+        )
+    }
+    .is_ok();
+    if !found || value != 1 {
+        return false;
+    }
+    unsafe {
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, w!("Software\\NoOBS"), w!("FirstRun"));
+    }
+    true
 }
 
 /// Resolve o tema configurado: `system` (segue o SO), `dark` ou `light`.

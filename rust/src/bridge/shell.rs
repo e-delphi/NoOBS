@@ -226,7 +226,8 @@ pub fn handle_set_close_to_tray(enable: bool) {
     log!("CloseToTray: {enable}");
     if enable {
         ui::ensure_tray_icon();
-    } else if ui::is_window_shown() {
+    } else if ui::is_window_visible() {
+        // Minimizada conta: ela continua acessível pela taskbar.
         ui::remove_tray_icon();
     }
 }

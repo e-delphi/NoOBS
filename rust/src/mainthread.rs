@@ -49,7 +49,14 @@ pub fn drain() {
         // Solta o lock antes de rodar: o job pode enfileirar outro.
         let job = QUEUE.lock().unwrap_or_else(|p| p.into_inner()).pop_front();
         match job {
-            Some(job) => job(),
+            // Falha numa tarefa não derruba o app nem as seguintes (o
+            // CheckSynchronize do Delphi engole a exceção do mesmo jeito). O
+            // hook de panic já registrou o motivo no log.
+            Some(job) => {
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+                    crate::log::log("MainThread: tarefa enfileirada falhou (ver PANIC acima) — seguindo.");
+                }
+            }
             None => break,
         }
     }

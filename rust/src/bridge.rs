@@ -43,6 +43,8 @@ pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 /// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
 /// Delphi buscava com `TInterlocked`.
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+/// O `do_init` completo já rodou (o `Initialized` do Delphi).
+static INIT_DONE: AtomicBool = AtomicBool::new(false);
 
 pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
@@ -68,6 +70,13 @@ pub fn install_hooks() {
 
 /// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
 fn on_timer(id: usize) {
+    // Como o try/except do OnTimer do Delphi: um timer que falha não derruba o app.
+    if std::panic::catch_unwind(|| on_timer_inner(id)).is_err() {
+        log!("OnTimer: excecao no timer {id} (ver PANIC acima) — seguindo.");
+    }
+}
+
+fn on_timer_inner(id: usize) {
     if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) {
         return;
     }
@@ -137,7 +146,16 @@ fn int_field(obj: &Value, key: &str, default: i32) -> i32 {
 }
 
 /// Entrada única das mensagens vindas do JS.
+/// Uma falha num handler não derruba o app: registra e segue, como o
+/// `try/except` do `Dispatch` do Delphi ("excecao no handler").
 pub fn dispatch(raw: &str) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch_inner(raw))).is_err() {
+        let ty = serde_json::from_str::<Value>(raw).ok().map(|m| str_field(&m, "type").to_owned()).unwrap_or_default();
+        log!("Dispatch: excecao no handler type=\"{ty}\" (ver PANIC acima) — seguindo.");
+    }
+}
+
+fn dispatch_inner(raw: &str) {
     let Ok(msg) = serde_json::from_str::<Value>(raw) else {
         log::log("Dispatch: payload não é JSON — descartado.");
         return;
@@ -292,6 +310,20 @@ fn not_ported(ty: &str) {
 /// hot-plug) + warmup do libobs. O servidor do player, a biblioteca e os
 /// watchers de pasta/mic/apps entram com os módulos que os têm.
 fn do_init() {
+    // Segundo `ready` (página recarregada — o WebView2 recria o processo da
+    // página): só reenvia o que uma página nova precisa, sem religar watchers,
+    // timers, fila de transcrição e o resto — como o `if Initialized` do
+    // Delphi, mais as configurações e o ícone (sem elas a página recarregada
+    // abriria as Configurações com tudo desmarcado).
+    if INIT_DONE.swap(true, Ordering::SeqCst) {
+        log::log("DoInit: ja inicializado — re-push para a pagina nova.");
+        push_theme();
+        push_app_icon();
+        devices::do_init();
+        settings::push_settings();
+        recording::push_recording_state();
+        return;
+    }
     shell::set_ui_ready();
     push_theme();
     push_app_icon();

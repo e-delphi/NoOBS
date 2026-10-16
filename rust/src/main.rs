@@ -65,6 +65,19 @@ fn main() {
     let cmd = win::cmdline_lower();
     let hibernate = cmd.contains("/hibernate");
     log::init_log(hibernate);
+    // Toda falha (panic) vai pro log do NoOBS com o local exato, em qualquer
+    // thread. Antes nada ficava registrado: o app sumia e o log parava no meio.
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_owned())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "(sem mensagem)".into());
+        let loc = info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_default();
+        let th = std::thread::current();
+        log!("PANIC em {loc} (thread {}): {msg}", th.name().unwrap_or("?"));
+    }));
     log!("===== NoOBS startup =====");
     log!("Dispatcher: cmdline=\"{cmd}\"");
 

@@ -267,6 +267,14 @@ pub fn start_replay_requested() -> bool {
 }
 
 /// Janela visível e não minimizada.
+/// `IsWindowVisible` puro: MINIMIZADA conta como visível (o botão está na
+/// taskbar). É a regra do Delphi pra "esconder ao gravar" e pra tirar o ícone
+/// da bandeja — ao contrário de [`is_window_shown`], que exclui minimizada.
+pub fn is_window_visible() -> bool {
+    let hwnd = main_window();
+    !hwnd.0.is_null() && unsafe { IsWindowVisible(hwnd).as_bool() }
+}
+
 pub fn is_window_shown() -> bool {
     let hwnd = main_window();
     !hwnd.0.is_null() && unsafe { IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() }

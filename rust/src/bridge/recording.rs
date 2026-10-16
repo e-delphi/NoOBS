@@ -523,8 +523,10 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     push_recording_state();
     // Minimizar ao gravar (padrão ligado): a bandeja com closeToTray, senão a
     // taskbar. Lembra se estava visível para restaurar no stop — quem já tinha
-    // escondido à mão não quer a janela pulando de volta.
-    let visible = ui::is_window_shown();
+    // escondido à mão não quer a janela pulando de volta. Minimizada CONTA
+    // como visível (IsWindowVisible, como no Delphi): ela vai pra bandeja e
+    // volta no stop.
+    let visible = ui::is_window_visible();
     with_state(|s| s.window_was_visible_before_record = false);
     if config::get_config_bool("minimizeOnRecord", true) && visible {
         with_state(|s| s.window_was_visible_before_record = true);

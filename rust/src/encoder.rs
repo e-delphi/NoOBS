@@ -185,12 +185,29 @@ pub fn plan_constant_quality(id: &str, level: i32, max_bitrate_kbps: i32) -> Set
 /// Aplica o plano num `obs_data_t` (libobs, main thread).
 pub fn apply_constant_quality(settings: &ObsData, id: &str, level: i32) {
     let max = config::get_config_int("recordingMaxBitrate", DEFAULT_MAX_BITRATE);
+    let mut applied = Vec::new();
     for (key, value) in plan_constant_quality(id, level, max) {
         match value {
-            Setting::Str(s) => settings.set_string(key, s),
-            Setting::Int(n) => settings.set_int(key, n),
+            Setting::Str(s) => {
+                settings.set_string(key, s);
+                applied.push(format!("{key}={s}"));
+            }
+            Setting::Int(n) => {
+                settings.set_int(key, n);
+                applied.push(format!("{key}={n}"));
+            }
         }
     }
+    // O que FOI aplicado no encoder — é a linha que se procura no log quando a
+    // qualidade/tamanho sai estranho (pegadinha #53). NVENC e QSV ainda não
+    // têm tabela medida: reescala linear.
+    let lower = id.to_lowercase();
+    let calibrated = !(lower.contains("nvenc") || lower.contains("qsv"));
+    log!(
+        "Encoder rc: {} (nivel {level}, {})",
+        applied.join(" "),
+        if calibrated { "calibrado" } else { "NAO calibrado" }
+    );
 }
 
 /// Maior dimensão aceita pelo encoder que SERÁ criado (pegadinha #7).

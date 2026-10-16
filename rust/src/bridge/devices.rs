@@ -640,7 +640,7 @@ fn push_audio_meters_from_win() {
 /// duas razões de uma faixa estar muda: `mudo = desmarcado na tela OU endpoint
 /// mudo`. O termo do endpoint sai da conta com a opção desligada, para desligá-la
 /// no meio DESFAZER o mudo que ela aplicou (pegadinha #59).
-fn sync_mic_mute_from_endpoints() {
+pub fn sync_mic_mute_from_endpoints() {
     // O buffer em memória grava as mesmas fontes: o mudo vale pra ele também.
     if !(recording_active() || engine::with_engine(|e| e.is_replay_active()).unwrap_or(false)) {
         return;

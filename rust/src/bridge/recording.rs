@@ -108,6 +108,11 @@ pub fn set_started_by_mic_watch(v: bool) {
     with_state(|s| s.started_by_mic_watch = v);
 }
 
+/// A gravação em curso foi iniciada pelo watcher de mic (só ela é auto-parada).
+pub fn started_by_mic_watch() -> bool {
+    with_state(|s| s.started_by_mic_watch)
+}
+
 /// Janela escolhida no seletor "Gravar uma janela"; `None` volta às telas.
 pub fn set_recording_window(w: Option<WindowCapture>) {
     with_state(|s| s.window = w);

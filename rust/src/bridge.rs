@@ -24,6 +24,7 @@ pub mod export;
 mod filters;
 mod library;
 mod recording;
+mod settings;
 mod shell;
 pub mod transcribe;
 
@@ -64,7 +65,7 @@ pub fn install_hooks() {
 
 /// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
 fn on_timer(id: usize) {
-    if recording::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) {
+    if recording::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -78,6 +79,10 @@ pub fn shutdown() {
         return;
     }
     log::log("Shutdown: inicio");
+    ui::kill_timer(settings::TIMER_UPDATE_CHECK);
+    ui::kill_timer(TIMER_HIBERNATE_IDLE);
+    crate::mic_watch::stop();
+    crate::proc_watch::stop();
     filters::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
@@ -202,6 +207,22 @@ pub fn dispatch(raw: &str) {
         "search_transcripts" => transcribe::handle_search_transcripts(str_field(&msg, "query")),
         "get_root_folders" => transcribe::push_root_folders(),
         "set_folder_hidden" => transcribe::handle_set_folder_hidden(str_field(&msg, "name"), bool_field(&msg, "hidden", false)),
+        "get_settings" => settings::push_settings(),
+        "set_codec" => settings::handle_set_codec(str_field(&msg, "codec")),
+        "set_recording_quality" => settings::handle_set_recording_quality(int_field(&msg, "level", 0)),
+        "set_recording_fps" => settings::handle_set_recording_fps(int_field(&msg, "fps", 0)),
+        "set_recording_keyframe" => settings::handle_set_recording_keyframe(int_field(&msg, "sec", 0)),
+        "set_audio_bitrate" => settings::handle_set_audio_bitrate(int_field(&msg, "kbps", 0)),
+        "set_filename_pattern" => settings::handle_set_filename_pattern(str_field(&msg, "pattern")),
+        "set_mute_when_device_muted" => settings::handle_set_mute_when_device_muted(bool_field(&msg, "enabled", false)),
+        "pick_record_dir" => settings::handle_pick_record_dir(),
+        "set_record_dir" => settings::handle_set_record_dir(str_field(&msg, "path")),
+        "set_library_thumbs" => settings::handle_set_library_thumbs(str_field(&msg, "mode")),
+        "set_auto_record_on_mic" => settings::handle_set_auto_record_on_mic(bool_field(&msg, "enabled", false)),
+        "set_auto_record_mic_apps" => settings::handle_set_auto_record_mic_apps(str_field(&msg, "apps")),
+        "set_auto_record_mic_except" => settings::handle_set_auto_record_mic_except(str_field(&msg, "apps")),
+        "check_updates" => settings::handle_check_updates(),
+        "set_check_updates" => settings::handle_set_check_updates(bool_field(&msg, "enabled", false)),
         "tray_show" => shell::handle_tray_show(),
         "toggle_fullscreen" => ui::toggle_fullscreen(),
         "set_window_title" => shell::handle_set_window_title(str_field(&msg, "title")),
@@ -261,6 +282,9 @@ fn do_init() {
     recording::schedule_warmup();
     // Atalho global (falha de registro não é fatal — pegadinha #33).
     shell::apply_hotkey_from_config();
+    // Auto-gravação em chamadas (se ligada) e checagem diária de atualização.
+    settings::start_mic_watch_if_enabled();
+    settings::start_update_timer();
     log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
 }
 

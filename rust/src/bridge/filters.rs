@@ -27,7 +27,7 @@ pub fn install() {
     engine::set_mic_filter_hook(audio_filters::apply_audio_filters);
 }
 
-fn ensure_obs_for_audio_filters() -> bool {
+pub(super) fn ensure_obs_for_audio_filters() -> bool {
     engine::ensure_created();
     if let Err(e) = with_engine_result(|e| e.ensure_initialized()) {
         log!("AudioFilters: libobs nao subiu: {e}");

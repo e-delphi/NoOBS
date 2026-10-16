@@ -29,7 +29,7 @@ const RECORDING_TICK_MS: u32 = 1000;
 const OBS_WARMUP_DELAY_MS: u32 = 1500;
 /// Se o sinal "stop" nunca chegar (muxer travado, crash interno), força a
 /// finalização depois deste prazo para não deixar a gravação "presa".
-const STOP_TIMEOUT_MS: u32 = 10_000;
+pub(super) const STOP_TIMEOUT_MS: u32 = 10_000;
 
 /// Hotkeys globais (`HK_*` do Delphi).
 pub const HK_RECORD_TOGGLE: i32 = 100;
@@ -383,6 +383,13 @@ pub fn handle_record_start() {
     if recording_active() {
         return;
     }
+    // A amostra do teste de qualidade está ocupando a captura (5 s).
+    if super::video_test::capturing() {
+        log!("HandleRecordStart: ignorado — teste de qualidade capturando.");
+        post_error(lang::t("settings.videoTest.busyRecord"));
+        with_state(|s| s.window = None);
+        return;
+    }
     // Gravação em curso = não hibernar.
     ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
 
@@ -652,6 +659,12 @@ pub fn handle_record_pause(pause: bool) {
 pub fn on_engine_recording_stopped(output_path: &str) {
     ui::kill_timer(TIMER_STOP_TIMEOUT);
     log!("OnEngineRecordingStopped: path=\"{output_path}\"");
+    // A amostra do teste de qualidade usa o mesmo caminho de gravação, mas não
+    // é gravação do usuário: nada de meta, card nem transcrição.
+    if super::video_test::capturing() {
+        super::video_test::on_recorded(output_path);
+        return;
+    }
     // Arquivo íntegro: libera o botão de gravar.
     push_finalizing(false);
     if output_path.is_empty() {

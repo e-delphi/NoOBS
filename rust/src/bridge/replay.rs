@@ -376,6 +376,10 @@ pub fn start_replay_buffer() {
     if replay_active() || recording::recording_active() {
         return;
     }
+    // O teste de qualidade religa o buffer no fim da captura, se preciso.
+    if super::video_test::capturing() {
+        return;
+    }
     // Gravação ainda finalizando: o fim dela chama de novo.
     if engine::with_engine(|e| e.is_stopping()).unwrap_or(false) {
         return;

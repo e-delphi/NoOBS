@@ -9,11 +9,10 @@
 //! muda: a UI em `exe\bin\64bit\ui\` é a mesma.
 //!
 //! ## Estado do porte
-//! Implementados: `ready`/init, tema, idioma, toggles de dispositivo,
-//! `open_url`, `ui_log`. Os demais tipos caem em [`not_ported`], que registra
-//! no log e devolve um erro à UI — os handlers de gravação/exportação/
-//! transcrição dependem do `OBSEngine`/`FFmpegOps`/`FFmpegExport`/
-//! `OBSTranscribe`, ainda não portados (ver `rust/README.md`).
+//! Todos os tipos do `Dispatch` do Delphi têm handler, espalhados pelos
+//! submódulos (gravação, dispositivos, biblioteca, pastas, exportação,
+//! transcrição, buffer, filtros, janela, teste de vídeo, shell, settings). Um
+//! tipo desconhecido cai em [`not_ported`], que só registra no log.
 
 use serde_json::{json, Value};
 
@@ -29,6 +28,8 @@ mod replay;
 mod settings;
 mod shell;
 pub mod transcribe;
+mod video_test;
+mod window_record;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -67,7 +68,7 @@ pub fn install_hooks() {
 
 /// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
 fn on_timer(id: usize) {
-    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) {
+    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -85,6 +86,7 @@ pub fn shutdown() {
     ui::kill_timer(TIMER_HIBERNATE_IDLE);
     crate::mic_watch::stop();
     crate::proc_watch::stop();
+    video_test::shutdown();
     replay::shutdown();
     filters::shutdown();
     devices::shutdown();
@@ -270,6 +272,10 @@ pub fn dispatch(raw: &str) {
         "set_rec_indicator_opacity" => recording::handle_set_rec_indicator_opacity(int_field(&msg, "opacity", 90)),
         "set_rec_indicator_clickable" => recording::handle_set_rec_indicator_clickable(bool_field(&msg, "enabled", true)),
         "set_fullscreen_detect" => recording::handle_set_fullscreen_detect(bool_field(&msg, "enabled", true)),
+        "list_capture_windows" => window_record::handle_list_capture_windows(),
+        "record_window" => window_record::handle_record_window(str_field(&msg, "id"), bool_field(&msg, "appAudio", false)),
+        "test_video_quality" => video_test::handle_test_video_quality(),
+        "cancel_video_test" => video_test::handle_cancel_video_test(),
         other => not_ported(other),
     }
 }

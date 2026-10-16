@@ -57,6 +57,7 @@ mod win_http;
 mod win_proc;
 mod win_preview;
 mod win_webcam;
+mod win_windows;
 
 fn main() {
     // Dispatch entre o modo "full" (UI + libobs + watchers) e o "hibernate"

@@ -238,6 +238,11 @@ dll_api! {
     fn obs_output_start(output: ObsOutput) -> bool;
     fn obs_output_stop(output: ObsOutput);
     fn obs_output_active(output: ObsOutput) -> bool;
+    // Pausa/retoma uma saída com OBS_OUTPUT_CAN_PAUSE (o ffmpeg_muxer tem). A
+    // pausa é nos ENCODERS da saída: o intervalo pausado não vira pacote e os
+    // timestamps seguintes são descontados dele (obs-output.c).
+    fn obs_output_pause(output: ObsOutput, pause: bool) -> bool;
+    fn obs_output_paused(output: ObsOutput) -> bool;
     fn obs_output_get_last_error(output: ObsOutput) -> *const c_char;
 
     // sinais e procedimentos (stop assíncrono — #41; replay_buffer — #62)

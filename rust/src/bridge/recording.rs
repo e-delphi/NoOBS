@@ -54,6 +54,31 @@ struct RecState {
     last_encoder_caps: Option<EncoderCaps>,
     /// A UI foi avisada de "finalizando" e ainda espera o fim.
     finalizing: bool,
+    /// Gravação pausada (`obs_output_pause`). O relógio da gravação para em
+    /// `pause_at` e, ao retomar, o `recording_start` anda pra frente o tempo
+    /// pausado — assim todo lugar que faz "agora - início" (tela, indicador,
+    /// duração do card) continua certo sem saber da pausa.
+    recording_paused: bool,
+    pause_at: Option<Instant>,
+}
+
+impl RecState {
+    /// "Agora" no relógio da gravação: parado no instante da pausa enquanto ela
+    /// durar.
+    fn now_tick(&self) -> Instant {
+        match (self.recording_paused, self.pause_at) {
+            (true, Some(t)) => t,
+            _ => Instant::now(),
+        }
+    }
+
+    /// Tempo gravado, já sem as pausas. Zero fora da gravação.
+    fn elapsed(&self) -> std::time::Duration {
+        match (self.recording_active, self.recording_start) {
+            (true, Some(t)) => self.now_tick().saturating_duration_since(t),
+            _ => std::time::Duration::ZERO,
+        }
+    }
 }
 
 thread_local! {
@@ -237,15 +262,20 @@ pub fn push_refresh_busy(busy: bool, what: &str) {
 }
 
 pub fn push_recording_state() {
-    let (active, elapsed, window, path) = with_state(|s| {
-        let elapsed = match (s.recording_active, s.recording_start) {
-            (true, Some(t)) => t.elapsed().as_secs() as i64,
-            _ => 0,
-        };
+    let (active, elapsed, paused, window, path) = with_state(|s| {
         let window = s.window.as_ref().filter(|_| s.recording_active).map(|w| w.title.clone());
-        (s.recording_active, elapsed, window, s.last_recording_path.clone())
+        (s.recording_active, s.elapsed(), s.recording_active && s.recording_paused, window, s.last_recording_path.clone())
     });
-    let mut obj = json!({ "type": "recording_state", "active": active, "elapsed": elapsed });
+    let mut obj = json!({ "type": "recording_state", "active": active, "elapsed": elapsed.as_secs() });
+    // O mesmo tempo em ms: o cronômetro da tela mostra centésimos, e com o
+    // segundo inteiro a pausa congelava sempre em ".00" (e cada tique de 1 s
+    // puxava o relógio de volta pro segundo cheio).
+    if active {
+        obj["elapsedMs"] = json!(elapsed.as_millis() as u64);
+    }
+    if paused {
+        obj["paused"] = json!(true);
+    }
     // Gravando uma janela: a UI diz qual no lugar de "Gravando".
     if let Some(title) = window {
         obj["window"] = json!(title);
@@ -431,6 +461,8 @@ fn start_recording_inner() -> Result<(), String> {
         s.last_recording_path = req.output_path.clone();
         s.last_recording_duration = 0;
         s.recording_start = Some(Instant::now());
+        s.recording_paused = false;
+        s.pause_at = None;
     });
     // Transcrever durante a gravação disputaria a máquina com a captura: segura as
     // automáticas até ela terminar.
@@ -460,7 +492,11 @@ pub fn handle_record_stop() {
     let elapsed = with_state(|s| {
         s.started_by_mic_watch = false;
         s.window = None;
-        s.recording_start.map(|t| t.elapsed().as_secs() as i32).unwrap_or(0)
+        // Parando pausada, a pausa não conta (o arquivo também não a tem).
+        let e = s.elapsed().as_secs() as i32;
+        s.recording_paused = false;
+        s.pause_at = None;
+        e
     });
 
     // Som de parada AGORA: o flush do MKV pode levar centenas de ms e o usuário
@@ -506,6 +542,40 @@ pub fn handle_record_stop() {
     // o sinal "stop" chegar (on_engine_recording_stopped) ou o timeout.
     push_finalizing(true);
     log!("HandleRecordStop: fim (retornando ao message loop).");
+}
+
+/// Pausa/retoma (botão ao lado do de gravar). O arquivo continua o MESMO: a
+/// libobs desconta o intervalo dos timestamps, então o vídeo sai sem o trecho
+/// pausado e sem buraco.
+pub fn handle_record_pause(pause: bool) {
+    if !recording_active() || !engine::exists() {
+        return;
+    }
+    if pause == with_state(|s| s.recording_paused) {
+        return;
+    }
+    if !engine::with_engine(|e| e.set_recording_paused(pause)).unwrap_or(false) {
+        if pause {
+            post_error(lang::t("record.pauseFailed"));
+        }
+        push_recording_state();
+        return;
+    }
+    let now = Instant::now();
+    with_state(|s| {
+        if pause {
+            s.pause_at = Some(now);
+        } else if let (Some(start), Some(at)) = (s.recording_start, s.pause_at) {
+            s.recording_start = Some(start + now.saturating_duration_since(at));
+        }
+        s.recording_paused = pause;
+        if !pause {
+            s.pause_at = None;
+        }
+    });
+    // TODO(WinRecIndicator): símbolo de pausa e tempo parado no indicador de tela.
+    // TODO(OBSTray): MaybeNotifyRecord(record.pausedNotify / record.resumedNotify).
+    push_recording_state();
 }
 
 /// `Engine.OnStopped`: main thread, quando o output emitiu "stop" — a gravação

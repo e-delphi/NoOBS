@@ -1682,6 +1682,39 @@ impl Engine {
         }
     }
 
+    /// Pausa/retoma a gravação em arquivo (`obs_output_pause`). O trecho pausado
+    /// não entra no arquivo: ele continua sem buraco, como se a gravação tivesse
+    /// parado e recomeçado no mesmo arquivo. `false` = recusado (sem gravação,
+    /// parando, ou o trecho do buffer que abre a gravação ainda sendo escrito —
+    /// os encoders são os mesmos, e pausá-los cortaria ele).
+    pub fn set_recording_paused(&mut self, pause: bool) -> bool {
+        if !self.recording || self.stopping || self.output.is_null() {
+            return false;
+        }
+        // A pausa é nos encoders (obs_encoded_output_pause), e na gravação que
+        // continua o buffer eles ainda alimentam a saída que escreve o começo
+        // dela. Pausar ali cortaria o trecho; o usuário tenta de novo em ~1 s.
+        if pause && (self.replay_save_commit_pending || self.replay_save_since.is_some()) {
+            log!("Pausa recusada: trecho do buffer ainda sendo gravado.");
+            return false;
+        }
+        let Ok(a) = api() else { return false };
+        let ok = unsafe { (a.obs_output_pause)(self.output, pause) };
+        if ok {
+            log!("{}", if pause { "Gravacao pausada." } else { "Gravacao retomada." });
+        } else {
+            log!("obs_output_pause({pause}) recusado pela libobs.");
+        }
+        ok
+    }
+
+    pub fn is_recording_paused(&self) -> bool {
+        if !self.recording || self.output.is_null() {
+            return false;
+        }
+        api().map(|a| unsafe { (a.obs_output_paused)(self.output) }).unwrap_or(false)
+    }
+
     /// Pede o stop e retorna NA HORA (não bloqueia a UI). A conclusão chega
     /// depois por `Event::Stopped`. Modelo idêntico ao `SimpleOutput::StopRecording`.
     pub fn request_stop(&mut self) {

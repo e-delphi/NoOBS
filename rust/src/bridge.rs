@@ -144,6 +144,7 @@ pub fn dispatch(raw: &str) {
         "ready" => do_init(),
         "record_start" => recording::handle_record_start(),
         "record_stop" => recording::handle_record_stop(),
+        "record_pause" => recording::handle_record_pause(bool_field(&msg, "paused", false)),
         "set_theme" => handle_set_theme(str_field(&msg, "theme")),
         "set_language" => handle_set_language(str_field(&msg, "language")),
         "toggle_source" => devices::handle_toggle_source(str_field(&msg, "id"), bool_field(&msg, "enabled", false)),

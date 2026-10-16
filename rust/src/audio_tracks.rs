@@ -297,8 +297,9 @@ mod tests {
     #[test]
     fn defaults_primeiro() {
         let a = compute_audio_track_assignments(&[true, true], &[false, true], &[true], &[true], 0);
-        assert_eq!(a.mic_tracks, vec![3, 2]);
-        assert_eq!(a.out_tracks, vec![4]);
+        // 2 = mic default, 3 = saída default (sempre antes dos não-default), 4 = o outro mic.
+        assert_eq!(a.mic_tracks, vec![4, 2]);
+        assert_eq!(a.out_tracks, vec![3]);
         assert_eq!(a.total_tracks, 4);
     }
 
@@ -316,7 +317,8 @@ mod tests {
         let a = compute_audio_track_assignments(&[true], &[true], &outs, &vec![false; 6], 0);
         assert_eq!(a.mic_tracks, vec![2]);
         assert_eq!(a.total_tracks, 6);
-        assert_eq!(a.out_tracks.iter().filter(|t| **t == 6).count(), 2);
+        // excesso 2 → grupo de excesso+1 = 3 saídas, remapeado para a última faixa.
+        assert_eq!(a.out_tracks.iter().filter(|t| **t == 6).count(), 3);
         assert!(a.out_tracks.iter().all(|t| (2..=6).contains(t)));
     }
 

@@ -24,6 +24,7 @@ pub mod export;
 mod filters;
 mod library;
 mod recording;
+mod shell;
 pub mod transcribe;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -48,12 +49,15 @@ pub fn is_shutting_down() -> bool {
 pub fn install_hooks() {
     recording::install();
     filters::install();
+    shell::install();
     ui::set_hooks(ui::Hooks {
         on_timer: Some(on_timer),
         on_hotkey: Some(recording::on_hotkey),
         on_display_change: Some(devices::on_display_change),
         on_device_change: Some(devices::on_device_node_change),
-        on_should_hide_on_close: Some(should_hide_on_close),
+        on_should_hide_on_close: Some(shell::should_hide_on_close),
+        on_window_hidden: Some(shell::on_window_hidden),
+        on_window_restored: Some(shell::on_window_restored),
         on_shutdown: Some(shutdown),
     });
 }
@@ -64,12 +68,6 @@ fn on_timer(id: usize) {
         return;
     }
     on_timer_other(id);
-}
-
-/// `WM_CLOSE`: minimizar pra bandeja em vez de fechar? Sim com `closeToTray`
-/// ligado ou gravando (nunca interromper a gravação por engano).
-fn should_hide_on_close() -> bool {
-    config::get_config_bool("closeToTray", true) || recording::recording_active()
 }
 
 /// Encerra o que está vivo; idempotente (o `ShutdownDone` do Delphi).
@@ -97,6 +95,10 @@ fn on_timer_other(id: usize) {
     if id == TIMER_FILEMETA_REFRESH {
         ui::kill_timer(TIMER_FILEMETA_REFRESH);
         library::push_recordings();
+        return;
+    }
+    if id == TIMER_HIBERNATE_IDLE {
+        shell::on_hibernate_idle();
         return;
     }
     log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");
@@ -200,6 +202,19 @@ pub fn dispatch(raw: &str) {
         "search_transcripts" => transcribe::handle_search_transcripts(str_field(&msg, "query")),
         "get_root_folders" => transcribe::push_root_folders(),
         "set_folder_hidden" => transcribe::handle_set_folder_hidden(str_field(&msg, "name"), bool_field(&msg, "hidden", false)),
+        "tray_show" => shell::handle_tray_show(),
+        "toggle_fullscreen" => ui::toggle_fullscreen(),
+        "set_window_title" => shell::handle_set_window_title(str_field(&msg, "title")),
+        "set_hotkey" => shell::handle_set_hotkey(str_field(&msg, "hotkey")),
+        "validate_hotkey" => shell::handle_validate_hotkey(str_field(&msg, "hotkey")),
+        "set_autostart" => shell::handle_set_autostart(bool_field(&msg, "enabled", false)),
+        "set_run_as_admin" => shell::handle_set_run_as_admin(bool_field(&msg, "enabled", false)),
+        "set_close_to_tray" => shell::handle_set_close_to_tray(bool_field(&msg, "enabled", false)),
+        "set_hibernate" => shell::handle_set_hibernate(bool_field(&msg, "enabled", false)),
+        "set_minimize_on_record" => shell::handle_set_config_bool("minimizeOnRecord", bool_field(&msg, "enabled", false)),
+        "set_notify_on_record" => shell::handle_set_config_bool("notifyOnRecord", bool_field(&msg, "enabled", false)),
+        "set_play_sound_on_record" => shell::handle_set_config_bool("playSoundOnRecord", bool_field(&msg, "enabled", false)),
+        "set_stop_on_lock" => shell::handle_set_config_bool("stopOnLock", bool_field(&msg, "enabled", false)),
         other => not_ported(other),
     }
 }
@@ -216,6 +231,7 @@ fn not_ported(ty: &str) {
 /// hot-plug) + warmup do libobs. O servidor do player, a biblioteca e os
 /// watchers de pasta/mic/apps entram com os módulos que os têm.
 fn do_init() {
+    shell::set_ui_ready();
     push_theme();
     // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
     player::start_player_server();
@@ -244,28 +260,8 @@ fn do_init() {
     // startup). Falha do warmup → a gravação inicializa sob demanda.
     recording::schedule_warmup();
     // Atalho global (falha de registro não é fatal — pegadinha #33).
-    recording::apply_hotkey_from_config();
+    shell::apply_hotkey_from_config();
     log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
-}
-
-/// `HKCU\...\Themes\Personalize\AppsUseLightTheme`: 0 = dark, 1 = light.
-fn detect_system_theme() -> &'static str {
-    use windows::core::w;
-    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
-    let mut value = 1u32;
-    let mut size = std::mem::size_of::<u32>() as u32;
-    let rc = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
-            w!("AppsUseLightTheme"),
-            RRF_RT_REG_DWORD,
-            None,
-            Some(&mut value as *mut u32 as *mut _),
-            Some(&mut size),
-        )
-    };
-    if rc.is_ok() && value == 0 { "dark" } else { "light" }
 }
 
 /// Resolve o tema configurado: `system` (segue o SO), `dark` ou `light`.
@@ -278,7 +274,7 @@ pub fn resolved_theme() -> String {
     }
     match cfg.as_str() {
         "dark" | "light" => cfg,
-        _ => detect_system_theme().to_owned(),
+        _ => crate::win::detect_system_theme().to_owned(),
     }
 }
 
@@ -287,6 +283,8 @@ pub fn push_theme() {
     let resolved = resolved_theme();
     log!("PushTheme: cfg=\"{pref}\" resolved=\"{resolved}\"");
     ui::set_dark_mode(resolved == "dark");
+    // Popup do menu da bandeja no mesmo tema.
+    ui::apply_tray_menu_theme(resolved == "dark");
     post_json(json!({ "type": "theme", "theme": resolved, "pref": pref }));
 }
 

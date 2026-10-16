@@ -2,6 +2,7 @@
 name = "noobs"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 description = "NoOBS: gravador de tela com libobs embarcado e UI em WebView2 (porte do Delphi para Rust, sem Tauri)"
 
 [dependencies]
@@ -41,10 +42,16 @@ windows = { version = "0.61", features = [
   "Win32_Security_Authorization",
   "Win32_Networking_WinHttp",
   "Win32_System_JobObjects",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_SystemInformation",
 ] }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[build-dependencies]
+# Embute o MAINICON (icon.ico) no exe — bandeja, janela e taskbar usam.
+embed-resource = "3"
 
 [profile.release]
 opt-level = 3

@@ -16,9 +16,9 @@ use serde_json::json;
 
 use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
-use crate::{config, encoder, lang, log, player, ui, win_audio_meter, win_preview, win_webcam};
+use crate::{config, encoder, lang, log, player, tray, ui, win_audio_meter, win_preview, win_webcam};
 
-use super::{devices, library, post_error, post_json};
+use super::{devices, library, post_error, post_json, shell};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -411,6 +411,9 @@ pub fn handle_record_start() {
                 s.window = None;
             });
             super::transcribe::sync_pause(false);
+            // Reverte os ícones se já tinham virado "gravando" (no-op se não).
+            tray::set_recording(false);
+            ui::set_window_icon_recording(false);
             post_error(lang::t_with("error.recordStartFailed", &[("error", &e)]));
             push_recording_state();
             log!("HandleRecordStart: FALHOU apos {}ms: {e}", t0.elapsed().as_millis());
@@ -468,16 +471,31 @@ fn start_recording_inner() -> Result<(), String> {
     // automáticas até ela terminar.
     super::transcribe::sync_pause(true);
     // TODO(buffer, #62): StartPerfMonitor.
-    // TODO(OBSTray/OBSUI): bolinha vermelha na bandeja e na taskbar.
     // Snapshot dos monitores no início: os slots de prévia ficam fixos mesmo se
     // o usuário desplugar um monitor gravando. Sessão nova = fontes novas: sem
     // zerar o mudo aplicado, o 1º tique acharia que nada mudou.
     devices::set_recording_for_thumbs(true);
     devices::clear_mic_mute_applied();
     ui::set_timer(TIMER_RECORDING_TICK, RECORDING_TICK_MS);
+    // Bolinha vermelha na bandeja e na taskbar: "gravando" mesmo escondida.
+    tray::set_recording(true);
+    ui::set_window_icon_recording(true);
     push_recording_state();
-    // TODO(OBSTray): minimizar ao gravar (`minimizeOnRecord`), notificação da
-    // bandeja e indicador de tela (`recIndicator`, WinRecIndicator).
+    // Minimizar ao gravar (padrão ligado): a bandeja com closeToTray, senão a
+    // taskbar. Lembra se estava visível para restaurar no stop — quem já tinha
+    // escondido à mão não quer a janela pulando de volta.
+    let visible = ui::is_window_shown();
+    with_state(|s| s.window_was_visible_before_record = false);
+    if config::get_config_bool("minimizeOnRecord", true) && visible {
+        with_state(|s| s.window_was_visible_before_record = true);
+        if config::get_config_bool("closeToTray", true) {
+            ui::hide_to_tray();
+        } else {
+            ui::minimize_to_taskbar();
+        }
+    }
+    shell::maybe_notify_record("NoOBS", &lang::t("record.started"));
+    // TODO(WinRecIndicator): indicador de tela (`recIndicator`).
     Ok(())
 }
 
@@ -520,7 +538,8 @@ pub fn handle_record_stop() {
     });
     // O buffer em memória (#62) entra aqui com `ReplayActive` quando for portado.
     super::transcribe::sync_pause(false);
-    // TODO(OBSTray/OBSUI): tirar a bolinha vermelha dos ícones.
+    tray::set_recording(false);
+    ui::set_window_icon_recording(false);
     push_recording_state();
 
     // Stop ASSÍNCRONO (igual ao OBS): `obs_output_stop` e retorna. Quando o
@@ -531,8 +550,17 @@ pub fn handle_record_stop() {
         ui::set_timer(TIMER_STOP_TIMEOUT, STOP_TIMEOUT_MS);
     }
 
-    // TODO(OBSTray): notificação de fim, restaurar a janela escondida pelo
-    // auto-minimizar ou armar o idle de hibernação (OnWindowHiddenForHibernate).
+    shell::maybe_notify_record(
+        "NoOBS",
+        &lang::t_with("record.finished", &[("min", &(elapsed / 60).to_string()), ("sec", &(elapsed % 60).to_string())]),
+    );
+    // O auto-minimizar escondeu a janela no start: ela volta. Senão continua
+    // escondida, e o ócio de hibernação é armado.
+    if with_state(|s| std::mem::take(&mut s.window_was_visible_before_record)) {
+        ui::restore_from_tray();
+    } else {
+        shell::on_window_hidden();
+    }
 
     // O que mudou de dispositivo durante a gravação é aplicado agora.
     devices::set_recording_for_thumbs(false);
@@ -574,7 +602,7 @@ pub fn handle_record_pause(pause: bool) {
         }
     });
     // TODO(WinRecIndicator): símbolo de pausa e tempo parado no indicador de tela.
-    // TODO(OBSTray): MaybeNotifyRecord(record.pausedNotify / record.resumedNotify).
+    shell::maybe_notify_record("NoOBS", &lang::t(if pause { "record.pausedNotify" } else { "record.resumedNotify" }));
     push_recording_state();
 }
 
@@ -622,30 +650,6 @@ pub fn on_engine_recording_stopped(output_path: &str) {
 // Hotkey global
 // ---------------------------------------------------------------------------
 
-/// Registra o atalho global de gravar. Default `Pause/Break`. Falha de registro
-/// não é fatal (outro app pode ter o mesmo atalho — pegadinha #33).
-/// TODO(OBSHotkey): `ParseHotkey` completo; por ora só o atalho padrão.
-pub fn apply_hotkey_from_config() {
-    const VK_PAUSE: u32 = 0x13;
-    const VK_CANCEL: u32 = 0x03;
-    ui::unregister_global_hotkey(HK_RECORD_TOGGLE);
-    ui::unregister_global_hotkey(HK_RECORD_TOGGLE_ALT);
-    let spec = config::get_config_str("hotkey", "Pause/Break");
-    if spec.trim().is_empty() {
-        log!("Hotkey: desativada (config vazia).");
-        return;
-    }
-    if !spec.trim().eq_ignore_ascii_case("pause/break") {
-        log!("Hotkey: spec \"{spec}\" ainda sem parser em Rust (OBSHotkey) — ignorado.");
-        return;
-    }
-    if ui::register_global_hotkey(HK_RECORD_TOGGLE, 0, VK_PAUSE) {
-        log!("Hotkey: registrado \"{spec}\".");
-    } else {
-        log!("Hotkey: RegisterHotKey falhou pra \"{spec}\" (outro app pode estar usando).");
-    }
-}
-
 pub fn on_hotkey(id: i32) {
     log!("Hotkey: id={id} disparado.");
     if matches!(id, HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT) {
@@ -683,7 +687,17 @@ fn on_warmup() {
     // FORA do if acima de propósito: o engine pode ter sido criado ANTES deste
     // timer (watcher de apps ligando o buffer) e as caps têm que sair igual.
     push_encoder_caps_once();
-    // TODO(OBSUI /start-record): disparar a gravação pedida pela hibernação.
+    // /start-record: a hibernação lançou este processo porque o usuário
+    // apertou o atalho (ou o mic entrou em uso). Com o libobs aquecido, grava
+    // agora; se o warmup falhou, o start inicializa sob demanda.
+    if ui::start_record_requested() && !recording_active() {
+        log!("TIMER_OBS_WARMUP: /start-record — disparando gravacao.");
+        // Veio do watcher de mic: gravação "automática", que para sozinha.
+        if ui::start_record_requested_by_mic() {
+            set_started_by_mic_watch(true);
+        }
+        handle_record_start();
+    }
     // TODO(buffer, #62): `replayAutoStart` / `/start-replay` → ReplayWanted.
 }
 

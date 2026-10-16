@@ -5,9 +5,9 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 `webview2-com`), mesma UI em `exe\bin\64bit\ui\` e mesmo protocolo
 `postMessage` UI ↔ backend — a UI não muda.
 
-> Este porte **não foi compilado** (pedido da issue #1: foco na conversão).
-> Ao compilar no Windows (`cargo build --release` em `rust/`), espere ajustes
-> de assinatura nas versões de `windows`/`webview2-com`.
+> Compila no Windows (`cargo build` em `rust/`; o `build.rs` usa o `rc.exe`
+> do Windows SDK para embutir o ícone) e roda ao lado da `obs.dll`, em
+> `exe\bin\64bit\`. `cargo test` cobre o que não depende das DLLs.
 
 ## Mapa Delphi → Rust
 
@@ -25,7 +25,7 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSProbe`            | `probe.rs`                | portado |
 | `OBSRtwq`             | `rtwq.rs`                 | portado |
 | `OBSStartupCheck`     | `startup_check.rs`        | portado |
-| `OBSUI`               | `ui.rs` + `mainthread.rs` | portado (janela, WebView2, hotkey, ciclo de vida); faltam bandeja, splash com texto, dark menu |
+| `OBSUI`               | `ui.rs` + `mainthread.rs` | portado inteiro: janela, WebView2, splash com título, início escondido (off-screen até o WebView2 subir), fechar pra bandeja, restaurar contornando o anti-roubo de foco, overlay de gravando na taskbar (`ITaskbarList3`), menus no tema, tela cheia, título ao vivo, salto pra hibernação |
 | `OBSBridge`           | `bridge.rs` + `bridge/recording.rs` + `bridge/devices.rs` + `bridge/library.rs` | em andamento (a galeria — listar, navegar, scan de miniaturas, tocar, info, waveform, keyframes, faixas, renomear, abrir, excluir — está em `library.rs`; pastas/mover/união ficam para a etapa 9): init + warmup, tema, idioma, open_url; **gravação** (`record_start`/`record_stop`/`record_pause`, stop assíncrono #41, pausa por `obs_output_pause` com o relógio descontando a pausa, tique de 1 s, nome por modelo, caps de encoder, hotkey padrão); **tela inicial** (`init` com monitores/mics/saídas/webcams, `audio_sources_refreshed`, refresh por hot-plug com diff e dedup por assinatura, medidores de nível, mudo do endpoint, prévias dos monitores, toggles/ocultar/perfil automático). Pendências marcadas como `TODO(<Unit>)` no código, uma por unit ainda não portada |
 | `OBSEngine`           | `engine.rs` (+ testes)    | portado inteiro: init/módulos, grafo de captura, gravação, stop por sinal, `replay_buffer` (#62), janela (#66), teardown + watchdog |
 | `OBSAudioTracks`      | `audio_tracks.rs` (+ testes) | portado (atribuição de faixas, nomes, enumeração com timeout) |
@@ -42,7 +42,12 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 | `OBSNumbersPt` | `numbers_pt.rs` | portado |
 | `OBSLocalAsr` | `local_asr.rs` (+ `win_http.rs` WinHTTP com cancelamento, `win_proc.rs` `RunHidden`) | portado (instalação com retomada/SHA-256/espelho, servidor sob Job Object, reamostrador, pipeline de 2 passadas); falta a fila que o chama (OBSTranscribe) |
 | `OBSTranscribe` | `transcribe.rs` (+ `transcribe/merge.rs`, `bridge/transcribe.rs`) | portado: fila persistida/reordenável/manual×automática/pausa, espera do servidor, 2 motores, dedup de eco por palavra, transcrição herdada pela exportação, diagnóstico WSL→Docker→container, falantes e busca. Handlers de `transcribe_*`, `local_asr_*`, `root_folders` ligados ao dispatch; o push de `transcribeHost`/`transcribeEngine` no `settings` entra com o PushSettings (etapa 9) |
-| `OBSHibernate`, `OBSTray`, `OBSElevate`, `OBSHotkey`, `OBSAutostart`, `OBSUpdate`, `Win*` | — | a portar |
+| `OBSTray`, `OBSRecordIcon` | `tray.rs`, `record_icon.rs` | portado (ícone, menu, balão, ícone de gravando por DIB 32-bit) |
+| `OBSHibernate` | `hibernate.rs` | portado (bandeja + atalho + watchers; promove a completo com `/start-record`, `/start-record-mic`, `/start-replay`) |
+| `OBSHotkey` | `hotkey.rs` (+ testes) | portado (parse/format, pontuação OEM — #43, reservados) |
+| `OBSAutostart`, `OBSElevate` | `autostart.rs`, `elevate.rs` | portado |
+| `WinMicWatch`, `WinProcWatch` | `mic_watch.rs`, `proc_watch.rs` (+ testes) | portado (usados pela hibernação; o bridge os liga junto com o buffer e a auto-gravação) |
+| `WinRecIndicator`, `WinWindows`, `WinGpuUsage`, `NoOBSLockDetector`, `OBSUpdate` | — | a portar |
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)
 
@@ -54,11 +59,15 @@ camadas, mesma janela Win32 + WebView2 criada à mão (`windows` +
 - **`ApplyConstantQuality`** → `plan_constant_quality` pura (devolve a lista de
   settings), testável sem a `obs.dll`; `apply_constant_quality` só aplica.
 - **Cadeia `if MsgType = ... else if`** → `match` no campo `type`.
+- **Callbacks do `ui` para o bridge** saem de um `Mutex<Hooks>`: copie o
+  ponteiro e chame FORA da trava. Chamar dentro travou a main thread na 1ª
+  gravação pelo atalho (o handler esconde a janela, e o `hide_to_tray` lê
+  outro hook): o `Mutex` do Rust não é reentrante.
 - **Underflow de `Count - 1` (pegadinha #24)** não existe: `for i in 0..n` com
   `n = 0` é vazio.
 - **Regras que seguem valendo**: libobs só na main thread; UTF-8 nas strings
   para FFI; `obs_shutdown` na mesma thread do `obs_startup`; RTWQ antes do
   `CoInitialize`; BOM não se aplica (Rust é UTF-8).
 
-Os testes unitários (`cargo test`) cobrem canvas, i18n e as tabelas de
-qualidade/limites de encoder.
+Os testes unitários (`cargo test`) cobrem canvas, i18n, as tabelas de
+qualidade/limites de encoder, faixas de áudio, atalhos e o filtro de apps.

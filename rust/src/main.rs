@@ -13,8 +13,10 @@
 mod audio_filters;
 mod audio_tracks;
 mod audio_watch;
+mod autostart;
 mod bridge;
 mod config;
+mod elevate;
 mod encoder;
 mod engine;
 mod export_captions;
@@ -22,13 +24,18 @@ mod ffi;
 mod file_meta;
 mod ffmpeg_export;
 mod ffmpeg_ops;
+mod hibernate;
+mod hotkey;
 mod lang;
 mod numbers_pt;
 mod local_asr;
 mod log;
 mod mainthread;
+mod mic_watch;
 mod player;
 mod probe;
+mod proc_watch;
+mod record_icon;
 mod record_watch;
 mod rtwq;
 mod scene;
@@ -36,6 +43,7 @@ mod single_instance;
 mod startup_check;
 mod time_stretch;
 mod transcribe;
+mod tray;
 mod types;
 mod ui;
 mod win;
@@ -54,14 +62,19 @@ fn main() {
     log!("===== NoOBS startup =====");
     log!("Dispatcher: cmdline=\"{cmd}\"");
 
-    // TODO(elevate): OBSElevate.RelaunchElevatedIfWanted (verbo `runas`),
-    // ANTES do mutex de instância única.
+    // "Abrir como administrador": reabre elevado ANTES do mutex de instância
+    // única e de qualquer janela. Recusado no UAC, segue normal.
+    if elevate::relaunch_elevated_if_wanted() {
+        return;
+    }
 
+    // i18n também na hibernação: o menu da bandeja sai no idioma do usuário.
     lang::init_language();
 
     if hibernate {
-        // TODO(hibernate): porte de OBSHibernate.Run.
-        log::log("Dispatcher: modo hibernate ainda não portado.");
+        log::log("Dispatcher: rota -> hibernate::run (modo minimo).");
+        hibernate::run();
+        log::log("Dispatcher: hibernate::run retornou — processo encerrando.");
     } else {
         log::log("Dispatcher: rota -> ui::run (modo full).");
         bridge::install_hooks();

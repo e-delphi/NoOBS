@@ -856,7 +856,10 @@ pub fn handle_toggle_source(id: &str, enabled: bool) {
     if let Some((cat, raw)) = split_source_id(id) {
         config::set_source_bool(cat, &raw, enabled);
     }
-    // TODO(buffer em memória, #62): RestartReplayForSourceChange quando `monitor`.
+    // A cena do buffer era das fontes antigas: recomeça.
+    if monitor {
+        super::replay::restart_for_source_change();
+    }
 
     // Mic desmarcado não pode continuar segurado pelo medidor — senão o Windows
     // segue mostrando o dispositivo "em uso".
@@ -891,7 +894,10 @@ pub fn handle_set_source_hidden(id: &str, hidden: bool) {
         config::set_source_hidden(cat, &raw, hidden);
     }
     log!("SetSourceHidden: \"{id}\" -> {hidden}");
-    // TODO(buffer em memória, #62): RestartReplayForSourceChange quando `monitor`.
+    // A cena do buffer era das fontes antigas: recomeça.
+    if monitor {
+        super::replay::restart_for_source_change();
+    }
     if is_mic(id) {
         wam::apply_mic_open_policy();
     }

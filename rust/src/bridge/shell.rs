@@ -109,11 +109,12 @@ pub fn on_hibernate_idle() {
         log::log("TIMER_HIBERNATE_IDLE: buffer em memoria ligado, hibernacao adiada.");
         return;
     }
-    if transcribe::busy_for_hibernation() || export::export_busy() {
+    if transcribe::busy_for_hibernation() || export::export_busy() || super::replay::splice_busy() {
         log!(
-            "TIMER_HIBERNATE_IDLE: trabalho em andamento (transcricao/instalacao={}, exportacao={}), hibernacao adiada.",
+            "TIMER_HIBERNATE_IDLE: trabalho em andamento (transcricao/instalacao={}, exportacao={}, emenda={}), hibernacao adiada.",
             transcribe::busy_for_hibernation(),
-            export::export_busy()
+            export::export_busy(),
+            super::replay::splice_busy()
         );
         ui::set_timer(super::TIMER_HIBERNATE_IDLE, HIBERNATE_IDLE_DELAY_MS);
         return;

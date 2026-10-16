@@ -24,6 +24,7 @@ mod ffi;
 mod file_meta;
 mod ffmpeg_export;
 mod ffmpeg_ops;
+mod gpu_usage;
 mod hibernate;
 mod hotkey;
 mod lang;

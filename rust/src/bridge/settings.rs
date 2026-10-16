@@ -90,7 +90,8 @@ pub fn push_settings() {
         "languagePref": config::get_config_str("language", ""),
         "availableLanguages": lang::available_languages(),
     }));
-    // TODO(buffer, #62): PushReplayState (estado + limites + atalho do buffer).
+    // Buffer: estado + limites + atalho num push próprio, o mesmo da tela principal.
+    super::replay::push_replay_state();
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +111,7 @@ pub fn handle_set_codec(codec: &str) {
     }
     config::set_config_str("codec", codec);
     log!("Codec preferido alterado para: {codec}");
-    // TODO(buffer, #62): RestartReplayForEncoderChange('codec').
+    super::replay::restart_for_encoder_change("codec");
 }
 
 /// Grava em `recordingQualityLevel`, NUNCA na `recordingQuality` antiga: as
@@ -122,7 +123,7 @@ pub fn handle_set_recording_quality(level: i32) {
     }
     config::set_config_int("recordingQualityLevel", level);
     log!("RecordingQuality: {level}");
-    // TODO(buffer, #62): RestartReplayForEncoderChange('qualidade').
+    super::replay::restart_for_encoder_change("qualidade");
 }
 
 /// Mínimo 10 fps; sem máximo fixo (monitor de 360 Hz existe).
@@ -133,7 +134,7 @@ pub fn handle_set_recording_fps(fps: i32) {
     }
     config::set_config_int("recordingFps", fps);
     log!("RecordingFps: {fps} fps");
-    // TODO(buffer, #62): RestartReplayForEncoderChange('taxa de quadros').
+    super::replay::restart_for_encoder_change("taxa de quadros");
 }
 
 pub fn handle_set_recording_keyframe(sec: i32) {
@@ -151,7 +152,7 @@ pub fn handle_set_audio_bitrate(kbps: i32) {
     }
     config::set_config_int("audioBitrate", kbps);
     log!("AudioBitrate: {kbps} kbps");
-    // TODO(buffer, #62): RestartReplayForEncoderChange('qualidade do audio').
+    super::replay::restart_for_encoder_change("qualidade do audio");
 }
 
 /// Guarda o modelo cru; vazio volta pro padrão. Os códigos só são trocados na

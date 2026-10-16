@@ -46,6 +46,8 @@ windows = { version = "0.61", features = [
   "Win32_System_SystemInformation",
   "Win32_Graphics_GdiPlus",
   "Win32_System_RemoteDesktop",
+  "Win32_System_Performance",
+  "Win32_System_ProcessStatus",
 ] }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha2 = "0.10"

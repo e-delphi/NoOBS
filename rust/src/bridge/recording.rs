@@ -18,7 +18,7 @@ use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
 use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, win_audio_meter, win_preview, win_webcam};
 
-use super::{devices, library, post_error, post_json, shell};
+use super::{devices, library, post_error, post_json, replay, shell};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -360,7 +360,7 @@ pub fn push_encoder_caps_once() {
 
 /// Coleta o que a máquina oferece: monitores (Win32), webcams (DirectShow) e os
 /// endpoints padrão do Windows (WASAPI, do cache já populado pelo worker).
-fn gather_capture_inputs() -> CaptureInputs {
+pub(super) fn gather_capture_inputs() -> CaptureInputs {
     let devs = win_audio_meter::enumerate_audio_devices();
     let default_of = |kind| devs.iter().find(|d| d.kind == kind && d.is_default).map(|d| d.device_id.clone()).unwrap_or_default();
     CaptureInputs {
@@ -402,34 +402,49 @@ pub fn handle_record_start() {
         engine::with_engine(|e| e.force_complete_stop());
     }
 
-    // TODO(buffer em memória, #62): continuar o buffer ligado (`replayIntoRecording`)
-    // ou pará-lo antes de gravar.
+    // Buffer ligado: por padrão o que ele guardou vira o COMEÇO desta gravação
+    // (`replayIntoRecording`). Fora disso — opção desligada, auto-gravação por
+    // mic (outro perfil = outra cena) ou gravação de janela (a cena do buffer
+    // são as telas) — é um de cada vez: o buffer é descartado e volta sozinho
+    // no fim se `ReplayWanted` seguir ligado.
+    let (by_mic, has_window) = with_state(|s| (s.started_by_mic_watch, s.window.is_some()));
+    let continue_replay = replay::replay_active()
+        && engine::exists()
+        && config::get_config_bool("replayIntoRecording", true)
+        && !by_mic
+        && !has_window;
+    if replay::replay_active() && !continue_replay {
+        log!("HandleRecordStart: parando o buffer em memoria pra gravar.");
+        replay::stop_replay_buffer(false);
+    }
 
     let t0 = Instant::now();
     log!("HandleRecordStart: inicio.");
     push_refresh_busy(true, "starting");
-    match start_recording_inner() {
+    match start_recording_inner(continue_replay) {
         Ok(()) => log!("HandleRecordStart: total {}ms.", t0.elapsed().as_millis()),
         Err(e) => {
             with_state(|s| {
                 s.recording_active = false;
                 s.window = None;
             });
-            super::transcribe::sync_pause(false);
+            replay::sync_transcribe_pause();
             // Reverte os ícones se já tinham virado "gravando" (no-op se não).
             tray::set_recording(false);
             ui::set_window_icon_recording(false);
             post_error(lang::t_with("error.recordStartFailed", &[("error", &e)]));
             push_recording_state();
             log!("HandleRecordStart: FALHOU apos {}ms: {e}", t0.elapsed().as_millis());
-            // TODO(buffer em memória, #62): a gravação não subiu — o buffer que
-            // ela derrubou volta.
+            // A gravação não subiu: o buffer que ela derrubou volta.
+            if replay::replay_wanted() {
+                replay::start_replay_buffer();
+            }
         }
     }
     push_refresh_busy(false, "starting");
 }
 
-fn start_recording_inner() -> Result<(), String> {
+fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     engine::ensure_created();
     let t_step = Instant::now();
     let cold = !engine::with_engine(|e| e.is_initialized()).unwrap_or(false);
@@ -444,7 +459,9 @@ fn start_recording_inner() -> Result<(), String> {
     // Zera antes de montar: o handler de log marca se a captura falhar.
     engine::reset_audio_capture_fault();
 
-    let output_path = build_recording_path(Local::now(), "");
+    // Continuando o buffer, o codec do nome é o dele (os encoders já rodam).
+    let enc_id = if continue_replay { engine::with_engine(|e| e.video_encoder_id().to_owned()).unwrap_or_default() } else { String::new() };
+    let output_path = build_recording_path(Local::now(), &enc_id);
     let (auto_profile, window) = with_state(|s| (s.started_by_mic_watch, s.window.clone()));
     let req = RecordRequest {
         output_path: output_path.to_string_lossy().into_owned(),
@@ -453,8 +470,16 @@ fn start_recording_inner() -> Result<(), String> {
     };
 
     let t_step = Instant::now();
-    let inputs = gather_capture_inputs();
-    with_engine_result(|e| e.build_and_start_recording(&req, &inputs))?;
+    replay::clear_prefix();
+    if continue_replay && !replay::continue_into_recording(&req.output_path) {
+        continue_replay = false;
+        log!("HandleRecordStart: nao deu pra continuar o buffer — descartando-o.");
+        replay::stop_replay_buffer(false);
+    }
+    if !continue_replay {
+        let inputs = gather_capture_inputs();
+        with_engine_result(|e| e.build_and_start_recording(&req, &inputs))?;
+    }
     // Captura de áudio falhou em agendar? SÓ log, sem avisar o usuário: o erro
     // do win-wasapi é emitido POR FONTE e endpoints virtuais (Steam Streaming,
     // Saída Digital) falham sozinhos sem afetar os reais — alarme falso ensina
@@ -468,14 +493,17 @@ fn start_recording_inner() -> Result<(), String> {
         s.recording_active = true;
         s.last_recording_path = req.output_path.clone();
         s.last_recording_duration = 0;
-        s.recording_start = Some(Instant::now());
+        // Continuando o buffer, o relógio já começa no que ele guardou: é o
+        // que o arquivo final vai ter (tela, indicador e duração).
+        let prefix = std::time::Duration::from_secs(replay::prefix_sec().max(0) as u64);
+        s.recording_start = Some(Instant::now().checked_sub(prefix).unwrap_or_else(Instant::now));
         s.recording_paused = false;
         s.pause_at = None;
     });
+    replay::start_perf_monitor();
     // Transcrever durante a gravação disputaria a máquina com a captura: segura as
     // automáticas até ela terminar.
-    super::transcribe::sync_pause(true);
-    // TODO(buffer, #62): StartPerfMonitor.
+    replay::sync_transcribe_pause();
     // Snapshot dos monitores no início: os slots de prévia ficam fixos mesmo se
     // o usuário desplugar um monitor gravando. Sessão nova = fontes novas: sem
     // zerar o mudo aplicado, o 1º tique acharia que nada mudou.
@@ -545,8 +573,7 @@ pub fn handle_record_stop() {
         s.last_recording_path = output_path;
         s.last_recording_duration = elapsed;
     });
-    // O buffer em memória (#62) entra aqui com `ReplayActive` quando for portado.
-    super::transcribe::sync_pause(false);
+    replay::sync_transcribe_pause();
     tray::set_recording(false);
     ui::set_window_icon_recording(false);
     push_recording_state();
@@ -628,9 +655,24 @@ pub fn on_engine_recording_stopped(output_path: &str) {
     // Arquivo íntegro: libera o botão de gravar.
     push_finalizing(false);
     if output_path.is_empty() {
-        // TODO(buffer, #62): religar o buffer se ReplayWanted.
+        if replay::replay_wanted() {
+            replay::start_replay_buffer();
+        }
         return;
     }
+
+    // Gravação que continuou o buffer: o começo dela é outro arquivo. O engine
+    // só chega aqui com o trecho resolvido (salvo ou perdido).
+    let mut last_duration = with_state(|s| s.last_recording_duration);
+    if replay::on_recording_stopped_with_prefix(output_path, &mut last_duration) {
+        // O card sai no fim da emenda; o buffer religa já (a emenda só lê
+        // arquivos, não depende do libobs).
+        if replay::replay_wanted() {
+            replay::start_replay_buffer();
+        }
+        return;
+    }
+    with_state(|s| s.last_recording_duration = last_duration);
 
     // Layout (canvas + monitores/webcams) + duração + como foi gravado, para o
     // <hash>.json. O codec vem do encoder que o engine REALMENTE criou (o
@@ -656,7 +698,11 @@ pub fn on_engine_recording_stopped(output_path: &str) {
     // TRANSCRIÇÃO AUTOMÁTICA. Enfileira já com o arquivo íntegro (o sinal "stop" garante o
     // trailer escrito).
     super::transcribe::enqueue_after_capture(output_path);
-    // TODO(buffer, #62): religar o buffer por ÚLTIMO (refaz o CurrentLayout).
+    // Buffer ligado: volta a guardar. Por ÚLTIMO — montar o buffer refaz a cena
+    // e sobrescreve o layout que a meta acima acabou de ler.
+    if replay::replay_wanted() {
+        replay::start_replay_buffer();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -692,8 +738,12 @@ fn on_indicator_click() {
         if recording_active() {
             log!("RecIndicator: clique no overlay — parando a gravacao.");
             handle_record_stop();
+        } else if replay::replay_active() {
+            // No modo buffer o clique SALVA: parar seria destrutivo (o buffer
+            // só existe na RAM) e sem desfazer.
+            log!("RecIndicator: clique no overlay — salvando o trecho do buffer.");
+            replay::handle_save_replay();
         }
-        // TODO(buffer, #62): no modo buffer o clique SALVA o trecho.
     });
 }
 
@@ -769,6 +819,9 @@ pub fn handle_set_fullscreen_detect(enable: bool) {
 
 pub fn on_hotkey(id: i32) {
     log!("Hotkey: id={id} disparado.");
+    if replay::on_hotkey(id) {
+        return;
+    }
     if matches!(id, HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT) {
         if recording_active() {
             handle_record_stop();
@@ -815,7 +868,8 @@ fn on_warmup() {
         }
         handle_record_start();
     }
-    // TODO(buffer, #62): `replayAutoStart` / `/start-replay` → ReplayWanted.
+    // "Ligar o buffer ao abrir" e o /start-replay viram vontade da sessão.
+    replay::on_warmup();
 }
 
 /// Timers de gravação; `false` = id que não é meu.
@@ -841,6 +895,7 @@ pub fn on_timer(id: usize) -> bool {
 /// Liga os callbacks do engine ao Bridge (`Engine.OnStopped := ...`).
 pub fn install() {
     engine::set_on_stopped(on_engine_recording_stopped);
+    replay::install();
 }
 
 /// Shutdown do Bridge (idempotente): para o que estiver vivo e encerra o libobs

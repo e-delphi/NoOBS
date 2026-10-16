@@ -25,6 +25,7 @@ mod filters;
 mod folders;
 mod library;
 mod recording;
+mod replay;
 mod settings;
 mod shell;
 pub mod transcribe;
@@ -66,7 +67,7 @@ pub fn install_hooks() {
 
 /// `OnTimer`: cada módulo reconhece os próprios ids; `false` = não é dele.
 fn on_timer(id: usize) {
-    if recording::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) {
+    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -84,6 +85,7 @@ pub fn shutdown() {
     ui::kill_timer(TIMER_HIBERNATE_IDLE);
     crate::mic_watch::stop();
     crate::proc_watch::stop();
+    replay::shutdown();
     filters::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
@@ -222,6 +224,18 @@ pub fn dispatch(raw: &str) {
                 folders::handle_merge_recordings(ids);
             }
         }
+        "get_replay_state" => replay::push_replay_state(),
+        "set_replay_enabled" => replay::handle_set_replay_enabled(bool_field(&msg, "enabled", false)),
+        "save_replay" => replay::handle_save_replay(),
+        "set_replay_apps" => replay::handle_set_replay_apps(str_field(&msg, "apps")),
+        "set_replay_indicator" => replay::handle_set_replay_indicator(bool_field(&msg, "enabled", false)),
+        "set_replay_indicator_corner" => replay::handle_set_replay_indicator_corner(str_field(&msg, "corner")),
+        "set_replay_indicator_opacity" => replay::handle_set_replay_indicator_opacity(int_field(&msg, "opacity", 90)),
+        "set_replay_indicator_clickable" => replay::handle_set_replay_indicator_clickable(bool_field(&msg, "enabled", false)),
+        "set_replay_autostart" => replay::handle_set_replay_autostart(bool_field(&msg, "autoStart", false)),
+        "set_replay_into_recording" => replay::handle_set_replay_into_recording(bool_field(&msg, "enabled", false)),
+        "set_replay_limits" => replay::handle_set_replay_limits(int_field(&msg, "maxSec", 0), int_field(&msg, "maxMb", 0)),
+        "set_replay_hotkey" => replay::handle_set_replay_hotkey(str_field(&msg, "hotkey")),
         "get_settings" => settings::push_settings(),
         "set_codec" => settings::handle_set_codec(str_field(&msg, "codec")),
         "set_recording_quality" => settings::handle_set_recording_quality(int_field(&msg, "level", 0)),
@@ -304,8 +318,10 @@ fn do_init() {
     shell::apply_hotkey_from_config();
     // Indicador de tela + parar ao bloquear a tela.
     recording::init_indicator_and_lock();
-    // Auto-gravação em chamadas (se ligada) e checagem diária de atualização.
+    // Auto-gravação em chamadas (se ligada), buffer ligado por programas
+    // monitorados e checagem diária de atualização.
     settings::start_mic_watch_if_enabled();
+    replay::do_init();
     settings::start_update_timer();
     log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
 }

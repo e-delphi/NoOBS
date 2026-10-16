@@ -294,6 +294,7 @@ fn not_ported(ty: &str) {
 fn do_init() {
     shell::set_ui_ready();
     push_theme();
+    push_app_icon();
     // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
     player::start_player_server();
     log::log("DoInit: PlayerServer ok");
@@ -362,6 +363,19 @@ pub fn push_theme() {
     // Popup do menu da bandeja no mesmo tema.
     ui::apply_tray_menu_theme(resolved == "dark");
     post_json(json!({ "type": "theme", "theme": resolved, "pref": pref }));
+}
+
+/// `PushAppIcon`: o ícone do exe (`MAINICON`) vai pra UI como PNG. É o logo do
+/// "Sobre" — sem ele a tela mostra o desenho reserva (círculo vermelho) — e o
+/// ícone das notificações do Windows.
+fn push_app_icon() {
+    let Some(png) = crate::win::main_icon_png(256) else {
+        log::log("PushAppIcon: MAINICON nao encontrado.");
+        return;
+    };
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
+    post_json(json!({ "type": "app_icon", "dataUrl": format!("data:image/png;base64,{b64}") }));
 }
 
 fn handle_set_theme(theme: &str) {

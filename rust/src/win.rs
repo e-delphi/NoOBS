@@ -34,6 +34,121 @@ pub fn main_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
     }
 }
 
+/// Ícone do app como PNG com alfa (porte do `PushAppIcon` do Delphi): vai pra
+/// UI como data URL — logo do "Sobre" e ícone das notificações. `None` se o
+/// recurso não carregar.
+///
+/// Os pixels saem do `hbmColor` do `GetIconInfo` por `GetDIBits`, com o alfa
+/// do `.ico` intacto. `DrawIconEx` não serve: escreve RGB pré-multiplicado e a
+/// imagem sai com as bordas escurecidas.
+pub fn main_icon_png(size: i32) -> Option<Vec<u8>> {
+    use windows::core::w;
+    use windows::Win32::Foundation::HINSTANCE;
+    use windows::Win32::Graphics::Gdi::{
+        DeleteObject, GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+        DIB_RGB_COLORS, HGDIOBJ,
+    };
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DestroyIcon, GetIconInfo, LoadImageW, HICON, ICONINFO, IMAGE_ICON, LR_DEFAULTCOLOR,
+    };
+    unsafe {
+        let hinst = GetModuleHandleW(None).ok().map(|h| HINSTANCE(h.0));
+        // 256 é o maior tamanho do .ico: pede ele pra ter qualidade máxima.
+        let h = LoadImageW(hinst, w!("MAINICON"), IMAGE_ICON, size, size, LR_DEFAULTCOLOR).ok()?;
+        let hicon = HICON(h.0);
+        let mut info = ICONINFO::default();
+        let ok = GetIconInfo(hicon, &mut info).is_ok();
+        let result = (|| {
+            if !ok || info.hbmColor.is_invalid() {
+                return None; // monocromático: sem cor pra mostrar
+            }
+            let mut bm = BITMAP::default();
+            if GetObjectW(HGDIOBJ(info.hbmColor.0), std::mem::size_of::<BITMAP>() as i32, Some(&mut bm as *mut _ as *mut _)) == 0 {
+                return None;
+            }
+            let (wd, ht) = (bm.bmWidth, bm.bmHeight);
+            if wd <= 0 || ht <= 0 {
+                return None;
+            }
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: wd,
+                    biHeight: -ht, // top-down
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bgra = vec![0u8; (wd * ht * 4) as usize];
+            let dc = GetDC(None);
+            let lines = GetDIBits(dc, info.hbmColor, 0, ht as u32, Some(bgra.as_mut_ptr() as *mut _), &mut bmi, DIB_RGB_COLORS);
+            ReleaseDC(None, dc);
+            if lines == 0 {
+                return None;
+            }
+            // Ícone antigo sem canal alfa vem com alfa 0 em tudo: sem isto a
+            // imagem sairia inteira transparente.
+            let has_alpha = bgra.chunks_exact(4).any(|p| p[3] != 0);
+            let rgba: Vec<u8> = bgra
+                .chunks_exact(4)
+                .flat_map(|p| [p[2], p[1], p[0], if has_alpha { p[3] } else { 255 }])
+                .collect();
+            Some(encode_png_rgba(wd as u32, ht as u32, &rgba))
+        })();
+        if !info.hbmColor.is_invalid() {
+            let _ = DeleteObject(HGDIOBJ(info.hbmColor.0));
+        }
+        if !info.hbmMask.is_invalid() {
+            let _ = DeleteObject(HGDIOBJ(info.hbmMask.0));
+        }
+        let _ = DestroyIcon(hicon);
+        result
+    }
+}
+
+/// PNG RGBA 8 bits mínimo (sem filtro por linha). O projeto não tem crate de
+/// imagem; o `flate2` já entra pelo `file_meta`.
+pub fn encode_png_rgba(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    use flate2::write::ZlibEncoder;
+    use flate2::{Compression, Crc};
+    use std::io::Write;
+
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let mut crc = Crc::new();
+        crc.update(kind);
+        crc.update(data);
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        out.extend_from_slice(&crc.sum().to_be_bytes());
+    }
+
+    let stride = width as usize * 4;
+    let mut raw = Vec::with_capacity((stride + 1) * height as usize);
+    for row in rgba.chunks_exact(stride) {
+        raw.push(0); // filtro "None"
+        raw.extend_from_slice(row);
+    }
+    let mut z = ZlibEncoder::new(Vec::new(), Compression::best());
+    let _ = z.write_all(&raw);
+    let idat = z.finish().unwrap_or_default();
+
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8 bits, RGBA, deflate, sem filtro adaptativo, sem entrelaçamento
+
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(&mut out, b"IDAT", &idat);
+    chunk(&mut out, b"IEND", &[]);
+    out
+}
+
 /// `HKCU\...\Themes\Personalize\AppsUseLightTheme`: 0 = escuro.
 pub fn detect_system_theme() -> &'static str {
     use windows::core::w;
@@ -129,4 +244,31 @@ pub fn decimal_separator() -> char {
 pub fn localize_decimal(s: &str) -> String {
     let sep = decimal_separator();
     if sep == '.' { s.to_owned() } else { s.replace('.', &sep.to_string()) }
+}
+
+#[cfg(test)]
+mod png_tests {
+    use super::encode_png_rgba;
+
+    #[test]
+    fn png_tem_estrutura_e_pixels_certos() {
+        // 2x2: vermelho, verde opaco / azul meio transparente, transparente.
+        let px = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 128, 0, 0, 0, 0];
+        let png = encode_png_rgba(2, 2, &px);
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert_eq!(&png[12..16], b"IHDR");
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 2);
+        assert_eq!(&png[24..26], &[8, 6]); // 8 bits, RGBA
+        // CRC do IHDR confere.
+        let mut crc = flate2::Crc::new();
+        crc.update(&png[12..29]);
+        assert_eq!(crc.sum(), u32::from_be_bytes(png[29..33].try_into().unwrap()));
+        // IDAT descompacta para as linhas com o byte de filtro na frente.
+        let len = u32::from_be_bytes(png[33..37].try_into().unwrap()) as usize;
+        assert_eq!(&png[37..41], b"IDAT");
+        let mut raw = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::ZlibDecoder::new(&png[41..41 + len]), &mut raw).unwrap();
+        assert_eq!(raw, [&[0u8][..], &px[..8], &[0], &px[8..]].concat());
+        assert!(png.ends_with(&[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82]));
+    }
 }

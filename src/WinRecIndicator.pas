@@ -85,6 +85,11 @@ procedure ShowIndicator(ACorner: TRecCorner; AStartTickMs: Cardinal;
 // Liga/desliga o clique no overlay vivo, sem recriar.
 procedure SetClickable(AClickable: Boolean);
 
+// Gravacao pausada: o tempo congela e a bolinha vira o simbolo de pausa
+// (ambar, fixo). Ao retomar, AStartTickMs e o inicio JA descontado da
+// pausa (o OBSBridge empurra o RecordingStartTickMs pra frente).
+procedure SetPaused(APaused: Boolean; AStartTickMs: Cardinal);
+
 // Modo do overlay visivel agora. So faz sentido com IsShowing = True.
 function CurrentMode: TIndicatorMode;
 
@@ -153,6 +158,9 @@ var
   FClickable: Boolean = True;
   // Escondida porque um app em tela cheia esta em primeiro plano.
   FFullscreenHidden: Boolean = False;
+  // Gravacao pausada (so imRecording): tempo parado em FPauseTick.
+  FPaused: Boolean = False;
+  FPauseTick: Cardinal = 0;
 
 // App em tela cheia (jogo, inclusive sem borda; apresentacao) em 1o plano.
 // Tela cheia = a janela EM FOCO cobre o monitor inteiro (ou tela cheia
@@ -244,7 +252,8 @@ function ElapsedStr: string;
 var
   Secs: Cardinal;
 begin
-  Secs := (GetTickCount - FStartTick) div 1000;
+  if FPaused then Secs := (FPauseTick - FStartTick) div 1000
+  else Secs := (GetTickCount - FStartTick) div 1000;
   Result := Format('%.2d:%.2d:%.2d',
     [Secs div 3600, (Secs div 60) mod 60, Secs mod 60]);
 end;
@@ -366,9 +375,20 @@ begin
   Rad := SX(6);
   Cx := SX(17);
   Cy := H div 2;
+  if FPaused and (FMode = imRecording) then
+  begin
+    // Pausada: duas barras ambar no lugar da bolinha (o simbolo universal
+    // de pausa), fixas — pulsar diria "gravando".
+    DotBrush := CreateSolidBrush(RGB(245, 158, 11));
+    R := Rect(Cx - Rad, Cy - Rad, Cx - Rad + SX(4), Cy + Rad);
+    FillRect(DC, R, DotBrush);
+    R := Rect(Cx + Rad - SX(4), Cy - Rad, Cx + Rad, Cy + Rad);
+    FillRect(DC, R, DotBrush);
+    DeleteObject(DotBrush);
+  end
   // Antialiasing via GDI+; se indisponivel, cai no Ellipse GDI (serrilhado).
   // A borda suave mistura com o fundo escuro do pill (ja pintado acima).
-  if not FillCircleAA(DC, Cx, Cy, Rad, DotR, DotG, DotB) then
+  else if not FillCircleAA(DC, Cx, Cy, Rad, DotR, DotG, DotB) then
   begin
     DotBrush := CreateSolidBrush(RGB(DotR, DotG, DotB));
     OldBrush := SelectObject(DC, DotBrush);
@@ -560,6 +580,14 @@ begin
   ApplyClickable;
 end;
 
+procedure SetPaused(APaused: Boolean; AStartTickMs: Cardinal);
+begin
+  FStartTick := AStartTickMs;
+  if APaused and not FPaused then FPauseTick := GetTickCount;
+  FPaused := APaused;
+  if FHwnd <> 0 then InvalidateRect(FHwnd, nil, False);
+end;
+
 // Largura logica do pill no modo atual.
 function ModeWidthDip: Integer;
 begin
@@ -576,6 +604,9 @@ begin
   FStartTick := AStartTickMs;
   FCorner := ACorner;
   FDotOn := True;
+  // Mostrar de novo e sempre um estado "correndo"; quem esta pausado
+  // reaplica com SetPaused logo depois.
+  FPaused := False;
   FMode := AMode;
   FMaxSec := AMaxSec;
   FClickable := AClickable;

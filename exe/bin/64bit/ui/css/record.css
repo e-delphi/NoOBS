@@ -156,6 +156,28 @@
   }
   .record-card.recording .rec-timer { color: var(--text); }
 
+  /* Pausar: botao do rodape, ao lado do "Gravar uma janela" (mesmo
+     tamanho e hover verde). Sempre visivel, desativado fora da gravacao —
+     o mesmo lugar o tempo todo. Pausada, fica aceso em ambar (clique =
+     retomar) e o botao de gravar para de pulsar. */
+  .record-pause-btn { width: 28px; height: 28px; }
+  .record-pause-btn:not(:disabled):hover { color: var(--success); border-color: var(--success); }
+  .record-pause-btn .resume-glyph { display: none; }
+  .record-pause-btn.paused .pause-glyph { display: none; }
+  .record-pause-btn.paused .resume-glyph { display: block; }
+  .record-pause-btn.paused,
+  .record-pause-btn.paused:not(:disabled):hover {
+    color: var(--warning, #f59e0b);
+    border-color: var(--warning, #f59e0b);
+  }
+  .record-card.paused .record-btn.recording { animation: none; }
+  .record-card.paused .rec-timer { color: var(--warning, #f59e0b); }
+  .record-card.paused .rec-state-dot {
+    background: var(--warning, #f59e0b);
+    box-shadow: none;
+    animation: none;
+  }
+
   /* Botao circular grande. .recording troca cor + adiciona pulse no
      box-shadow + transforma o glyph em quadrado (stop). */
   .record-btn {

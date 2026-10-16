@@ -7,6 +7,18 @@ function startRecordingAnimation(elapsedSec) {
   }, 50);
 }
 
+// Pausa: para o relogio no valor dado (ou onde estava, sem valor).
+function freezeRecordingAnimation(elapsedSec) {
+  if (_recAnimInterval) {
+    clearInterval(_recAnimInterval);
+    _recAnimInterval = null;
+  }
+  if (typeof elapsedSec === 'number') {
+    _recAnimStart = Date.now() - Math.max(0, elapsedSec) * 1000;
+    _renderTimer(Math.max(0, elapsedSec) * 1000);
+  }
+}
+
 function stopRecordingAnimation() {
   if (_recAnimInterval) {
     clearInterval(_recAnimInterval);
@@ -28,8 +40,11 @@ let _lastRecordingSizeText = '';
 // Titulo da janela sendo gravada ('' = gravacao das telas). Mesma regra do
 // tamanho: so o push recording_state traz.
 let _lastRecordingWindow = '';
+// Gravacao pausada (record_pause). Chega em todo recording_state; as
+// chamadas sem argumento (troca de idioma) reaproveitam o ultimo.
+let _lastRecordingPaused = false;
 
-function applyRecordingState(active, elapsedSec, sizeText, windowTitle) {
+function applyRecordingState(active, elapsedSec, sizeText, windowTitle, paused) {
   const btn = document.getElementById('recordBtn');
   const label = document.getElementById('recordLabel');
   const card = document.getElementById('recCard');
@@ -53,17 +68,36 @@ function applyRecordingState(active, elapsedSec, sizeText, windowTitle) {
   if (!active) _lastRecordingSizeText = '';
   if (typeof windowTitle === 'string') _lastRecordingWindow = windowTitle;
   if (!active) _lastRecordingWindow = '';
+  if (typeof paused === 'boolean') _lastRecordingPaused = paused;
+  if (!active) _lastRecordingPaused = false;
+  const isPaused = active && _lastRecordingPaused;
+  card.classList.toggle('paused', isPaused);
+  const pauseBtn = document.getElementById('recordPauseBtn');
+  if (pauseBtn) {
+    pauseBtn.classList.toggle('paused', isPaused);
+    // Sempre visivel; so faz sentido gravando.
+    pauseBtn.disabled = !active;
+    const key = isPaused ? 'record.resume' : 'record.pause';
+    pauseBtn.dataset.hint = T(key);
+    pauseBtn.setAttribute('aria-label', T(key));
+  }
 
   if (active) {
     btn.classList.add('recording');
     card.classList.add('recording');
     document.body.classList.add('recording');
     label.textContent = T('record.stop');
-    statusText.textContent = _lastRecordingWindow
-      ? T('record.statusRecordingWindow', { title: _lastRecordingWindow })
-      : T('record.statusRecording');
+    statusText.textContent = isPaused
+      ? T('record.statusPaused')
+      : _lastRecordingWindow
+        ? T('record.statusRecordingWindow', { title: _lastRecordingWindow })
+        : T('record.statusRecording');
     statusText.title = _lastRecordingWindow;
-    startRecordingAnimation(elapsedSec || 0);
+    // Pausada: o cronometro para no tempo gravado (o backend manda o elapsed
+    // ja congelado). So quem trouxe o elapsed mexe no relogio.
+    if (isPaused) freezeRecordingAnimation(elapsedSec);
+    else if (typeof elapsedSec === 'number' || !_recAnimInterval)
+      startRecordingAnimation(elapsedSec || 0);
   } else {
     btn.classList.remove('recording');
     card.classList.remove('recording');

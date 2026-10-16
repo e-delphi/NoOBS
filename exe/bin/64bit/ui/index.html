@@ -1758,8 +1758,9 @@
           </button>
           <div class="record-label" id="recordLabel" data-i18n="record.start">Iniciar gravação</div>
 
-          <!-- Rodape do cartao: a linha do buffer + o botao "Gravar uma
-               janela" ao lado (windowpicker.js). O fio de cima e as margens
+          <!-- Rodape do cartao: a linha do buffer + os botoes "Gravar uma
+               janela" (windowpicker.js) e "Pausar" (sempre visivel,
+               desativado fora da gravacao). O fio de cima e as margens
                negativas sao do rodape, nao da linha do buffer. -->
           <div class="rec-footer">
           <!-- Buffer em memoria (replay.js). Mesmo padrao das linhas de
@@ -1799,6 +1800,15 @@
                 <circle cx="6" cy="6.5" r="0.6" fill="currentColor"/>
                 <circle cx="8.5" cy="6.5" r="0.6" fill="currentColor"/>
               </svg>
+            </button>
+            <button class="icon-btn record-pause-btn" id="recordPauseBtn" type="button"
+                    onclick="toggleRecordPause()" disabled
+                    data-i18n-hint="record.pause" data-hint="Pausar gravação"
+                    data-i18n-aria="record.pause" aria-label="Pausar gravação">
+              <svg class="pause-glyph" width="13" height="13" viewBox="0 0 24 24"
+                   fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg>
+              <svg class="resume-glyph" width="13" height="13" viewBox="0 0 24 24"
+                   fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
             </button>
           </div>
         </div>

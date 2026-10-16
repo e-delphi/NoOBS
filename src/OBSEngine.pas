@@ -152,6 +152,13 @@ type
     // sinal "stop" nunca chegue). Idempotente. Main thread.
     procedure ForceCompleteStop;
     function  StopRecording: string;   // sincrono — usado so no shutdown
+    // Pausa/retoma a gravacao em arquivo (obs_output_pause). O trecho pausado
+    // nao entra no arquivo: ele continua sem buraco, como se a gravacao
+    // tivesse parado e recomecado no mesmo arquivo. False = recusado (sem
+    // gravacao, parando, ou o trecho do buffer que abre a gravacao ainda
+    // sendo escrito — os encoders sao os mesmos, e pausa-los cortaria ele).
+    function  SetRecordingPaused(APause: Boolean): Boolean;
+    function  IsRecordingPaused: Boolean;
     function  IsRecording: Boolean;
     function  IsStopping: Boolean;
     // Ha quanto tempo esta finalizando (ms). 0 se nao esta.
@@ -1978,6 +1985,46 @@ end;
 function TOBSEngine.IsStopping: Boolean;
 begin
   Result := FStopping;
+end;
+
+function TOBSEngine.SetRecordingPaused(APause: Boolean): Boolean;
+begin
+  Result := False;
+  if (not FRecording) or FStopping or (GOutput = nil) then Exit;
+  // A pausa e nos encoders (obs_encoded_output_pause), e na gravacao que
+  // continua o buffer eles ainda alimentam a saida que escreve o comeco
+  // dela. Pausar ali cortaria o trecho; o usuario tenta de novo em ~1 s.
+  if APause and (FReplaySaveCommitPending or (FReplaySaveSince <> 0)) then
+  begin
+    Log('Pausa recusada: trecho do buffer ainda sendo gravado.');
+    Exit;
+  end;
+  try
+    Result := Boolean(obs_output_pause(GOutput, ByteBool(APause)));
+  except
+    on E: Exception do
+    begin
+      Log('obs_output_pause falhou: %s', [E.Message]);
+      Exit(False);
+    end;
+  end;
+  if Result then
+  begin
+    if APause then Log('Gravacao pausada.') else Log('Gravacao retomada.');
+  end
+  else
+    Log('obs_output_pause(%s) recusado pela libobs.', [BoolToStr(APause, True)]);
+end;
+
+function TOBSEngine.IsRecordingPaused: Boolean;
+begin
+  Result := False;
+  if (not FRecording) or (GOutput = nil) then Exit;
+  try
+    Result := Boolean(obs_output_paused(GOutput));
+  except
+    Result := False;
+  end;
 end;
 
 procedure TOBSEngine.SetSourceMuted(const ASourceName: string;

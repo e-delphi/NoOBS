@@ -84,7 +84,7 @@ const Bridge = {
       // e statusText. Usa cache _lastRecordingActive — true/false/null pre-boot.
       try {
         if (_lastRecordingActive !== null)
-          applyRecordingState(_lastRecordingActive, 0);
+          applyRecordingState(_lastRecordingActive);  // sem tempo: mantem o relogio
       } catch (e) {}
       try { updateRecordButtonAvailability(); } catch (e) {}
       // Re-render recordings — date groups (Hoje/Ontem/...) + nomes de
@@ -383,8 +383,10 @@ const Bridge = {
     export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },
     export_done(data) { Export.onDone(data); },
     recording_state(data) {
-      applyRecordingState(data.active, data.elapsed, data.sizeText,
-                          data.window || '');
+      // elapsedMs (fracao de segundo) quando vier; elapsed e o inteiro.
+      const el = typeof data.elapsedMs === 'number' ? data.elapsedMs / 1000 : data.elapsed;
+      applyRecordingState(data.active, el, data.sizeText,
+                          data.window || '', !!data.paused);
     },
     // Seletor "Gravar uma janela" (windowpicker.js).
     capture_windows(data) { WindowPicker.onList(data); },

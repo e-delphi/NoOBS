@@ -517,7 +517,7 @@ pub fn handle_request_transcript(path: &str) {
     }
     let path = path.to_owned();
     std::thread::spawn(move || {
-        let body = std::fs::read_to_string(transcribe::transcript_path(&path)).unwrap_or_default();
+        let body = crate::text_file::read(transcribe::transcript_path(&path)).unwrap_or_default();
         // Nomes de falante escolhidos pelo usuário. Vão junto para o painel não precisar de um
         // segundo round-trip só para rotular.
         let names = load_speaker_names(&path);
@@ -571,7 +571,7 @@ pub fn handle_search_transcripts(query: &str) {
                 if is_shutting_down() {
                     break;
                 }
-                let Ok(txt) = std::fs::read_to_string(transcribe::transcript_text_path(&f)) else { continue };
+                let Ok(txt) = crate::text_file::read(transcribe::transcript_text_path(&f)) else { continue };
                 if !txt.is_empty() && txt.to_lowercase().contains(&needle) {
                     hits.push(f);
                 }

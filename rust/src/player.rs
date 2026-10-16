@@ -278,7 +278,7 @@ fn meta_file_path(path: &str) -> PathBuf {
 }
 
 fn read_meta_root(file: &Path) -> Option<Map<String, Value>> {
-    let text = std::fs::read_to_string(file).ok()?;
+    let text = crate::text_file::read(file).ok()?;
     match serde_json::from_str::<Value>(&text).ok()? {
         Value::Object(m) => Some(m),
         _ => None,

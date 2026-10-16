@@ -425,7 +425,7 @@ pub fn export_transcript(src: &str, dst: &str, starts: &[f64], ends: &[f64], spe
     if !has_transcript(src) {
         return false;
     }
-    let Ok(body) = std::fs::read_to_string(transcript_path(src)) else { return false };
+    let Ok(body) = crate::text_file::read(transcript_path(src)) else { return false };
     let Some((json, text)) = merge::export_transcript_body(&body, starts, ends, speed) else { return false };
     let _ = std::fs::create_dir_all(player::cache_root_dir());
     match std::fs::write(transcript_path(dst), json).and_then(|_| std::fs::write(transcript_text_path(dst), text)) {
@@ -523,7 +523,7 @@ fn save_queue() {
 }
 
 fn read_saved_array(key: &str) -> Vec<String> {
-    let Ok(body) = std::fs::read_to_string(queue_file_path()) else { return Vec::new() };
+    let Ok(body) = crate::text_file::read(queue_file_path()) else { return Vec::new() };
     let Ok(root) = serde_json::from_str::<Value>(&body) else { return Vec::new() };
     root.get(key)
         .and_then(Value::as_array)

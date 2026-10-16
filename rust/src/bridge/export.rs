@@ -132,7 +132,7 @@ fn describe_export_encoder(name: &str) -> (&'static str, bool) {
 /// cache — nunca da UI. `<hash>.transcript.json`.
 fn load_caption_turns(path: &str) -> Vec<CaptionTurn> {
     let file = crate::transcribe::transcript_path(path);
-    let Ok(body) = std::fs::read_to_string(file) else { return Vec::new() };
+    let Ok(body) = crate::text_file::read(file) else { return Vec::new() };
     let Ok(Value::Object(root)) = serde_json::from_str::<Value>(&body) else { return Vec::new() };
     let Some(turns) = root.get("turns").and_then(Value::as_array) else { return Vec::new() };
     turns

@@ -44,6 +44,7 @@ mod rtwq;
 mod scene;
 mod single_instance;
 mod startup_check;
+mod text_file;
 mod time_stretch;
 mod transcribe;
 mod tray;

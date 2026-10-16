@@ -480,10 +480,10 @@ fn build_block_json(path: &str, rev: &str) -> String {
         root.insert("meta".into(), meta);
     }
     let tr = transcript_path(path);
-    if let Ok(body) = std::fs::read_to_string(&tr) {
+    if let Ok(body) = crate::text_file::read(&tr) {
         if let Ok(v) = serde_json::from_str::<Value>(&body) {
             root.insert("transcript".into(), v);
-            let text = std::fs::read_to_string(transcript_text_path(path)).unwrap_or_default();
+            let text = crate::text_file::read(transcript_text_path(path)).unwrap_or_default();
             root.insert("transcriptText".into(), json!(text));
         }
     }
@@ -578,7 +578,7 @@ fn save_pending(sh: &Shared) {
 }
 
 fn load_pending() {
-    let Ok(body) = std::fs::read_to_string(pending_path()) else { return };
+    let Ok(body) = crate::text_file::read(pending_path()) else { return };
     match serde_json::from_str::<Vec<Value>>(&body) {
         // Folga no arranque: o resto do app está subindo.
         Ok(list) => list.iter().filter_map(Value::as_str).for_each(|p| enqueue(p, STARTUP_GRACE_MS)),

@@ -22,6 +22,7 @@ use crate::{config, engine, file_meta, lang, log, mainthread, player, record_wat
 mod devices;
 pub mod export;
 mod filters;
+mod folders;
 mod library;
 mod recording;
 mod settings;
@@ -207,6 +208,20 @@ pub fn dispatch(raw: &str) {
         "search_transcripts" => transcribe::handle_search_transcripts(str_field(&msg, "query")),
         "get_root_folders" => transcribe::push_root_folders(),
         "set_folder_hidden" => transcribe::handle_set_folder_hidden(str_field(&msg, "name"), bool_field(&msg, "hidden", false)),
+        "open_folder" => folders::handle_open_folder(str_field(&msg, "id")),
+        "create_folder" => folders::handle_create_folder(str_field(&msg, "name")),
+        "rename_folder" => folders::handle_rename_folder(str_field(&msg, "id"), str_field(&msg, "newName")),
+        "delete_folder" => folders::handle_delete_folder(str_field(&msg, "id")),
+        "move_items" => {
+            if let Some(ids) = msg.get("ids").and_then(Value::as_array) {
+                folders::handle_move_items(ids, str_field(&msg, "target"));
+            }
+        }
+        "merge_recordings" => {
+            if let Some(ids) = msg.get("ids").and_then(Value::as_array) {
+                folders::handle_merge_recordings(ids);
+            }
+        }
         "get_settings" => settings::push_settings(),
         "set_codec" => settings::handle_set_codec(str_field(&msg, "codec")),
         "set_recording_quality" => settings::handle_set_recording_quality(int_field(&msg, "level", 0)),

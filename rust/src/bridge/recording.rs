@@ -14,7 +14,7 @@ use std::time::Instant;
 use chrono::{DateTime, Local};
 use serde_json::json;
 
-use crate::engine::{self, CaptureInputs, RecordRequest, WindowCapture};
+use crate::engine::{self, AreaRect, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
 use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, win_audio_meter, win_preview, win_webcam};
 
@@ -49,6 +49,8 @@ struct RecState {
     started_by_mic_watch: bool,
     /// Gravação de UMA janela (pegadinha #66); vazio = telas.
     window: Option<WindowCapture>,
+    /// Gravação de uma ÁREA da tela (Capturar... → Área); vence a janela.
+    area: Option<AreaRect>,
     window_was_visible_before_record: bool,
     encoder_caps_pushed: bool,
     last_encoder_caps: Option<EncoderCaps>,
@@ -111,6 +113,20 @@ pub fn set_started_by_mic_watch(v: bool) {
 /// A gravação em curso foi iniciada pelo watcher de mic (só ela é auto-parada).
 pub fn started_by_mic_watch() -> bool {
     with_state(|s| s.started_by_mic_watch)
+}
+
+/// Área escolhida no "Capturar... → Área"; `None` volta às telas.
+pub fn set_recording_area(a: Option<AreaRect>) {
+    with_state(|s| s.area = a);
+}
+
+/// A área mudou no meio da gravação (moldura movida/redimensionada).
+pub fn update_recording_area(a: AreaRect) {
+    with_state(|s| {
+        if s.recording_active && s.area.is_some() {
+            s.area = Some(a);
+        }
+    });
 }
 
 /// Janela escolhida no seletor "Gravar uma janela"; `None` volta às telas.
@@ -268,7 +284,13 @@ pub fn push_refresh_busy(busy: bool, what: &str) {
 
 pub fn push_recording_state() {
     let (active, elapsed, paused, window, path) = with_state(|s| {
-        let window = s.window.as_ref().filter(|_| s.recording_active).map(|w| w.title.clone());
+        let window = if !s.recording_active {
+            None
+        } else if let Some(a) = s.area {
+            Some(lang::t_with("windowPicker.areaRecording", &[("w", &a.w.to_string()), ("h", &a.h.to_string())]))
+        } else {
+            s.window.as_ref().map(|w| w.title.clone())
+        };
         (s.recording_active, s.elapsed(), s.recording_active && s.recording_paused, window, s.last_recording_path.clone())
     });
     let mut obj = json!({ "type": "recording_state", "active": active, "elapsed": elapsed.as_secs() });
@@ -387,7 +409,10 @@ pub fn handle_record_start() {
     if super::video_test::capturing() {
         log!("HandleRecordStart: ignorado — teste de qualidade capturando.");
         post_error(lang::t("settings.videoTest.busyRecord"));
-        with_state(|s| s.window = None);
+        with_state(|s| {
+            s.window = None;
+            s.area = None;
+        });
         return;
     }
     // Gravação em curso = não hibernar.
@@ -414,7 +439,7 @@ pub fn handle_record_start() {
     // mic (outro perfil = outra cena) ou gravação de janela (a cena do buffer
     // são as telas) — é um de cada vez: o buffer é descartado e volta sozinho
     // no fim se `ReplayWanted` seguir ligado.
-    let (by_mic, has_window) = with_state(|s| (s.started_by_mic_watch, s.window.is_some()));
+    let (by_mic, has_window) = with_state(|s| (s.started_by_mic_watch, s.window.is_some() || s.area.is_some()));
     let continue_replay = replay::replay_active()
         && engine::exists()
         && config::get_config_bool("replayIntoRecording", true)
@@ -434,6 +459,7 @@ pub fn handle_record_start() {
             with_state(|s| {
                 s.recording_active = false;
                 s.window = None;
+                s.area = None;
             });
             replay::sync_transcribe_pause();
             // Reverte os ícones se já tinham virado "gravando" (no-op se não).
@@ -469,11 +495,12 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     // Continuando o buffer, o codec do nome é o dele (os encoders já rodam).
     let enc_id = if continue_replay { engine::with_engine(|e| e.video_encoder_id().to_owned()).unwrap_or_default() } else { String::new() };
     let output_path = build_recording_path(Local::now(), &enc_id);
-    let (auto_profile, window) = with_state(|s| (s.started_by_mic_watch, s.window.clone()));
+    let (auto_profile, window, area) = with_state(|s| (s.started_by_mic_watch, s.window.clone(), s.area));
     let req = RecordRequest {
         output_path: output_path.to_string_lossy().into_owned(),
         auto_profile,
         window,
+        area,
     };
 
     let t_step = Instant::now();
@@ -555,6 +582,7 @@ pub fn handle_record_stop() {
     let elapsed = with_state(|s| {
         s.started_by_mic_watch = false;
         s.window = None;
+        s.area = None;
         // Parando pausada, a pausa não conta (o arquivo também não a tem).
         let e = s.elapsed().as_secs() as i32;
         s.recording_paused = false;
@@ -571,6 +599,8 @@ pub fn handle_record_stop() {
     ui::kill_timer(TIMER_RECORDING_TICK);
     // Idempotente: no-op se não estava visível.
     rec_indicator::hide();
+    // Moldura da gravação de área (se houver).
+    crate::area_frame::hide();
 
     // O caminho já é conhecido (geramos no start). O arquivo só estará COMPLETO
     // quando o sinal "stop" do output disparar — por isso o card e a meta saem
@@ -920,6 +950,7 @@ pub fn shutdown() {
     ui::unregister_global_hotkey(HK_RECORD_TOGGLE_ALT);
     // O overlay some junto com o app.
     rec_indicator::hide();
+    crate::area_frame::hide();
     lock_detector::stop();
     if engine::exists() {
         // Sync: no shutdown não há message loop para drenar o sinal.

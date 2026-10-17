@@ -68,8 +68,8 @@
     "prefixFileSuffix": "buffer"
   },
   "windowPicker": {
-    "button": "Record a window",
-    "title": "Record a window",
+    "button": "Capture...",
+    "title": "Capture",
     "subtitle": "Only the chosen window goes into the video, even when other windows cover it. Audio follows the selected devices.",
     "refresh": "Refresh list",
     "close": "Close",
@@ -80,7 +80,16 @@
     "pick": "Record this window",
     "gone": "The chosen window is no longer in the list. Open the picker again.",
     "appAudio": "Record the app sound",
-    "appAudioHint": "Also records the sound only this program plays, on its own track named after it. System sound stays on the usual tracks."
+    "appAudioHint": "Also records the sound only this program plays, on its own track named after it. System sound stays on the usual tracks.",
+    "modeWindow": "Window",
+    "modeArea": "Area",
+    "areaSubtitle": "Record part of the screen, on any monitor. Audio follows the checked devices.",
+    "areaSteps": [
+      "The monitors dim: drag to choose the area and release to start recording. Esc cancels.",
+      "While recording, hold Ctrl+Shift and click the button on the frame corner to move or resize the area. Ctrl+Shift+click again, Enter or Esc to finish."
+    ],
+    "areaStart": "Select area",
+    "areaRecording": "Area {{w}}×{{h}}"
   },
   "recordings": {
     "title": "Recordings",
@@ -1002,5 +1011,8 @@
     "running": "Transcribing — click to view",
     "runningQueue": "Transcribing, {{count}} more in the queue — click to view",
     "queued": "{{count}} in the transcription queue — click to view"
+  },
+  "areaSelect": {
+    "hint": "Drag to choose the area to record  •  Esc cancels"
   }
 }

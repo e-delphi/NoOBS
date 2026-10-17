@@ -44,10 +44,12 @@
   </div>
 </div>
 
-<!-- ===== Seletor "Gravar uma janela" (windowpicker.js) =====
-     Grade das janelas abertas, com previa de cada uma (PrintWindow no
-     backend, servida pelo HTTP local). Clicar numa janela comeca a gravar
-     SO ela. -->
+<!-- ===== Seletor "Capturar..." (windowpicker.js) =====
+     Duas abas: JANELA (grade das janelas abertas, com previa de cada uma —
+     PrintWindow no backend, servida pelo HTTP local; clicar numa comeca a
+     gravar SO ela) e AREA (o backend escurece os monitores pro usuario
+     arrastar o pedaco da tela; a moldura deixa mover/redimensionar durante a
+     gravacao com Ctrl+Shift+clique no botao do canto). -->
 <div class="winpick-overlay" id="windowPickerOverlay"
      onmousedown="if(event.target===this)WindowPicker.close()">
   <div class="winpick-modal" role="dialog" aria-modal="true"
@@ -55,12 +57,12 @@
     <div class="winpick-header">
       <div class="winpick-title-wrap">
         <div class="winpick-title" id="windowPickerTitle"
-             data-i18n="windowPicker.title">Gravar uma janela</div>
-        <div class="winpick-sub" data-i18n="windowPicker.subtitle">
+             data-i18n="windowPicker.title">Capturar</div>
+        <div class="winpick-sub" id="windowPickerSub" data-i18n="windowPicker.subtitle">
           Só a janela escolhida entra no vídeo, mesmo coberta por outras. O áudio segue os dispositivos marcados.
         </div>
       </div>
-      <button class="icon-btn" type="button" onclick="WindowPicker.refresh()"
+      <button class="icon-btn" type="button" id="windowPickerRefresh" onclick="WindowPicker.refresh()"
               data-i18n-hint="windowPicker.refresh" data-hint="Atualizar lista">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2"
@@ -80,6 +82,28 @@
       </button>
     </div>
     <div class="winpick-body">
+      <div class="winpick-modes" role="tablist">
+        <button type="button" class="winpick-mode" id="windowPickerModeWindow" role="tab"
+                onclick="WindowPicker.setMode('window')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+          </svg>
+          <span data-i18n="windowPicker.modeWindow">Janela</span>
+        </button>
+        <button type="button" class="winpick-mode" id="windowPickerModeArea" role="tab"
+                onclick="WindowPicker.setMode('area')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 3">
+            <rect x="3" y="5" width="18" height="14" rx="1"/>
+          </svg>
+          <span data-i18n="windowPicker.modeArea">Área</span>
+        </button>
+      </div>
+      <div id="windowPickerWindowPane">
       <div class="winpick-tools">
         <input type="text" class="search winpick-search" id="windowPickerSearch"
                data-i18n-placeholder="windowPicker.search" placeholder="Filtrar janelas..."
@@ -96,6 +120,21 @@
       </div>
       <div class="winpick-empty" id="windowPickerEmpty" hidden></div>
       <div class="winpick-grid" id="windowPickerGrid"></div>
+      </div>
+      <!-- Aba AREA: so explica e dispara a selecao (que e do backend). -->
+      <div class="winpick-area" id="windowPickerAreaPane" hidden>
+        <svg class="winpick-area-art" viewBox="0 0 160 96" aria-hidden="true">
+          <rect x="2" y="2" width="156" height="92" rx="6" class="dim"/>
+          <rect x="40" y="22" width="80" height="52" rx="2" class="hole"/>
+          <circle cx="114" cy="12" r="6" class="btn"/>
+        </svg>
+        <ul class="winpick-area-steps" data-i18n-list="windowPicker.areaSteps">
+          <li>Os monitores escurecem: arraste para escolher a área e solte para começar a gravar. Esc cancela.</li>
+          <li>Durante a gravação, segure Ctrl+Shift e clique no botão do canto da moldura para mover ou redimensionar a área.</li>
+        </ul>
+        <button type="button" class="export-btn primary winpick-area-btn" id="windowPickerAreaBtn"
+                onclick="WindowPicker.selectArea()" data-i18n="windowPicker.areaStart">Selecionar área</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1790,8 +1829,8 @@
           </div>
             <button class="icon-btn window-record-btn" id="windowRecordBtn"
                     type="button" onclick="WindowPicker.open()"
-                    data-i18n-hint="windowPicker.button" data-hint="Gravar uma janela"
-                    data-i18n-aria="windowPicker.button" aria-label="Gravar uma janela">
+                    data-i18n-hint="windowPicker.button" data-hint="Capturar..."
+                    data-i18n-aria="windowPicker.button" aria-label="Capturar...">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
                    stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round">

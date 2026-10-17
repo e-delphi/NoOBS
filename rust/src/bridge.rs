@@ -296,6 +296,7 @@ fn dispatch_inner(raw: &str) {
         "set_fullscreen_detect" => recording::handle_set_fullscreen_detect(bool_field(&msg, "enabled", true)),
         "list_capture_windows" => window_record::handle_list_capture_windows(),
         "record_window" => window_record::handle_record_window(str_field(&msg, "id"), bool_field(&msg, "appAudio", false)),
+        "select_capture_area" => window_record::handle_select_capture_area(),
         "test_video_quality" => video_test::handle_test_video_quality(),
         "cancel_video_test" => video_test::handle_cancel_video_test(),
         other => not_ported(other),

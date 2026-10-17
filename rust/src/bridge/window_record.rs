@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde_json::json;
 
-use crate::engine::{self, WindowCapture};
+use crate::engine::{self, AreaRect, WindowCapture};
 use crate::win_windows::{self, CaptureWindow};
-use crate::{lang, log, mainthread, player};
+use crate::{area_frame, area_select, lang, log, mainthread, player};
 
 use super::{is_shutting_down, post_error, post_json, recording};
 
@@ -144,5 +144,54 @@ pub fn handle_record_window(id: &str, app_audio: bool) {
     // Não subiu (recusada ou falhou): a próxima gravação volta a ser das telas.
     if !recording::recording_active() {
         recording::set_recording_window(None);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Capturar uma ÁREA da tela
+// ---------------------------------------------------------------------------
+
+/// `select_capture_area`: escurece os monitores pro usuário arrastar a área.
+/// Soltar começa a gravação; Esc/botão direito cancelam (`capture_area_canceled`).
+pub fn handle_select_capture_area() {
+    if recording::recording_active() || area_select::is_active() {
+        return;
+    }
+    if !area_select::start(on_area_selected) {
+        post_json(json!({ "type": "capture_area_canceled" }));
+    }
+}
+
+fn on_area_selected(area: Option<AreaRect>) {
+    let Some(a) = area else {
+        post_json(json!({ "type": "capture_area_canceled" }));
+        return;
+    };
+    if recording::recording_active() {
+        return;
+    }
+    recording::set_recording_area(Some(a));
+    recording::handle_record_start();
+    if recording::recording_active() {
+        // Moldura com o botão de mover/redimensionar (Ctrl+Shift+clique).
+        area_frame::show(a, on_area_changed);
+    } else {
+        // Não subiu (recusada ou falhou): a próxima gravação volta às telas.
+        recording::set_recording_area(None);
+    }
+}
+
+/// A moldura mudou a área no meio da gravação: o engine troca recorte e
+/// posição das capturas na hora (o tamanho do vídeo não muda). No fim do
+/// arrasto, o rótulo da tela ("Área 1280×720") acompanha.
+fn on_area_changed(area: AreaRect, done: bool) {
+    let applied = engine::with_engine(|e| e.update_area(area)).unwrap_or(false);
+    if !applied {
+        return;
+    }
+    recording::update_recording_area(area);
+    if done {
+        log!("Area: agora {}x{} em ({}, {}).", area.w, area.h, area.x, area.y);
+        recording::push_recording_state();
     }
 }

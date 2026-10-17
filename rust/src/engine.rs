@@ -150,12 +150,59 @@ pub struct WindowCapture {
     pub app: String,
 }
 
+/// Gravação de uma ÁREA da área de trabalho (pixels físicos, coordenadas da
+/// área de trabalho virtual — origem no monitor principal, pode ser negativa).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AreaRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+/// Recorte de um monitor que cai dentro da área, e onde ele vai no canvas.
+/// Função pura: é a conta inteira da captura de área (e é o que os testes
+/// cobrem). `None` = o monitor não toca a área.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AreaPiece {
+    pub crop: SceneItemCrop,
+    pub pos: (f64, f64),
+    pub scale: f64,
+}
+
+/// O canvas não muda durante a gravação (o `obs_reset_video` não roda com a
+/// saída ativa): uma área de outro tamanho é encaixada nele mantendo a
+/// proporção, centralizada — como a janela redimensionada (SCALE_INNER).
+pub fn area_piece(area: AreaRect, canvas: (i32, i32), mon: &ObsMonitor) -> Option<AreaPiece> {
+    if area.w <= 0 || area.h <= 0 {
+        return None;
+    }
+    let (mx0, my0) = (mon.position_x, mon.position_y);
+    let (mx1, my1) = (mx0 + mon.width, my0 + mon.height);
+    let (ix0, iy0) = (area.x.max(mx0), area.y.max(my0));
+    let (ix1, iy1) = ((area.x + area.w).min(mx1), (area.y + area.h).min(my1));
+    if ix1 <= ix0 || iy1 <= iy0 {
+        return None;
+    }
+    let (cw, ch) = (canvas.0 as f64, canvas.1 as f64);
+    let s = (cw / area.w as f64).min(ch / area.h as f64);
+    let ox = (cw - area.w as f64 * s) / 2.0;
+    let oy = (ch - area.h as f64 * s) / 2.0;
+    Some(AreaPiece {
+        crop: SceneItemCrop { left: ix0 - mx0, top: iy0 - my0, right: mx1 - ix1, bottom: my1 - iy1 },
+        pos: (ox + (ix0 - area.x) as f64 * s, oy + (iy0 - area.y) as f64 * s),
+        scale: s,
+    })
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RecordRequest {
     pub output_path: String,
     /// Perfil de auto-gravação (watcher de mic, pegadinha #47).
     pub auto_profile: bool,
     pub window: Option<WindowCapture>,
+    /// Gravação de uma área (vence a janela; os dois nunca vêm juntos).
+    pub area: Option<AreaRect>,
 }
 
 /// Notificações para o Bridge, sempre na main thread e fora do empréstimo.
@@ -447,6 +494,13 @@ pub struct Engine {
     /// escolhido outro que o pedido). Vira meta do arquivo.
     video_encoder_id: String,
     window: Option<WindowCapture>,
+    /// Área sendo gravada (muda ao vivo pelo `update_area`).
+    area: Option<AreaRect>,
+    /// Uma captura por monitor (todos: a área pode ir pra qualquer um) e o
+    /// monitor dela. Os itens morrem com a cena.
+    area_items: Vec<(ObsSceneItem, ObsMonitor)>,
+    /// Canvas fixado no início da gravação de área.
+    area_canvas: (i32, i32),
 
     // objetos libobs da sessão (os `G*` do Delphi)
     scene: ObsScene,
@@ -481,6 +535,37 @@ pub struct Engine {
 }
 
 impl Engine {
+    /// Recorta/posiciona as capturas pra `ar` (início e mudanças ao vivo).
+    fn apply_area(&self, ar: AreaRect) {
+        let Ok(a) = api() else { return };
+        for (item, m) in &self.area_items {
+            unsafe {
+                match area_piece(ar, self.area_canvas, m) {
+                    Some(p) => {
+                        (a.obs_sceneitem_set_crop)(*item, &p.crop);
+                        (a.obs_sceneitem_set_pos)(*item, &Vec2 { x: p.pos.0 as f32, y: p.pos.1 as f32 });
+                        (a.obs_sceneitem_set_scale)(*item, &Vec2 { x: p.scale as f32, y: p.scale as f32 });
+                        (a.obs_sceneitem_set_visible)(*item, true);
+                    }
+                    None => {
+                        (a.obs_sceneitem_set_visible)(*item, false);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Área nova no meio da gravação (moldura movida/redimensionada). `false`
+    /// se não há gravação de área.
+    pub fn update_area(&mut self, ar: AreaRect) -> bool {
+        if self.area_items.is_empty() || ar.w < 16 || ar.h < 16 {
+            return false;
+        }
+        self.area = Some(ar);
+        self.apply_area(ar);
+        true
+    }
+
     fn new() -> Self {
         Self {
             initialized: false,
@@ -496,6 +581,9 @@ impl Engine {
             current_layout: RecordingLayout::default(),
             video_encoder_id: String::new(),
             window: None,
+            area: None,
+            area_items: Vec::new(),
+            area_canvas: (0, 0),
             scene: std::ptr::null_mut(),
             output: std::ptr::null_mut(),
             replay_saving: std::ptr::null_mut(),
@@ -715,6 +803,7 @@ impl Engine {
     /// (a corrente e a que ainda grava um trecho) caem antes dos encoders que
     /// elas compartilham.
     fn release_recording_objects(&mut self) {
+        self.area_items.clear();
         // Sem libobs iniciado só zeramos os ponteiros: chamar
         // obs_set_output_source antes do obs_startup dá AV (pegadinha #32).
         if !self.initialized {
@@ -791,9 +880,17 @@ impl Engine {
         // 1. Inventário de monitores (mesmo indexador da UI).
         log!("-- Inventario --");
         let window = self.window.clone();
+        let area = self.area;
         let (mut win_w, mut win_h) = (0, 0);
         let mut monitors: Vec<ObsMonitor>;
-        if let Some(w) = &window {
+        if let Some(ar) = area {
+            // Área: TODOS os monitores, marcados ou não — a área é escolhida na
+            // tela e pode ser movida pra qualquer monitor durante a gravação.
+            monitors = inputs.monitors.clone();
+            win_w = ar.w;
+            win_h = ar.h;
+            log!("   Area {}x{} em ({}, {}) — {} monitor(es) disponiveis.", ar.w, ar.h, ar.x, ar.y, monitors.len());
+        } else if let Some(w) = &window {
             // Gravação de janela: nada de monitor/webcam, o canvas é a janela.
             monitors = Vec::new();
             win_w = w.width;
@@ -819,7 +916,7 @@ impl Engine {
         // Bounding compacto (monitores + webcams habilitadas).
         let mut bounding_w: i32 = monitors.iter().map(|m| m.width).sum();
         let mut bounding_h: i32 = monitors.iter().map(|m| m.height).max().unwrap_or(0);
-        let cams: Vec<Webcam> = if window.is_some() {
+        let cams: Vec<Webcam> = if window.is_some() || area.is_some() {
             bounding_w = win_w;
             bounding_h = win_h;
             Vec::new()
@@ -872,7 +969,8 @@ impl Engine {
         // Janela tem tamanho arbitrário: encoder de hardware codifica em blocos
         // de 16 e a AMD deixava o excesso como coluna VERDE. Múltiplo de 16 pra
         // baixo; o SCALE_INNER da fonte põe no máximo 15 px de tarja (#66).
-        if window.is_some() && canvas_w >= 32 && canvas_h >= 32 {
+        // Mesma regra pra área: tamanho arbitrário.
+        if (window.is_some() || area.is_some()) && canvas_w >= 32 && canvas_h >= 32 {
             canvas_w &= !15;
             canvas_h &= !15;
         }
@@ -909,7 +1007,8 @@ impl Engine {
         // 4. Monitores.
         log!("-- Capturas de monitor --");
         let mut pos_x = 0.0f64;
-        for m in &monitors {
+        let side_by_side: &[ObsMonitor] = if area.is_some() { &[] } else { &monitors };
+        for m in side_by_side {
             let source_name = format!("NoOBS Monitor {}", m.index);
             let mon_id = resolve_monitor_id(m);
 
@@ -975,6 +1074,36 @@ impl Engine {
             self.current_layout.regions = vec![RecordingRegion {
                 name: w.title.clone(),
                 kind: "window".into(),
+                x: 0,
+                y: 0,
+                w: canvas_w,
+                h: canvas_h,
+            }];
+        }
+
+        // 4c. Área: uma captura por monitor, cada uma recortada no pedaço da
+        // área que cai nela. Mover/redimensionar a área no meio só troca
+        // recorte/posição/escala (`update_area`), nunca o canvas.
+        if let Some(ar) = area {
+            log!("-- Captura de area --");
+            for m in &monitors {
+                let source_name = format!("NoOBS Area Monitor {}", m.index);
+                let mon_id = resolve_monitor_id(m);
+                let settings = ObsData::create()?;
+                settings.set_int("monitor", m.index.into());
+                if !mon_id.is_empty() {
+                    settings.set_string("monitor_id", &mon_id);
+                }
+                let src = self.create_source("monitor_capture", &source_name, settings)?;
+                let item = unsafe { (a.obs_scene_add)(self.scene, src) };
+                self.area_items.push((item, m.clone()));
+                log!("   {source_name} ({}x{} em {},{}) monitor_id={mon_id}", m.width, m.height, m.position_x, m.position_y);
+            }
+            self.area_canvas = (canvas_w, canvas_h);
+            self.apply_area(ar);
+            self.current_layout.regions = vec![RecordingRegion {
+                name: format!("{}x{}", ar.w, ar.h),
+                kind: "area".into(),
                 x: 0,
                 y: 0,
                 w: canvas_w,
@@ -1182,7 +1311,8 @@ impl Engine {
             return Err("Ja esta gravando.".into());
         }
         self.release_recording_objects();
-        self.window = req.window.clone().filter(|w| !w.spec.is_empty()).map(|mut w| {
+        self.area = req.area.filter(|a| a.w >= 16 && a.h >= 16);
+        self.window = req.window.clone().filter(|w| !w.spec.is_empty() && self.area.is_none()).map(|mut w| {
             if w.app.is_empty() {
                 w.app = w.title.clone();
             }
@@ -1300,8 +1430,9 @@ impl Engine {
             return Err("Ja esta gravando.".into());
         }
         self.release_recording_objects();
-        // O buffer grava sempre as telas, nunca a janela da última gravação.
+        // O buffer grava sempre as telas, nunca a janela/área da última gravação.
         self.window = None;
+        self.area = None;
         self.replay_dir = dir.to_owned();
         self.replay_max_sec = max_sec;
         self.replay_max_mb = max_mb;
@@ -1858,6 +1989,49 @@ fn video_info(graphics: &CString, fps: u32, w: u32, h: u32) -> ObsVideoInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn mon(x: i32, y: i32, w: i32, h: i32) -> ObsMonitor {
+        ObsMonitor { position_x: x, position_y: y, width: w, height: h, ..Default::default() }
+    }
+
+    #[test]
+    fn area_num_monitor_so() {
+        // Área 800x600 dentro do monitor principal, canvas do mesmo tamanho.
+        let a = AreaRect { x: 100, y: 50, w: 800, h: 600 };
+        let p = area_piece(a, (800, 600), &mon(0, 0, 1920, 1080)).unwrap();
+        assert_eq!(p.crop, SceneItemCrop { left: 100, top: 50, right: 1020, bottom: 430 });
+        assert_eq!(p.pos, (0.0, 0.0));
+        assert_eq!(p.scale, 1.0);
+        // O monitor da esquerda não entra.
+        assert_eq!(area_piece(a, (800, 600), &mon(-1920, 0, 1920, 1080)), None);
+    }
+
+    #[test]
+    fn area_atravessando_dois_monitores() {
+        // 400 px no monitor da esquerda (origem negativa) + 400 no principal.
+        let a = AreaRect { x: -400, y: 100, w: 800, h: 400 };
+        let esq = area_piece(a, (800, 400), &mon(-1920, 0, 1920, 1080)).unwrap();
+        let dir = area_piece(a, (800, 400), &mon(0, 0, 1920, 1080)).unwrap();
+        assert_eq!(esq.crop, SceneItemCrop { left: 1520, top: 100, right: 0, bottom: 580 });
+        assert_eq!(esq.pos, (0.0, 0.0));
+        assert_eq!(dir.crop, SceneItemCrop { left: 0, top: 100, right: 1520, bottom: 580 });
+        assert_eq!(dir.pos, (400.0, 0.0));
+    }
+
+    #[test]
+    fn area_redimensionada_encaixa_no_canvas_fixo() {
+        // Canvas 800x400 da gravação; a área virou 400x400: cabe em escala 1,
+        // com faixas de 200 px dos lados.
+        let a = AreaRect { x: 0, y: 0, w: 400, h: 400 };
+        let p = area_piece(a, (800, 400), &mon(0, 0, 1920, 1080)).unwrap();
+        assert_eq!(p.scale, 1.0);
+        assert_eq!(p.pos, (200.0, 0.0));
+        // Área 2x maior nos dois eixos: escala 0,5, sem faixa.
+        let a = AreaRect { x: 0, y: 0, w: 1600, h: 800 };
+        let p = area_piece(a, (800, 400), &mon(0, 0, 1920, 1080)).unwrap();
+        assert_eq!(p.scale, 0.5);
+        assert_eq!(p.pos, (0.0, 0.0));
+    }
+
 
     #[test]
     fn locale_do_obs() {

@@ -216,7 +216,7 @@ fn held_str(s: &State) -> String {
 
 /// GDI+ só para a bolinha com antialiasing (o `Ellipse` do GDI serrilha).
 /// Iniciado sob demanda; `false` = indisponível (cai no GDI).
-fn ensure_gdiplus() -> bool {
+pub(crate) fn ensure_gdiplus() -> bool {
     if with(|s| s.gdiplus_token) != 0 {
         return true;
     }

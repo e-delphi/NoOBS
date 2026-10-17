@@ -68,8 +68,8 @@
     "prefixFileSuffix": "búfer"
   },
   "windowPicker": {
-    "button": "Grabar una ventana",
-    "title": "Grabar una ventana",
+    "button": "Capturar...",
+    "title": "Capturar",
     "subtitle": "Solo la ventana elegida entra en el video, aunque otras la cubran. El audio sigue los dispositivos marcados.",
     "refresh": "Actualizar lista",
     "close": "Cerrar",
@@ -80,7 +80,16 @@
     "pick": "Grabar esta ventana",
     "gone": "La ventana elegida ya no está en la lista. Abre el selector de nuevo.",
     "appAudio": "Grabar el sonido de la app",
-    "appAudioHint": "También graba el sonido que solo este programa reproduce, en una pista propia con su nombre. El sonido del sistema sigue en las pistas de siempre."
+    "appAudioHint": "También graba el sonido que solo este programa reproduce, en una pista propia con su nombre. El sonido del sistema sigue en las pistas de siempre.",
+    "modeWindow": "Ventana",
+    "modeArea": "Área",
+    "areaSubtitle": "Graba una parte de la pantalla, en cualquier monitor. El audio sigue los dispositivos marcados.",
+    "areaSteps": [
+      "Los monitores se oscurecen: arrastra para elegir el área y suelta para empezar a grabar. Esc cancela.",
+      "Durante la grabación, mantén Ctrl+Shift y haz clic en el botón de la esquina del marco para mover o redimensionar el área. Ctrl+Shift+clic de nuevo, Enter o Esc terminan."
+    ],
+    "areaStart": "Seleccionar área",
+    "areaRecording": "Área {{w}}×{{h}}"
   },
   "recordings": {
     "title": "Grabaciones",
@@ -1002,5 +1011,8 @@
     "running": "Transcribiendo — haz clic para ver",
     "runningQueue": "Transcribiendo, {{count}} más en la cola — haz clic para ver",
     "queued": "{{count}} en la cola de transcripción — haz clic para ver"
+  },
+  "areaSelect": {
+    "hint": "Arrastra para elegir el área que se grabará  •  Esc cancela"
   }
 }

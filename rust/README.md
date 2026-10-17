@@ -93,6 +93,41 @@ usam o mesmo mutex de instância única, o mesmo `config.json` e o mesmo cache.
 | `WinWindows` | `win_windows.rs` (+ testes, `bridge/window_record.rs`) | portado (#66): janelas da barra de tarefas, UWP pela filha de outro processo, string `titulo:classe:exe` escapada como o OBS, prévia por `PrintWindow(PW_RENDERFULLCONTENT)` recortada na área cliente; `list_capture_windows`/`record_window` com som do app |
 | Teste de qualidade (seção do `OBSBridge`) | `bridge/video_test.rs` | portado (#64): amostra de 5 s no nível máximo pelo caminho da gravação, 11 níveis refeitos pela exportação (MP4 + PNG do meio), cancelável, segura a hibernação |
 
+## Recursos novos (só na versão Rust)
+
+A partir da v0.44, recursos novos entram só aqui; o Delphi é a versão legada.
+
+### Capturar uma área da tela
+
+O botão "Capturar..." (antes "Gravar uma janela") abre o seletor com duas
+abas: **Janela** (o de sempre) e **Área**.
+
+- **Seleção** (`area_select.rs`): uma janela layered do tamanho da área de
+  trabalho virtual escurece todos os monitores; o usuário arrasta o
+  retângulo e soltar já começa a gravar. Esc ou o botão direito cancelam.
+  O "furo" no escuro é uma cor-chave (transparente de verdade) e o
+  `WM_PAINT` pinta só a região que mudou — um buffer do tamanho da tela
+  seriam ~66 MB por quadro em dois monitores 4K. Um 2º `WM_LBUTTONDOWN` no
+  meio do arrasto (chega quando o clique ativa a janela) é ignorado.
+- **Gravação** (`engine.rs`, `area_piece`): uma `monitor_capture` por
+  monitor (TODOS, marcados ou não: a área pode ir pra qualquer um), cada
+  uma recortada (`obs_sceneitem_set_crop`) no pedaço da área que cai nela.
+  O canvas é o tamanho da área no início (múltiplo de 16, como a janela —
+  #66). Mover/redimensionar no meio só troca recorte/posição/escala
+  (`update_area`); o vídeo NÃO muda de tamanho (o `obs_reset_video` não
+  roda com a saída ativa) e a área nova é encaixada mantendo a proporção.
+- **Moldura** (`area_frame.rs`): borda vermelha por fora da área e um botão
+  no canto, ambos fora da captura (`WDA_EXCLUDEFROMCAPTURE`). O botão é
+  atravessável pelo mouse (`WS_EX_TRANSPARENT`) e só deixa de ser enquanto
+  **Ctrl+Shift** estão pressionados (lidos a cada 50 ms) — só Ctrl seria
+  acionado por acidente com o Ctrl+clique comum de outros apps.
+  Ctrl+Shift+clique liga a edição: um véu sobre a área recebe o mouse
+  (meio move, bordas/cantos redimensionam, setas movem 1 px / Shift 10 px)
+  e Ctrl+Shift+clique, Enter ou Esc terminam. Com jogo em tela cheia na
+  frente tudo some, como o indicador (#49).
+- Não continua o buffer em memória (a cena dele são as telas), igual à
+  gravação de janela.
+
 ## Como o Rust mudou o desenho (sem mudar o comportamento)
 
 - **`TThread.Queue` + `CheckSynchronize`** → `mainthread::queue` + `WM_APP_WAKE`

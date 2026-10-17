@@ -124,7 +124,7 @@ pub fn handle_test_video_quality() {
     // pode ficar melhor do que ela.
     encoder::set_quality_level_override(10);
     let inputs = recording::gather_capture_inputs();
-    let req = RecordRequest { output_path: ref_path.clone(), auto_profile: false, window: None };
+    let req = RecordRequest { output_path: ref_path.clone(), auto_profile: false, window: None, area: None };
     let r = recording::with_engine_result(|e| e.build_and_start_recording(&req, &inputs));
     encoder::set_quality_level_override(-1);
     if let Err(e) = r {

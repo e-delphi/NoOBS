@@ -1,6 +1,13 @@
 // =====================================================================
-// Gravar uma janela (seletor)
+// Capturar... (seletor: uma janela OU uma area da tela)
 // =====================================================================
+// Duas abas. JANELA e o seletor de sempre (abaixo). AREA so explica e
+// manda `select_capture_area`: quem escurece os monitores e deixa arrastar
+// o retangulo e o backend (janela nativa, area_select.rs) — o WebView nao
+// cobre os outros monitores. Soltar o mouse ja comeca a gravar; a moldura
+// da gravacao (area_frame.rs) libera mover/redimensionar com Ctrl+Shift+clique no
+// botao do canto. A aba usada por ultimo fica em localStorage.
+//
 // O botao ao lado do buffer abre uma grade com as janelas abertas. O
 // backend (OBSBridge.HandleListCaptureWindows) manda a lista na hora
 // (`capture_windows`) e depois as previas uma a uma
@@ -22,6 +29,49 @@ const WindowPicker = {
   seq: 0,          // rodada corrente (pushes de rodada velha sao ignorados)
   loading: false,
   AUDIO_KEY: 'noobs.windowPicker.appAudio',
+  MODE_KEY: 'noobs.windowPicker.mode',
+  mode: 'window',   // 'window' | 'area'
+
+  _savedMode() {
+    try { return localStorage.getItem(this.MODE_KEY) === 'area' ? 'area' : 'window'; }
+    catch (_) { return 'window'; }
+  },
+
+  // Troca de aba. Na de janela a lista e pedida na primeira vez (abrir direto
+  // na aba de area nao gasta o PrintWindow de todas as janelas a toa).
+  setMode(mode) {
+    this.mode = mode === 'area' ? 'area' : 'window';
+    try { localStorage.setItem(this.MODE_KEY, this.mode); } catch (_) {}
+    const isArea = this.mode === 'area';
+    const tabs = [['windowPickerModeWindow', !isArea], ['windowPickerModeArea', isArea]];
+    for (const [id, on] of tabs) {
+      const el = document.getElementById(id);
+      if (el) el.setAttribute('aria-selected', on ? 'true' : 'false');
+    }
+    const winPane = document.getElementById('windowPickerWindowPane');
+    const areaPane = document.getElementById('windowPickerAreaPane');
+    if (winPane) winPane.hidden = isArea;
+    if (areaPane) areaPane.hidden = !isArea;
+    const refresh = document.getElementById('windowPickerRefresh');
+    if (refresh) refresh.hidden = isArea;
+    const sub = document.getElementById('windowPickerSub');
+    if (sub) sub.textContent = T(isArea ? 'windowPicker.areaSubtitle' : 'windowPicker.subtitle');
+    if (isArea) {
+      const btn = document.getElementById('windowPickerAreaBtn');
+      if (btn) setTimeout(() => btn.focus(), 30);
+    } else {
+      if (!this.items.length && !this.loading) this.refresh();
+      const search = document.getElementById('windowPickerSearch');
+      if (search) setTimeout(() => search.focus(), 30);
+    }
+  },
+
+  // Fecha o modal e deixa o backend escurecer os monitores. O modal tem que
+  // sumir ANTES: senao ele apareceria por baixo do escuro, no meio da tela.
+  selectArea() {
+    this.close();
+    Bridge.send('select_capture_area');
+  },
 
   _audioWanted() {
     try { return localStorage.getItem(this.AUDIO_KEY) === '1'; }
@@ -52,8 +102,9 @@ const WindowPicker = {
     if (search) search.value = '';
     this._syncAudio();
     ov.classList.add('visible');
-    this.refresh();
-    if (search) setTimeout(() => search.focus(), 50);
+    // Lista nova a cada abertura (janelas abrem/fecham entre uma e outra).
+    this.items = [];
+    this.setMode(this._savedMode());
   },
 
   close() {
@@ -186,6 +237,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     e.preventDefault();
     WindowPicker.close();
+  } else if (e.key === 'Enter' && WindowPicker.mode === 'area' &&
+             !(e.target && e.target.closest && e.target.closest('.winpick-modes'))) {
+    e.preventDefault();
+    WindowPicker.selectArea();
   } else if (e.key === 'Enter' && e.target && e.target.id === 'windowPickerSearch') {
     const first = document.querySelector('#windowPickerGrid .winpick-item');
     if (first) {

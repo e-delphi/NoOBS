@@ -92,6 +92,16 @@ pub struct Vec2 {
     pub y: f32,
 }
 
+/// `struct obs_sceneitem_crop`: pixels cortados de cada lado da fonte.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct SceneItemCrop {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
 /// `struct obs_video_info`. O `repr(C)` já insere os 3 bytes de padding depois
 /// de `gpu_conversion` (pegadinha #18); o `_pad0` explícito documenta isso.
 #[repr(C)]
@@ -213,6 +223,8 @@ dll_api! {
     fn obs_sceneitem_set_scale(item: ObsSceneItem, scale: *const Vec2);
     fn obs_sceneitem_set_bounds_type(item: ObsSceneItem, ty: i32);
     fn obs_sceneitem_set_bounds(item: ObsSceneItem, bounds: *const Vec2);
+    fn obs_sceneitem_set_crop(item: ObsSceneItem, crop: *const SceneItemCrop);
+    fn obs_sceneitem_set_visible(item: ObsSceneItem, visible: bool) -> bool;
 
     // encoders
     fn obs_video_encoder_create(id: *const c_char, name: *const c_char, settings: ObsDataRaw, hotkey: ObsDataRaw) -> ObsEncoder;

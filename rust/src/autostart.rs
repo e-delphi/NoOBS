@@ -62,6 +62,13 @@ pub fn is_autostart_enabled() -> bool {
 }
 
 pub fn set_autostart(enable: bool) {
+    // Teste: nunca na chave Run de verdade (abriria o exe de teste no login).
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect(format!("autostart:{enable}"));
+        return;
+    }
+    #[allow(unreachable_code)]
     if let Some(run) = open(AUTORUN_KEY, KEY_SET_VALUE) {
         unsafe {
             if enable {

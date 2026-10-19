@@ -22,7 +22,7 @@ use crate::engine::{self, RecordRequest};
 use crate::ffmpeg_export::{export_video, resolve_export_encoder, ExportOptions, ExportResult, ExportSegment};
 use crate::{encoder, ffmpeg_ops, lang, log, mainthread, player, probe, ui};
 
-use super::{filters, is_shutting_down, post_json, recording, replay};
+use super::{is_shutting_down, post_json, recording, replay};
 
 pub const TIMER_VIDEO_TEST: usize = 7016;
 /// Duração da amostra.
@@ -106,10 +106,15 @@ pub fn handle_test_video_quality() {
         push_state("error", &lang::t("settings.videoTest.busy"), -1, 0.0);
         return;
     }
-    if !filters::ensure_obs_for_audio_filters() {
+    // O motor de pé (libobs ou o próprio) — não os filtros de áudio, que só a
+    // libobs tem.
+    engine::ensure_created();
+    if let Err(e) = recording::with_engine_result(|e| e.ensure_initialized()) {
+        log!("VideoTest: motor nao subiu: {e}");
         push_state("error", &lang::t("settings.videoTest.failed"), -1, 0.0);
         return;
     }
+    recording::push_encoder_caps_once();
     let dir = test_dir();
     if let Ok(rd) = std::fs::read_dir(&dir) {
         for e in rd.flatten() {

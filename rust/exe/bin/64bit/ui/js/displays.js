@@ -82,6 +82,8 @@ function updateAudioMeters(items) {
 function updateMonitorThumbs(items) {
   if (!items || !items.length) return;
   Displays.updateThumbs(items);
+  // As mesmas imagens alimentam a previa da area salva (area.js).
+  if (typeof AreaCapture !== 'undefined') AreaCapture.updateThumbs(items);
 }
 
 // =====================================================================

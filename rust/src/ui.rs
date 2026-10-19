@@ -8,9 +8,10 @@
 //!   seguro). Pegadinha #16;
 //! * loop `GetMessage`/`DispatchMessage` puro; o trabalho enfileirado por
 //!   workers é drenado em `WM_APP_WAKE` ([`crate::mainthread`], pegadinha #4);
-//! * a mesma ordem de arranque/encerramento do Delphi: RTWQ → COM → janela →
+//! * a mesma ordem de arranque/encerramento do Delphi: COM → janela →
 //!   loop → `on_shutdown` (com o STA ainda vivo, pegadinha #31) →
-//!   `CoUninitialize` → `StopRtwq` (pegadinha #48).
+//!   `CoUninitialize` → `StopRtwq` (pegadinha #48). A RTWQ NÃO sobe no
+//!   arranque: só sob demanda, se outra coisa carregou a DLL (ver `rtwq`).
 
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -64,6 +65,8 @@ static REAL_QUIT: AtomicBool = AtomicBool::new(false);
 static START_RECORD: AtomicBool = AtomicBool::new(false);
 static START_RECORD_MIC: AtomicBool = AtomicBool::new(false);
 static START_REPLAY: AtomicBool = AtomicBool::new(false);
+/// `/start-area`: o atalho da área salva foi apertado na hibernação.
+static START_AREA: AtomicBool = AtomicBool::new(false);
 
 /// Estado de janela que só a main thread toca.
 #[derive(Default)]
@@ -147,6 +150,14 @@ fn hooks<R>(f: impl FnOnce(&Hooks) -> R) -> R {
     f(&HOOKS.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
+/// Solta os objetos COM guardados em `thread_local` da main. Tem que rodar ANTES
+/// do `CoUninitialize`: o destrutor do `thread_local` só roda no ExitProcess,
+/// com a DLL deles (explorerframe, do `ITaskbarList3`) já descarregada — a
+/// saída caía. A RTWQ ligada no arranque segurava a COM viva e escondia isso.
+pub fn release_thread_com() {
+    wstate(|s| s.taskbar = None);
+}
+
 pub fn main_window() -> HWND {
     HWND(MAIN_HWND.load(Ordering::SeqCst) as *mut _)
 }
@@ -185,6 +196,13 @@ pub fn set_dark_mode(enable: bool) {
 
 /// Abre URL no navegador padrão (o chamador já filtrou o esquema).
 pub fn shell_open(url: &str) {
+    // Teste: não abre navegador/Explorer de verdade.
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect(format!("shell_open:{url}"));
+        return;
+    }
+    #[allow(unreachable_code)]
     unsafe {
         ShellExecuteW(None, w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
     }
@@ -212,6 +230,24 @@ pub fn unregister_global_hotkey(id: i32) {
         unsafe {
             let _ = UnregisterHotKey(Some(hwnd), id);
         }
+    }
+}
+
+/// Só com a feature `obs-tests` (o executável de teste `tests/obs.rs`, fora do
+/// app): uma janela ESCONDIDA, criada pelo teste, faz o papel da principal — os
+/// `set_timer` do Bridge disparam nela e as workers acordam a fila da main.
+#[cfg(feature = "obs-tests")]
+pub fn attach_headless_window(hwnd: HWND) {
+    MAIN_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
+    mainthread::set_wake_window(hwnd);
+}
+
+/// Só com `obs-tests`: o `WM_TIMER` da janela do teste vai pro mesmo gancho do
+/// `window_proc` (o `on_timer` do Bridge).
+#[cfg(feature = "obs-tests")]
+pub fn dispatch_timer(id: usize) {
+    if let Some(f) = hooks(|h| h.on_timer) {
+        f(id);
     }
 }
 
@@ -264,6 +300,9 @@ pub fn start_record_requested_by_mic() -> bool {
 }
 pub fn start_replay_requested() -> bool {
     START_REPLAY.load(Ordering::SeqCst)
+}
+pub fn start_area_requested() -> bool {
+    START_AREA.load(Ordering::SeqCst)
 }
 
 /// Janela visível e não minimizada.
@@ -494,8 +533,10 @@ pub fn spawn_hibernate_and_exit() {
         }
         log::log("SpawnHibernate: mutex liberado.");
     }
-    unregister_global_hotkey(100);
-    unregister_global_hotkey(101);
+    // Gravar (100/101) e área salva (104/105): a hibernação registra os dois.
+    for id in [100, 101, 104, 105] {
+        unregister_global_hotkey(id);
+    }
     log::log("SpawnHibernate: hotkey liberada (antes do spawn).");
     let rc = unsafe { ShellExecuteW(None, PCWSTR::null(), &HSTRING::from(exe), w!("/hibernate"), PCWSTR::null(), SW_SHOWNORMAL) };
     if rc.0 as usize <= 32 {
@@ -953,6 +994,8 @@ pub fn run() {
     // /start-record-mic CONTÉM /start-record; o sufixo só diz a origem.
     let start_record = cmd.contains("/start-record");
     let start_replay = cmd.contains("/start-replay");
+    let start_area = cmd.contains("/start-area");
+    START_AREA.store(start_area, Ordering::SeqCst);
     START_RECORD.store(start_record, Ordering::SeqCst);
     START_RECORD_MIC.store(cmd.contains("/start-record-mic"), Ordering::SeqCst);
     START_REPLAY.store(start_replay, Ordering::SeqCst);
@@ -962,9 +1005,12 @@ pub fn run() {
     if start_replay {
         log::log("OBSUI.Run: /start-replay detectado — buffer ligara apos o warmup.");
     }
+    if start_area {
+        log::log("OBSUI.Run: /start-area detectado — a area salva sera gravada apos o warmup.");
+    }
     // Todo flag de promoção entra aqui E na instalação da bandeja (pegadinha
     // #62): abrir um jogo não pode fazer a janela pular na frente.
-    let hidden_start = start_in_tray || start_minimized || start_record || start_replay;
+    let hidden_start = start_in_tray || start_minimized || start_record || start_replay || start_area;
 
     unsafe {
         // Single-instance: a 2ª instância acorda a 1ª e sai. Mesmos literais
@@ -996,8 +1042,10 @@ pub fn run() {
             return;
         }
 
-        // RTWQ ANTES do CoInitialize e de qualquer fonte WASAPI (pegadinha #48).
-        rtwq::start_rtwq();
+        // SEM RTWQ no arranque: com a RTWorkQ.dll fora do processo o win-wasapi
+        // usa a thread de captura, que não corrompe o heap ao destruir a fonte.
+        // Se outra coisa carregar a DLL, o engine sobe a plataforma antes da
+        // fonte (`rtwq::ensure_if_preloaded`, pegadinha #48).
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -1069,7 +1117,7 @@ pub fn run() {
         let _ = UpdateWindow(hwnd);
         // Bandeja só faz sentido com closeToTray ou promoção da hibernação; o
         // minimizado (closeToTray desligado) fica acessível pela taskbar.
-        if start_in_tray || start_record || start_replay {
+        if start_in_tray || start_record || start_replay || start_area {
             tray::install(hwnd, &window_title());
         }
 
@@ -1085,6 +1133,7 @@ pub fn run() {
         if let Some(f) = hooks(|h| h.on_shutdown) {
             f();
         }
+        release_thread_com();
         CoUninitialize();
         // RTWQ por último, depois do obs_shutdown (pegadinha #48).
         rtwq::stop_rtwq();

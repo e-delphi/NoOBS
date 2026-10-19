@@ -57,6 +57,8 @@ const WindowPicker = {
     const sub = document.getElementById('windowPickerSub');
     if (sub) sub.textContent = T(isArea ? 'windowPicker.areaSubtitle' : 'windowPicker.subtitle');
     if (isArea) {
+      // Area salva: a previa com o retangulo dela (AreaCapture, area.js).
+      if (typeof AreaCapture !== 'undefined') AreaCapture.renderPreviews();
       const btn = document.getElementById('windowPickerAreaBtn');
       if (btn) setTimeout(() => btn.focus(), 30);
     } else {
@@ -71,6 +73,11 @@ const WindowPicker = {
   selectArea() {
     this.close();
     Bridge.send('select_capture_area');
+  },
+  // A area salva nas Configuracoes (AreaCapture), sem selecionar de novo.
+  recordSavedArea() {
+    this.close();
+    Bridge.send('record_saved_area');
   },
 
   _audioWanted() {

@@ -128,7 +128,9 @@ pub fn describe_encoder_id(id: &str) -> (&'static str, bool) {
     } else {
         ""
     };
-    (family, !id.contains("x264") && id != AV1_SW_ID)
+    // Software: o x264 do libobs, o SVT do libobs, e todo encoder `lib*` do
+    // libavcodec (o motor próprio usa os nomes dele: `libx264`, `libsvtav1`).
+    (family, !id.contains("x264") && id != AV1_SW_ID && !id.starts_with("lib"))
 }
 
 /// Nível 0..10 → settings de qualidade constante do encoder `id`.

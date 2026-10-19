@@ -644,6 +644,8 @@ pub fn start_audio_filter_test(device_id: &str) -> Result<(), String> {
     let dev = if device_id.is_empty() { "default" } else { device_id };
     let settings = ObsData::create()?;
     settings.set_string("device_id", dev);
+    // Plataforma RTWQ só se outra coisa já carregou a DLL (ver `rtwq`).
+    crate::rtwq::ensure_if_preloaded();
     let src = unsafe { (a.obs_source_create_private)(cstring("wasapi_input_capture").as_ptr(), cstring("NoOBS teste de filtros").as_ptr(), settings.raw()) };
     if src.is_null() {
         return Err("source".into());

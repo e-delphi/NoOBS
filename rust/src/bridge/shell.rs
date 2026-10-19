@@ -185,7 +185,9 @@ pub fn handle_validate_hotkey(spec: &str) {
     }));
 }
 
-/// Vazio limpa; válido é gravado na forma canônica e aplicado na hora.
+/// Vazio limpa; válido é gravado na forma canônica e aplicado na hora. Não
+/// pode repetir o atalho do buffer nem o da área: o Windows aceita um registro
+/// por combinação, e o outro deixaria de funcionar sem aviso.
 pub fn handle_set_hotkey(spec: &str) {
     let mut normalized = spec.trim().to_owned();
     if !normalized.is_empty() {
@@ -198,6 +200,16 @@ pub fn handle_set_hotkey(spec: &str) {
             return;
         }
         normalized = hotkey::format_hotkey(hk.modifiers, hk.vk);
+        for (taken, msg) in [
+            (super::replay::hotkey_spec(), "error.replayHotkeyConflict"),
+            (super::area::hotkey_spec(), "error.areaHotkeyConflict"),
+        ] {
+            if normalized.eq_ignore_ascii_case(&taken) {
+                log!("HandleSetHotkey: \"{normalized}\" ja e outro atalho do NoOBS — ignorado.");
+                super::post_error(lang::t(msg));
+                return;
+            }
+        }
     }
     config::set_config_str("hotkey", &normalized);
     apply_hotkey_from_config();

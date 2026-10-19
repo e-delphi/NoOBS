@@ -78,6 +78,14 @@ fn fetch_latest() -> UpdateResult {
 /// Dispara em worker; `callback` roda na MAIN. No-op com uma já em curso
 /// (clique repetido no botão).
 pub fn check_for_updates(callback: fn(UpdateResult)) {
+    // Teste: sem rede (o GitHub).
+    #[cfg(test)]
+    {
+        let _ = callback;
+        crate::testkit::record_effect("check_updates");
+        return;
+    }
+    #[allow(unreachable_code)]
     if CHECKING.swap(true, Ordering::SeqCst) {
         log::log("Update: checagem já em andamento — ignorando.");
         return;

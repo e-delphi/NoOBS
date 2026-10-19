@@ -572,6 +572,11 @@
   }
   .winpick-area-steps li + li { margin-top: 6px; }
   .winpick-area-btn { min-width: 180px; }
+  .winpick-area-btn[hidden] { display: none; }
+  /* "Gravar a área salva": logo abaixo do principal, mais junto dele. */
+  #windowPickerSavedAreaBtn { margin-top: -8px; }
+  /* Previa da area salva no seletor (regras base em settings.css). */
+  .area-preview.winpick-area-preview { max-width: 420px; margin-top: 0; }
   .winpick-audio {
     display: inline-flex;
     align-items: center;

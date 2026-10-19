@@ -224,8 +224,179 @@ struct Handlers {
     on_replay_prefix_saved: Option<Rc<dyn Fn(&str, i32)>>,
 }
 
+
+// ---------------------------------------------------------------------------
+// A interface que o Bridge enxerga (docs/motor-proprio.md, fase 6)
+// ---------------------------------------------------------------------------
+
+/// O motor de captura, do ponto de vista do Bridge. Dois implementam: o da
+/// libobs (`Engine`, aqui) e o próprio (`native_engine::NativeEngine`); a
+/// chave `captureEngine` do config escolhe no `ensure_created`.
+pub trait CaptureEngine {
+    /// Só a libobs: o que precisa dela fora daqui (filtros de áudio, locale do plugin).
+    fn uses_libobs(&self) -> bool;
+    /// Acesso ao motor da libobs (sinais internos dela). `None` no próprio.
+    fn as_obs(&mut self) -> Option<&mut Engine> {
+        None
+    }
+    /// Eventos pro Bridge (fim de gravação, trecho salvo), entregues pelo `with_engine`.
+    fn take_events(&mut self) -> Vec<Event>;
+    /// Encoders que a máquina tem (a tela de Configurações e a exportação usam).
+    fn encoder_caps(&mut self) -> crate::types::EncoderCaps;
+    /// O encoder que a PRÓXIMA gravação vai usar (pro `{CODEC}` do nome do arquivo).
+    fn predict_encoder_id(&mut self) -> String;
+    /// Gravar continuando o buffer já sai num arquivo só (sem trecho-prefixo
+    /// pra emendar depois, sem "commit" adiado do corte).
+    fn continuation_is_single_file(&self) -> bool;
+
+    fn is_initialized(&self) -> bool;
+    fn ensure_initialized(&mut self) -> Result<(), String>;
+    fn is_recording(&self) -> bool;
+    fn is_stopping(&self) -> bool;
+    fn stopping_elapsed_ms(&self) -> u64;
+    fn output_path(&self) -> &str;
+    fn current_layout(&self) -> &RecordingLayout;
+    fn video_encoder_id(&self) -> &str;
+    fn app_audio_available(&self) -> bool;
+    fn video_stats(&self) -> Option<VideoStats>;
+    fn set_source_muted(&self, source_name: &str, muted: bool);
+    fn update_area(&mut self, ar: AreaRect) -> bool;
+    fn build_and_start_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<(), String>;
+    fn set_recording_paused(&mut self, pause: bool) -> bool;
+    fn request_stop(&mut self);
+    fn force_complete_stop(&mut self);
+    fn stop_recording(&mut self) -> String;
+
+    fn is_replay_active(&self) -> bool;
+    fn is_replay_saving(&self) -> bool;
+    fn is_replay_save_commit_pending(&self) -> bool;
+    fn is_prefix_saving(&self) -> bool;
+    fn replay_save_commit_delay_ms(&self) -> u64;
+    fn build_and_start_replay(&mut self, dir: &str, max_sec: i32, max_mb: i32, inputs: &CaptureInputs) -> Result<(), String>;
+    fn start_recording_from_replay(&mut self, output_path: &str) -> bool;
+    fn save_replay(&mut self) -> bool;
+    fn commit_replay_save(&mut self);
+    fn abort_replay_save(&mut self);
+    fn stop_replay(&mut self);
+    fn set_replay_limits(&mut self, max_sec: i32, max_mb: i32);
+}
+
+impl CaptureEngine for Engine {
+    fn uses_libobs(&self) -> bool {
+        true
+    }
+    fn as_obs(&mut self) -> Option<&mut Engine> {
+        Some(self)
+    }
+    fn take_events(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
+    }
+    fn encoder_caps(&mut self) -> crate::types::EncoderCaps {
+        encoder::detect_encoder_caps()
+    }
+    fn predict_encoder_id(&mut self) -> String {
+        encoder::predict_video_encoder_id()
+    }
+    fn continuation_is_single_file(&self) -> bool {
+        false
+    }
+    fn is_initialized(&self) -> bool {
+        Engine::is_initialized(self)
+    }
+    fn ensure_initialized(&mut self) -> Result<(), String> {
+        Engine::ensure_initialized(self)
+    }
+    fn is_recording(&self) -> bool {
+        Engine::is_recording(self)
+    }
+    fn is_stopping(&self) -> bool {
+        Engine::is_stopping(self)
+    }
+    fn stopping_elapsed_ms(&self) -> u64 {
+        Engine::stopping_elapsed_ms(self)
+    }
+    fn output_path(&self) -> &str {
+        Engine::output_path(self)
+    }
+    fn current_layout(&self) -> &RecordingLayout {
+        Engine::current_layout(self)
+    }
+    fn video_encoder_id(&self) -> &str {
+        Engine::video_encoder_id(self)
+    }
+    fn app_audio_available(&self) -> bool {
+        Engine::app_audio_available(self)
+    }
+    fn video_stats(&self) -> Option<VideoStats> {
+        Engine::video_stats(self)
+    }
+    fn set_source_muted(&self, source_name: &str, muted: bool) {
+        Engine::set_source_muted(self, source_name, muted)
+    }
+    fn update_area(&mut self, ar: AreaRect) -> bool {
+        Engine::update_area(self, ar)
+    }
+    fn build_and_start_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<(), String> {
+        Engine::build_and_start_recording(self, req, inputs)
+    }
+    fn set_recording_paused(&mut self, pause: bool) -> bool {
+        Engine::set_recording_paused(self, pause)
+    }
+    fn request_stop(&mut self) {
+        Engine::request_stop(self)
+    }
+    fn force_complete_stop(&mut self) {
+        Engine::force_complete_stop(self)
+    }
+    fn stop_recording(&mut self) -> String {
+        Engine::stop_recording(self)
+    }
+    fn is_replay_active(&self) -> bool {
+        Engine::is_replay_active(self)
+    }
+    fn is_replay_saving(&self) -> bool {
+        Engine::is_replay_saving(self)
+    }
+    fn is_replay_save_commit_pending(&self) -> bool {
+        Engine::is_replay_save_commit_pending(self)
+    }
+    fn is_prefix_saving(&self) -> bool {
+        Engine::is_prefix_saving(self)
+    }
+    fn replay_save_commit_delay_ms(&self) -> u64 {
+        Engine::replay_save_commit_delay_ms(self)
+    }
+    fn build_and_start_replay(&mut self, dir: &str, max_sec: i32, max_mb: i32, inputs: &CaptureInputs) -> Result<(), String> {
+        Engine::build_and_start_replay(self, dir, max_sec, max_mb, inputs)
+    }
+    fn start_recording_from_replay(&mut self, output_path: &str) -> bool {
+        Engine::start_recording_from_replay(self, output_path)
+    }
+    fn save_replay(&mut self) -> bool {
+        Engine::save_replay(self)
+    }
+    fn commit_replay_save(&mut self) {
+        Engine::commit_replay_save(self)
+    }
+    fn abort_replay_save(&mut self) {
+        Engine::abort_replay_save(self)
+    }
+    fn stop_replay(&mut self) {
+        Engine::stop_replay(self)
+    }
+    fn set_replay_limits(&mut self, max_sec: i32, max_mb: i32) {
+        Engine::set_replay_limits(self, max_sec, max_mb)
+    }
+}
+
+/// Motor escolhido pela chave `captureEngine`: `native` = o próprio; qualquer
+/// outra coisa (ou ausente) = a libobs, enquanto os dois convivem.
+pub fn native_selected() -> bool {
+    config::get_config_str("captureEngine", "obs").eq_ignore_ascii_case("native")
+}
+
 thread_local! {
-    static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
+    static ENGINE: RefCell<Option<Box<dyn CaptureEngine>>> = const { RefCell::new(None) };
     static HANDLERS: RefCell<Handlers> = RefCell::new(Handlers::default());
 }
 
@@ -273,7 +444,12 @@ pub fn ensure_created() {
     ENGINE.with(|c| {
         if let Ok(mut b) = c.try_borrow_mut() {
             if b.is_none() {
-                *b = Some(Engine::new());
+                *b = Some(if native_selected() {
+                    log!("Motor de captura: proprio (captureEngine=native).");
+                    Box::new(crate::native_engine::NativeEngine::new())
+                } else {
+                    Box::new(Engine::new())
+                });
             }
         }
     });
@@ -282,12 +458,12 @@ pub fn ensure_created() {
 /// Roda `f` no engine (se existir) e depois entrega os eventos gerados, já com
 /// o empréstimo solto. `None` se não existe ou se chamado de dentro de outro
 /// `with_engine` (reentrância).
-pub fn with_engine<R>(f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
+pub fn with_engine<R>(f: impl FnOnce(&mut dyn CaptureEngine) -> R) -> Option<R> {
     let (r, events) = ENGINE.with(|c| {
         let mut b = c.try_borrow_mut().ok()?;
         let e = b.as_mut()?;
-        let r = f(e);
-        Some((r, std::mem::take(&mut e.events)))
+        let r = f(e.as_mut());
+        Some((r, e.take_events()))
     })?;
     deliver(events);
     Some(r)
@@ -307,14 +483,22 @@ pub fn destroy() {
 /// aqui (pegadinha #3). Só marshala para a main.
 unsafe extern "C" fn stop_signal_thunk(_data: *mut c_void, _cd: CalldataPtr) {
     mainthread::queue(|| {
-        with_engine(|e| e.on_stop_signal());
+        with_engine(|e| {
+            if let Some(o) = e.as_obs() {
+                o.on_stop_signal()
+            }
+        });
     });
 }
 
 /// Sinal "saved" do replay_buffer — emitido pela thread de mux dele.
 unsafe extern "C" fn replay_saved_thunk(_data: *mut c_void, _cd: CalldataPtr) {
     mainthread::queue(|| {
-        with_engine(|e| e.on_replay_saved_signal());
+        with_engine(|e| {
+            if let Some(o) = e.as_obs() {
+                o.on_replay_saved_signal()
+            }
+        });
     });
 }
 
@@ -741,6 +925,10 @@ impl Engine {
         }
         unsafe { (a.obs_post_load_modules)() };
         log!("libobs: {loaded} plugins carregados, {failed} falharam.");
+        // O win-wasapi escolhe o caminho RTWQ se a RTWorkQ.dll estiver no
+        // processo, e esse caminho corrompe o heap ao destruir a fonte (ver
+        // `rtwq`). A webcam carrega a DLL: o plugin passa a não enxergá-la.
+        crate::rtwq::hide_from_wasapi_plugin();
         Ok(())
     }
 
@@ -781,6 +969,17 @@ impl Engine {
                 return Err("obs_reset_audio falhou.".into());
             }
             log!("libobs: audio ok (48kHz stereo).");
+            // Monitoramento apontado pra um dispositivo que NÃO existe: o NoOBS
+            // não monitora áudio, e com o padrão ("default") a captura do som do
+            // sistema no dispositivo padrão vira "fonte de deduplicação" da libobs.
+            // Ao destruí-la, o plugin pede pra zerar o ponteiro por uma tarefa da
+            // thread de áudio e libera a fonte na hora; o próximo ciclo de áudio
+            // lê a fonte já liberada antes de rodar a tarefa → queda
+            // intermitente ao parar uma gravação (pegadinha da deduplicação).
+            let (mon_name, mon_id) = (cstring("NoOBS (sem monitoramento)"), cstring("noobs-no-monitoring"));
+            if !unsafe { (a.obs_set_audio_monitoring_device)(mon_name.as_ptr(), mon_id.as_ptr()) } {
+                log!("libobs: nao consegui desligar o monitoramento de audio (deduplicacao pode ligar).");
+            }
 
             self.load_modules()?;
             // Rótulos dos filtros (vêm do plugin) no idioma do app.
@@ -853,6 +1052,12 @@ impl Engine {
 
     fn create_source(&mut self, id: &str, name: &str, settings: ObsData) -> Result<ObsSource, String> {
         let a = api()?;
+        // O win-wasapi escolhe o caminho RTWQ pela DLL no processo (ver `rtwq`):
+        // se outra coisa a carregou, a plataforma tem que estar de pé. A
+        // janela entra porque o som do app cria uma fonte wasapi filha.
+        if id.starts_with("wasapi_") || id == "window_capture" {
+            crate::rtwq::ensure_if_preloaded();
+        }
         let (id_c, name_c) = (cstring(id), cstring(name));
         let src = unsafe { (a.obs_source_create)(id_c.as_ptr(), name_c.as_ptr(), settings.raw(), std::ptr::null_mut()) };
         if src.is_null() {

@@ -248,7 +248,11 @@ fn replace_ci(haystack: &str, needle: &str, with: &str) -> String {
 /// vazio = o que a gravação vai escolher (o arquivo nasce antes do encoder).
 pub fn build_recording_path(when: DateTime<Local>, encoder_id: &str) -> PathBuf {
     let dir = record_dir();
-    let enc_id = if encoder_id.is_empty() { encoder::predict_video_encoder_id() } else { encoder_id.to_owned() };
+    let enc_id = if !encoder_id.is_empty() {
+        encoder_id.to_owned()
+    } else {
+        engine::with_engine(|e| e.predict_encoder_id()).unwrap_or_else(|| if engine::native_selected() { String::new() } else { encoder::predict_video_encoder_id() })
+    };
     let (codec, _hw) = encoder::describe_encoder_id(&enc_id);
     let base = apply_filename_pattern(
         &config::get_config_str("filenamePattern", DEFAULT_FILENAME_PATTERN),
@@ -327,7 +331,9 @@ pub fn push_recording_state() {
 /// vendor da GPU). A lista da EXPORTAÇÃO é outra (libavcodec, não libobs —
 /// pegadinha #51) e entra com o `FFmpegExport`.
 fn push_encoder_caps() {
-    let caps = encoder::detect_encoder_caps();
+    // A detecção é do MOTOR: a da libobs enumera os IDs dela; a do motor
+    // próprio abre e aquece os encoders do libavcodec.
+    let caps = engine::with_engine(|e| e.encoder_caps()).unwrap_or_else(encoder::detect_encoder_caps);
     let (vendor, logo) = match caps.vendor {
         GpuVendor::Nvidia => ("nvidia", "nvidia.png"),
         GpuVendor::Amd => ("amd", "amd.png"),
@@ -393,7 +399,7 @@ pub(super) fn gather_capture_inputs() -> CaptureInputs {
     }
 }
 
-pub fn with_engine_result<R>(f: impl FnOnce(&mut engine::Engine) -> Result<R, String>) -> Result<R, String> {
+pub fn with_engine_result<R>(f: impl FnOnce(&mut dyn engine::CaptureEngine) -> Result<R, String>) -> Result<R, String> {
     engine::with_engine(f).unwrap_or_else(|| Err("engine indisponível".into()))
 }
 
@@ -836,8 +842,10 @@ pub fn handle_set_rec_indicator_corner(corner: &str) {
     }
 }
 
-/// Slider ao vivo: aplica na janela existente sem recriar.
+/// Slider ao vivo: aplica na janela existente sem recriar. Mesma faixa do
+/// slider (e do indicador do buffer): abaixo de 20% o overlay some.
 pub fn handle_set_rec_indicator_opacity(pct: i32) {
+    let pct = pct.clamp(20, 100);
     config::set_config_int("recIndicatorOpacity", pct);
     log!("RecIndicatorOpacity: {pct}");
     if rec_indicator::is_showing() {
@@ -864,10 +872,14 @@ pub fn handle_set_fullscreen_detect(enable: bool) {
 
 pub fn on_hotkey(id: i32) {
     log!("Hotkey: id={id} disparado.");
-    if replay::on_hotkey(id) {
+    if replay::on_hotkey(id) || super::area::on_hotkey(id) {
         return;
     }
     if matches!(id, HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT) {
+        // Na contagem do atraso da área, o atalho de gravar cancela.
+        if super::area::cancel_countdown() {
+            return;
+        }
         if recording_active() {
             handle_record_stop();
         } else {
@@ -912,6 +924,11 @@ fn on_warmup() {
             set_started_by_mic_watch(true);
         }
         handle_record_start();
+    }
+    // /start-area: o atalho da área salva foi apertado na hibernação.
+    if ui::start_area_requested() && !recording_active() {
+        log!("TIMER_OBS_WARMUP: /start-area — gravando a area salva.");
+        super::area::record_saved_area();
     }
     // "Ligar o buffer ao abrir" e o /start-replay viram vontade da sessão.
     replay::on_warmup();

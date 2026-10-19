@@ -1182,6 +1182,9 @@ fn process_one(path: &str) -> Res {
         }
     }
 
+    // A pasta do cache pode não existir ainda (instalação nova, cache apagado): sem ela o
+    // m4a de saída não abre e a transcrição falhava em "não foi possível extrair o áudio".
+    let _ = std::fs::create_dir_all(player::cache_root_dir());
     let cache_base = player::cache_root_dir().join(player::hash_name(path));
     let plan = plan_tracks(path);
     let per_track = plan.is_some();

@@ -608,6 +608,81 @@
     transition: background 150ms ease, border-color 150ms ease;
   }
   .settings-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
+  /* Aba Area: a area salva ("1280 x 720 em (100, 200)") + definir/remover. */
+  .area-saved-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .area-saved-text {
+    flex: 1 1 160px;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .area-saved-text.empty { color: var(--text-3); }
+  .settings-btn[hidden] { display: none; }
+  /* Previa da area salva: os monitores (imagens da tela inicial) em % de uma
+     caixa com o aspect-ratio do conjunto, e a area destacada por cima. A
+     sombra gigante da area escurece o resto; o overflow a corta na caixa. */
+  .area-preview {
+    position: relative;
+    width: 100%;
+    max-width: 560px;
+    margin-top: 12px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #000;
+  }
+  .area-preview[hidden] { display: none; }
+  .area-preview-mon {
+    position: absolute;
+    background: var(--thumb-bg);
+    outline: 1px solid rgba(255, 255, 255, 0.12);
+    outline-offset: -1px;
+    overflow: hidden;
+  }
+  .area-preview-mon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+  }
+  .area-preview-name {
+    position: absolute;
+    left: 6px;
+    bottom: 5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 2;
+  }
+  .area-preview-mon.host .area-preview-name { background: var(--success); }
+  .area-preview-rect {
+    position: absolute;
+    z-index: 1;
+    border: 2px solid var(--success);
+    border-radius: 2px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+  }
+  .area-preview-size {
+    position: absolute;
+    left: 4px;
+    top: 4px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    background: var(--success);
+    white-space: nowrap;
+  }
   .settings-btn.primary {
     background: var(--success);
     border-color: var(--success);

@@ -158,6 +158,7 @@ dll_api! {
     fn obs_shutdown();
     fn obs_reset_video(ovi: *mut ObsVideoInfo) -> i32;
     fn obs_reset_audio(oai: *const ObsAudioInfo) -> bool;
+    fn obs_set_audio_monitoring_device(name: *const c_char, id: *const c_char) -> bool;
     fn obs_set_locale(locale: *const c_char);
 
     // módulos (obs_open_module + obs_init_module por plugin, não

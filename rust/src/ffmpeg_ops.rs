@@ -175,33 +175,67 @@ fn remux_dispatch(src: &str, targets: &[Vec<u32>], outputs: &[String], cancel: O
     let Some(mut pkt) = Packet::alloc() else { return false };
 
     // av_packet_rescale_ts converte entre a time_base do source e a da saída.
-    let mut write_failed = false;
-    while !write_failed && unsafe { (a.format.av_read_frame)(input.ptr(), pkt.ptr()) } == 0 {
-        // Cancelado: sai como falha (o arquivo parcial não serve para nada).
-        if cancel.is_some_and(|c| c()) {
-            pkt.unref();
-            write_failed = true;
-            break;
+    let write_one = |p: &mut Packet| -> bool {
+        // Sem dts depois da retenção (raro): vale o pts, nunca o vazio.
+        if p.dts == AV_NOPTS_VALUE {
+            p.dts = p.pts;
         }
         for out in outs.iter().flatten() {
-            let Some(&dst_idx) = out.stream_map.get(pkt.stream_index as usize) else { continue };
+            let Some(&dst_idx) = out.stream_map.get(p.stream_index as usize) else { continue };
             if dst_idx < 0 {
                 continue;
             }
-            let Some(src_stream) = input.stream(pkt.stream_index as u32) else { continue };
+            let Some(src_stream) = input.stream(p.stream_index as u32) else { continue };
             let Some(dst_stream) = out.stream(dst_idx as u32) else { continue };
             let src_index = src_stream.index;
-            pkt.stream_index = dst_idx;
-            unsafe { (a.codec.av_packet_rescale_ts)(pkt.ptr(), src_stream.time_base, dst_stream.time_base) };
-            pkt.pos = -1;
+            // Cópia por saída: o rescale altera o pacote, e a próxima saída quer
+            // os timestamps da ORIGEM.
+            let (pts, dts, dur) = (p.pts, p.dts, p.duration);
+            p.stream_index = dst_idx;
+            unsafe { (a.codec.av_packet_rescale_ts)(p.ptr(), src_stream.time_base, dst_stream.time_base) };
+            p.pos = -1;
             // Ignorar erro de write produzia MP4 truncado servido ao player como
             // sucesso (disco cheio, codec incompatível): falha de muxer é fatal.
-            if !out.write(pkt.ptr()) {
+            let ok = out.write(p.ptr());
+            if !ok {
                 log!("Remux: av_interleaved_write_frame falhou — abortando.");
-                write_failed = true;
+                return false;
             }
-            // Restaura o índice para a próxima saída que queira o pacote.
-            pkt.stream_index = src_index;
+            // Restaura índice e relógio para a próxima saída que queira o pacote.
+            p.stream_index = src_index;
+            p.pts = pts;
+            p.dts = dts;
+            p.duration = dur;
+        }
+        true
+    };
+    // Começo RETIDO e dts preenchido, como na união: com B-frames o Matroska
+    // entrega os primeiros quadros sem dts, e repassá-los vazios dependia do
+    // preenchimento obsoleto do libavformat ("Timestamps are unset ... will
+    // stop working in the future").
+    let mut held: Vec<Packet> = Vec::new();
+    let mut eof = false;
+    while held.len() < MERGE_HOLD_PKTS {
+        if unsafe { (a.format.av_read_frame)(input.ptr(), pkt.ptr()) } != 0 {
+            eof = true;
+            break;
+        }
+        let Some(c) = pkt.clone_pkt() else { return false };
+        held.push(c);
+        pkt.unref();
+    }
+    fill_missing_dts(&mut held);
+    let mut write_failed = false;
+    for mut h in held {
+        // Cancelado: sai como falha (o arquivo parcial não serve para nada).
+        if cancel.is_some_and(|c| c()) || !write_one(&mut h) {
+            write_failed = true;
+            break;
+        }
+    }
+    while !write_failed && !eof && unsafe { (a.format.av_read_frame)(input.ptr(), pkt.ptr()) } == 0 {
+        if cancel.is_some_and(|c| c()) || !write_one(&mut pkt) {
+            write_failed = true;
         }
         pkt.unref();
     }
@@ -281,6 +315,28 @@ fn inputs_compatible(r: &Input, s: &Input) -> bool {
 /// Une N arquivos num novo output (stream copy), na ordem recebida. Os inputs
 /// precisam ter a mesma estrutura de streams/codec. `Err(true)` = incompatíveis;
 /// `Err(false)` = qualquer outra falha.
+/// Pacotes do começo de cada arquivo retidos (união, remux e emenda) até os dts
+/// que faltam serem conhecidos (com B-frames são os 2–3 primeiros do vídeo).
+const MERGE_HOLD_PKTS: usize = 48;
+
+/// Preenche, por faixa, o dts dos pacotes que vieram sem ele, de trás pra
+/// frente a partir do próximo conhecido (um tique a menos por pacote). Faixa sem
+/// nenhum dts conhecido na retenção: vale o pts.
+fn fill_missing_dts(pkts: &mut [Packet]) {
+    let mut next_known: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+    for p in pkts.iter_mut().rev() {
+        if p.dts != AV_NOPTS_VALUE {
+            next_known.insert(p.stream_index, p.dts);
+        } else if let Some(d) = next_known.get_mut(&p.stream_index) {
+            // Um tique antes do seguinte, e nunca depois do próprio pts.
+            *d = if p.pts != AV_NOPTS_VALUE { (*d - 1).min(p.pts) } else { *d - 1 };
+            p.dts = *d;
+        } else {
+            p.dts = p.pts;
+        }
+    }
+}
+
 pub fn merge_files(inputs: &[String], dst: &str) -> Result<(), bool> {
     if !ffmpeg_lib_available() || inputs.len() < 2 || dst.is_empty() {
         return Err(false);
@@ -313,73 +369,115 @@ pub fn merge_files(inputs: &[String], dst: &str) -> Result<(), bool> {
         }
 
         let declared_dur_us = unsafe { container_duration_us(src.ptr()) }.max(0);
-        let mut local_best_us = 0i64;
-        // Base ÚNICA por arquivo (o 1º pacote lido — o demuxer entrega
-        // intercalado por tempo), não uma base POR STREAM. A diferença de início
-        // entre os streams é informação de sync: nas gravações do OBS o áudio
+
+        // Começo do arquivo RETIDO: com B-frames o demuxer do Matroska entrega os
+        // primeiros pacotes de vídeo SEM dts (o MKV só guarda o pts) e só passa a
+        // conhecê-lo uns quadros depois. Repassado vazio, o muxer o inventa a
+        // partir do arquivo ANTERIOR e a união morre em "non monotonically
+        // increasing dts" — toda gravação em x264 ou NVENC (#50). O que falta é
+        // preenchido de trás pra frente a partir do 1º dts conhecido da faixa,
+        // um tique por pacote: só a ordem de decodificação importa ao muxer.
+        let mut held: Vec<Packet> = Vec::new();
+        let mut eof = false;
+        while held.len() < MERGE_HOLD_PKTS {
+            if unsafe { (a.format.av_read_frame)(src.ptr(), pkt.ptr()) } != 0 {
+                eof = true;
+                break;
+            }
+            match pkt.clone_pkt() {
+                Some(c) => held.push(c),
+                None => return Err(false),
+            }
+            pkt.unref();
+        }
+        fill_missing_dts(&mut held);
+
+        // Base ÚNICA por arquivo, não uma base POR STREAM: a diferença de início
+        // entre os streams é informação de sync — nas gravações do OBS o áudio
         // começa ~20 ms antes do vídeo, e zerar cada stream pelo próprio 1º
-        // pacote fazia o áudio escorregar alguns ms a cada trecho unido.
+        // pacote fazia o áudio escorregar alguns ms a cada trecho unido. É o MENOR
+        // instante do começo do arquivo (com os dts preenchidos, o vídeo de
+        // B-frames começa ANTES do pts 0), pra nada cair antes do trecho anterior.
         let mut base_us = AV_NOPTS_VALUE;
+        for h in &held {
+            if let Some(st) = src.stream(h.stream_index.max(0) as u32) {
+                let t = ts_to_us(if h.dts != AV_NOPTS_VALUE { h.dts } else { h.pts }, st.time_base);
+                if t != AV_NOPTS_VALUE && (base_us == AV_NOPTS_VALUE || t < base_us) {
+                    base_us = t;
+                }
+            }
+        }
+        if base_us == AV_NOPTS_VALUE {
+            base_us = 0;
+        }
 
-        while !write_failed && unsafe { (a.format.av_read_frame)(src.ptr(), pkt.ptr()) } == 0 {
-            'one: {
-                let sidx = pkt.stream_index;
-                if sidx < 0 || sidx as u32 >= n {
-                    break 'one;
-                }
-                let Some(src_stream) = src.stream(sidx as u32) else { break 'one };
-                let dst_idx = out.stream_map[sidx as usize];
-                if dst_idx < 0 {
-                    break 'one;
-                }
-                let Some(dst_stream) = out.stream(dst_idx as u32) else { break 'one };
-                let (src_tb, dst_tb) = (src_stream.time_base, dst_stream.time_base);
+        let mut local_best_us = 0i64;
+        let mut write_one = |p: &mut Packet| -> bool {
+            let sidx = p.stream_index;
+            if sidx < 0 || sidx as u32 >= n {
+                return true;
+            }
+            let Some(src_stream) = src.stream(sidx as u32) else { return true };
+            let dst_idx = out.stream_map[sidx as usize];
+            if dst_idx < 0 {
+                return true;
+            }
+            let Some(dst_stream) = out.stream(dst_idx as u32) else { return true };
+            let (src_tb, dst_tb) = (src_stream.time_base, dst_stream.time_base);
 
-                let mut pkt_base_us = ts_to_us(pkt.dts, src_tb);
-                if pkt_base_us == AV_NOPTS_VALUE {
-                    pkt_base_us = ts_to_us(pkt.pts, src_tb);
+            // Pacote sem dts DEPOIS da retenção (raro): vale o pts.
+            if p.dts == AV_NOPTS_VALUE {
+                p.dts = p.pts;
+            }
+            let mut end_us = 0i64;
+            if p.pts != AV_NOPTS_VALUE {
+                let pts_us = ts_to_us(p.pts, src_tb);
+                if pts_us != AV_NOPTS_VALUE {
+                    end_us = pts_us - base_us;
+                    p.pts = us_to_ts(end_us.max(0) + global_offset_us, dst_tb);
+                } else {
+                    p.pts = AV_NOPTS_VALUE;
                 }
-                if pkt_base_us == AV_NOPTS_VALUE {
-                    pkt_base_us = 0;
+            }
+            if p.dts != AV_NOPTS_VALUE {
+                let dts_us = ts_to_us(p.dts, src_tb);
+                if dts_us != AV_NOPTS_VALUE {
+                    let rel = dts_us - base_us;
+                    p.dts = us_to_ts(rel.max(0) + global_offset_us, dst_tb);
+                    // O trecho seguinte tem que começar DEPOIS do último dts
+                    // escrito (com B-frames ele pode passar do fim pelo pts).
+                    end_us = end_us.max(rel + 1);
+                } else {
+                    p.dts = AV_NOPTS_VALUE;
                 }
-                if base_us == AV_NOPTS_VALUE {
-                    base_us = pkt_base_us;
-                }
-
-                if pkt.pts != AV_NOPTS_VALUE {
-                    let pts_us = ts_to_us(pkt.pts, src_tb);
-                    pkt.pts = if pts_us != AV_NOPTS_VALUE {
-                        us_to_ts((pts_us - base_us).max(0) + global_offset_us, dst_tb)
-                    } else {
-                        AV_NOPTS_VALUE
-                    };
-                }
-                if pkt.dts != AV_NOPTS_VALUE {
-                    let dts_us = ts_to_us(pkt.dts, src_tb);
-                    pkt.dts = if dts_us != AV_NOPTS_VALUE {
-                        us_to_ts((dts_us - base_us).max(0) + global_offset_us, dst_tb)
-                    } else {
-                        AV_NOPTS_VALUE
-                    };
-                }
-                if pkt.duration > 0 {
-                    let dur_us = ts_to_us(pkt.duration, src_tb);
-                    pkt.duration = if dur_us > 0 { us_to_ts(dur_us, dst_tb) } else { 0 };
-                }
-                pkt.stream_index = dst_idx;
-                pkt.pos = -1;
-
-                let mut end_us = pkt_base_us - base_us;
-                let dur_us = ts_to_us(pkt.duration, dst_tb);
+            }
+            if p.duration > 0 {
+                let dur_us = ts_to_us(p.duration, src_tb);
+                p.duration = if dur_us > 0 { us_to_ts(dur_us, dst_tb) } else { 0 };
                 if dur_us > 0 {
                     end_us += dur_us;
                 }
-                local_best_us = local_best_us.max(end_us);
+            }
+            p.stream_index = dst_idx;
+            p.pos = -1;
+            local_best_us = local_best_us.max(end_us);
 
-                if !out.write(pkt.ptr()) {
-                    log!("Merge: av_interleaved_write_frame falhou.");
-                    write_failed = true;
-                }
+            if !out.write(p.ptr()) {
+                log!("Merge: av_interleaved_write_frame falhou.");
+                return false;
+            }
+            true
+        };
+
+        for mut h in held {
+            if !write_one(&mut h) {
+                write_failed = true;
+                break;
+            }
+        }
+        while !write_failed && !eof && unsafe { (a.format.av_read_frame)(src.ptr(), pkt.ptr()) } == 0 {
+            if !write_one(&mut pkt) {
+                write_failed = true;
             }
             pkt.unref();
         }
@@ -484,6 +582,11 @@ fn write_pkt(out: &OutputFile, ctx: &Input, p: &mut Packet, off_us: i64, last_dt
         return true;
     }
     let (Some(src_st), Some(dst_st)) = (ctx.stream(p.stream_index as u32), out.stream(dst_idx as u32)) else { return true };
+    // Quem chama preenche o começo de cada arquivo (`fill_missing_dts`); sem dts
+    // depois disso (raro): vale o pts, nunca o vazio.
+    if p.dts == AV_NOPTS_VALUE {
+        p.dts = p.pts;
+    }
     if p.pts != AV_NOPTS_VALUE {
         p.pts = us_to_ts(ts_to_us(p.pts, src_st.time_base) + off_us, dst_st.time_base);
     }
@@ -564,9 +667,35 @@ pub fn splice_continuation(head: &str, tail: &str, dst: &str, lead_ms: i32) -> R
     let out = OutputFile::open_for_streams(&h_ctx, dst, &all_idx, Some("matroska")).ok_or("nao abriu o arquivo de saida")?;
     let mut pkt = Packet::alloc().ok_or("sem memoria")?;
 
-    // 1. Trecho do buffer, inteiro e sem mexer no relógio dele.
+    // 1. Trecho do buffer, inteiro e sem mexer no relógio dele. O começo é
+    // RETIDO até o dts que falta ser preenchido (B-frames, ver a união); as
+    // assinaturas saem dos pacotes ORIGINAIS, antes disso — são elas que acham o
+    // ponto de encontro, e o preenchimento não pode mudá-las.
     let mut write_failed = false;
-    while !write_failed && unsafe { (a.format.av_read_frame)(h_ctx.ptr(), pkt.ptr()) } == 0 {
+    let mut held: Vec<Packet> = Vec::new();
+    let mut head_eof = false;
+    while held.len() < MERGE_HOLD_PKTS {
+        if unsafe { (a.format.av_read_frame)(h_ctx.ptr(), pkt.ptr()) } != 0 {
+            head_eof = true;
+            break;
+        }
+        let s = pkt.stream_index;
+        if s >= 0 && (s as usize) < n {
+            let sig = sig_of(&h_ctx, &pkt);
+            h_sigs[s as usize].push(sig);
+            h_last_us[s as usize] = h_last_us[s as usize].max(sig.ts_us);
+            held.push(pkt.clone_pkt().ok_or("sem memoria")?);
+        }
+        pkt.unref();
+    }
+    fill_missing_dts(&mut held);
+    for mut h in held {
+        if !write_pkt(&out, &h_ctx, &mut h, 0, &mut last_dts) {
+            write_failed = true;
+            break;
+        }
+    }
+    while !write_failed && !head_eof && unsafe { (a.format.av_read_frame)(h_ctx.ptr(), pkt.ptr()) } == 0 {
         let s = pkt.stream_index;
         if s >= 0 && (s as usize) < n {
             let sig = sig_of(&h_ctx, &pkt);
@@ -725,6 +854,9 @@ pub fn splice_continuation(head: &str, tail: &str, dst: &str, lead_ms: i32) -> R
         }
         write_pkt(&out, &t_ctx, p, off_us[si], last_dts)
     };
+    // O começo da gravação já está guardado: preenche o dts que falta (as
+    // assinaturas dele já foram tiradas, no passo 2).
+    fill_missing_dts(&mut pending);
     for mut c in pending.drain(..) {
         if !write_failed && !write_tail(&mut c, &mut skipped, &mut last_dts) {
             write_failed = true;
@@ -1255,8 +1387,10 @@ pub fn decode_audio_mono(src: &str, on_block: &mut dyn FnMut(&[f32], i32) -> boo
 
 /// Tempos (s, pts) dos keyframes do 1º stream de vídeo, lidos do ÍNDICE do
 /// container (Cues no MKV) — não lê pacote nenhum, poucos ms mesmo em horas de
-/// gravação. Devolve também o `avg_frame_rate` (0 se desconhecido). `None` se não
-/// há índice (gravação interrompida sem trailer).
+/// gravação. Devolve também o `avg_frame_rate` (0 se desconhecido). Gravação
+/// interrompida (sem os Cues, que vão no trailer): o demuxer do Matroska varre
+/// os clusters no seek e monta um índice PARCIAL — vêm os keyframes que
+/// sobraram no arquivo (medido). `None` = sem vídeo ou arquivo ilegível.
 ///
 /// Sem `avformat_find_stream_info` de propósito: codecpar/time_base/
 /// avg_frame_rate já vêm do cabeçalho do MKV, e ele decodificaria quadros só

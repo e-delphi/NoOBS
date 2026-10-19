@@ -48,7 +48,8 @@
     "finished": "Grabación finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilita al menos un dispositivo (monitor, cámara web, micrófono o altavoz) para iniciar la grabación.",
     "finalizing": "Finalizando grabación...",
-    "sizeHint": "Tamaño ya grabado"
+    "sizeHint": "Tamaño ya grabado",
+    "areaCountdown": "Grabando el área en {{sec}} s — haz clic en grabar para cancelar"
   },
   "replay": {
     "label": "Búfer en memoria",
@@ -89,7 +90,8 @@
       "Durante la grabación, mantén Ctrl+Shift y haz clic en el botón de la esquina del marco para mover o redimensionar el área. Ctrl+Shift+clic de nuevo, Enter o Esc terminan."
     ],
     "areaStart": "Seleccionar área",
-    "areaRecording": "Área {{w}}×{{h}}"
+    "areaRecording": "Área {{w}}×{{h}}",
+    "savedArea": "Grabar el área guardada ({{w}} × {{h}})"
   },
   "recordings": {
     "title": "Grabaciones",
@@ -250,6 +252,7 @@
       "recording": "Vídeo",
       "audio": "Audio",
       "replay": "Búfer",
+      "area": "Área",
       "files": "Archivos",
       "devices": "Dispositivos",
       "about": "Acerca de",
@@ -740,6 +743,22 @@
       "hotkeyHint": "Solo está activo con el búfer encendido — apagado, la combinación vuelve a ser de los demás programas.",
       "seconds": "{{n}} segundos",
       "minutes": "{{n}} min"
+    },
+    "area": {
+      "savedLabel": "Área guardada",
+      "savedHint": "Elige una vez la parte de la pantalla que siempre grabas y grábala directo con el atajo de abajo, sin seleccionar de nuevo.",
+      "none": "Ninguna área guardada",
+      "savedValue": "{{w}} × {{h}} en ({{x}}, {{y}})",
+      "define": "Definir área",
+      "redefine": "Elegir otra",
+      "clear": "Quitar",
+      "hotkey": "Atajo para grabar el área guardada",
+      "hotkeyHint": "Solo funciona con un área guardada. Pulsarlo de nuevo detiene la grabación.",
+      "hotkeyConflict": "El atajo del área no puede ser el mismo que el de grabar ni el del búfer.",
+      "delay": "Retraso antes de empezar",
+      "delayOff": "Desactivado",
+      "delaySec": "{{sec}} segundos",
+      "delayHint": "Tiempo para prepararte: el marco del área aparece con la cuenta atrás y la grabación empieza cuando llega a cero. Vale para el atajo y para \"Capturar... → Área\". Pulsar el atajo o el botón de grabar durante la cuenta atrás la cancela."
     }
   },
   "devices": {
@@ -940,7 +959,10 @@
       "request": "El motor de transcripción local respondió con un error: {{error}}",
       "decode": "No se pudo leer el audio de la grabación.",
       "memory": "No hay memoria suficiente para cargar el motor de transcripción, ni en la tarjeta gráfica ni en el sistema. Cierra otros programas e inténtalo de nuevo. Detalle: {{detail}}"
-    }
+    },
+    "areaNotSaved": "No hay área guardada. Define una en Configuración → Área.",
+    "areaOffScreen": "El área guardada está fuera de las pantallas conectadas ahora. Define otra en Configuración → Área.",
+    "areaHotkeyConflict": "El atajo del área no puede ser el mismo que el de grabar ni el del búfer."
   },
   "warning": {
     "canvasOverflow": "La resolución combinada de las pantallas excede el límite del códec ({{max}} × {{max}}). La grabación se reducirá proporcionalmente. Cambia a AV1 o HEVC en Configuración para grabar hasta 8192 × 8192."
@@ -1013,6 +1035,7 @@
     "queued": "{{count}} en la cola de transcripción — haz clic para ver"
   },
   "areaSelect": {
-    "hint": "Arrastra para elegir el área que se grabará  •  Esc cancela"
+    "hint": "Arrastra para elegir el área que se grabará  •  Esc cancela",
+    "hintSave": "Arrastra para elegir el área del atajo  •  Esc cancela"
   }
 }

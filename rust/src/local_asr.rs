@@ -627,6 +627,13 @@ fn install_worker() {
 
 /// Instala em worker thread. No-op se já instalado ou instalando.
 pub fn start_install() {
+    // Teste: sem baixar 3,7 GB.
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect("local_asr_install");
+        return;
+    }
+    #[allow(unreachable_code)]
     let go = with_state(|s| {
         if matches!(s.status, Status::Installing | Status::Ready) {
             return false;

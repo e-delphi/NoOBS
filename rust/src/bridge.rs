@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 
 use crate::{config, engine, file_meta, lang, log, mainthread, player, record_watch, ui};
 
+mod area;
 mod devices;
 pub mod export;
 mod filters;
@@ -30,6 +31,15 @@ mod shell;
 pub mod transcribe;
 mod video_test;
 mod window_record;
+
+#[cfg(test)]
+mod tests;
+
+/// Testes: a navegação da biblioteca volta à raiz (estado por thread).
+#[cfg(test)]
+pub fn test_reset_browse_dir() {
+    library::set_browse_dir("");
+}
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -77,7 +87,7 @@ fn on_timer(id: usize) {
 }
 
 fn on_timer_inner(id: usize) {
-    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) {
+    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) || area::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -101,6 +111,7 @@ pub fn shutdown() {
     export::signal_cancel();
     video_test::shutdown();
     replay::shutdown();
+    area::shutdown();
     filters::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
@@ -129,7 +140,30 @@ fn on_timer_other(id: usize) {
 
 /// Envia um objeto JSON à UI (qualquer thread: vai pela fila da main).
 pub fn post_json(value: Value) {
+    // Teste: a mensagem fica pra conferir, em vez de ir pro WebView.
+    #[cfg(test)]
+    {
+        crate::testkit::record_sent(value);
+        return;
+    }
+    // Executável de teste da libobs (feature `obs-tests`, fora do app): guarda
+    // uma cópia pro teste conferir; o resto do caminho segue igual.
+    #[cfg(all(feature = "obs-tests", not(test)))]
+    obs_test_sent().lock().unwrap_or_else(|p| p.into_inner()).push(value.clone());
+    #[allow(unreachable_code)]
     mainthread::queue(move || ui::post_json_now(&value.to_string()));
+}
+
+#[cfg(feature = "obs-tests")]
+fn obs_test_sent() -> &'static std::sync::Mutex<Vec<Value>> {
+    static SENT: std::sync::Mutex<Vec<Value>> = std::sync::Mutex::new(Vec::new());
+    &SENT
+}
+
+/// Só com `obs-tests`: tira (e esvazia) o que o Bridge mandou à página.
+#[cfg(feature = "obs-tests")]
+pub fn take_sent_for_tests() -> Vec<Value> {
+    std::mem::take(&mut *obs_test_sent().lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Mostra erro na UI (`type: "error"`), já traduzido.
@@ -176,7 +210,12 @@ fn dispatch_inner(raw: &str) {
     match ty {
         "ui_log" => log!("UI: {}", str_field(&msg, "message")),
         "ready" => do_init(),
-        "record_start" => recording::handle_record_start(),
+        // Na contagem do atraso da área, o botão de gravar CANCELA.
+        "record_start" => {
+            if !area::cancel_countdown() {
+                recording::handle_record_start();
+            }
+        }
         "record_stop" => recording::handle_record_stop(),
         "record_pause" => recording::handle_record_pause(bool_field(&msg, "paused", false)),
         "set_theme" => handle_set_theme(str_field(&msg, "theme")),
@@ -296,7 +335,16 @@ fn dispatch_inner(raw: &str) {
         "set_fullscreen_detect" => recording::handle_set_fullscreen_detect(bool_field(&msg, "enabled", true)),
         "list_capture_windows" => window_record::handle_list_capture_windows(),
         "record_window" => window_record::handle_record_window(str_field(&msg, "id"), bool_field(&msg, "appAudio", false)),
-        "select_capture_area" => window_record::handle_select_capture_area(),
+        "select_capture_area" => area::handle_select_capture_area(),
+        "record_saved_area" => area::record_saved_area(),
+        "get_area_state" => area::push_area_state(),
+        "cancel_area_countdown" => {
+            area::cancel_countdown();
+        }
+        "define_capture_area" => area::handle_define_area(),
+        "clear_capture_area" => area::handle_clear_area(),
+        "set_area_hotkey" => area::handle_set_area_hotkey(str_field(&msg, "hotkey")),
+        "set_area_delay" => area::handle_set_area_delay(int_field(&msg, "sec", 0)),
         "test_video_quality" => video_test::handle_test_video_quality(),
         "cancel_video_test" => video_test::handle_cancel_video_test(),
         other => not_ported(other),
@@ -327,6 +375,7 @@ fn do_init() {
         devices::do_init();
         settings::push_settings();
         recording::push_recording_state();
+        area::push_area_state();
         return;
     }
     shell::set_ui_ready();
@@ -368,6 +417,8 @@ fn do_init() {
     recording::schedule_warmup();
     // Atalho global (falha de registro não é fatal — pegadinha #33).
     shell::apply_hotkey_from_config();
+    // Atalho da área salva (só com uma área salva) + estado pra UI.
+    area::do_init();
     // Indicador de tela + parar ao bloquear a tela.
     recording::init_indicator_and_lock();
     // Auto-gravação em chamadas (se ligada), buffer ligado por programas
@@ -477,7 +528,7 @@ fn handle_set_language(code: &str) {
     }));
     // Rótulos dos filtros de áudio vêm do plugin do OBS: troca o idioma dele também (só se o
     // libobs já subiu; senão o init já pega o novo).
-    if engine::with_engine(|e| e.is_initialized()).unwrap_or(false) {
+    if engine::with_engine(|e| e.uses_libobs() && e.is_initialized()).unwrap_or(false) {
         crate::audio_filters::set_obs_locale_from_app(&lang::current_language());
     }
 }

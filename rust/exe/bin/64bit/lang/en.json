@@ -48,7 +48,8 @@
     "finished": "Recording finished ({{min}}m {{sec}}s).",
     "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording.",
     "finalizing": "Finishing recording...",
-    "sizeHint": "Recorded so far"
+    "sizeHint": "Recorded so far",
+    "areaCountdown": "Recording the area in {{sec}} s — click record to cancel"
   },
   "replay": {
     "label": "Memory buffer",
@@ -89,7 +90,8 @@
       "While recording, hold Ctrl+Shift and click the button on the frame corner to move or resize the area. Ctrl+Shift+click again, Enter or Esc to finish."
     ],
     "areaStart": "Select area",
-    "areaRecording": "Area {{w}}×{{h}}"
+    "areaRecording": "Area {{w}}×{{h}}",
+    "savedArea": "Record the saved area ({{w}} × {{h}})"
   },
   "recordings": {
     "title": "Recordings",
@@ -250,6 +252,7 @@
       "recording": "Video",
       "audio": "Audio",
       "replay": "Buffer",
+      "area": "Area",
       "files": "Files",
       "devices": "Devices",
       "about": "About",
@@ -740,6 +743,22 @@
       "hotkeyHint": "Only active while the buffer is on — when it's off, the combination goes back to other programs.",
       "seconds": "{{n}} seconds",
       "minutes": "{{n}} min"
+    },
+    "area": {
+      "savedLabel": "Saved area",
+      "savedHint": "Pick once the part of the screen you always record, then record it straight from the shortcut below, without selecting again.",
+      "none": "No saved area",
+      "savedValue": "{{w}} × {{h}} at ({{x}}, {{y}})",
+      "define": "Set area",
+      "redefine": "Pick another",
+      "clear": "Remove",
+      "hotkey": "Shortcut to record the saved area",
+      "hotkeyHint": "Only works with a saved area. Press it again to stop recording.",
+      "hotkeyConflict": "The area shortcut can't be the same as the recording or buffer one.",
+      "delay": "Delay before starting",
+      "delayOff": "Off",
+      "delaySec": "{{sec}} seconds",
+      "delayHint": "Time to get ready: the area frame shows up with a countdown and recording starts when it reaches zero. Applies to the shortcut and to \"Capture... → Area\". Pressing the shortcut or the record button during the countdown cancels it."
     }
   },
   "devices": {
@@ -940,7 +959,10 @@
       "request": "The local transcription engine returned an error: {{error}}",
       "decode": "Could not read the recording's audio.",
       "memory": "There is not enough memory to load the transcription engine, neither on the graphics card nor in the system. Close other programs and try again. Detail: {{detail}}"
-    }
+    },
+    "areaNotSaved": "No saved area. Set one in Settings → Area.",
+    "areaOffScreen": "The saved area is outside the screens connected right now. Set another one in Settings → Area.",
+    "areaHotkeyConflict": "The area shortcut can't be the same as the recording or buffer one."
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."
@@ -1013,6 +1035,7 @@
     "queued": "{{count}} in the transcription queue — click to view"
   },
   "areaSelect": {
-    "hint": "Drag to choose the area to record  •  Esc cancels"
+    "hint": "Drag to choose the area to record  •  Esc cancels",
+    "hintSave": "Drag to choose the shortcut area  •  Esc cancels"
   }
 }

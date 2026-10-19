@@ -56,6 +56,8 @@ struct State {
     hint_rect: RECT,
     hint_visible: bool,
     on_selected: Option<OnSelected>,
+    /// Chave do texto de instrução (gravar agora ou só salvar a área).
+    hint_key: &'static str,
     font: HFONT,
     dpi: i32,
 }
@@ -78,14 +80,50 @@ fn sx(dpi: i32, v: i32) -> i32 {
 
 /// Seleção aberta agora?
 pub fn is_active() -> bool {
+    #[cfg(test)]
+    if TEST_PENDING.with(|p| p.get().is_some()) {
+        return true;
+    }
     with(|s| s.hwnd.is_some())
+}
+
+// Teste: a seleção de verdade escurece todos os monitores e espera o mouse.
+// Aqui ela só fica "aberta" até o teste dizer o que o usuário escolheu.
+#[cfg(test)]
+thread_local! {
+    static TEST_PENDING: std::cell::Cell<Option<OnSelected>> = const { std::cell::Cell::new(None) };
+}
+
+/// Teste: termina a seleção aberta como se o usuário tivesse arrastado
+/// (`Some`) ou apertado Esc (`None`). `false` se não havia seleção aberta.
+#[cfg(test)]
+pub fn test_finish(result: Option<AreaRect>) -> bool {
+    match TEST_PENDING.with(|p| p.take()) {
+        Some(cb) => {
+            cb(result);
+            true
+        }
+        None => false,
+    }
 }
 
 /// Abre a seleção. `false` se já há uma aberta ou a janela não pôde nascer.
 pub fn start(on_selected: OnSelected) -> bool {
+    start_with_hint(on_selected, "areaSelect.hint")
+}
+
+/// Como [`start`], com outra instrução na tela (ex.: definir a área salva).
+pub fn start_with_hint(on_selected: OnSelected, hint_key: &'static str) -> bool {
     if is_active() {
         return false;
     }
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect(format!("area_select:{hint_key}"));
+        TEST_PENDING.with(|p| p.set(Some(on_selected)));
+        return true;
+    }
+    #[allow(unreachable_code)]
     ensure_class();
     unsafe {
         let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -132,6 +170,7 @@ pub fn start(on_selected: OnSelected) -> bool {
             s.hint_rect = hint;
             s.hint_visible = true;
             s.on_selected = Some(on_selected);
+            s.hint_key = hint_key;
             s.font = font;
             s.dpi = dpi;
         });
@@ -251,7 +290,7 @@ fn paint(hwnd: HWND) {
             let old_font = SelectObject(dc, HGDIOBJ(font.0));
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, COLORREF(0x00FF_FFFF));
-            let mut text: Vec<u16> = lang::t("areaSelect.hint").encode_utf16().collect();
+            let mut text: Vec<u16> = lang::t(with(|s| s.hint_key)).encode_utf16().collect();
             let mut hr = hint_rect;
             DrawTextW(dc, &mut text, &mut hr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
             SelectObject(dc, old_font);

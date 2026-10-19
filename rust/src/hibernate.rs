@@ -39,6 +39,9 @@ const ID_TRAY_QUIT: usize = 9003;
 /// Mesmos ids do modo completo.
 const HK_RECORD_TOGGLE: i32 = 100;
 const HK_RECORD_TOGGLE_ALT: i32 = 101;
+/// Atalho da área salva (mesmos ids do `bridge::area`).
+const HK_AREA_RECORD: i32 = 104;
+const HK_AREA_RECORD_ALT: i32 = 105;
 
 static MAIN: AtomicIsize = AtomicIsize::new(0);
 static SHOW_MSG: AtomicU32 = AtomicU32::new(0);
@@ -102,11 +105,43 @@ fn register_record_hotkey() {
     }
 }
 
+/// Atalho da área salva: só com uma área salva (`areaSaved`), como no modo
+/// completo. Apertado aqui, promove com `/start-area`.
+fn register_area_hotkey() {
+    if config::get_config_json("areaSaved").is_none() {
+        return;
+    }
+    let spec = config::get_config_str("areaHotkey", "Ctrl+Shift+Pause/Break");
+    if spec.trim().is_empty() {
+        return;
+    }
+    let Some(hk) = hotkey::parse_hotkey(&spec) else {
+        log!("Hibernate: atalho da area invalido \"{spec}\".");
+        return;
+    };
+    if hotkey::reserved_reason(hk.modifiers, hk.vk).is_some() {
+        return;
+    }
+    let hwnd = main_hwnd();
+    unsafe {
+        if RegisterHotKey(Some(hwnd), HK_AREA_RECORD, HOT_KEY_MODIFIERS(hk.modifiers), hk.vk).is_ok() {
+            log!("Hibernate: atalho da area \"{spec}\" registrado.");
+        } else {
+            log!("Hibernate: RegisterHotKey falhou pro atalho da area \"{spec}\".");
+        }
+        if hk.vk == hotkey::VK_PAUSE && hk.modifiers & hotkey::MOD_CTRL != 0 {
+            let _ = RegisterHotKey(Some(hwnd), HK_AREA_RECORD_ALT, HOT_KEY_MODIFIERS(hk.modifiers), hotkey::VK_CANCEL);
+        }
+    }
+}
+
 fn unregister_record_hotkey() {
     let hwnd = main_hwnd();
     unsafe {
         let _ = UnregisterHotKey(Some(hwnd), HK_RECORD_TOGGLE);
         let _ = UnregisterHotKey(Some(hwnd), HK_RECORD_TOGGLE_ALT);
+        let _ = UnregisterHotKey(Some(hwnd), HK_AREA_RECORD);
+        let _ = UnregisterHotKey(Some(hwnd), HK_AREA_RECORD_ALT);
     }
 }
 
@@ -179,8 +214,10 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         }
         WM_HOTKEY => {
             log!("Hibernate: WM_HOTKEY id={}", wparam.0);
-            if matches!(wparam.0 as i32, HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT) {
-                spawn_full_and_exit("/start-record");
+            match wparam.0 as i32 {
+                HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT => spawn_full_and_exit("/start-record"),
+                HK_AREA_RECORD | HK_AREA_RECORD_ALT => spawn_full_and_exit("/start-area"),
+                _ => {}
             }
             LRESULT(0)
         }
@@ -293,6 +330,7 @@ pub fn run() {
 
         install_tray();
         register_record_hotkey();
+        register_area_hotkey();
 
         // Auto-gravação em chamadas: vigia o mic mesmo hibernando (poll de 1 s).
         if config::get_config_bool("autoRecordOnMic", false) {

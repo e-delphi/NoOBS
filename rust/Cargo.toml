@@ -49,10 +49,37 @@ windows = { version = "0.61", features = [
   "Win32_System_RemoteDesktop",
   "Win32_System_Performance",
   "Win32_System_ProcessStatus",
+    # Motor de captura próprio (docs/motor-proprio.md): D3D11, DXGI e WGC.
+    "Foundation",
+    "Graphics",
+    "Graphics_Capture",
+    "Graphics_DirectX",
+    "Graphics_DirectX_Direct3D11",
+    "Win32_Graphics_Direct3D",
+    "Win32_Media_MediaFoundation",
+    "Win32_Graphics_Direct3D_Fxc",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_WinRT",
+    "Win32_System_WinRT_Direct3D11",
+    "Win32_System_WinRT_Graphics_Capture",
 ] }
 flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
 sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[features]
+# Habilita o alvo `tests/obs.rs` (autoteste da libobs: grava a tela, precisa de
+# placa de vídeo e do runtime em exe/bin/64bit). Fora da suíte padrão:
+#   cargo test --release --features obs-tests --test obs [-- filtro]
+obs-tests = []
+
+[[test]]
+name = "obs"
+path = "tests/obs.rs"
+harness = false
+required-features = ["obs-tests"]
 
 [build-dependencies]
 # Embute o MAINICON (icon.ico) no exe — bandeja, janela e taskbar usam.
@@ -67,3 +94,11 @@ strip = true
 # miniatura, exportação, dispatch, timers…) vira código morto no release e
 # qualquer falha fecha o app sem deixar nada no log. O Delphi trata a mesma
 # falha com try/except e segue; o unwind é o que permite o equivalente.
+
+# Motor de captura próprio (docs/motor-proprio.md), fora da suíte padrão: grava a tela.
+#   cargo test --release --features obs-tests --test captura [-- filtro]
+[[test]]
+name = "captura"
+path = "tests/captura.rs"
+harness = false
+required-features = ["obs-tests"]

@@ -48,7 +48,8 @@
     "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.",
     "finalizing": "Finalizando gravação...",
-    "sizeHint": "Tamanho já gravado"
+    "sizeHint": "Tamanho já gravado",
+    "areaCountdown": "Gravando a área em {{sec}} s — clique em gravar para cancelar"
   },
   "replay": {
     "label": "Buffer em memória",
@@ -89,7 +90,8 @@
       "Durante a gravação, segure Ctrl+Shift e clique no botão do canto da moldura para mover ou redimensionar a área. Ctrl+Shift+clique de novo, Enter ou Esc terminam."
     ],
     "areaStart": "Selecionar área",
-    "areaRecording": "Área {{w}}×{{h}}"
+    "areaRecording": "Área {{w}}×{{h}}",
+    "savedArea": "Gravar a área salva ({{w}} × {{h}})"
   },
   "recordings": {
     "title": "Gravações",
@@ -250,6 +252,7 @@
       "recording": "Vídeo",
       "audio": "Áudio",
       "replay": "Buffer",
+      "area": "Área",
       "files": "Arquivos",
       "devices": "Dispositivos",
       "about": "Sobre",
@@ -740,6 +743,22 @@
       "hotkeyHint": "Só fica ativo com o buffer ligado — desligado, a combinação volta a ser dos outros programas.",
       "seconds": "{{n}} segundos",
       "minutes": "{{n}} min"
+    },
+    "area": {
+      "savedLabel": "Área salva",
+      "savedHint": "Escolha uma vez a parte da tela que você grava sempre e grave ela direto pelo atalho abaixo, sem selecionar de novo.",
+      "none": "Nenhuma área salva",
+      "savedValue": "{{w}} × {{h}} em ({{x}}, {{y}})",
+      "define": "Definir área",
+      "redefine": "Escolher outra",
+      "clear": "Remover",
+      "hotkey": "Atalho para gravar a área salva",
+      "hotkeyHint": "Só funciona com uma área salva. Apertar de novo para a gravação.",
+      "hotkeyConflict": "O atalho da área não pode ser o mesmo de gravar nem o do buffer.",
+      "delay": "Atraso antes de começar",
+      "delayOff": "Desativado",
+      "delaySec": "{{sec}} segundos",
+      "delayHint": "Tempo para se preparar: a moldura da área aparece com a contagem e a gravação começa quando ela chega a zero. Vale para o atalho e para o \"Capturar... → Área\". Apertar o atalho ou o botão de gravar durante a contagem cancela."
     }
   },
   "devices": {
@@ -940,7 +959,10 @@
       "request": "O motor de transcrição local respondeu com erro: {{error}}",
       "decode": "Não foi possível ler o áudio da gravação.",
       "memory": "Não há memória suficiente para carregar o motor de transcrição, nem na placa de vídeo nem no sistema. Feche outros programas e tente de novo. Detalhe: {{detail}}"
-    }
+    },
+    "areaNotSaved": "Nenhuma área salva. Defina uma em Configurações → Área.",
+    "areaOffScreen": "A área salva está fora das telas conectadas agora. Defina outra em Configurações → Área.",
+    "areaHotkeyConflict": "O atalho da área não pode ser o mesmo de gravar nem o do buffer."
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."
@@ -1013,6 +1035,7 @@
     "queued": "{{count}} na fila de transcrição — clique para ver"
   },
   "areaSelect": {
-    "hint": "Arraste para escolher a área que será gravada  •  Esc cancela"
+    "hint": "Arraste para escolher a área que será gravada  •  Esc cancela",
+    "hintSave": "Arraste para escolher a área do atalho  •  Esc cancela"
   }
 }

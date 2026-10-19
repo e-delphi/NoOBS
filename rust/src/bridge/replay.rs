@@ -213,7 +213,7 @@ pub fn push_replay_state() {
         "maxSec": max_sec_cfg(),
         "maxMb": max_mb_cfg(),
         "maxMbLimit": mem_limit_mb(),
-        "hotkey": config::get_config_str("replayHotkey", DEFAULT_REPLAY_HOTKEY),
+        "hotkey": hotkey_spec(),
         "apps": config::get_config_str("replayAutoApps", ""),
         "indicator": config::get_config_bool("replayIndicator", true),
         "indicatorCorner": config::get_config_str("replayIndicatorCorner", "top-right"),
@@ -226,6 +226,11 @@ pub fn push_replay_state() {
 // Atalho de salvar
 // ---------------------------------------------------------------------------
 
+/// Atalho de salvar configurado (ou o padrão).
+pub(super) fn hotkey_spec() -> String {
+    config::get_config_str("replayHotkey", DEFAULT_REPLAY_HOTKEY)
+}
+
 fn unregister_hotkey() {
     ui::unregister_global_hotkey(HK_REPLAY_SAVE);
     ui::unregister_global_hotkey(HK_REPLAY_SAVE_ALT);
@@ -237,7 +242,7 @@ fn apply_hotkey() {
     if !replay_active() {
         return;
     }
-    let spec = config::get_config_str("replayHotkey", DEFAULT_REPLAY_HOTKEY);
+    let spec = hotkey_spec();
     if spec.trim().is_empty() {
         log::log("Buffer: atalho de salvar desativado (config vazia).");
         return;
@@ -452,8 +457,12 @@ pub fn continue_into_recording(output_path: &str) -> bool {
     if !engine::with_engine(|e| e.start_recording_from_replay(output_path)).unwrap_or(false) {
         return false;
     }
+    // Motor próprio: a gravação JÁ começa pelo que o buffer guardou, num arquivo
+    // só — não há trecho-prefixo pra esperar nem emenda no fim. O `prefix_sec`
+    // continua: é ele que adianta o relógio da tela.
+    let single = engine::with_engine(|e| e.continuation_is_single_file()).unwrap_or(false);
     with(|s| {
-        s.prefix_for = output_path.to_owned();
+        s.prefix_for = if single { String::new() } else { output_path.to_owned() };
         s.prefix_path.clear();
         s.prefix_lead_ms = 0;
         s.prefix_sec = held;
@@ -463,7 +472,9 @@ pub fn continue_into_recording(output_path: &str) -> bool {
     hide_indicator();
     log_mem_usage("buffer virando gravacao");
     ui::kill_timer(TIMER_REPLAY_MEM);
-    ui::set_timer(TIMER_REPLAY_SAVE_TIMEOUT, REPLAY_SAVE_TIMEOUT_MS);
+    if !single {
+        ui::set_timer(TIMER_REPLAY_SAVE_TIMEOUT, REPLAY_SAVE_TIMEOUT_MS);
+    }
     // O trecho fecha só depois do 1º keyframe da gravação: os dois arquivos se
     // sobrepõem em vez de deixar buraco.
     if let Some((true, delay)) = engine::with_engine(|e| (e.is_replay_save_commit_pending(), e.replay_save_commit_delay_ms())) {
@@ -1008,7 +1019,8 @@ pub fn handle_set_replay_limits(max_sec: i32, max_mb: i32) {
 }
 
 /// Mesma regra do atalho de gravar, mais uma: não pode ser a MESMA
-/// combinação (o `RegisterHotKey` recusaria a segunda).
+/// combinação do de gravar nem do da área (o `RegisterHotKey` recusaria a
+/// segunda, e um dos dois deixaria de funcionar sem aviso).
 pub fn handle_set_replay_hotkey(spec: &str) {
     let mut normalized = spec.trim().to_owned();
     if !normalized.is_empty() {
@@ -1024,6 +1036,11 @@ pub fn handle_set_replay_hotkey(spec: &str) {
         if normalized.eq_ignore_ascii_case(&config::get_config_str("hotkey", "Pause/Break")) {
             log!("HandleSetReplayHotkey: \"{normalized}\" ja e o atalho de gravar — ignorado.");
             post_error(lang::t("error.replayHotkeyConflict"));
+            return;
+        }
+        if normalized.eq_ignore_ascii_case(&super::area::hotkey_spec()) {
+            log!("HandleSetReplayHotkey: \"{normalized}\" ja e o atalho da area — ignorado.");
+            post_error(lang::t("error.areaHotkeyConflict"));
             return;
         }
     }

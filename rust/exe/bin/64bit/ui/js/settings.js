@@ -235,6 +235,8 @@ const Settings = {
     this._loadHotkeyIntoUi(this.currentHotkey || '');
     // Buffer em memoria: limites + atalho de salvar (estado vive no Replay).
     if (typeof Replay !== 'undefined') Replay.loadIntoSettings();
+    // Captura de area: area salva, atalho e atraso (estado vive no AreaCapture).
+    if (typeof AreaCapture !== 'undefined') AreaCapture.loadIntoSettings();
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
@@ -1089,6 +1091,11 @@ const Settings = {
       Replay.loadIntoSettings();
       Bridge.send('get_replay_state');
     }
+    // Aba Area: idem (a area salva pode ter mudado pelo seletor).
+    if (name === 'area' && typeof AreaCapture !== 'undefined') {
+      AreaCapture.loadIntoSettings();
+      Bridge.send('get_area_state');
+    }
     // Idem pro perfil de auto-gravacao: ao entrar na aba Gravacao,
     // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
     // hot-plug que ocorreu enquanto o usuario estava em outra aba).
@@ -1304,6 +1311,7 @@ const Settings = {
         // Buffer em memoria: limites e atalho de salvar voltam ao padrao. O
         // liga/desliga fica como esta — ele vive na tela principal, nao aqui.
         if (typeof Replay !== 'undefined') Replay.restoreDefaults();
+        if (typeof AreaCapture !== 'undefined') AreaCapture.restoreDefaults();
         // Tema (padrao: seguir o Windows) e filtros de audio (nenhum ligado)
         // salvam fora do commit().
         this.setTheme('system');
@@ -1333,6 +1341,16 @@ const Settings = {
     const hotkey = this._readHotkeyFromUi();
     if (hotkey === this.currentHotkey) return;
     if (hotkey !== '') {
+      // Mesma regra do backend: um atalho por recurso (o Windows aceita um
+      // registro por combinacao).
+      const taken = [
+        [typeof Replay !== 'undefined' ? Replay.currentHotkey : '', 'replay.hotkeyConflict'],
+        [typeof AreaCapture !== 'undefined' ? AreaCapture.currentHotkey : '', 'settings.area.hotkeyConflict'],
+      ].find(([spec]) => spec && spec === hotkey);
+      if (taken) {
+        Toast.show(T('toast.invalidHotkey'), T(taken[1]), { warn: true, ttl: 7000 });
+        return;
+      }
       const validation = await validateHotkeyWithBackend(hotkey);
       if (!validation.ok) {
         Toast.show(T('toast.invalidHotkey'), validation.reason +

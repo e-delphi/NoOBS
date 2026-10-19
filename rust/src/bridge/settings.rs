@@ -181,6 +181,13 @@ pub fn handle_set_mute_when_device_muted(enable: bool) {
 
 /// Diálogo nativo de "selecionar pasta" (`IFileOpenDialog`).
 fn pick_folder(initial: &str) -> Option<String> {
+    // Teste: o diálogo é modal e esperaria um clique.
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect(format!("pick_folder:{initial}"));
+        return None;
+    }
+    #[allow(unreachable_code)]
     unsafe {
         let dlg: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
         let opts = dlg.GetOptions().ok()?;

@@ -165,7 +165,7 @@ fn encoder_exists(name: &str) -> bool {
 /// `family`: `h264` | `hevc` | `av1`. Vazio = sem caminho de hardware para esse
 /// vendor/família. O FFmpeg do OBS NÃO traz nenhum `*_qsv`, então Intel vai por
 /// Media Foundation (`h264_mf`/`hevc_mf`), que não tem AV1.
-fn hw_encoder_name(family: &str, vendor: GpuVendor) -> String {
+pub(crate) fn hw_encoder_name(family: &str, vendor: GpuVendor) -> String {
     match vendor {
         GpuVendor::Nvidia => format!("{family}_nvenc"),
         GpuVendor::Amd => format!("{family}_amf"),
@@ -484,7 +484,7 @@ fn scale_crf(crf: i32, max: i32) -> i32 {
 /// encoder tem plano B (o único era o `qvbr` do AMF, INVERTIDO — maior nível =
 /// melhor —, que fazia a tela funcionar ao contrário). `false` = não há tentativa
 /// `attempt`: pare de tentar.
-fn apply_quality_options(dict: &mut Dict, encoder: &str, crf: i32, attempt: i32) -> bool {
+pub(crate) fn apply_quality_options(dict: &mut Dict, encoder: &str, crf: i32, attempt: i32) -> bool {
     let e = encoder.to_lowercase();
     let crf = crf.clamp(EXPORT_CRF_MIN, EXPORT_CRF_MAX);
     let has = |s: &str| e.contains(s);
@@ -1032,6 +1032,14 @@ impl<'a> Export<'a> {
             if r < 0 {
                 log!("Export: avcodec_receive_packet falhou ({}).", av_err_str(r));
                 return false;
+            }
+            // Vídeo sem duração no pacote (o encoder não a sabe com time_base 1/1000):
+            // um quadro na taxa de saída. Sem isso o MP4 fecha a faixa no INÍCIO do
+            // último quadro e a taxa lida de volta sai acima da real (30,25 em vez
+            // de 30, medido).
+            if stream == self.out_vstream && self.enc_pkt.duration <= 0 && self.out_fps > 0 {
+                let d = unsafe { (a.util.av_rescale_q)(1, AVRational { num: 1, den: self.out_fps }, ctx_tb) };
+                self.enc_pkt.duration = d.max(1);
             }
             let ok = unsafe {
                 self.enc_pkt.stream_index = (*stream).index;
@@ -2106,7 +2114,10 @@ impl<'a> Export<'a> {
                         }
                         (*self.out_mix_stream).time_base = self.mix_tb;
                         if !opts.mix_title.is_empty() {
-                            (a.util.av_dict_set)(&mut (*self.out_mix_stream).metadata, c"title".as_ptr(), to_utf8(&opts.mix_title).as_ptr(), 0);
+                            // `handler_name` também: o MP4 não guarda o `title` de faixa.
+                            let t = to_utf8(&opts.mix_title);
+                            (a.util.av_dict_set)(&mut (*self.out_mix_stream).metadata, c"title".as_ptr(), t.as_ptr(), 0);
+                            (a.util.av_dict_set)(&mut (*self.out_mix_stream).metadata, c"handler_name".as_ptr(), t.as_ptr(), 0);
                         }
                     }
                     self.mix_ctx = Some(ctx);

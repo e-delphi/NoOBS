@@ -99,7 +99,7 @@ pub fn probe(path: &Path) -> Option<ProbeReport> {
             let Some(s) = av::stream(ic, i) else { continue };
             let mut info = StreamInfo {
                 index: s.index,
-                title: av::metadata_string(s.metadata, "title"),
+                title: av::stream_title(s),
                 ..Default::default()
             };
             if let Some(cp) = s.codecpar.as_ref() {

@@ -80,10 +80,9 @@ SetCompressor /SOLID lzma
 ; por janela assume — melhor deixar passar do que travar a instalacao
 ; por causa de um diagnostico que falhou.
 ;--------------------------------
-; So na versao do instalador — o desinstalador nao pergunta se ha
-; processo (ele fecha tudo de qualquer jeito), e gerar a variante
-; "un." deixaria funcao morta no binario (warning 6010 do makensis).
-Function NoOBSIsRunning
+; Variantes do instalador e do desinstalador: os dois usam no KillNoOBS.
+!macro NOOBS_IS_RUNNING UN
+Function ${UN}NoOBSIsRunning
     StrCpy $R0 0
     nsExec::Exec '"$SYSDIR\cmd.exe" /c tasklist /FI "IMAGENAME eq NoOBS.exe" /NH | "$SYSDIR\findstr.exe" /I /C:"NoOBS.exe"'
     Pop $R1
@@ -91,6 +90,52 @@ Function NoOBSIsRunning
         StrCpy $R0 1
     ${EndIf}
 FunctionEnd
+!macroend
+!insertmacro NOOBS_IS_RUNNING ""
+!insertmacro NOOBS_IS_RUNNING "un."
+
+;--------------------------------
+; Mata o NoOBS e ESPERA o processo sair de verdade.  ($R0 = 1 se sobrou)
+;
+; O taskkill /F so PEDE o fim: o TerminateProcess volta antes de o
+; processo terminar de ser desmontado, e o NoOBS.exe (e as DLLs ao lado
+; dele) continuam travados ate a ultima thread sair. Com driver de video,
+; WebView2 e antivirus no meio, isso leva SEGUNDOS em algumas maquinas.
+; Antes era "taskkill + Sleep 500" e pronto: onde a desmontagem demorava
+; mais, a copia morria no "Erro ao abrir arquivo para escrita" e so
+; passava depois de alguns "Repetir" — quando o processo ja tinha saido.
+;
+; Por isso: mata, confere pelo nome do processo, e repete (ate ~15 s). O
+; taskkill vai DE NOVO a cada volta porque um processo pode nascer no meio
+; (o modo full se relancando como /hibernate ao fechar).
+;
+; O que sobra depois disso e o NoOBS aberto COMO ADMINISTRADOR (opcao
+; runAsAdmin): o instalador roda sem elevacao e o taskkill recebe "acesso
+; negado". Quem chama mostra o aviso e deixa repetir.
+;--------------------------------
+!macro KILL_NOOBS UN
+Function ${UN}KillNoOBS
+    StrCpy $2 0
+    kill_loop:
+        nsExec::Exec 'taskkill /F /IM NoOBS.exe /T'
+        Pop $3
+        Sleep 500
+        Call ${UN}NoOBSIsRunning
+        ${If} $R0 == 0
+            ; Folga: o processo some da lista quando a ultima thread sai;
+            ; o mapeamento do exe e solto nesse mesmo passo, mas o
+            ; antivirus ainda pode estar com o arquivo aberto.
+            Sleep 500
+            Return
+        ${EndIf}
+        IntOp $2 $2 + 1
+        ${If} $2 < 30
+            Goto kill_loop
+        ${EndIf}
+FunctionEnd
+!macroend
+!insertmacro KILL_NOOBS ""
+!insertmacro KILL_NOOBS "un."
 
 ;--------------------------------
 ; Deteccao de instancia rodando.
@@ -166,7 +211,10 @@ Function .onInit
                 ${If} $0 == 0
                     Goto force_kill
                 ${EndIf}
-                SendMessage $0 ${WM_CLOSE} 0 0
+                ; /TIMEOUT: SendMessage espera a janela responder, e uma
+                ; main thread travada (ou no meio do shutdown) penduraria
+                ; o instalador pra sempre.
+                SendMessage $0 ${WM_CLOSE} 0 0 /TIMEOUT=2000
                 Sleep 400
                 IntOp $1 $1 + 1
                 ${If} $1 < 5
@@ -177,10 +225,12 @@ Function .onInit
                 ; processo NoOBS.exe que sobrou (hibernate em mid-task,
                 ; instancia minimizada pra bandeja por WM_CLOSE, ou
                 ; processo "ghost" segurando arquivos). /T mata filhos
-                ; tambem. Nao falha se nao houver processo (so loga).
-                nsExec::ExecToLog 'taskkill /F /IM NoOBS.exe /T'
-                Pop $0
-                Sleep 500
+                ; tambem. KillNoOBS so volta quando o processo SAIU.
+                Call KillNoOBS
+                ${If} $R0 == 1
+                    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Não foi possível fechar o NoOBS.$\r$\n$\r$\nSe ele foi aberto como administrador, feche-o pelo ícone da bandeja (Fechar) e clique em Repetir." IDRETRY force_kill
+                    Abort
+                ${EndIf}
             Goto done
         abort:
             Abort
@@ -371,16 +421,18 @@ Function un.onInit
         ${If} $0 == 0
             Goto un_force_kill
         ${EndIf}
-        SendMessage $0 ${WM_CLOSE} 0 0
+        SendMessage $0 ${WM_CLOSE} 0 0 /TIMEOUT=2000
         Sleep 400
         IntOp $1 $1 + 1
         ${If} $1 < 5
             Goto un_loop_close
         ${EndIf}
     un_force_kill:
-        nsExec::ExecToLog 'taskkill /F /IM NoOBS.exe /T'
-        Pop $0
-        Sleep 500
+        Call un.KillNoOBS
+        ${If} $R0 == 1
+            MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Não foi possível fechar o NoOBS.$\r$\n$\r$\nSe ele foi aberto como administrador, feche-o pelo ícone da bandeja (Fechar) e clique em Repetir." IDRETRY un_force_kill
+            Abort
+        ${EndIf}
 FunctionEnd
 
 Section "Uninstall"

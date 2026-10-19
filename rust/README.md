@@ -127,6 +127,28 @@ abas: **Janela** (o de sempre) e **Área**.
   frente tudo some, como o indicador (#49).
 - Não continua o buffer em memória (a cena dele são as telas), igual à
   gravação de janela.
+- **Área salva + atalho + atraso** (`bridge/area.rs`, aba **Área** das
+  Configurações, `js/area.js`):
+  - "Definir área" abre a MESMA seleção, mas só guarda o retângulo em
+    `areaSaved` (`{x,y,w,h}`, px físicos). O seletor "Capturar... → Área"
+    ganha o botão "Gravar a área salva".
+  - `areaHotkey` (padrão `Ctrl+Shift+Pause/Break`) grava a área salva; de
+    novo, para. Só é registrado COM uma área salva — sem ela a combinação
+    volta a ser dos outros programas. Não pode repetir o atalho de gravar
+    nem o do buffer. Ctrl+Pause chega como `VK_CANCEL`: registra o alias
+    (ids 104/105), como os outros atalhos.
+  - Na hibernação o atalho também vale: ela promove com `/start-area` (não
+    `/start-record-area`: o `cmd.contains("/start-record")` pegaria também)
+    e o warmup grava a área salva. O flag entra no `hidden_start` e na
+    bandeja, como o `/start-replay` (#62).
+  - A área salva é recortada pela área de trabalho virtual de AGORA: monitor
+    desligado não vira pedaço preto; fora de todas as telas = aviso.
+  - `areaDelaySec` (0 = desligado, padrão): a moldura aparece âmbar com os
+    segundos no botão (GDI+ `DrawString`) e a gravação começa no zero
+    (`TIMER_AREA_COUNTDOWN`). Vale pro atalho e pela seleção. Durante a
+    contagem a edição fica travada, e o atalho da área, o de gravar e o
+    botão de gravar CANCELAM. A tela principal mostra a contagem na linha
+    de status (`area_countdown`).
 
 ## Como o Rust mudou o desenho (sem mudar o comportamento)
 

@@ -27,7 +27,10 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::Graphics::GdiPlus::{
-    GdipCreateBitmapFromScan0, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePen,
+    GdipCreateBitmapFromScan0, GdipCreateFont, GdipCreateFontFamilyFromName, GdipCreatePen1, GdipCreateStringFormat,
+    GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteStringFormat, GdipDrawString, GdipSetStringFormatAlign,
+    GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, FontStyleBold, GpFont, GpFontFamily, GpStringFormat, RectF,
+    StringAlignmentCenter, TextRenderingHintAntiAliasGridFit, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics, GdipDeletePen,
     GdipDisposeImage, GdipDrawLine, GdipFillEllipse, GdipGetImageGraphicsContext, GdipGraphicsClear, GdipSetPenEndCap,
     GdipSetPenStartCap, GdipSetSmoothingMode, GpBitmap, GpBrush, GpGraphics, GpImage, GpPen, GpSolidFill, LineCapRound,
     SmoothingModeAntiAlias, UnitPixel,
@@ -87,6 +90,9 @@ struct State {
     on_changed: Option<OnChanged>,
     drag: Option<(Drag, POINT, AreaRect)>,
     moved: bool,
+    /// Contagem regressiva antes de a gravação começar (atraso da captura de
+    /// área): o botão mostra os segundos e a edição fica travada.
+    countdown: Option<u32>,
 }
 
 thread_local! {
@@ -139,6 +145,7 @@ pub fn show(area: AreaRect, on_changed: OnChanged) {
         s.fs_hidden = false;
         s.ticks = 0;
         s.drag = None;
+        s.countdown = None;
     });
     unsafe {
         let ex = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT;
@@ -176,6 +183,7 @@ pub fn hide() {
         s.editing = false;
         s.drag = None;
         s.on_changed = None;
+        s.countdown = None;
         (s.frame.take(), s.button.take(), s.edit.take())
     });
     unsafe {
@@ -186,6 +194,22 @@ pub fn hide() {
     if frame.is_some() {
         log::log("AreaFrame: escondida.");
     }
+}
+
+/// Contagem regressiva no botão (`Some(segundos)`) ou fim dela (`None`, a
+/// gravação começou). Durante a contagem a moldura fica âmbar e o
+/// Ctrl+Shift+clique não abre a edição: ainda não há gravação pra ajustar.
+pub fn set_countdown(n: Option<u32>) {
+    let (frame, changed) = with(|s| (s.frame, std::mem::replace(&mut s.countdown, n) != n));
+    if frame.is_none() || !changed {
+        return;
+    }
+    unsafe {
+        if let Some(f) = frame {
+            let _ = InvalidateRect(Some(f), None, false);
+        }
+    }
+    draw_button();
 }
 
 /// Reposiciona as janelas pra área atual.
@@ -231,13 +255,13 @@ fn button_pos(area: AreaRect, dpi: i32) -> (i32, i32) {
 // ---------------------------------------------------------------------------
 
 fn paint_frame(hwnd: HWND) {
-    let (area, dpi, editing) = with(|s| (s.area, s.dpi, s.editing));
+    let (area, dpi, editing, counting) = with(|s| (s.area, s.dpi, s.editing, s.countdown.is_some()));
     let (p, b) = (pad(dpi), border(dpi));
     unsafe {
         let mut ps = PAINTSTRUCT::default();
         let dc = BeginPaint(hwnd, &mut ps);
         let key = CreateSolidBrush(KEY);
-        let color = CreateSolidBrush(if editing { AMBER } else { RED });
+        let color = CreateSolidBrush(if editing || counting { AMBER } else { RED });
         let full = RECT { left: 0, top: 0, right: area.w + 2 * p, bottom: area.h + 2 * p };
         FillRect(dc, &full, key);
         // Borda por fora da área: [p-b, p) de cada lado.
@@ -297,7 +321,8 @@ fn ctrl_shift_down() -> bool {
 
 /// 50 ms: Ctrl+Shift pressionados liberam o botão; a cada 500 ms, tela cheia.
 fn on_tick() {
-    let ctrl = ctrl_shift_down();
+    // Na contagem regressiva o botão não vira clicável (nada pra editar ainda).
+    let ctrl = ctrl_shift_down() && with(|s| s.countdown.is_none());
     let changed = with(|s| std::mem::replace(&mut s.ctrl, ctrl) != ctrl);
     if changed {
         set_button_clickable(ctrl);
@@ -344,7 +369,7 @@ fn set_button_clickable(on: bool) {
 /// Desenha o botão com alfa por pixel (GDI+ num DIB PARGB + UpdateLayeredWindow):
 /// círculo liso, sem a franja que a cor-chave deixaria na borda suavizada.
 fn draw_button() {
-    let (button, dpi, editing, ctrl) = with(|s| (s.button, s.dpi, s.editing, s.ctrl));
+    let (button, dpi, editing, ctrl, countdown) = with(|s| (s.button, s.dpi, s.editing, s.ctrl, s.countdown));
     let Some(hwnd) = button else { return };
     if !rec_indicator::ensure_gdiplus() {
         return;
@@ -384,12 +409,18 @@ fn draw_button() {
             GdipGraphicsClear(g, 0);
             let f = n as f32;
             // Anel: âmbar editando, branco com Ctrl+Shift (clicável), vermelho parado.
-            let ring = if editing { 0xFFFF_B300 } else if ctrl { 0xFFFF_FFFF } else { 0xFFE5_3935 };
+            let ring = if editing || countdown.is_some() { 0xFFFF_B300 } else if ctrl { 0xFFFF_FFFF } else { 0xFFE5_3935 };
             fill_circle(g, ring, 0.0, 0.0, f);
             let inset = f * 0.12;
             fill_circle(g, 0xFF1E_1E1E, inset, inset, f - 2.0 * inset);
+            if let Some(n) = countdown {
+                draw_number(g, n, f);
+            }
+            // Na contagem o número ocupa o botão: sem o ícone (lápis nulo).
             let mut pen: *mut GpPen = std::ptr::null_mut();
-            GdipCreatePen1(0xFFFF_FFFF, (f * 0.08).max(1.5), UnitPixel, &mut pen);
+            if countdown.is_none() {
+                GdipCreatePen1(0xFFFF_FFFF, (f * 0.08).max(1.5), UnitPixel, &mut pen);
+            }
             if !pen.is_null() {
                 GdipSetPenStartCap(pen, LineCapRound);
                 GdipSetPenEndCap(pen, LineCapRound);
@@ -421,7 +452,7 @@ fn draw_button() {
         }
 
         // Sem Ctrl+Shift o botão fica mais apagado: lembra que não é clicável.
-        let alpha = if ctrl || editing { 255 } else { 150 };
+        let alpha = if ctrl || editing || countdown.is_some() { 255 } else { 150 };
         let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: AC_SRC_ALPHA as u8 };
         let size = SIZE { cx: n, cy: n };
         let src = POINT { x: 0, y: 0 };
@@ -432,6 +463,40 @@ fn draw_button() {
         let _ = DeleteDC(mem);
         ReleaseDC(None, screen);
     }
+}
+
+/// Os segundos que faltam, centralizados no botão.
+unsafe fn draw_number(g: *mut GpGraphics, n: u32, f: f32) {
+    let text: Vec<u16> = n.to_string().encode_utf16().collect();
+    let mut family: *mut GpFontFamily = std::ptr::null_mut();
+    GdipCreateFontFamilyFromName(w!("Segoe UI"), std::ptr::null_mut(), &mut family);
+    if family.is_null() {
+        return;
+    }
+    let size = if text.len() > 1 { f * 0.38 } else { f * 0.5 };
+    let mut font: *mut GpFont = std::ptr::null_mut();
+    GdipCreateFont(family, size, FontStyleBold.0, UnitPixel, &mut font);
+    let mut fmt: *mut GpStringFormat = std::ptr::null_mut();
+    GdipCreateStringFormat(0, 0, &mut fmt);
+    let mut brush: *mut GpSolidFill = std::ptr::null_mut();
+    GdipCreateSolidFill(0xFFFF_FFFF, &mut brush);
+    if !font.is_null() && !fmt.is_null() && !brush.is_null() {
+        GdipSetStringFormatAlign(fmt, StringAlignmentCenter);
+        GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter);
+        GdipSetTextRenderingHint(g, TextRenderingHintAntiAliasGridFit);
+        let rect = RectF { X: 0.0, Y: 0.0, Width: f, Height: f };
+        GdipDrawString(g, PCWSTR(text.as_ptr()), text.len() as i32, font, &rect, fmt, brush as *mut GpBrush);
+    }
+    if !brush.is_null() {
+        GdipDeleteBrush(brush as *mut GpBrush);
+    }
+    if !fmt.is_null() {
+        GdipDeleteStringFormat(fmt);
+    }
+    if !font.is_null() {
+        GdipDeleteFont(font);
+    }
+    GdipDeleteFontFamily(family);
 }
 
 unsafe fn fill_circle(g: *mut GpGraphics, argb: u32, x: f32, y: f32, d: f32) {

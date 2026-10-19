@@ -27,6 +27,12 @@ fn state() -> &'static Mutex<State> {
 
 /// `<ExeDir>\lang\` — única, em dev e em produção.
 pub fn lang_folder() -> PathBuf {
+    // Teste: o exe de teste mora em target\, longe do lang\ de verdade.
+    #[cfg(test)]
+    {
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe").join("bin").join("64bit").join("lang");
+    }
+    #[allow(unreachable_code)]
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("lang")))

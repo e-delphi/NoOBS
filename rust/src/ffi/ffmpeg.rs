@@ -70,6 +70,29 @@ pub const OFFS_DURATION: usize = 104;
 pub const OFFS_BIT_RATE: usize = 112;
 /// `AVCodecContext.hw_device_ctx` (avcodec-61): achado MEDINDO (#51l).
 pub const OFFS_CODECCTX_HW_DEVICE_CTX: usize = 560;
+/// `AVCodecContext.hw_frames_ctx` (avcodec-61): o campo IMEDIATAMENTE antes do
+/// `hw_device_ctx` (avcodec.h do 7.1: `hw_frames_ctx`, `hw_device_ctx`,
+/// `hwaccel_flags`, `extra_hw_frames`). Conferido pela âncora: o
+/// `extra_hw_frames` (AVOption) cai em 572. Uma conta anterior pela vizinhança
+/// do `max_pixels` estava errada — ele fica em 792 (medido).
+pub const OFFS_CODECCTX_HW_FRAMES_CTX: usize = 552;
+pub const OFFS_CODECCTX_EXTRA_HW_FRAMES: usize = 572;
+/// `AVBufferRef.data` (estável: `AVBuffer *buffer; uint8_t *data; size_t size`).
+pub const OFFS_BUFREF_DATA: usize = 8;
+/// `AVHWDeviceContext` (avutil-59, sem o `internal` do 6.x): `type` em 8, `hwctx` em 16.
+pub const OFFS_HWDEV_TYPE: usize = 8;
+pub const OFFS_HWDEV_HWCTX: usize = 16;
+/// `AVHWFramesContext` (avutil-59): `device_ref` 8, `hwctx` 24, `initial_pool_size`
+/// 56, `format` 60, `sw_format` 64, `width` 68, `height` 72.
+pub const OFFS_HWFR_DEVICE_REF: usize = 8;
+pub const OFFS_HWFR_HWCTX: usize = 24;
+pub const OFFS_HWFR_POOL_SIZE: usize = 56;
+pub const OFFS_HWFR_FORMAT: usize = 60;
+pub const OFFS_HWFR_SW_FORMAT: usize = 64;
+pub const OFFS_HWFR_WIDTH: usize = 68;
+pub const OFFS_HWFR_HEIGHT: usize = 72;
+/// `AVD3D11VAFramesContext`: `texture` 0, `BindFlags` 8, `MiscFlags` 12.
+pub const OFFS_D3D11FR_BIND_FLAGS: usize = 8;
 /// `AVFrame` (avutil-59), medidos em #51j.
 pub const OFFS_FRAME_SAMPLE_RATE: usize = 192;
 pub const OFFS_FRAME_CH_LAYOUT: usize = 408;
@@ -298,6 +321,13 @@ dll_api! {
     fn av_hwframe_transfer_data(dst: *mut AVFrame, src: *const AVFrame, flags: c_int) -> c_int;
     fn av_buffer_ref(buf: *const c_void) -> *mut c_void;
     fn av_buffer_unref(buf: *mut *mut c_void);
+    // Codificação por hardware com quadros D3D11 (motor de captura próprio):
+    // device da NOSSA placa entregue ao FFmpeg + pool de quadros na GPU.
+    fn av_hwdevice_ctx_alloc(device_type: c_int) -> *mut c_void;
+    fn av_hwdevice_ctx_init(device_ref: *mut c_void) -> c_int;
+    fn av_hwframe_ctx_alloc(device_ref: *mut c_void) -> *mut c_void;
+    fn av_hwframe_ctx_init(frames_ref: *mut c_void) -> c_int;
+    fn av_hwframe_get_buffer(frames_ref: *mut c_void, frame: *mut AVFrame, flags: c_int) -> c_int;
 }
 
 dll_api! {
@@ -671,6 +701,11 @@ impl Drop for Input {
 /// `AVPacket` alocado; libera no `Drop`.
 pub struct Packet(*mut AVPacket);
 
+// SAFETY: o pacote é dono dos próprios dados (referência contada do libav) e só
+// é usado por uma thread por vez — o motor de captura passa pacotes da thread
+// do encoder pra do gravador por canal.
+unsafe impl Send for Packet {}
+
 impl Packet {
     pub fn alloc() -> Option<Self> {
         let a = api().ok()?;
@@ -808,10 +843,41 @@ impl Drop for Dict {
 /// Streams válidos.
 pub unsafe fn copy_stream_tag(src: &AVStream, dst: *mut AVStream, key: &str) {
     let Ok(a) = api() else { return };
+    if key == "title" {
+        // O título vai TAMBÉM no `handler_name`: o MP4 não guarda o `title` de
+        // faixa (medido: some no caminho de volta), só o nome do handler. O MKV
+        // guarda os dois como tags, sem efeito.
+        let t = stream_title(src);
+        if !t.is_empty() {
+            let v = to_utf8(&t);
+            (a.util.av_dict_set)(&mut (*dst).metadata, c"title".as_ptr(), v.as_ptr(), 0);
+            (a.util.av_dict_set)(&mut (*dst).metadata, c"handler_name".as_ptr(), v.as_ptr(), 0);
+        }
+        return;
+    }
     let k = to_utf8(key);
     let e = (a.util.av_dict_get)(src.metadata, k.as_ptr(), std::ptr::null(), 0);
     if !e.is_null() && !(*e).value.is_null() {
         (a.util.av_dict_set)(&mut (*dst).metadata, k.as_ptr(), (*e).value, 0);
+    }
+}
+
+/// Nome da faixa: o `title` (MKV) ou, sem ele, o `handler_name` (MP4) — menos os
+/// nomes genéricos que o próprio libav e os editores põem quando não há nome.
+///
+/// # Safety
+/// `st` de um contexto aberto.
+pub unsafe fn stream_title(st: &AVStream) -> String {
+    let t = metadata_string(st.metadata, "title");
+    if !t.trim().is_empty() {
+        return t;
+    }
+    let h = metadata_string(st.metadata, "handler_name");
+    const GENERIC: [&str; 6] = ["SoundHandler", "VideoHandler", "Core Media Audio", "Core Media Video", "ISO Media file produced by Google Inc.", "Mainconcept Video Media Handler"];
+    if GENERIC.iter().any(|g| h.trim().eq_ignore_ascii_case(g)) {
+        String::new()
+    } else {
+        h
     }
 }
 

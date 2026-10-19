@@ -1516,6 +1516,11 @@ a ordem do frontend do OBS. Só no modo full (`OBSUI.Run`): a hibernação
 não cria fontes libobs, e o `WinMicWatch` usa `IAudioSessionManager2`, não
 RTWQ.
 
+**No Rust isso mudou — ver #68:** a RTWQ NÃO sobe no arranque e o
+`win-wasapi` é impedido de usar o caminho RTWQ (que tem uma corrida de
+escrita em memória liberada ao destruir a fonte). A plataforma só sobe se o
+desvio falhar e outra coisa tiver carregado a DLL.
+
 **Confirmação:** log de fechamento são (`destruicao=responde`,
 `Freeing OBS context data`, `shutdown ok em 78ms`) + a 1ª gravação da
 sessão passou a conter o áudio do sistema. A ausência de
@@ -2434,6 +2439,20 @@ duplicar o corpo é como as duas versões saem de sincronia.
 
 Nota de método: o `FindWindow` do NSIS trata `""` como NULL, então
 `FindWindow $0 "TNoOBS" ""` é "esta classe, qualquer título".
+
+**Matar não é esperar morrer** (corrigido só no `rust/installer.nsi`; o
+da raiz, do Delphi, ainda tem o defeito). O `taskkill /F` só PEDE o fim: o
+`TerminateProcess` volta antes de o processo ser desmontado, e o exe e as
+DLLs ao lado dele ficam travados até a última thread sair — com driver de
+vídeo, WebView2 e antivírus no meio, isso leva SEGUNDOS em algumas
+máquinas. Com "taskkill + `Sleep 500`" a cópia morria no mesmo "Erro ao
+abrir arquivo para escrita" e só passava depois de alguns "Repetir".
+`KillNoOBS` mata, confere pelo nome do processo (`NoOBSIsRunning`) e repete
+até ~15 s — o taskkill vai de novo a cada volta porque o full pode se
+relançar como `/hibernate` no meio. Sobrando processo (NoOBS aberto como
+administrador: o instalador não é elevado e o taskkill leva "acesso
+negado"), aviso com Repetir/Cancelar. E o `SendMessage WM_CLOSE` leva
+`/TIMEOUT=2000`: sem ele, uma main thread travada penduraria o instalador.
 
 ### 59. **Mudo de app de chamada ≠ mudo do microfone — e só o do ENDPOINT é visível**
 
@@ -3964,6 +3983,74 @@ pausado e sem buraco: a libobs desconta o intervalo dos timestamps.
   pausa e retomada.
 - Parar pausada é parar normal: o `obs_output_stop` fecha a pausa sozinho.
 
+### 68. **Duas corridas da própria libobs ao DESTRUIR fontes de áudio (Rust)**
+
+Achadas pelos testes `msg-*` (`rust/tests/obs.rs`): gravar e parar de novo e
+de novo derrubava o processo ou corrompia o heap, raramente (~1 em 10
+processos), com sintomas espalhados — queda na thread de áudio, travamento no
+`obs_reset_video` da gravação seguinte, heap corrompido detectado longe dali.
+As duas causas são do OBS (o master tem o mesmo código), e as duas aparecem ao
+DESTRUIR uma fonte WASAPI, ou seja, a cada fim de gravação.
+
+**a) Deduplicação do monitoramento.** A `wasapi_output_capture` no dispositivo
+`default` casa com o monitoramento de áudio, que também nasce `default`
+(`devices_match`), e vira a "fonte de deduplicação" (`obs->audio.
+monitoring_duplicating_source`). Ao destruí-la, o `~WASAPISource` pede pra
+zerar o ponteiro por uma TAREFA da thread de áudio (`obs_queue_task(OBS_TASK_
+AUDIO)`) e a fonte é liberada logo depois; o `audio_callback` lê o ponteiro
+(`should_silence_monitored_source`) ANTES de rodar as tarefas → leitura de
+fonte liberada, queda quando a página já foi devolvida. Correção: o NoOBS não
+monitora áudio, então o engine aponta o monitoramento pra um id que não existe
+(`obs_set_audio_monitoring_device`, logo depois do `obs_reset_audio`) e a
+deduplicação nunca liga. Conferido com breakpoint de hardware no campo: de 8
+escritas por rodada para 1 (a do init).
+
+**b) Caminho RTWQ do `win-wasapi`: escrita em fonte já apagada.** O plugin
+escolhe o modelo de captura POR FONTE, no construtor, por
+`GetModuleHandle(L"RTWorkQ.dll")`. No caminho RTWQ o `Stop()` acorda quando o
+callback da fila sinaliza `idleSignal`, o destrutor apaga o `WASAPISource`, e o
+RTWQ AINDA está liberando o item de trabalho daquele callback: o último
+`Release` passa pelo callback embutido na fonte, cujo `Release()` é
+`return --refCount;` — escrita em memória liberada. Pilha capturada:
+`RTWorkQ!CAsyncResultPooled::Reset` ← `WorkItem::Free` ← `ThreadPoolWaitCallback`
+lendo `feeefeee` (heap de depuração). No heap normal, corrompe em silêncio o
+que reaproveitou o bloco. No caminho de thread própria o `Stop()` espera a
+thread terminar e a corrida não existe.
+
+Por isso o Rust **não sobe a RTWQ no arranque** (o contrário do que a #48 fez
+no Delphi) e, depois de carregar os plugins, **desvia o `GetModuleHandleW` na
+tabela de importação do `win-wasapi.dll`** (`rtwq::hide_from_wasapi_plugin`):
+pra `"RTWorkQ.dll"` ele responde "não carregada". Não basta não carregar a
+DLL: **a webcam a carrega** (DirectShow → Media Foundation; a `mfplat.dll`
+importa a `RTWorkQ.dll`) — medido, `msg-webcam`. Sem o desvio, toda fonte de
+áudio criada depois de ligar uma webcam usaria o caminho RTWQ.
+
+Trade-off aceito: um desvio de importação num plugin de terceiro. Se o
+desvio não puder ser instalado (o plugin mudou a forma de importar), fica a
+rede da #48: `rtwq::ensure_if_preloaded`, antes de criar cada fonte do plugin,
+sobe a plataforma se outra coisa já carregou a DLL — o plugin vai usar o RTWQ
+de qualquer jeito e, sem a plataforma, sairia mudo e travaria o shutdown. O
+log diz qual dos dois valeu (`RTWQ: win-wasapi passa a ver a RTWorkQ.dll como
+ausente` / `RTWQ: RTWorkQ.dll ja carregada por outro modulo`).
+
+Corolário que a mudança expôs: o `ITaskbarList3` (selo de "gravando") mora num
+`thread_local` da main, cujo destrutor só roda no `ExitProcess` — depois do
+`CoUninitialize`, com a `explorerframe.dll` já descarregada: a saída caía em
+100% das vezes depois de uma gravação. A RTWQ ligada segurava a COM viva e
+escondia isso. `ui::release_thread_com` solta o objeto antes do
+`CoUninitialize`. Regra: **objeto COM em `thread_local` sai antes do
+`CoUninitialize`.**
+
+Medidas (heap de depuração sob o `cdb`, `msg-janela,msg-area`): com RTWQ no
+arranque, quebras na 3ª e na 6ª rodada de duas séries (e 0 em outras 40 — a
+janela é de microssegundos, por isso a prova é a PILHA, não a contagem); sem
+RTWQ, 20 de 20; com as correções, 20 de 20 em `msg-janela,msg-area` e 28 de
+29 com a webcam carregando a DLL antes — a que falhou travou noutro lugar
+(mutex da libobs corrompido, risco anotado em `rust/docs/mapa-ui-rust-dlls.md`). A "1ª gravação muda"
+da #48 não pôde ser medida nesta máquina: a captura do som do sistema não
+recebe nada em nenhum dos modos, nem no antigo (o cenário `msg-som-sistema`
+fica `PULADO` com o motivo e falha só no sintoma exato: 1ª muda, 2ª com som).
+
 ## Caches
 
 | Cache                                   | Conteúdo                                  |
@@ -4005,6 +4092,7 @@ recuperáveis manualmente).
 | Chave                            | Valor                                              |
 |----------------------------------|----------------------------------------------------|
 | `version`                        | `1` (discriminator)                                |
+| `captureEngine`                  | `"obs"` (padrão; ausente vale o mesmo) = libobs; `"native"` = motor de captura PRÓPRIO da versão Rust (D3D11 + WGC + WASAPI + FFmpeg, sem libobs — `rust/docs/motor-proprio.md`). Lida ao criar o motor (vale no próximo início). Sem filtros de áudio no próprio |
 | `theme`                          | `"system"` (default — segue o SO via registry), `"dark"` ou `"light"` |
 | `recordDir`                      | path absoluto                                      |
 | `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |

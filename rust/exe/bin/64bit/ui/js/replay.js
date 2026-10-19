@@ -291,6 +291,11 @@ const Replay = {
           { warn: true, ttl: 7000 });
         return;
       }
+      if (typeof AreaCapture !== 'undefined' && hotkey === AreaCapture.currentHotkey) {
+        Toast.show(T('toast.invalidHotkey'), T('settings.area.hotkeyConflict'),
+          { warn: true, ttl: 7000 });
+        return;
+      }
       const validation = await validateHotkeyWithBackend(hotkey);
       if (!validation.ok) {
         Toast.show(T('toast.invalidHotkey'), validation.reason +

@@ -128,12 +128,17 @@
           <rect x="40" y="22" width="80" height="52" rx="2" class="hole"/>
           <circle cx="114" cy="12" r="6" class="btn"/>
         </svg>
+        <!-- Com area salva, a previa dos monitores com ela destacada toma o
+             lugar do desenho acima (area.js). -->
+        <div class="area-preview winpick-area-preview" id="windowPickerAreaPreview" hidden></div>
         <ul class="winpick-area-steps" data-i18n-list="windowPicker.areaSteps">
           <li>Os monitores escurecem: arraste para escolher a área e solte para começar a gravar. Esc cancela.</li>
           <li>Durante a gravação, segure Ctrl+Shift e clique no botão do canto da moldura para mover ou redimensionar a área.</li>
         </ul>
         <button type="button" class="export-btn primary winpick-area-btn" id="windowPickerAreaBtn"
                 onclick="WindowPicker.selectArea()" data-i18n="windowPicker.areaStart">Selecionar área</button>
+        <button type="button" class="export-btn winpick-area-btn" id="windowPickerSavedAreaBtn"
+                onclick="WindowPicker.recordSavedArea()" hidden></button>
       </div>
     </div>
   </div>
@@ -511,6 +516,9 @@
       <button type="button" class="settings-tab" data-tab="replay"
               onclick="Settings.showTab('replay')"
               data-i18n="settings.tabs.replay">Buffer</button>
+      <button type="button" class="settings-tab" data-tab="area"
+              onclick="Settings.showTab('area')"
+              data-i18n="settings.tabs.area">Área</button>
       <button type="button" class="settings-tab" data-tab="devices"
               onclick="Settings.showTab('devices')"
               data-i18n="settings.tabs.devices">Dispositivos</button>
@@ -1001,6 +1009,60 @@
         <div class="settings-hint" data-i18n="settings.replay.hotkeyHint">
           Só fica ativo com o buffer ligado — desligado, a combinação volta
           a ser dos outros programas.
+        </div>
+      </div>
+      <!-- Captura de area (area.js): area salva + atalho + atraso. -->
+      <div class="settings-field" data-panel="area">
+        <label data-i18n="settings.area.savedLabel">Área salva</label>
+        <div class="settings-hint" data-i18n="settings.area.savedHint">
+          Escolha uma vez a parte da tela que você grava sempre, e grave
+          ela direto pelo atalho abaixo, sem selecionar de novo.
+        </div>
+        <div class="area-saved-row">
+          <span class="area-saved-text" id="settingsAreaSaved"
+                data-i18n="settings.area.none">Nenhuma área salva</span>
+          <button type="button" class="settings-btn" id="settingsAreaDefine"
+                  onclick="AreaCapture.define()"
+                  data-i18n="settings.area.define">Definir área</button>
+          <button type="button" class="settings-btn" id="settingsAreaClear"
+                  onclick="AreaCapture.clear()"
+                  data-i18n="settings.area.clear">Remover</button>
+        </div>
+        <!-- Previa: os monitores (mesmas imagens da tela inicial) com a area
+             salva destacada onde ela fica (area.js). -->
+        <div class="area-preview" id="settingsAreaPreview" hidden></div>
+      </div>
+      <hr class="settings-divider" data-panel="area">
+      <div class="settings-field" data-panel="area">
+        <label data-i18n="settings.area.hotkey">Atalho para gravar a área salva</label>
+        <div class="hotkey-builder">
+          <div class="hotkey-mods">
+            <label class="hotkey-mod"><input type="checkbox" id="settingsAreaHotkeyCtrl"  onchange="AreaCapture.onHotkeyChange()"><span data-i18n="settings.hotkey.ctrl">Ctrl</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsAreaHotkeyShift" onchange="AreaCapture.onHotkeyChange()"><span data-i18n="settings.hotkey.shift">Shift</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsAreaHotkeyAlt"   onchange="AreaCapture.onHotkeyChange()"><span data-i18n="settings.hotkey.alt">Alt</span></label>
+            <label class="hotkey-mod"><input type="checkbox" id="settingsAreaHotkeyWin"   onchange="AreaCapture.onHotkeyChange()"><span data-i18n="settings.hotkey.win">Win</span></label>
+          </div>
+          <span class="hotkey-plus">+</span>
+          <select class="settings-input hotkey-key" id="settingsAreaHotkeyKey"
+                  onchange="AreaCapture.onHotkeyChange()"></select>
+        </div>
+        <div class="settings-hint" id="settingsAreaHotkeyPreview"></div>
+        <div class="settings-hint" data-i18n="settings.area.hotkeyHint">
+          Só funciona com uma área salva. Apertar de novo para a gravação.
+        </div>
+      </div>
+      <hr class="settings-divider" data-panel="area">
+      <div class="settings-field" data-panel="area">
+        <label data-i18n="settings.area.delay">Atraso antes de começar</label>
+        <div class="settings-input-row">
+          <select class="settings-input" id="settingsAreaDelay"
+                  onchange="AreaCapture.onDelayChange(this.value)"></select>
+        </div>
+        <div class="settings-hint" data-i18n="settings.area.delayHint">
+          Tempo para se preparar: a moldura da área aparece com a contagem e a
+          gravação começa quando ela chega a zero. Vale para o atalho e para
+          o "Capturar... → Área". Apertar o atalho ou o botão de gravar
+          durante a contagem cancela.
         </div>
       </div>
       <hr class="settings-divider" data-panel="files">
@@ -1995,6 +2057,7 @@
 <script src="js/export.js"></script>
 <script src="js/transcribe.js"></script>
 <script src="js/replay.js"></script>
+<script src="js/area.js"></script>
 <script src="js/windowpicker.js"></script>
 <script src="js/main.js"></script>
 

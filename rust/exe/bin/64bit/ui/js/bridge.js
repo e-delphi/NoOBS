@@ -40,6 +40,7 @@ const Bridge = {
       Displays.monitors = Devices.setAll('monitors', data.monitors);
       Displays.webcams  = Devices.setAll('webcams',  data.webcams);
       Displays.render();
+      try { AreaCapture.renderPreviews(); } catch (e) {}
       renderSources('mic', 'micList', 'micCount', Devices.setAll('mics', data.mics));
       renderSources('spk', 'spkList', 'spkCount', Devices.setAll('speakers', data.speakers));
       // freeBytes antes de renderRecordings — updateRecMeta usa.
@@ -78,6 +79,7 @@ const Bridge = {
       try { buildTrackLegend(); } catch (e) {}
       // Status do buffer em memoria (texto montado em JS com {{held}}).
       try { Replay.render(); } catch (e) {}
+      try { AreaCapture.relabel(); } catch (e) {}
       // Re-render do estado de gravacao pra atualizar label/status do
       // botao de gravar (T('record.start'/'stop'/'statusReady'/...)).
       // Re-aplica estado de gravacao pra atualizar label (T('record.start'/stop'))
@@ -300,6 +302,7 @@ const Bridge = {
     monitors_refreshed(data) {
       Displays.monitors = Devices.setAll('monitors', data.monitors);
       Displays.render();
+      try { AreaCapture.renderPreviews(); } catch (e) {}
       if (Devices.isOpen()) Devices.render();
       if (typeof AutoDevices !== 'undefined') AutoDevices.refreshIfVisible();
       const banner = document.getElementById('monitorRefreshBanner');
@@ -370,6 +373,9 @@ const Bridge = {
     keyframes(data) { Player.onKeyframes(data); },
     // Buffer em memoria (replay.js).
     replay_state(data) { Replay.applyState(data); },
+    // Captura de area: area salva/atalho/atraso e a contagem (area.js).
+    area_state(data) { AreaCapture.applyState(data); },
+    area_countdown(data) { AreaCapture.onCountdown(data && data.sec); },
     // Filtros de audio (aba Audio): lista inteira, um filtro so, e o teste A/B.
     audio_filters(data)     { AudioFilters.apply(data); },
     audio_filter(data)      { AudioFilters.applyOne(data); },

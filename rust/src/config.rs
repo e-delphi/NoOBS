@@ -67,6 +67,17 @@ fn write_to_disk(map: &Map<String, Value>) {
     }
 }
 
+/// Testes: volta ao config de instalação nova (só `version`). O arquivo já mora
+/// na pasta temporária do `testkit`.
+#[cfg(test)]
+pub fn test_reset() {
+    with_store(|m| {
+        m.clear();
+        m.insert("version".into(), json!(CURRENT_VERSION));
+        write_to_disk(m);
+    });
+}
+
 fn with_store<R>(f: impl FnOnce(&mut Map<String, Value>) -> R) -> R {
     let mut guard = store().lock().unwrap_or_else(|p| p.into_inner());
     f(&mut guard)

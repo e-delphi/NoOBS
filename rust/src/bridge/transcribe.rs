@@ -446,13 +446,7 @@ pub fn handle_transcribe_setup_action(action: &str) {
 }
 
 fn shell_open(target: &str) {
-    use windows::core::{w, PCWSTR};
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    let t = crate::win::wide(target);
-    unsafe {
-        ShellExecuteW(None, w!("open"), PCWSTR(t.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
-    }
+    crate::ui::shell_open(target);
 }
 
 /// `GET /health` em worker: o servidor pode estar carregando os modelos e travar a UI pelo

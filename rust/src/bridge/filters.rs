@@ -29,6 +29,11 @@ pub fn install() {
 
 pub(super) fn ensure_obs_for_audio_filters() -> bool {
     engine::ensure_created();
+    // Os filtros são do plugin `obs-filters`: o motor próprio não os tem (saíram
+    // de propósito — docs/motor-proprio.md). A aba mostra "indisponível".
+    if !engine::with_engine(|e| e.uses_libobs()).unwrap_or(true) {
+        return false;
+    }
     if let Err(e) = with_engine_result(|e| e.ensure_initialized()) {
         log!("AudioFilters: libobs nao subiu: {e}");
         return false;

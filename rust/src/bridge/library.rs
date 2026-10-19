@@ -953,7 +953,15 @@ pub fn delete_to_recycle_bin(path: &str) -> bool {
     use windows::Win32::UI::Shell::{SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE, SHFILEOPSTRUCTW};
     const MAX_RETRIES: u32 = 6;
     const RETRY_DELAY_MS: u64 = 250;
+    // Teste: apaga de verdade (na pasta temporária), sem encher a Lixeira.
+    #[cfg(test)]
+    {
+        crate::testkit::record_effect(format!("recycle:{path}"));
+        let p = Path::new(path);
+        return if p.is_dir() { std::fs::remove_dir_all(p).is_ok() } else { std::fs::remove_file(p).is_ok() };
+    }
     // pFrom exige path duplo-NUL-terminado.
+    #[allow(unreachable_code)]
     let mut buf: Vec<u16> = path.encode_utf16().collect();
     buf.extend([0, 0]);
     let mut rc = 0;

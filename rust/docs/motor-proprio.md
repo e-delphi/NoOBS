@@ -330,3 +330,35 @@ antigo, no caminho dela); com o motor próprio o mesmo par de cenários passa.
 cargo test --release --features app-tests --test mensagens
 cargo test --release --features app-tests --test mensagens -- msg-buffer,msg-area
 ```
+
+### O travamento do `obs_reset_video` não volta — e o análogo que existia
+
+Com a libobs, ~1 em 10 processos de `msg-janela,msg-area` travava no
+`obs_reset_video` da gravação seguinte (ou caía): duas corridas da própria
+libobs ao DESTRUIR fontes WASAPI corrompiam memória, e o mutex corrompido
+travava quem o pegava depois (pegadinha #68 do CLAUDE.md). Nada disso existe
+aqui: cada fonte de áudio é uma thread nossa que consulta o WASAPI com espera
+de no máximo 10 ms, parar é flag + `join`, não há callback alcançando memória
+liberada e cada sessão tem o próprio dispositivo D3D11. Medido com o mesmo
+estresse, heap verificado a cada 200 ms (`TESTE_HEAP=1`): 1 processo com 32
+gravações seguidas (webcam + 15× janela/área) e 8 processos com 16 cada — 0
+falhas, 0 corrupção.
+
+O ANÁLOGO que a leitura do código achou (travar ao parar), corrigido:
+
+- **Webcam**: o `ReadSample` do Media Foundation é bloqueante, e o `drop` da
+  fonte esperava a thread sem prazo. Câmera que parasse de entregar sem dar
+  erro prenderia a desmontagem da sessão inteira (a thread de vídeo é dona da
+  fonte) e a saída do app. Hoje espera 1,5 s e solta a thread (ela só mexe no
+  que é dela), com aviso no log.
+- **Fim da gravação**: o evento `Stopped` só saía DEPOIS de desmontar a
+  sessão; com a desmontagem presa, o botão de gravar ficaria em "finalizando"
+  pra sempre. Agora sai assim que o arquivo fecha (`stop_recording`), e a
+  desmontagem vem depois.
+- **Som de um app**: se a ativação do loopback de processo passasse dos 5 s,
+  a função voltava com os parâmetros na pilha e o Windows ainda podia lê-los.
+  Agora vivem na heap e, nesse caso, ficam vazados de propósito.
+
+O que continua fora do nosso controle: um driver que trave dentro do flush do
+encoder (AMF/NVENC) ao fechar o arquivo — aí o `stop_recording` não volta e o
+log mostra a finalização em curso.

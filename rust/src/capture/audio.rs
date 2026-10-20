@@ -263,12 +263,14 @@ impl IActivateAudioInterfaceCompletionHandler_Impl for ActivationDone_Impl {
 
 /// `IAudioClient` do loopback de um processo (e da árvore de filhos dele).
 fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
-    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
+    // Na heap: a ativação é assíncrona. Se ela estourar o prazo, o Windows
+    // ainda pode ler isto depois de a função voltar — aí fica vazado.
+    let params = Box::new(AUDIOCLIENT_ACTIVATION_PARAMS {
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
         Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
             ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS { TargetProcessId: pid, ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE },
         },
-    };
+    });
     let pv = PROPVARIANT {
         Anonymous: PROPVARIANT_0 {
             Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
@@ -277,7 +279,7 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
                 wReserved2: 0,
                 wReserved3: 0,
                 Anonymous: PROPVARIANT_0_0_0 {
-                    blob: BLOB { cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32, pBlobData: &params as *const _ as *mut u8 },
+                    blob: BLOB { cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32, pBlobData: &*params as *const _ as *mut u8 },
                 },
             }),
         },
@@ -286,9 +288,12 @@ fn activate_process_loopback(pid: u32) -> Result<IAudioClient, String> {
     let handler: IActivateAudioInterfaceCompletionHandler = ActivationDone { tx: Mutex::new(Some(tx)) }.into();
     let op = unsafe { ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&pv), &handler) }
         .map_err(|e| format!("ActivateAudioInterfaceAsync (Windows anterior ao 10 2004?): {e}"))?;
-    // O PROPVARIANT aponta pra `params` (na pilha): não pode ser liberado pelo Drop.
+    // O PROPVARIANT aponta pra `params` (nosso): não pode ser liberado pelo Drop.
     std::mem::forget(pv);
-    rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "a ativação do loopback de processo não respondeu".to_string())?;
+    if rx.recv_timeout(Duration::from_secs(5)).is_err() {
+        std::mem::forget(params);
+        return Err("a ativação do loopback de processo não respondeu".into());
+    }
     let mut hr = windows::core::HRESULT(0);
     let mut unk = None;
     unsafe { op.GetActivateResult(&mut hr, &mut unk) }.map_err(|e| format!("GetActivateResult: {e}"))?;

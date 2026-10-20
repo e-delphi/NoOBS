@@ -435,15 +435,18 @@ impl CaptureEngine for NativeEngine {
             if let Err(e) = s.stop_recording() {
                 log!("Motor proprio: parar a gravacao: {e}");
             }
-            drop(s);
+            // O arquivo já está completo: avisa ANTES de desmontar a sessão. A
+            // desmontagem espera as threads das fontes (a webcam pode demorar,
+            // ver `WebcamSource::drop`) e não pode segurar o botão de gravar.
             events.lock().unwrap_or_else(|p| p.into_inner()).push(Event::Stopped(path));
             wake_main();
+            drop(s);
         });
     }
     fn force_complete_stop(&mut self) {
         // O stop roda numa thread; o evento chega pela fila. Sem nada a forçar.
         if self.stopping.is_some() {
-            log!("Motor proprio: finalizacao ainda em curso ({} ms).", self.stopping_elapsed_ms());
+            log!("Motor proprio: finalizacao ainda em curso ({} ms) — o arquivo ainda nao fechou.", self.stopping_elapsed_ms());
         }
     }
     fn stop_recording(&mut self) -> String {

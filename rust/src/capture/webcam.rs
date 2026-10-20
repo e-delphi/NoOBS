@@ -228,12 +228,28 @@ impl VideoSource for WebcamSource {
     }
 }
 
+/// Quanto o `drop` espera a thread da câmera sair (vários quadros de folga).
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
+
 impl Drop for WebcamSource {
     fn drop(&mut self) {
         self.shared.stop.store(true, Ordering::SeqCst);
-        // O ReadSample é bloqueante: volta no próximo quadro da câmera (~33 ms).
+        // O ReadSample é BLOQUEANTE: volta no próximo quadro da câmera (~33 ms).
+        // Câmera que parou de entregar sem dar erro (driver travado, outro app
+        // segurando) o deixaria preso pra sempre — e com ele a desmontagem da
+        // sessão inteira (a thread de vídeo é dona desta fonte) e a saída do
+        // app. Espera um prazo e, passado, SOLTA a thread: ela só mexe no que é
+        // dela (leitor do MF) e no `Shared` (Arc), então sair depois é seguro.
         if let Some(t) = self.thread.take() {
-            let _ = t.join();
+            let t0 = std::time::Instant::now();
+            while !t.is_finished() && t0.elapsed() < STOP_WAIT {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            if t.is_finished() {
+                let _ = t.join();
+            } else {
+                log!("Captura: webcam \"{}\" nao respondeu em {} ms ao parar — thread solta.", self.name, STOP_WAIT.as_millis());
+            }
         }
     }
 }

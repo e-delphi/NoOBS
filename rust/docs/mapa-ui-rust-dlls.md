@@ -1,5 +1,11 @@
 # Mapa: página → Rust → DLLs
 
+> **Histórico.** Este levantamento é de quando a obs.dll ainda era o motor
+> de gravação. A libobs saiu na fase 7 do `motor-proprio.md`: as partes
+> sobre `ffi/obs.rs`, `audio_filters`, RTWQ e a suíte `tests/obs.rs` (hoje
+> `tests/mensagens.rs`) descrevem código que não existe mais. As tabelas do
+> FFmpeg e das mensagens continuam úteis como ponto de partida.
+
 Levantamento feito a partir do código (outubro de 2026), como base para a
 cobertura de testes. As tabelas A, B e C foram **geradas por script** a partir
 de `src/bridge.rs` e das declarações `dll_api!` em `src/ffi/`; se o código

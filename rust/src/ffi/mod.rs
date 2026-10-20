@@ -4,7 +4,6 @@
 //! arquivo") mesmo sem elas ao lado.
 
 pub mod ffmpeg;
-pub mod obs;
 
 /// Declara uma tabela de funções de uma DLL e o `load` que resolve todas.
 /// Falta de QUALQUER símbolo faz o carregamento inteiro falhar — melhor
@@ -41,7 +40,7 @@ macro_rules! dll_api {
     };
 }
 
-/// `*const c_char` → `String` (UTF-8, como o libobs e o FFmpeg; pegadinha #29).
+/// `*const c_char` → `String` (UTF-8, como o FFmpeg; pegadinha #29).
 ///
 /// # Safety
 /// `p` nulo ou apontando para string C terminada em zero.

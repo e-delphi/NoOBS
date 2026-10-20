@@ -11,7 +11,7 @@ use windows::Win32::Graphics::Gdi::{
     HMONITOR, MONITORINFOEXW,
 };
 
-use crate::scene::ObsMonitor;
+use crate::scene::CaptureMonitor;
 
 #[derive(Debug, Clone, Default)]
 pub struct MonitorInfo {
@@ -81,10 +81,10 @@ pub fn max_monitor_refresh_rate() -> i32 {
 }
 
 /// `MonitorsFromWinPreview` (OBSScene): o mesmo inventário no formato do canvas.
-pub fn monitors_from_win_preview() -> Vec<ObsMonitor> {
+pub fn monitors_from_win_preview() -> Vec<CaptureMonitor> {
     enumerate_monitors()
         .into_iter()
-        .map(|m| ObsMonitor {
+        .map(|m| CaptureMonitor {
             index: m.index,
             name: m.friendly_name,
             width: m.width,

@@ -6,9 +6,9 @@
 //! `PrintWindow(PW_RENDERFULLCONTENT)` — funciona com a janela coberta, porque
 //! o DWM entrega a superfície dela.
 //!
-//! A identidade que vai pro libobs (`window_capture`) é `titulo:classe:exe`
-//! com `#` e `:` escapados EXATAMENTE como o OBS monta
-//! (`window-helpers.c`, `encode_dstr`): o plugin reencontra a janela por ela.
+//! A identidade da janela é `titulo:classe:exe`, com `#` e `:` escapados como
+//! o OBS montava (`window-helpers.c`, `encode_dstr`): é por ela que o motor
+//! reencontra a janela na hora de gravar.
 
 use std::ffi::c_void;
 

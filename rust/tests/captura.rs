@@ -1,11 +1,11 @@
 //! Motor de captura próprio (docs/motor-proprio.md), testado FORA do app.
 //!
-//!   cargo test --release --features obs-tests --test captura
-//!   cargo test --release --features obs-tests --test captura -- monitor
+//!   cargo test --release --features app-tests --test captura
+//!   cargo test --release --features app-tests --test captura -- monitor
 //!
 //! Grava a tela de verdade por alguns segundos e confere cada arquivo pelo
 //! `probe`. Não usa a libobs: só D3D11, WGC e as DLLs do FFmpeg de
-//! `exe\bin\64bit` (achadas por `SetDllDirectoryW`, sem copiar o executável).
+//! `exe\` (achadas por `SetDllDirectoryW`, sem copiar o executável).
 //!
 //! Cada cenário imprime `OK`/`FALHA`/`PULADO <nome> <detalhe>`.
 
@@ -424,8 +424,8 @@ fn s_audio_faixas(codec: &str) -> Result<String, String> {
         encoder: VideoEncoderConfig { codec: codec.into(), width: 640, height: 360, fps: 30, crf: 23, keyframe_sec: 2 },
         audio: Some(AudioConfig {
             inputs: vec![
-                AudioInputSpec { name: "Microfone".into(), device: AudioDevice::Input(String::new()), tracks: 0b011 },
-                AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: 0b101 },
+                AudioInputSpec { name: "Microfone".into(), device: AudioDevice::Input(String::new()), tracks: vec![0, 1] },
+                AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: vec![0, 2] },
             ],
             track_titles: vec!["Mistura".into(), "Microfone".into(), "Sistema".into()],
             kbps: 192,
@@ -706,8 +706,196 @@ fn s_area_move(exe: &str, codec: &str) -> Result<String, String> {
     r
 }
 
+/// Janela de uma cor num retângulo FÍSICO da área de trabalho (helper `--cor
+/// --pos`); morre junto com o valor.
+struct Painel(std::process::Child);
+
+impl Drop for Painel {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn painel(exe: &str, cor: &str, tag: &str, r: noobs::capture::layout::DesktopRect) -> Result<Painel, String> {
+    let args = ["--cor".to_owned(), cor.to_owned(), "--pos".into(), r.x.to_string(), r.y.to_string(), r.w.to_string(), r.h.to_string(), "--tag".into(), tag.to_owned()];
+    let p = Painel(std::process::Command::new(exe).args(args).spawn().map_err(|e| format!("helper: {e}"))?);
+    let title = format!("NoOBS captura cor {cor} {tag}");
+    let h = find_window(&title).ok_or_else(|| format!("\"{title}\" não apareceu"))?;
+    let c = client_rect(h).ok_or("rect do painel")?;
+    check(c.x == r.x && c.y == r.y, format!("painel {tag} em {},{} (pedido {},{})", c.x, c.y, r.x, r.y))?;
+    Ok(p)
+}
+
+/// Luma média (bloco 9×9) em cada ponto do 1º quadro com pts ≥ `t`.
+fn luma_at(path: &str, t: f64, pts: &[(u32, u32)]) -> Result<Vec<u8>, String> {
+    use noobs::ffi::ffmpeg::*;
+    let a = api()?;
+    let inp = Input::open(path).map_err(|e| format!("abrir {path}: {e}"))?;
+    if !inp.find_stream_info() {
+        return Err("find_stream_info".into());
+    }
+    let vi = (0..inp.nb_streams())
+        .find(|&i| inp.stream(i).and_then(|s| unsafe { s.codecpar.as_ref() }).is_some_and(|c| c.codec_type == AVMEDIA_TYPE_VIDEO))
+        .ok_or("sem vídeo")?;
+    let st = inp.stream(vi).ok_or("stream")?;
+    let tb = st.time_base;
+    let dec = CodecCtx::open_decoder_for(unsafe { &*st.codecpar }, true).ok_or("decoder")?;
+    let mut pkt = Packet::alloc().ok_or("pkt")?;
+    let mut fr = Frame::alloc().ok_or("frame")?;
+    loop {
+        let rc = unsafe { (a.format.av_read_frame)(inp.ptr(), pkt.ptr()) };
+        let eof = rc < 0;
+        if !eof && pkt.stream_index as u32 != vi {
+            pkt.unref();
+            continue;
+        }
+        unsafe { (a.codec.avcodec_send_packet)(dec.ptr(), if eof { std::ptr::null() } else { pkt.ptr() }) };
+        pkt.unref();
+        while unsafe { (a.codec.avcodec_receive_frame)(dec.ptr(), fr.ptr()) } >= 0 {
+            let ts = fr.pts as f64 * tb.num as f64 / tb.den as f64;
+            if ts < t {
+                fr.unref();
+                continue;
+            }
+            let (w, h, ls) = (fr.width as i64, fr.height as i64, fr.linesize[0] as usize);
+            let out = pts
+                .iter()
+                .map(|&(px, py)| {
+                    let (mut sum, mut n) = (0u64, 0u64);
+                    for y in (py as i64 - 4).max(0)..(py as i64 + 5).min(h) {
+                        for x in (px as i64 - 4).max(0)..(px as i64 + 5).min(w) {
+                            sum += unsafe { *fr.data[0].add(y as usize * ls + x as usize) } as u64;
+                            n += 1;
+                        }
+                    }
+                    (sum / n.max(1)) as u8
+                })
+                .collect();
+            fr.unref();
+            return Ok(out);
+        }
+        if eof {
+            return Err(format!("nenhum quadro depois de {t:.1}s"));
+        }
+    }
+}
+
+/// Monitores da esquerda pra direita — a ordem em que o app os põe lado a lado.
+fn monitors_by_x() -> Vec<(isize, i32, i32, u32, u32)> {
+    let mut m = monitors();
+    m.sort_by_key(|m| m.1);
+    m
+}
+
+/// Cada monitor no SEU lugar do quadro: uma janela branca no centro do da
+/// esquerda e uma preta no centro do da direita; no arquivo, o centro da
+/// metade esquerda tem que sair claro e o da direita escuro (trocar a ordem
+/// ou repetir um monitor nos dois lados dá outra coisa).
+fn s_monitores_conteudo(exe: &str, codec: &str) -> Result<String, String> {
+    use noobs::capture::layout::DesktopRect;
+    let mons = monitors_by_x();
+    if mons.len() < 2 {
+        return Err("PULADO: um monitor só".into());
+    }
+    let centro = |m: &(isize, i32, i32, u32, u32)| DesktopRect { x: m.1 + m.3 as i32 / 2 - 200, y: m.2 + m.4 as i32 / 2 - 150, w: 400, h: 300 };
+    let cores: Vec<&str> = (0..mons.len()).map(|i| if i % 2 == 0 { "branca" } else { "preta" }).collect();
+    let mut paineis = Vec::new();
+    for (i, m) in mons.iter().enumerate() {
+        paineis.push(painel(exe, cores[i], &format!("m{i}"), centro(m))?);
+    }
+    std::thread::sleep(Duration::from_millis(400));
+    let total_w: u32 = mons.iter().map(|m| m.3).sum();
+    let max_h = mons.iter().map(|m| m.4).max().unwrap_or(0);
+    let scale = (4096.0 / total_w as f32).min(1.0);
+    let (cw, ch) = (even((total_w as f32 * scale) as u32), even((max_h as f32 * scale) as u32));
+    let mut x = 0.0f32;
+    let mut sources = Vec::new();
+    let mut pontos = Vec::new();
+    for (i, m) in mons.iter().enumerate() {
+        let (dw, dh) = (m.3 as f32 * scale, m.4 as f32 * scale);
+        sources.push(SourceSpec { name: format!("Monitor {}", i + 1), target: VideoTarget::Monitor(m.0), crop: None, dest: Some(Rect { x, y: 0.0, w: dw, h: dh }) });
+        pontos.push(((x + dw / 2.0) as u32, (dh / 2.0) as u32));
+        x += dw;
+    }
+    let cfg = SessionConfig {
+        width: cw,
+        height: ch,
+        fps: 30,
+        sources,
+        encoder: VideoEncoderConfig { codec: codec.into(), width: cw, height: ch, fps: 30, crf: 23, keyframe_sec: 1 },
+        audio: None,
+        replay: None,
+        output_path: String::new(),
+    };
+    let (_, frames, lagged, _) = record("monitores-conteudo", 1.5, cfg)?;
+    drop(paineis);
+    let path = out_dir().join("monitores-conteudo.mkv").to_string_lossy().into_owned();
+    let lumas = luma_at(&path, 1.0, &pontos)?;
+    for (i, l) in lumas.iter().enumerate() {
+        let claro = cores[i] == "branca";
+        check(if claro { *l > 200 } else { *l < 40 }, format!("monitor {} ({}) saiu com luma {l} no centro da sua faixa — lumas {lumas:?}", i + 1, cores[i]))?;
+    }
+    Ok(format!("{} monitores → {cw}x{ch}, centros {lumas:?} (branco/preto alternados, na ordem da esquerda pra direita), {frames} quadros ({lagged} atrasados)", mons.len()))
+}
+
+/// Área que ATRAVESSA a divisa entre dois monitores lado a lado: branca à
+/// esquerda da divisa, preta à direita. O quadro sai com a metade esquerda
+/// clara e a direita escura — os dois pedaços, cada um do seu monitor.
+fn s_area_entre_monitores(exe: &str, codec: &str) -> Result<String, String> {
+    use noobs::capture::layout::{area_layout, DesktopRect};
+    let mons = monitors_by_x();
+    let Some((m0, m1)) = mons.windows(2).map(|w| (w[0], w[1])).find(|(a, b)| a.1 + a.3 as i32 == b.1) else {
+        return Err("PULADO: sem dois monitores encostados lado a lado".into());
+    };
+    let div = m1.1;
+    let y0 = m0.2.max(m1.2) + 200;
+    let _b = painel(exe, "branca", "divisa-esq", DesktopRect { x: div - 300, y: y0, w: 300, h: 300 })?;
+    let _p = painel(exe, "preta", "divisa-dir", DesktopRect { x: div, y: y0, w: 300, h: 300 })?;
+    std::thread::sleep(Duration::from_millis(400));
+    let area = DesktopRect { x: div - 200, y: y0 + 50, w: 400, h: 200 };
+    let canvas = (400u32, 200u32);
+    let desk: Vec<DesktopRect> = mons.iter().map(|m| DesktopRect { x: m.1, y: m.2, w: m.3 as i32, h: m.4 as i32 }).collect();
+    let place = area_layout(area, canvas, &desk);
+    let usados = place.iter().filter(|p| p.is_some()).count();
+    check(usados == 2, format!("a área devia cair em 2 monitores, caiu em {usados}"))?;
+    let hide = Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 };
+    let sources = mons
+        .iter()
+        .zip(place)
+        .enumerate()
+        .map(|(i, (m, p))| {
+            let (crop, dest) = match p {
+                Some((c, d)) => (Some(c), Some(d)),
+                None => (None, Some(hide)),
+            };
+            SourceSpec { name: format!("Area Monitor {}", i + 1), target: VideoTarget::Monitor(m.0), crop, dest }
+        })
+        .collect();
+    let cfg = SessionConfig {
+        width: canvas.0,
+        height: canvas.1,
+        fps: 30,
+        sources,
+        encoder: VideoEncoderConfig { codec: codec.into(), width: canvas.0, height: canvas.1, fps: 30, crf: 23, keyframe_sec: 1 },
+        audio: None,
+        replay: None,
+        output_path: String::new(),
+    };
+    record("area-entre-monitores", 1.5, cfg)?;
+    let path = out_dir().join("area-entre-monitores.mkv").to_string_lossy().into_owned();
+    // Longe da costura (x = 200): 2 pontos de cada lado.
+    let l = luma_at(&path, 1.0, &[(60, 100), (160, 100), (240, 100), (340, 100)])?;
+    check(l[0] > 200 && l[1] > 200, format!("metade esquerda (monitor {}) não saiu branca: {l:?}", m0.1))?;
+    check(l[2] < 40 && l[3] < 40, format!("metade direita (monitor {}) não saiu preta: {l:?}", m1.1))?;
+    Ok(format!("divisa em x={div}: área 400x200 → esquerda {:?} / direita {:?}", &l[..2], &l[2..]))
+}
+
 /// `--cor preta|branca`: janela de uma cor só (preta à esquerda, branca à direita).
-fn run_color_window(cor: &str) -> i32 {
+/// Com `--pos X Y W H` (pixels FÍSICOS da área de trabalho virtual) a janela
+/// é um retângulo sem borda exatamente ali, e `--tag T` entra no título — é
+/// assim que os testes de vários monitores põem uma cor em cada tela.
+fn run_color_window(cor: &str, pos: Option<(i32, i32, i32, i32)>, tag: &str) -> i32 {
     use windows::core::{w, HSTRING};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{BeginPaint, CreateSolidBrush, DeleteObject, EndPaint, FillRect, HGDIOBJ, PAINTSTRUCT};
@@ -746,19 +934,28 @@ fn run_color_window(cor: &str) -> i32 {
     let branca = cor == "branca";
     WHITE.store(branca, std::sync::atomic::Ordering::SeqCst);
     unsafe {
+        if pos.is_some() {
+            // Coordenadas físicas: sem isto o Windows as reescalaria por monitor.
+            let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
         let hinst = GetModuleHandleW(None).map(|h| windows::Win32::Foundation::HINSTANCE(h.0)).unwrap_or_default();
         let wc = WNDCLASSW { lpfnWndProc: Some(proc_), hInstance: hinst, lpszClassName: w!("NoOBSCapturaCor"), ..Default::default() };
         RegisterClassW(&wc);
         let x = if branca { 760 } else { 60 };
+        let (style, (x, y, ww, hh)) = match pos {
+            Some(p) => (WS_POPUP | WS_VISIBLE, p),
+            None => (WS_OVERLAPPEDWINDOW | WS_VISIBLE, (x, 80, 600, 450)),
+        };
+        let title = if tag.is_empty() { format!("NoOBS captura cor {cor}") } else { format!("NoOBS captura cor {cor} {tag}") };
         let Ok(hwnd) = CreateWindowExW(
             WS_EX_TOPMOST,
             w!("NoOBSCapturaCor"),
-            &HSTRING::from(format!("NoOBS captura cor {cor}")),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            &HSTRING::from(title),
+            style,
             x,
-            80,
-            600,
-            450,
+            y,
+            ww,
+            hh,
             None,
             None,
             Some(hinst),
@@ -789,7 +986,7 @@ fn cfg_fase4(codec: &str, replay: Option<(u32, u32)>, output_path: String) -> Re
         sources: vec![SourceSpec { name: "Monitor 1".into(), target: VideoTarget::Monitor(h), crop: None, dest: None }],
         encoder: VideoEncoderConfig { codec: codec.into(), width: 640, height: 360, fps: 30, crf: 23, keyframe_sec: 1 },
         audio: Some(AudioConfig {
-            inputs: vec![AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: 0b1 }],
+            inputs: vec![AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: vec![0] }],
             track_titles: vec!["Mistura".into()],
             kbps: 128,
         }),
@@ -1171,7 +1368,7 @@ fn s_audio_sincronia(exe: &str, codec: &str) -> Result<String, String> {
             sources: vec![SourceSpec { name: w.title.clone(), target: VideoTarget::Window { hwnd: w.handle, client_area: true }, crop: None, dest: None }],
             encoder: VideoEncoderConfig { codec: codec.into(), width: 640, height: 480, fps: 60, crf: 23, keyframe_sec: 1 },
             audio: Some(AudioConfig {
-                inputs: vec![AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: 0b1 }],
+                inputs: vec![AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: vec![0] }],
                 track_titles: vec!["Mistura".into()],
                 kbps: 192,
             }),
@@ -1381,7 +1578,12 @@ fn main() {
         std::process::exit(run_helper_window());
     }
     if let Some(i) = args.iter().position(|a| a == "--cor") {
-        std::process::exit(run_color_window(args.get(i + 1).map(String::as_str).unwrap_or("preta")));
+        let pos = args.iter().position(|a| a == "--pos").and_then(|p| {
+            let n: Vec<i32> = args.iter().skip(p + 1).take(4).filter_map(|v| v.parse().ok()).collect();
+            (n.len() == 4).then(|| (n[0], n[1], n[2], n[3]))
+        });
+        let tag = args.iter().position(|a| a == "--tag").and_then(|p| args.get(p + 1)).cloned().unwrap_or_default();
+        std::process::exit(run_color_window(args.get(i + 1).map(String::as_str).unwrap_or("preta"), pos, &tag));
     }
     if args.iter().any(|a| a == "--ruido") {
         std::process::exit(run_noise_window());
@@ -1392,8 +1594,8 @@ fn main() {
     let filtro = args.iter().find(|a| !a.starts_with('-')).cloned().unwrap_or_default();
     let quer = |n: &str| filtro.is_empty() || filtro.split(',').any(|f| n.contains(f.trim()));
 
-    // DLLs do FFmpeg ao lado da obs.dll; sem copiar este executável.
-    let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe").join("bin").join("64bit");
+    // DLLs do FFmpeg do runtime de desenvolvimento; sem copiar este executável.
+    let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe");
     let w: Vec<u16> = runtime.to_string_lossy().encode_utf16().chain([0]).collect();
     unsafe {
         let _ = windows::Win32::System::LibraryLoader::SetDllDirectoryW(windows::core::PCWSTR(w.as_ptr()));
@@ -1462,6 +1664,12 @@ fn main() {
     }
     if quer("webcam") {
         rep.take("webcam", s_webcam(&codec));
+    }
+    if quer("monitores-conteudo") {
+        rep.take("monitores-conteudo", s_monitores_conteudo(&exe, &codec));
+    }
+    if quer("area-entre-monitores") {
+        rep.take("area-entre-monitores", s_area_entre_monitores(&exe, &codec));
     }
     if quer("area-move") {
         rep.take("area-move", s_area_move(&exe, &codec));

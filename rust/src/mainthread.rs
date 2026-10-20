@@ -6,7 +6,7 @@
 //! `WM_APP_WAKE` na janela; o `WndProc` chama `drain`. Sem isso, toda tarefa
 //! enfileirada ficaria parada até a próxima mensagem qualquer do Windows.
 //!
-//! Regra do projeto: libobs e UI só na main thread; libav pode (e deve) rodar
+//! Regra do projeto: motor e UI só na main thread; libav pode (e deve) rodar
 //! em worker e usar `queue` para devolver o resultado.
 
 use std::collections::VecDeque;

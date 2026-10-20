@@ -6,22 +6,21 @@
 //!
 //! O `if MsgType = '...' then ... else if ...` de ~150 ramos do Delphi vira um
 //! `match` sobre o campo `type`. O protocolo (nomes de mensagem e campos) NÃO
-//! muda: a UI em `exe\bin\64bit\ui\` é a mesma.
+//! muda: a UI (`rust\ui\`, embutida no exe) é a mesma.
 //!
 //! ## Estado do porte
 //! Todos os tipos do `Dispatch` do Delphi têm handler, espalhados pelos
 //! submódulos (gravação, dispositivos, biblioteca, pastas, exportação,
-//! transcrição, buffer, filtros, janela, teste de vídeo, shell, settings). Um
+//! transcrição, buffer, janela, área, teste de vídeo, shell, settings). Um
 //! tipo desconhecido cai em [`not_ported`], que só registra no log.
 
 use serde_json::{json, Value};
 
-use crate::{config, engine, file_meta, lang, log, mainthread, player, record_watch, ui};
+use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui};
 
 mod area;
 mod devices;
 pub mod export;
-mod filters;
 mod folders;
 mod library;
 mod recording;
@@ -64,7 +63,6 @@ pub fn is_shutting_down() -> bool {
 /// `initialization` do Delphi). Chamado uma vez, antes de `ui::run`.
 pub fn install_hooks() {
     recording::install();
-    filters::install();
     shell::install();
     ui::set_hooks(ui::Hooks {
         on_timer: Some(on_timer),
@@ -87,7 +85,7 @@ fn on_timer(id: usize) {
 }
 
 fn on_timer_inner(id: usize) {
-    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || filters::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) || area::on_timer(id) {
+    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) || area::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -96,7 +94,7 @@ fn on_timer_inner(id: usize) {
 /// Encerra o que está vivo; idempotente (o `ShutdownDone` do Delphi).
 pub fn shutdown() {
     // Chamado de DOIS lugares no Delphi (o Run e a finalization); aqui basta o
-    // hook, mas a guarda fica: repetir o teardown do libobs seria AV.
+    // hook, mas a guarda fica: parar o motor duas vezes não é seguro.
     if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -112,7 +110,6 @@ pub fn shutdown() {
     video_test::shutdown();
     replay::shutdown();
     area::shutdown();
-    filters::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
     record_watch::stop();
@@ -146,24 +143,24 @@ pub fn post_json(value: Value) {
         crate::testkit::record_sent(value);
         return;
     }
-    // Executável de teste da libobs (feature `obs-tests`, fora do app): guarda
+    // Executável de teste das mensagens (feature `app-tests`, fora do app): guarda
     // uma cópia pro teste conferir; o resto do caminho segue igual.
-    #[cfg(all(feature = "obs-tests", not(test)))]
-    obs_test_sent().lock().unwrap_or_else(|p| p.into_inner()).push(value.clone());
+    #[cfg(all(feature = "app-tests", not(test)))]
+    test_sent().lock().unwrap_or_else(|p| p.into_inner()).push(value.clone());
     #[allow(unreachable_code)]
     mainthread::queue(move || ui::post_json_now(&value.to_string()));
 }
 
-#[cfg(feature = "obs-tests")]
-fn obs_test_sent() -> &'static std::sync::Mutex<Vec<Value>> {
+#[cfg(feature = "app-tests")]
+fn test_sent() -> &'static std::sync::Mutex<Vec<Value>> {
     static SENT: std::sync::Mutex<Vec<Value>> = std::sync::Mutex::new(Vec::new());
     &SENT
 }
 
-/// Só com `obs-tests`: tira (e esvazia) o que o Bridge mandou à página.
-#[cfg(feature = "obs-tests")]
+/// Só com `app-tests`: tira (e esvazia) o que o Bridge mandou à página.
+#[cfg(feature = "app-tests")]
 pub fn take_sent_for_tests() -> Vec<Value> {
-    std::mem::take(&mut *obs_test_sent().lock().unwrap_or_else(|p| p.into_inner()))
+    std::mem::take(&mut *test_sent().lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Mostra erro na UI (`type: "error"`), já traduzido.
@@ -247,10 +244,6 @@ fn dispatch_inner(raw: &str) {
         "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
-        "get_audio_filters" => filters::handle_get_audio_filters(),
-        "set_audio_filter" => filters::handle_set_audio_filter(&msg),
-        "reset_audio_filters" => filters::handle_reset_audio_filters(),
-        "test_audio_filters" => filters::handle_test_audio_filters(str_field(&msg, "device")),
         "set_transcribe_host" => transcribe::handle_set_transcribe_host(str_field(&msg, "host")),
         "test_transcribe_host" => transcribe::handle_test_transcribe_host(str_field(&msg, "host")),
         "set_transcribe_language" => transcribe::handle_set_transcribe_language(str_field(&msg, "language")),
@@ -360,7 +353,7 @@ fn not_ported(ty: &str) {
 // ---------------------------------------------------------------------------
 
 /// `DoInit`: tema + `init` + dispositivos (áudio em worker, prévias, medidores,
-/// hot-plug) + warmup do libobs. O servidor do player, a biblioteca e os
+/// hot-plug) + warmup do motor. O servidor do player, a biblioteca e os
 /// watchers de pasta/mic/apps entram com os módulos que os têm.
 fn do_init() {
     // Segundo `ready` (página recarregada — o WebView2 recria o processo da
@@ -411,9 +404,9 @@ fn do_init() {
     recording::push_recording_state();
     // Refresh automático quando o usuário mexe na pasta pelo Explorer.
     library::start_record_watch();
-    // Warmup do libobs com delay: a UI renderiza primeiro e a 1ª gravação fica
-    // instantânea. NUNCA inicializar o libobs direto aqui (pode travar o
-    // startup). Falha do warmup → a gravação inicializa sob demanda.
+    // Warmup do motor com delay: a UI renderiza primeiro e a 1ª gravação fica
+    // instantânea. NUNCA inicializar o motor direto aqui (detectar encoders
+    // bloqueia a main). Falha do warmup → a gravação inicializa sob demanda.
     recording::schedule_warmup();
     // Atalho global (falha de registro não é fatal — pegadinha #33).
     shell::apply_hotkey_from_config();
@@ -426,7 +419,7 @@ fn do_init() {
     settings::start_mic_watch_if_enabled();
     replay::do_init();
     settings::start_update_timer();
-    log::log("DoInit: pronto (sem OBS — sobe no warmup ou na hora da gravacao).");
+    log::log("DoInit: pronto (o motor sobe no warmup ou na hora da gravacao).");
     // Com "minimizar pra bandeja ao fechar" ligado, o ícone fica na bandeja
     // mesmo com a janela aberta (avisa que o [X] vai pra bandeja) — como o
     // DoInit do Delphi. Sem ele, o ícone só nascia quando a 1ª gravação
@@ -526,11 +519,6 @@ fn handle_set_language(code: &str) {
         "languagePref": pref,
         "i18n": lang::current_bundle(),
     }));
-    // Rótulos dos filtros de áudio vêm do plugin do OBS: troca o idioma dele também (só se o
-    // libobs já subiu; senão o init já pega o novo).
-    if engine::with_engine(|e| e.uses_libobs() && e.is_initialized()).unwrap_or(false) {
-        crate::audio_filters::set_obs_locale_from_app(&lang::current_language());
-    }
 }
 
 // ---------------------------------------------------------------------------

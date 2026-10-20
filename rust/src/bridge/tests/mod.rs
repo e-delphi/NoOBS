@@ -8,7 +8,7 @@
 //!
 //! Fora daqui: `ready` (sobe servidor do player, vigias e timers — é o
 //! arranque inteiro, coberto pela frente 4) e as mensagens que chegam na
-//! obs.dll ou no FFmpeg (frentes 2–4).
+//! motor ou no FFmpeg (frentes 2–4).
 
 mod area;
 mod biblioteca;

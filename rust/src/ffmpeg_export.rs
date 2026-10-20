@@ -126,7 +126,7 @@ const OUT_KEYINT_SEC: i32 = 2;
 const CRF_ANCHOR: [i32; 16] = [0, 4, 8, 12, 15, 17, 19, 21, 23, 26, 28, 31, 34, 38, 44, 51];
 /// SVT-AV1 (crf 1..63). Piso 1: o `crf 0` do wrapper significa "não setado".
 const Q_EXP_SVTAV1: [i32; 16] = [1, 5, 17, 29, 37, 42, 46, 51, 55, 60, 61, 63, 63, 63, 63, 63];
-/// AMF AV1 (qp 0..255 pelo libavcodec — aqui NÃO há o /4 do plugin libobs).
+/// AMF AV1 (qp 0..255 pelo libavcodec).
 const Q_EXP_AV1AMF: [i32; 16] = [0, 0, 12, 30, 46, 57, 73, 93, 109, 131, 145, 165, 186, 212, 244, 255];
 /// AMF H.264 e HEVC (qp 0..51). O HEVC pede qp maior para o mesmo PSNR.
 const Q_EXP_H264AMF: [i32; 16] = [0, 6, 11, 16, 19, 21, 23, 25, 27, 30, 32, 35, 38, 42, 48, 51];
@@ -174,10 +174,8 @@ pub(crate) fn hw_encoder_name(family: &str, vendor: GpuVendor) -> String {
     }
 }
 
-/// Encoders que EXISTEM de fato no avcodec empacotado e servem para esta GPU.
-/// Cuidado: `detect_encoder_caps` enumera os encoders do LIBOBS
-/// (`av1_texture_amf`, `obs_nvenc_*`), que NÃO são os nomes do libavcodec — por
-/// isso a tradução vive aqui (pegadinha #51).
+/// Encoders que EXISTEM de fato no avcodec empacotado e servem para esta GPU,
+/// a partir das caps detectadas pelo motor (pegadinha #51).
 ///
 /// REGRA DIFERENTE DA GRAVAÇÃO, de propósito: lá o software é último recurso
 /// (concorre com o que o usuário faz); aqui a exportação roda em worker, o

@@ -177,16 +177,8 @@
     width: 3px;
     background: var(--track-color, transparent);
   }
-  /* Paleta sem verde/vermelho — essas cores tem semantica reservada
-     (verde = bolinha de default, vermelho = botao de gravar/stop) e
-     misturadas nas tracks confundiriam o user. Magenta foi descartado
-     por ficar muito proximo do roxo. Amarelo foi descartado por ficar
-     muito proximo do laranja. */
-  .source-item[data-track="2"] { --track-color: #3b82f6; } /* azul */
-  .source-item[data-track="3"] { --track-color: #06b6d4; } /* ciano */
-  .source-item[data-track="4"] { --track-color: #f59e0b; } /* laranja */
-  .source-item[data-track="5"] { --track-color: #a855f7; } /* roxo */
-  .source-item[data-track="6"] { --track-color: #f472b6; } /* rosa */
+  /* A cor de cada faixa vem do JS (`trackColor` em displays.js): sem
+     teto de faixas, a paleta roda em ciclo. */
 
   /* Audio devices desabilitados (mic/speaker sem .selected): barra
      cinza no mesmo lugar pra manter o alinhamento visual com os
@@ -258,11 +250,6 @@
     background: var(--track-color, var(--border));
   }
   .track-legend-item[data-track="mix"] { --track-color: var(--text-2); }
-  .track-legend-item[data-track="2"]   { --track-color: #3b82f6; }
-  .track-legend-item[data-track="3"]   { --track-color: #06b6d4; }
-  .track-legend-item[data-track="4"]   { --track-color: #f59e0b; }
-  .track-legend-item[data-track="5"]   { --track-color: #a855f7; }
-  .track-legend-item[data-track="6"]   { --track-color: #f472b6; }
   /* Item "Sem faixa" (disabled) — mesma cor do indicador no card de
      device desabilitado. Tema dark: cinza mais claro (#52525b); tema
      light: --border. Opacity 0.7 igual a do indicador no card. */

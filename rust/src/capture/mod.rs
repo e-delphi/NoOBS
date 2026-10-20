@@ -1,4 +1,4 @@
-//! Motor de captura próprio, substituto da libobs (docs/motor-proprio.md).
+//! Motor de captura (docs/motor-proprio.md): substituiu a libobs.
 //!
 //! Camadas, cada uma atrás de um trait pequeno:
 //! - `clock`: relógio QPC e a grade de quadros;

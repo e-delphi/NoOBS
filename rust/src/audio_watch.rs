@@ -2,7 +2,7 @@
 //! `IMMNotificationClient` da MMDevice API (porte de `OBSAudioWatch.pas`).
 //! A notificação é nativa: chega em ~ms, sem polling.
 //!
-//! O callback roda na thread do WASAPI — nada de UI/libobs ali; o Bridge
+//! O callback roda na thread do WASAPI — nada de UI ali; o Bridge
 //! marshala para a main. Propriedade alterada é ignorada de propósito: dispara
 //! para tudo (volume, formato…) e não serve para detectar plug/unplug.
 //!

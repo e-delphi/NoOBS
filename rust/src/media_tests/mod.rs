@@ -1,6 +1,6 @@
 //! Frente 2 do `docs/mapa-ui-rust-dlls.md`: as funções de mídia (FFmpeg)
 //! contra amostras pequenas versionadas (`tests/fixtures/media/`, ver
-//! [`amostras`]). Precisam das DLLs do FFmpeg em `exe\bin\64bit\`; sem elas,
+//! [`amostras`]). Precisam das DLLs do FFmpeg em `exe\`; sem elas,
 //! cada teste avisa e sai sem falhar (máquina sem o runtime do OBS).
 //!
 //! As saídas vão pra `%TEMP%\noobs-test-<pid>\media\`.
@@ -21,7 +21,7 @@ use std::sync::Once;
 pub fn dlls() -> bool {
     static DIR: Once = Once::new();
     DIR.call_once(|| {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe").join("bin").join("64bit");
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe");
         let w = crate::win::wide(&dir.to_string_lossy());
         unsafe {
             let _ = windows::Win32::System::LibraryLoader::SetDllDirectoryW(windows::core::PCWSTR(w.as_ptr()));
@@ -34,7 +34,7 @@ pub fn dlls() -> bool {
 macro_rules! need_dlls {
     () => {
         if !super::dlls() {
-            eprintln!(r"FFmpeg indisponivel (exe\bin\64bit) — teste pulado.");
+            eprintln!(r"FFmpeg indisponivel (exe\) — teste pulado.");
             return;
         }
     };

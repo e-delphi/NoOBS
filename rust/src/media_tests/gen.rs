@@ -8,8 +8,7 @@
 //!    quadrado que anda 1 px por quadro, então cada quadro é diferente e dá pra
 //!    saber qual é) e um seno por faixa de áudio (0 Hz = silêncio);
 //! 2. [`mux`] escreve uma JANELA desses pacotes num arquivo, com o relógio
-//!    zerado no primeiro pacote, como cada saída da libobs faz. É o que permite
-//!    o par buffer + continuação (mesmos pacotes nos dois, #62).
+//!    zerado no primeiro pacote (`rebase`) ou não.
 //!
 //! Regerar: `cargo test --release gerar_amostras -- --ignored`.
 
@@ -275,7 +274,7 @@ pub fn encode(spec: &Spec) -> Result<Encoded, String> {
 }
 
 /// Escreve os pacotes `keep` (em ordem) num arquivo. `rebase`: zera o relógio de
-/// CADA faixa no primeiro pacote dela, como as saídas da libobs. `trailer:
+/// CADA faixa no primeiro pacote dela. `trailer:
 /// false` fecha sem o `av_write_trailer` — gravação interrompida (queda de
 /// energia): sem a duração no cabeçalho, sem índice, e o último cluster perdido.
 pub fn mux(enc: &Encoded, path: &str, format: &str, keep: &[&Pkt], rebase: bool, trailer: bool) -> Result<(), String> {

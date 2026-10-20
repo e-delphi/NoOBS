@@ -1,4 +1,4 @@
-# Motor de captura próprio (substituto da libobs)
+# Motor de captura próprio (substituiu a libobs)
 
 Decisão (outubro de 2026): trocar a `obs.dll` e os plugins por um motor em
 Rust, usando a fonte do OBS 32.1.2 como referência. Motivo: o NoOBS usa uma
@@ -6,8 +6,9 @@ fatia pequena da libobs e herda os bugs e as convenções dela (thread única,
 RTWQ, deduplicação de monitoramento, destruição adiada…). **Os filtros de áudio
 (`obs-filters`) saem** e não voltam no motor novo.
 
-Os testes da frente 4 (`tests/obs.rs`) são a régua: o motor novo tem que
-passar pelos mesmos cenários pelo `dispatch`.
+Os testes da frente 4 (hoje `tests/mensagens.rs`) foram a régua: o motor
+novo passou pelos mesmos cenários pelo `dispatch`. **Desde a fase 7 a libobs
+não existe mais no app** (ver o fim deste documento).
 
 ## O que o motor faz (e só isso)
 
@@ -21,7 +22,7 @@ passar pelos mesmos cenários pelo `dispatch`.
 | Cor | canvas BGRA → NV12 BT.709 limitado no shader | `format_conversion.effect` |
 | Codificação de vídeo | **libavcodec** (`h264_amf`, `hevc_nvenc`, `av1_amf`… com quadros D3D11 sem sair da placa; `libx264`/`libsvtav1` com cópia pra memória) | `texture-amf.cpp`, `nvenc*.c` |
 | Áudio | WASAPI: microfone, som do sistema (loopback), som de um app (process loopback) | `win-wasapi.cpp` |
-| Mixagem | blocos de 1024 amostras a 48 kHz alinhados ao relógio; 1 faixa mista + até 5 isoladas | `audio-io.c`, `obs-audio.c` |
+| Mixagem | blocos de 1024 amostras a 48 kHz alinhados ao relógio; 1 faixa mista + uma isolada por dispositivo, SEM teto (a libobs parava em 6) | `audio-io.c`, `obs-audio.c` |
 | Codificação de áudio | AAC do libavcodec | `obs-ffmpeg-audio-encoders.c` |
 | Gravação | libavformat (Matroska) | `obs-ffmpeg-mux.c` |
 | Buffer em memória | anel de pacotes cortado por keyframe | `replay_buffer` (`obs-ffmpeg-mux.c`) |
@@ -51,7 +52,7 @@ src/capture/
   faz a cópia DENTRO da própria implementação.
 - **I**: traits pequenos (`VideoSource` não sabe de áudio; `PacketSink` não
   sabe de encoder).
-- **D**: o `bridge` depende da fachada `CaptureEngine`, não da libobs nem das
+- **D**: o `bridge` depende da fachada `CaptureEngine`, não do pipeline nem das
   implementações. Durante a migração os dois motores implementam a mesma
   fachada e a escolha é uma chave (`captureEngine`: `obs` | `native`).
 
@@ -98,11 +99,12 @@ enquanto a captura é desmontada em outra) não tem como acontecer.
 | 3. Som de app, webcam, área móvel | ✅ `AudioDevice::App(pid)`, `webcam` (Media Foundation), `layout::area_layout` + `Session::set_placement` |
 | 4. Buffer, pausa | ✅ `output` (fila, corte, pausa — puro), `router` (gravador com comandos); sincronia A/V não remedida (ver abaixo) |
 | 5. Codecs e calibração | ✅ `caps` (detecção sem libobs + aquecimento), escolha do codec do app, AV1 por software (SVT); NVENC sem placa pra testar |
-| 6. Troca no app | ✅ `engine::CaptureEngine` (os dois motores atrás dela) + chave `captureEngine`; suíte `msg-*` 12/12 com o motor próprio. Falta: virar o padrão e tirar a libobs |
+| 6. Troca no app | ✅ `engine::CaptureEngine` (os dois motores atrás dela) + chave `captureEngine`; suíte `msg-*` 12/12 com o motor próprio |
+| 7. Sem libobs | ✅ motor próprio é o único; runtime = exe + 9 DLLs do FFmpeg; UI e traduções dentro do exe; faixas de áudio sem teto |
 
 ```
-cargo test --release --features obs-tests --test captura            # tudo (~20 s)
-cargo test --release --features obs-tests --test captura -- monitor # filtro (vírgula = vários)
+cargo test --release --features app-tests --test captura            # tudo (~20 s)
+cargo test --release --features app-tests --test captura -- monitor # filtro (vírgula = vários)
 ```
 
 Medido nesta máquina (RX 9070 XT, 2 monitores 4K), fase 1:
@@ -283,19 +285,48 @@ Medido nesta máquina (RX 9070 XT, 2 monitores 4K), fase 1:
 - `describe_encoder_id` marcava `libsvtav1` como hardware: prefixo `lib` =
   software (convenção do libavcodec).
 
-Com `OBSTEST_MOTOR=native`, a suíte de mensagens (`tests/obs.rs`) passa 12/12;
-pulam os 2 cenários de filtros (saíram de propósito) e o `msg-som-sistema`
-(o volume do sistema desta máquina deixa o tom abaixo do limiar — a libobs
-pula igual). Com a libobs a mesma suíte TRAVOU uma vez em `obs_reset_video`
-depois de gravar janela (o travamento intermitente antigo, no caminho dela);
-com o motor próprio o mesmo par de cenários passa.
+Com `OBSTEST_MOTOR=native`, a suíte de mensagens (então `tests/obs.rs`)
+passou 12/12; pularam os 2 cenários de filtros (saíram de propósito) e o
+`msg-som-sistema` (o volume do sistema desta máquina deixa o tom abaixo do
+limiar — a libobs pulava igual). Com a libobs a mesma suíte TRAVOU uma vez
+em `obs_reset_video` depois de gravar janela (o travamento intermitente
+antigo, no caminho dela); com o motor próprio o mesmo par de cenários passa.
+
+### Fase 7 — a libobs saiu
+
+- **Código**: saíram `ffi/obs.rs`, `rtwq.rs`, `audio_filters.rs`,
+  `bridge/filters.rs`, o `engine::Engine` inteiro (o `engine.rs` ficou só com
+  a interface, os pedidos e o motor vivo da sessão) e a parte libobs do
+  `encoder.rs` (seleção, `plan_constant_quality`, tabelas `Q_*` dos IDs da
+  libobs). A interface perdeu o que só existia por causa dela:
+  `uses_libobs`, `as_obs`, `continuation_is_single_file`, o "commit" adiado
+  do corte do trecho e o trecho-prefixo — e com eles a emenda por conteúdo
+  (`ffmpeg_ops::splice_continuation`, as amostras `buffer.mkv` +
+  `continuacao.mkv`) e o `TIMER_REPLAY_SAVE_COMMIT`. A chave `captureEngine`
+  deixou de existir (ignorada se estiver no `config.json`).
+- **Faixas de áudio sem teto**: `compute_audio_track_assignments` dá uma
+  faixa a cada dispositivo marcado (padrões primeiro), sem agrupar; o mixer
+  troca a máscara `u32` por uma lista de faixas; a legenda da tela principal
+  pinta as faixas por uma paleta em ciclo (`trackColor` em `displays.js`).
+- **Runtime**: `NoOBS.exe` + `avcodec-61`, `avformat-61`, `avutil-59`,
+  `swscale-8` e as dependências delas (`swresample-5`, `libx264-164`,
+  `zlib`, `srt`, `librist`) — conferidas lendo as importações das DLLs. Sem
+  `obs.dll`, `libobs-d3d11`, `w32-pthreads`, plugins, `data\`, Qt
+  (`platforms\`, `styles\`…), `avfilter`/`avdevice`, `libcurl`,
+  `datachannel`. A UI (`rust\ui\`) e as traduções (`rust\lang\`) vão dentro
+  do exe (`build.rs` gera a lista; `assets.rs` serve): as traduções da
+  memória, a UI extraída uma vez em `%LOCALAPPDATA%\NoOBS\ui\<hash>\` — o
+  WebView2 só mapeia um origin `https://` real a partir de uma PASTA (#16).
+- **Instalador**: o app vai pra `$INSTDIR\bin\` (só o exe e as DLLs) e a
+  instalação apaga o `bin\64bit\`, o `data\` e o `obs-plugins\` antigos.
+- **Testes**: a feature virou `app-tests`; `tests/obs.rs` virou
+  `tests/mensagens.rs`, só com as mensagens pelo dispatch (os cenários que
+  chamavam a libobs direto saíram — o `tests/captura.rs` cobre o motor
+  direto), num processo só, achando as DLLs por `SetDllDirectoryW` (antes ele
+  se copiava pra perto da `obs.dll`). O `msg-gravar` confere que o arquivo
+  tem uma faixa por dispositivo marcado.
 
 ```
-OBSTEST_MOTOR=native cargo test --release --features obs-tests --test obs -- msg
+cargo test --release --features app-tests --test mensagens
+cargo test --release --features app-tests --test mensagens -- msg-buffer,msg-area
 ```
-
-**Falta pra libobs sair de vez**: o motor próprio virar o padrão (depois de
-uma rodada de uso real), tirar `obs.dll`/plugins do runtime e do instalador,
-e apagar `engine::Engine`, `encoder.rs` (parte libobs), `audio_filters.rs`,
-`audio_tracks::enumerate_obs_audio_devices` e o `rtwq`. A aba Áudio perde o
-editor de filtros.

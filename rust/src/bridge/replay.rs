@@ -2,14 +2,13 @@
 //! memória" do `OBSBridge.pas` (pegadinha #62).
 //!
 //! Guarda continuamente os últimos `replayMaxSec` segundos (ou `replayMaxMb`
-//! MB) na RAM pela saída `replay_buffer` da libobs. O atalho, o botão ou o
-//! indicador salvam o que está guardado como uma gravação da biblioteca e
-//! ESVAZIAM o buffer (rotação de saída no engine).
+//! MB) na RAM, na fila de pacotes do motor. O atalho, o botão ou o indicador
+//! salvam o que está guardado como uma gravação da biblioteca e ESVAZIAM o
+//! buffer (o corte cai num keyframe forçado: sem buraco nem repetição).
 //!
 //! Gravar com o buffer ligado CONTINUA o buffer (`replayIntoRecording`): a
-//! gravação se pendura nos mesmos encoders e, ao parar, os dois arquivos são
-//! emendados pelo conteúdo. Fora disso, gravar descarta o buffer, que volta
-//! sozinho ao fim (`ReplayWanted`).
+//! mesma sessão passa a gravar, começando pela fila — um arquivo só. Fora
+//! disso, gravar descarta o buffer, que volta sozinho ao fim (`ReplayWanted`).
 //!
 //! Main thread.
 
@@ -24,13 +23,12 @@ use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, 
 use windows::Win32::Foundation::FILETIME;
 
 use crate::types::RecordingMeta;
-use crate::{config, encoder, engine, ffmpeg_ops, file_meta, gpu_usage, hotkey, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
+use crate::{config, encoder, engine, file_meta, gpu_usage, hotkey, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
 
 use super::recording;
 use super::{library, post_error, post_json, shell, transcribe};
 
 pub const TIMER_REPLAY_SAVE_TIMEOUT: usize = 7012;
-pub const TIMER_REPLAY_SAVE_COMMIT: usize = 7013;
 pub const TIMER_REPLAY_MEM: usize = 7014;
 pub const TIMER_PERF_LOG: usize = 7018;
 /// O "saved" pode não vir (erro de escrita não emite nada): desiste depois.
@@ -44,8 +42,8 @@ const REPLAY_MAX_SEC: i32 = 3600;
 const DEFAULT_REPLAY_MAX_MB: i32 = 2048;
 const REPLAY_MIN_MB: i32 = 128;
 const REPLAY_MAX_MB: i32 = 32768;
-/// RAM que o buffer nunca toca: acima disso o Windows pagina, e no limite a
-/// libobs MORRE (`bmalloc` → `bcrash`, `libobs/util/bmem.c:112`).
+/// RAM que o buffer nunca toca: acima disso o Windows pagina — exatamente o
+/// engasgo que o buffer existe pra não causar.
 const REPLAY_RAM_RESERVE_MB: i64 = 4096;
 const DEFAULT_REPLAY_HOTKEY: &str = "Ctrl+Shift+F10";
 
@@ -66,13 +64,8 @@ struct State {
     started_by_app_watch: bool,
     /// Desligado à mão com o app aberto: o watcher não religa até ele fechar.
     app_suppressed: bool,
-    // Gravação que continuou o buffer: o começo dela é outro arquivo.
-    prefix_for: String,
-    prefix_path: String,
-    prefix_lead_ms: i32,
+    /// Segundos que a gravação em curso herdou do buffer (adianta o relógio).
     prefix_sec: i32,
-    /// Emendas em curso: o ócio de hibernação espera (mataria a worker).
-    splice_busy: i32,
     // Monitor de desempenho.
     perf_active: bool,
     perf_prev: Option<engine::VideoStats>,
@@ -94,10 +87,6 @@ pub fn replay_active() -> bool {
 
 pub fn replay_wanted() -> bool {
     with(|s| s.wanted)
-}
-
-pub fn splice_busy() -> bool {
-    with(|s| s.splice_busy > 0)
 }
 
 /// Segundos que a gravação em curso herdou do buffer.
@@ -136,7 +125,7 @@ pub fn max_mb_cfg() -> i32 {
     config::get_config_int("replayMaxMb", DEFAULT_REPLAY_MAX_MB).clamp(REPLAY_MIN_MB, mem_limit_mb())
 }
 
-/// Onde a libobs escreve cada trecho. FORA da pasta de gravação: o watcher
+/// Onde o motor escreve cada trecho. FORA da pasta de gravação: o watcher
 /// veria o arquivo nascer vazio (pegadinha #51e).
 fn temp_dir() -> String {
     let dir = crate::config::config_dir().join("buffer");
@@ -200,8 +189,7 @@ pub fn push_replay_state() {
     let (wanted, active, since) = with(|s| {
         (s.wanted, s.active, if s.active { s.start.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0) } else { 0 })
     });
-    // O trecho que vira começo da gravação não acende o "salvando".
-    let saving = engine::with_engine(|e| e.is_replay_saving() && !e.is_prefix_saving()).unwrap_or(false);
+    let saving = engine::with_engine(|e| e.is_replay_saving()).unwrap_or(false);
     post_json(json!({
         "type": "replay_state",
         "enabled": wanted,
@@ -313,7 +301,6 @@ fn finish_replay_saved(path: String, result: Result<i32, String>, meta: Recordin
 /// WORKER (outro disco = cópia de até `replayMaxMb`).
 fn on_engine_replay_saved(temp_path: &str) {
     ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
-    ui::kill_timer(TIMER_REPLAY_SAVE_COMMIT);
     push_replay_state();
     if temp_path.is_empty() || !Path::new(temp_path).is_file() {
         log!("Buffer: \"saved\" sem arquivo (\"{temp_path}\").");
@@ -353,26 +340,6 @@ fn on_engine_replay_saved(temp_path: &str) {
     });
 }
 
-/// Engine: o trecho que é o começo da gravação em curso saiu (ou não). A
-/// emenda só acontece quando a gravação termina.
-fn on_engine_prefix_saved(temp_path: &str, lead_ms: i32) {
-    ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
-    ui::kill_timer(TIMER_REPLAY_SAVE_COMMIT);
-    let ok = !temp_path.is_empty() && Path::new(temp_path).is_file();
-    with(|s| {
-        s.prefix_lead_ms = lead_ms;
-        s.prefix_path = if ok { temp_path.to_owned() } else { String::new() };
-    });
-    if ok {
-        log!("Buffer: comeco da gravacao pronto ({temp_path}; a gravacao comecou {lead_ms} ms antes do fim dele).");
-    } else {
-        log::log("Buffer: o trecho guardado nao saiu — a gravacao segue sem ele.");
-        post_error(lang::t("error.replayIntoRecordingFailed"));
-    }
-    log_mem_usage("buffer incorporado");
-    push_replay_state();
-}
-
 // ---------------------------------------------------------------------------
 // Ligar / desligar
 // ---------------------------------------------------------------------------
@@ -393,7 +360,6 @@ pub fn start_replay_buffer() {
         engine::ensure_created();
         recording::with_engine_result(|e| e.ensure_initialized())?;
         recording::push_encoder_caps_once();
-        engine::reset_audio_capture_fault();
         let inputs = recording::gather_capture_inputs();
         let (dir, sec, mb) = (temp_dir(), max_sec_cfg(), max_mb_cfg());
         recording::with_engine_result(|e| e.build_and_start_replay(&dir, sec, mb, &inputs))
@@ -426,7 +392,6 @@ pub fn start_replay_buffer() {
 
 pub fn stop_replay_buffer(arm_hibernate: bool) {
     ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
-    ui::kill_timer(TIMER_REPLAY_SAVE_COMMIT);
     unregister_hotkey();
     hide_indicator();
     let was = replay_active();
@@ -446,9 +411,10 @@ pub fn stop_replay_buffer(arm_hibernate: bool) {
     }
 }
 
-/// A gravação que começa agora herda o que o buffer guardou. Do lado do
-/// Bridge o buffer deixa de existir (atalho, indicador, RAM) — mas SEM
-/// derrubar a saída dele nem os timers do "salvar": é ela que grava o começo.
+/// A gravação que começa agora herda o que o buffer guardou, NUM ARQUIVO SÓ:
+/// a mesma sessão de captura passa a gravar, começando pela fila do buffer.
+/// Do lado do Bridge o buffer deixa de existir (atalho, indicador, RAM); ele
+/// religa quando a gravação parar.
 pub fn continue_into_recording(output_path: &str) -> bool {
     if !replay_active() || !engine::exists() {
         return false;
@@ -457,14 +423,7 @@ pub fn continue_into_recording(output_path: &str) -> bool {
     if !engine::with_engine(|e| e.start_recording_from_replay(output_path)).unwrap_or(false) {
         return false;
     }
-    // Motor próprio: a gravação JÁ começa pelo que o buffer guardou, num arquivo
-    // só — não há trecho-prefixo pra esperar nem emenda no fim. O `prefix_sec`
-    // continua: é ele que adianta o relógio da tela.
-    let single = engine::with_engine(|e| e.continuation_is_single_file()).unwrap_or(false);
     with(|s| {
-        s.prefix_for = if single { String::new() } else { output_path.to_owned() };
-        s.prefix_path.clear();
-        s.prefix_lead_ms = 0;
         s.prefix_sec = held;
         s.active = false;
     });
@@ -472,26 +431,14 @@ pub fn continue_into_recording(output_path: &str) -> bool {
     hide_indicator();
     log_mem_usage("buffer virando gravacao");
     ui::kill_timer(TIMER_REPLAY_MEM);
-    if !single {
-        ui::set_timer(TIMER_REPLAY_SAVE_TIMEOUT, REPLAY_SAVE_TIMEOUT_MS);
-    }
-    // O trecho fecha só depois do 1º keyframe da gravação: os dois arquivos se
-    // sobrepõem em vez de deixar buraco.
-    if let Some((true, delay)) = engine::with_engine(|e| (e.is_replay_save_commit_pending(), e.replay_save_commit_delay_ms())) {
-        ui::set_timer(TIMER_REPLAY_SAVE_COMMIT, delay as u32);
-    }
     push_replay_state();
     log!("Buffer: {held} s guardados viram o comeco da gravacao.");
     true
 }
 
-/// Zera os dados de "começo do buffer" de uma gravação que NÃO continuou.
-pub fn clear_prefix() {
-    with(|s| {
-        s.prefix_for.clear();
-        s.prefix_path.clear();
-        s.prefix_sec = 0;
-    });
+/// A gravação terminou (ou não continuou o buffer): nada mais a herdar.
+pub fn clear_continuation() {
+    with(|s| s.prefix_sec = 0);
 }
 
 pub fn handle_save_replay() {
@@ -514,10 +461,6 @@ pub fn handle_save_replay() {
         });
         show_indicator_from_config();
         ui::set_timer(TIMER_REPLAY_SAVE_TIMEOUT, REPLAY_SAVE_TIMEOUT_MS);
-        // Trecho aberto de propósito: fecha depois do keyframe da saída nova.
-        if let Some((true, delay)) = engine::with_engine(|e| (e.is_replay_save_commit_pending(), e.replay_save_commit_delay_ms())) {
-            ui::set_timer(TIMER_REPLAY_SAVE_COMMIT, delay as u32);
-        }
     }
     push_replay_state();
 }
@@ -548,143 +491,6 @@ pub fn restart_for_encoder_change(what: &str) {
     stop_replay_buffer(false);
     start_replay_buffer();
     post_json(json!({ "type": "replay_restarted" }));
-}
-
-// ---------------------------------------------------------------------------
-// Emenda (gravação que continuou o buffer)
-// ---------------------------------------------------------------------------
-
-/// A emenda troca o CONTEÚDO sem trocar o nome: miniatura, duração, MP4 e
-/// faixas em cache seriam do arquivo sem o começo (cache por hash do caminho).
-fn drop_recording_cache(path: &str) {
-    let dir = player::cache_root_dir();
-    let h = player::hash_name(path);
-    if let Ok(rd) = std::fs::read_dir(&dir) {
-        for e in rd.flatten() {
-            let n = e.file_name().to_string_lossy().into_owned();
-            if n.starts_with(&h) && !n.ends_with(".json") {
-                let _ = std::fs::remove_file(e.path());
-            }
-        }
-    }
-}
-
-fn finish_spliced_recording(rec: &str, kept: &str, ok: bool, dur: i32, prefix_sec: i32, meta: RecordingMeta) {
-    if ok {
-        drop_recording_cache(rec);
-    }
-    let mut m = meta;
-    m.duration_sec = dur;
-    player::save_recording_meta(rec, &m);
-    file_meta::mark_changed(rec);
-    library::push_recording_added(rec, dur);
-    transcribe::enqueue_after_capture(rec);
-    if ok {
-        return;
-    }
-    post_error(lang::t("error.replayIntoRecordingSplit"));
-    if kept.is_empty() {
-        return;
-    }
-    m.duration_sec = prefix_sec;
-    player::save_recording_meta(kept, &m);
-    file_meta::mark_changed(kept);
-    library::push_recording_added(kept, prefix_sec);
-    transcribe::enqueue_after_capture(kept);
-}
-
-/// Emenda em WORKER (cópia de pacotes do arquivo inteiro), num `.part` trocado
-/// pelo nome final no fim. Sem ponto de encontro NÃO emenda às cegas: o
-/// trecho vira uma gravação própria ao lado — nada se perde.
-fn finish_recording_with_prefix(rec: String, prefix: String, lead_ms: i32, est_sec: i32) {
-    // Lidos AGORA: logo depois o buffer religa e remonta a cena.
-    let Some(meta) = engine::with_engine(|e| meta_for(0, e.current_layout().clone(), e.video_encoder_id())) else { return };
-    let prefix_sec = prefix_sec();
-    let suffix = lang::t("replay.prefixFileSuffix");
-    log!("Buffer: emendando o comeco guardado em \"{rec}\".");
-    with(|s| s.splice_busy += 1);
-    std::thread::spawn(move || {
-        let t0 = Instant::now();
-        let part = format!("{rec}.part");
-        let _ = std::fs::remove_file(&part);
-        let mut info = match ffmpeg_ops::splice_continuation(&prefix, &rec, &part, lead_ms) {
-            Ok(i) => Ok(i),
-            Err(e) => Err(e),
-        };
-        let mut replaced = false;
-        if info.is_ok() {
-            // A gravação pode estar aberta um instante (miniatura): insiste.
-            for _ in 0..20 {
-                if std::fs::rename(&part, &rec).is_ok() {
-                    replaced = true;
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(250));
-            }
-            if !replaced {
-                info = Err("nao consegui substituir o arquivo da gravacao (em uso)".into());
-            }
-        }
-        let mut kept = String::new();
-        if replaced {
-            let _ = std::fs::remove_file(&prefix);
-        } else {
-            let _ = std::fs::remove_file(&part);
-            let base = Path::new(&rec).with_extension("").to_string_lossy().into_owned() + &format!(" ({suffix})");
-            let mut cand = format!("{base}.mkv");
-            let mut n = 2;
-            while Path::new(&cand).exists() {
-                cand = format!("{base} {n}.mkv");
-                n += 1;
-            }
-            match std::fs::rename(&prefix, &cand) {
-                Ok(()) => kept = cand,
-                Err(e) => log!("Buffer: nao consegui guardar o trecho ao lado: {e}"),
-            }
-        }
-        let mut dur = if replaced { probe::probe(Path::new(&rec)).map(|r| r.duration.round() as i32).unwrap_or(0) } else { 0 };
-        if dur <= 0 {
-            dur = if replaced { est_sec } else { est_sec - prefix_sec };
-        }
-        let dur = dur.max(0);
-        log!(
-            "Buffer: emenda {} em {} ms ({}).",
-            if replaced { "ok" } else { "NAO feita — arquivos separados" },
-            t0.elapsed().as_millis(),
-            match &info {
-                Ok(i) | Err(i) => i,
-            }
-        );
-        if super::is_shutting_down() {
-            return;
-        }
-        mainthread::queue(move || {
-            with(|s| s.splice_busy -= 1);
-            finish_spliced_recording(&rec, &kept, replaced, dur, prefix_sec, meta);
-        });
-    });
-}
-
-/// Chamado pelo fim da gravação. `Some(dur)` = a gravação continuou o buffer
-/// e a emenda (ou o desconto do trecho que não veio) foi tratada aqui.
-/// `true` = a emenda assumiu o resto (o card sai no fim dela).
-pub fn on_recording_stopped_with_prefix(output_path: &str, last_duration: &mut i32) -> bool {
-    let (is_prefix, prefix, lead, psec) = with(|s| {
-        let is = !s.prefix_for.is_empty() && s.prefix_for.eq_ignore_ascii_case(output_path);
-        (is, s.prefix_path.clone(), s.prefix_lead_ms, s.prefix_sec)
-    });
-    if !is_prefix {
-        return false;
-    }
-    with(|s| s.prefix_for.clear());
-    if !prefix.is_empty() {
-        with(|s| s.prefix_path.clear());
-        finish_recording_with_prefix(output_path.to_owned(), prefix, lead, *last_duration);
-        return true;
-    }
-    // Sem o trecho: o relógio contava o que viria do buffer.
-    *last_duration = (*last_duration - psec).max(0);
-    false
 }
 
 // ---------------------------------------------------------------------------
@@ -834,7 +640,6 @@ fn on_app_running_thread(running: bool) {
 /// mesmo com a lista vazia, para o callback ficar guardado — #54).
 pub fn install() {
     engine::set_on_replay_saved(on_engine_replay_saved);
-    engine::set_on_replay_prefix_saved(on_engine_prefix_saved);
 }
 
 pub fn do_init() {
@@ -876,25 +681,10 @@ pub fn on_timer(id: usize) -> bool {
             }
         }
         TIMER_PERF_LOG => perf_tick(),
-        TIMER_REPLAY_SAVE_COMMIT => {
-            // A saída nova já abriu no keyframe dela: fechar o trecho agora
-            // deixa o pedaço entre os dois nos DOIS arquivos.
-            ui::kill_timer(TIMER_REPLAY_SAVE_COMMIT);
-            engine::with_engine(|e| e.commit_replay_save());
-        }
         TIMER_REPLAY_SAVE_TIMEOUT => {
             ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
-            // Trecho que era começo de gravação: o abort avisa pelo callback
-            // do prefixo, que dá o aviso certo (a gravação segue).
-            let prefix = engine::with_engine(|e| {
-                let p = e.is_prefix_saving();
-                e.abort_replay_save();
-                p
-            })
-            .unwrap_or(false);
-            if !prefix {
-                post_error(lang::t("error.replaySaveFailed"));
-            }
+            engine::with_engine(|e| e.abort_replay_save());
+            post_error(lang::t("error.replaySaveFailed"));
             push_replay_state();
         }
         _ => return false,
@@ -903,7 +693,7 @@ pub fn on_timer(id: usize) -> bool {
 }
 
 pub fn shutdown() {
-    for t in [TIMER_REPLAY_SAVE_TIMEOUT, TIMER_REPLAY_SAVE_COMMIT, TIMER_REPLAY_MEM, TIMER_PERF_LOG] {
+    for t in [TIMER_REPLAY_SAVE_TIMEOUT, TIMER_REPLAY_MEM, TIMER_PERF_LOG] {
         ui::kill_timer(t);
     }
     unregister_hotkey();

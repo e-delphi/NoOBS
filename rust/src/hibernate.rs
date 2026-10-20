@@ -1,7 +1,7 @@
 //! Modo "hibernação" (porte de `OBSHibernate.pas`): o MESMO exe com
 //! `/hibernate`, carregando só o mínimo — ícone na bandeja ("NoOBS
 //! (hibernando)"), o atalho global de gravar e, se ligados, os watchers de
-//! microfone e de apps. Sem libobs, WebView2, FFmpeg nem medidores: ~5 MB
+//! microfone e de apps. Sem motor de captura, WebView2, FFmpeg nem medidores: ~5 MB
 //! contra ~150 MB do modo completo, zero CPU/GPU parado.
 //!
 //! Clique na bandeja, atalho, microfone em uso ou jogo aberto PROMOVEM a

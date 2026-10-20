@@ -340,6 +340,16 @@ const Displays = {
 // pronto em audio_sources_refreshed e renderiza direto. Sem
 // re-implementacao duplicada aqui — single source of truth.
 
+// Cor da faixa isolada `t` (2, 3, ...). Sem teto de faixas, a paleta roda em
+// ciclo. Sem verde/vermelho — essas cores tem semantica reservada (verde =
+// bolinha de default, vermelho = gravar/parar); magenta e amarelo ficaram de
+// fora por ficarem perto do roxo e do laranja.
+const TRACK_PALETTE = ['#3b82f6', '#06b6d4', '#f59e0b', '#a855f7', '#f472b6',
+                       '#6366f1', '#14b8a6', '#c2410c', '#0ea5e9', '#8b5cf6'];
+function trackColor(t) {
+  return TRACK_PALETTE[(t - 2) % TRACK_PALETTE.length];
+}
+
 // Rebuild da legenda a partir do DOM. data-track ja vem aplicado
 // no render via item.track do JSON.
 function refreshTrackColors() {
@@ -351,8 +361,6 @@ function refreshTrackColors() {
 // so o que tiver presente. Track 1 (mix) nao aparece — devices nunca
 // tem data-track="1" (mix nao colore o bar).
 //
-// Quando varios devices compartilham a mesma track (grouping ativado
-// porque excedeu 5 sources), mostra contagem em vez de listar nomes.
 function buildTrackLegend() {
   const legend = document.getElementById('trackLegend');
   if (!legend) return;
@@ -420,7 +428,8 @@ function buildTrackLegend() {
     if (names.length === 1) label = names[0];
     else if (names.length === 2) label = names.join(', ');
     else label = T('tracks.devicesGrouped_other', { count: names.length });
-    return '<div class="track-legend-item" data-track="' + t + '" data-hint="' +
+    return '<div class="track-legend-item" data-track="' + t + '" style="--track-color:' +
+           trackColor(t) + '" data-hint="' +
            escapeHtml(names.join(', ')) + '">' +
            '<span class="track-legend-color"></span>' +
            '<span class="track-legend-name">' +
@@ -728,6 +737,7 @@ function renderSources(kindShort, listId, countId, items) {
     if ((kindShort === 'mic' || kindShort === 'spk') &&
         typeof item.track === 'number' && item.track > 0) {
       div.dataset.track = String(item.track);
+      if (item.track > 1) div.style.setProperty('--track-color', trackColor(item.track));
     }
     div.onclick = () => onToggleSource(div);
 

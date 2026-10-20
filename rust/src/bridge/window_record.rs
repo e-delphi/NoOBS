@@ -31,9 +31,9 @@ fn item_id(handle: isize) -> String {
     format!("win{}", handle as usize)
 }
 
-/// O som por app (`wasapi_process_output_capture`) só existe no Windows 10
-/// 2004+ (build 19041). Com o libobs de pé a resposta é dele; antes do warmup,
-/// a mesma regra de versão do plugin.
+/// O som por app (loopback de processo do WASAPI) só existe no Windows 10
+/// 2004+ (build 19041). Com o motor de pé a resposta é dele; antes do warmup,
+/// a mesma regra de versão.
 fn app_audio_supported() -> bool {
     if let Some(Some(v)) = engine::with_engine(|e| e.is_initialized().then(|| e.app_audio_available())) {
         return v;

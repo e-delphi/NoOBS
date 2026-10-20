@@ -70,7 +70,7 @@ SetCompressor /SOLID lzma
 ; instalador vai sobrescrever, entao nao ha como sair de sincronia.
 ;
 ; NAO substitui a busca por janela: pra fechar com educacao (deixando
-; libobs/FFmpeg finalizarem a gravacao em andamento) e preciso de um HWND
+; o motor/FFmpeg finalizarem a gravacao em andamento) e preciso de um HWND
 ; pro WM_CLOSE. Aqui so se decide SE ha o que fechar; o COMO continua
 ; sendo por janela, com taskkill /F como ultimo recurso.
 ;
@@ -200,7 +200,7 @@ Function .onInit
         close:
             ; Fase 1 — graceful: WM_CLOSE em loop pra cada janela "NoOBS"
             ; encontrada. Respeita o shutdown limpo (Engine.Teardown,
-            ; libobs, FFmpeg, watchers). Itera ate 5 vezes pra cobrir
+            ; motor, FFmpeg, watchers). Itera ate 5 vezes pra cobrir
             ; multiplas janelas (raro, mas defensivo).
             ;
             ; Cuidado: com closeToTray=ON, WM_CLOSE manda pra bandeja em
@@ -255,10 +255,9 @@ FunctionEnd
 ;--------------------------------
 Function .onInstSuccess
     ; Exec (fire-and-forget) em vez de ExecShell pra nao abrir cmd ou
-    ; passar pelo shell. Garante working dir certa pro app encontrar
-    ; obs.dll + plugins.
-    SetOutPath "$INSTDIR\bin\64bit"
-    Exec '"$INSTDIR\bin\64bit\NoOBS.exe"'
+    ; passar pelo shell.
+    SetOutPath "$INSTDIR\bin"
+    Exec '"$INSTDIR\bin\NoOBS.exe"'
 FunctionEnd
 
 ;--------------------------------
@@ -272,25 +271,36 @@ Section "NoOBS" SecMain
     ; user nao precisa clicar Concluir nem ver tela final.
     SetAutoClose true
 
-    SetOutPath "$INSTDIR\bin\64bit"
-    File /r "exe\bin\64bit\*.*"
+    ; Layout ANTIGO (com a libobs): exe em bin\64bit\, ao lado da obs.dll,
+    ; mais data\ e obs-plugins\. Nada disso e usado mais — sai antes de
+    ; copiar o novo. A UI extraida de uma versao anterior (ui\, cache) tambem:
+    ; o app a recria com o conteudo da versao nova.
+    RMDir /r "$INSTDIR\bin"
+    RMDir /r "$INSTDIR\data"
+    RMDir /r "$INSTDIR\obs-plugins"
+    RMDir /r "$INSTDIR\ui"
 
-    SetOutPath "$INSTDIR\data"
-    File /r "exe\data\*.*"
-
-    SetOutPath "$INSTDIR\obs-plugins"
-    File /r "exe\obs-plugins\*.*"
-
-    ; Pasta de traducoes ja foi instalada via `File /r "exe\bin\64bit\*.*"`
-    ; acima — a subpasta lang\*.json e parte de exe\bin\64bit\. Sem
-    ; bloco separado pra evitar duplicacao.
+    ; O app inteiro: o exe (UI e traducoes vao dentro dele) e as DLLs do
+    ; FFmpeg com as dependencias delas. Lista fechada de proposito: nada que
+    ; esteja sobrando na pasta de build entra no instalador.
+    SetOutPath "$INSTDIR\bin"
+    File "exe\NoOBS.exe"
+    File "exe\avcodec-61.dll"
+    File "exe\avformat-61.dll"
+    File "exe\avutil-59.dll"
+    File "exe\swscale-8.dll"
+    File "exe\swresample-5.dll"
+    File "exe\libx264-164.dll"
+    File "exe\zlib.dll"
+    File "exe\srt.dll"
+    File "exe\librist.dll"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 
     ; Atalhos do Menu Iniciar (sempre criados — SetOutPath define o "Start in" do .lnk)
-    SetOutPath "$INSTDIR\bin\64bit"
+    SetOutPath "$INSTDIR\bin"
     CreateDirectory "$SMPROGRAMS\NoOBS"
-    CreateShortcut "$SMPROGRAMS\NoOBS\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+    CreateShortcut "$SMPROGRAMS\NoOBS\NoOBS.lnk" "$INSTDIR\bin\NoOBS.exe"
     CreateShortcut "$SMPROGRAMS\NoOBS\Desinstalar.lnk" "$INSTDIR\uninstall.exe"
 
     ; Marca primeira execucao — OBSBridge le e abre o modal de Configuracoes
@@ -301,7 +311,7 @@ Section "NoOBS" SecMain
     WriteRegStr HKCU "Software\NoOBS" "InstallDir" "$INSTDIR"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayName" "NoOBS"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "UninstallString" '"$INSTDIR\uninstall.exe"'
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayIcon" "$INSTDIR\bin\64bit\NoOBS.exe"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "DisplayIcon" "$INSTDIR\bin\NoOBS.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "Publisher" "NoOBS"
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoModify" 1
     WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\NoOBS" "NoRepair" 1
@@ -320,7 +330,7 @@ Section /o "Iniciar com o Windows" SecAutostart
     ; Flag /autostart e MARCADOR de origem (= "fui lancado pelo logon").
     ; Comportamento (bandeja vs janela visivel) e decidido pelo app
     ; em runtime, lendo o config 'closeToTray'.
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\64bit\NoOBS.exe" /autostart'
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "NoOBS" '"$INSTDIR\bin\NoOBS.exe" /autostart'
     ; Limpa StartupApproved se ficou em estado "disabled" (user tinha
     ; desativado pelo Task Manager/Settings > Inicializar do Windows
     ; numa instalacao anterior). Sem isso, o Windows continua ignorando
@@ -352,8 +362,8 @@ Section "-AutostartSync"
 SectionEnd
 
 Section /o "Atalho na Area de Trabalho" SecDesktopShortcut
-    SetOutPath "$INSTDIR\bin\64bit"
-    CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\64bit\NoOBS.exe"
+    SetOutPath "$INSTDIR\bin"
+    CreateShortcut "$DESKTOP\NoOBS.lnk" "$INSTDIR\bin\NoOBS.exe"
 SectionEnd
 
 LangString DESC_SecMain             ${LANG_PORTUGUESEBR} "Arquivos do NoOBS (obrigatorio)."
@@ -436,11 +446,12 @@ Function un.onInit
 FunctionEnd
 
 Section "Uninstall"
-    ; $INSTDIR\bin\64bit\lang foi instalado em separado; RMDir /r de
-    ; $INSTDIR\bin ja cobre, mas mantemos clareza listando.
+    ; bin\ e o app; data\ e obs-plugins\ sao do layout antigo (libobs), se
+    ; uma instalacao velha nunca foi atualizada; ui\ e a interface extraida.
     RMDir /r "$INSTDIR\bin"
     RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\obs-plugins"
+    RMDir /r "$INSTDIR\ui"
     Delete "$INSTDIR\uninstall.exe"
     RMDir "$INSTDIR"
 

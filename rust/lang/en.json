@@ -7,7 +7,7 @@
   },
   "app": {
     "title": "NoOBS",
-    "tagline": "Lightweight screen recorder with OBS Studio embedded"
+    "tagline": "Lightweight screen recorder, no OBS"
   },
   "header": {
     "settings": "Settings",
@@ -65,8 +65,7 @@
     "restartedBody": "The buffer started over with the new recording settings. What it was holding was discarded.",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "That shortcut is already used to start/stop recording. Pick another combination.",
-    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})",
-    "prefixFileSuffix": "buffer"
+    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capture...",
@@ -564,39 +563,6 @@
       "busyRecord": "Wait for the quality test to finish recording its sample.",
       "failed": "The quality test could not run. See the log for details."
     },
-    "audioFilters": {
-      "label": "Microphone filters",
-      "hint": "Process the microphones before the sound goes into the recording and the buffer. System sound is not affected. They apply from the next recording.",
-      "loading": "Loading filters…",
-      "unavailable": "Filters unavailable: the obs-filters plugin was not found in the installation.",
-      "noneOn": "No filter enabled.",
-      "nOn": "{{count}} filter(s) enabled.",
-      "showSettings": "Settings",
-      "hideSettings": "Close settings",
-      "reset": "Restore defaults",
-      "test": "Test ({{sec}} s)",
-      "testing": "Recording… speak into the microphone ({{sec}} s)",
-      "compare": "Version with {{count}} filter(s). Change any filter and it is rebuilt instantly — switch between Original and With filters at the same point. The difference shows mostly in the average: the peaks are your voice.",
-      "testFailed": "Could not open the microphone for the test.",
-      "micDefault": "{{name}} (Windows default)",
-      "original": "Original",
-      "filtered": "With filters",
-      "silence": "silence",
-      "desc": {
-        "noise_suppress_filter_v2": "Removes hiss, fan noise and constant background noise. The most useful one for laptop mics and basic headsets.",
-        "noise_gate_filter": "Closes the microphone when the sound drops below a threshold: cuts the noise between sentences.",
-        "expander_filter": "Lowers quiet sounds (breathing, keyboard in the background) without cutting them off like the noise gate.",
-        "upward_compressor_filter": "Raises the quiet parts of speech, evening out the volume.",
-        "basic_eq_filter": "Adjusts the bass, mids and treble of the voice.",
-        "gain_filter": "Raises or lowers the microphone volume.",
-        "compressor_filter": "Brings the loud and quiet parts of speech closer together.",
-        "limiter_filter": "Keeps peaks (laughter, shouting) from going over the limit and distorting.",
-        "invert_polarity_filter": "Inverts the signal polarity. Only useful in specific cases with combined microphones."
-      },
-      "level": "average {{rms}} dB · peak {{peak}} dB",
-      "testedWithout": "No filter on: both versions are the same. Turn a filter on below — the filtered version is rebuilt instantly, without recording again.",
-      "howTo": "Press Test and speak for a few seconds. Then turn filters on, off and adjust them freely: the filtered version is rebuilt instantly from the same clip, without recording again."
-    },
     "muteWhenDeviceMuted": {
       "label": "Silence the track while the microphone is muted in Windows",
       "hint": "While the microphone is muted in Windows, its track is recorded as silence. This covers the mute button on your headset, the system mute, and call apps that tell Windows when you mute. A mute done only inside the app, without telling Windows, cannot be detected — in those cases the microphone keeps being recorded."
@@ -773,7 +739,7 @@
   },
   "about": {
     "title": "About NoOBS",
-    "tagline": "Lightweight screen recorder with OBS Studio embedded",
+    "tagline": "Lightweight screen recorder, no OBS",
     "intro1": "NoOBS was born out of frustration with the complexity of OBS Studio — configuring scenes, sources and devices for every recording.",
     "intro2": "The idea here is <b>simplicity</b>: open, click Record, you're recording. Displays, webcam, microphones and system audio are detected and ready automatically.",
     "intro3": "<b>Lightweight, fast, intuitive</b> — a premium product designed so your recording always just works.",
@@ -795,12 +761,12 @@
       "<b>MKV container</b> — the recording survives a power loss"
     ],
     "builtWith": [
-      "Delphi 12 (RAD Studio) — native Win64 target",
-      "libobs (OBS Studio core) — recording, encoder and capture",
-      "FFmpeg — remux, track extraction and thumbnails",
+      "Rust — native Win64 target",
+      "Direct3D 11 + Windows Graphics Capture + WASAPI — screen, window, webcam and audio capture",
+      "FFmpeg — encoders, MKV/MP4, remux, track extraction and thumbnails",
       "WebView2 (Chromium) — HTML/CSS/JS interface"
     ],
-    "footer": "Free software based on OBS Studio (GPL v2+), FFmpeg (LGPL/GPL) and Microsoft's WebView2.",
+    "footer": "Uses FFmpeg (LGPL/GPL) and Microsoft's WebView2.",
     "close": "Close"
   },
   "player": {
@@ -945,8 +911,6 @@
     "moveWhileRecording": "The recording in progress cannot be moved.",
     "replayStartFailed": "Could not turn on the memory buffer: {{error}}",
     "replaySaveFailed": "Could not save the buffer clip.",
-    "replayIntoRecordingFailed": "Could not include what the buffer had kept. The recording continues, just without that footage.",
-    "replayIntoRecordingSplit": "Could not join the buffer footage with the recording. Both were saved as separate files.",
     "replayHotkeyConflict": "The buffer shortcut can't be the same as the start/stop recording one.",
     "exportBusyFile": "This recording is being exported right now — wait for it to finish or cancel the export.",
     "localAsr": {
@@ -985,9 +949,6 @@
     "noTrack": "No track",
     "mixName": "Mix",
     "appAudio": "{{app}} (app sound)",
-    "micsGroup": "Microphones ({{count}})",
-    "outputsGroup": "Outputs ({{count}})",
-    "groupedAudio": "Grouped audio ({{count}})",
     "devicesGrouped_one": "{{count}} device grouped",
     "devicesGrouped_other": "{{count}} devices grouped",
     "devicesDisabled_one": "{{count}} device disabled",

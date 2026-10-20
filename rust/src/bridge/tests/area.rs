@@ -2,7 +2,7 @@
 //! seleção. A seleção de verdade escurece os monitores; aqui ela fica "aberta"
 //! até `area_select::test_finish` dizer o que o usuário arrastou.
 //!
-//! Gravar de fato a área é frente 3/4 (obs.dll). Aqui só os caminhos que param
+//! Gravar de fato a área é dos testes externos (`tests/`). Aqui só os caminhos que param
 //! antes: cancelar, recusar, guardar.
 
 use serde_json::json;
@@ -152,7 +152,7 @@ fn area_salva_corrompida_conta_como_nenhuma() {
     }
 }
 
-// ---- gravar (só os caminhos que param antes da obs.dll) ---------------------
+// ---- gravar (só os caminhos que param antes do motor) ------------------------
 
 #[test]
 fn gravar_area_salva_sem_area_avisa() {

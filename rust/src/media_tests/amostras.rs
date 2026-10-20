@@ -5,13 +5,12 @@
 //! | Arquivo | O que imita |
 //! |---|---|
 //! | `h264_2faixas.mkv` | gravação comum: H.264 com B-frames (x264, #50), mistura + 1 isolada, 4 s |
-//! | `h264_6faixas.mkv` | teto de faixas do OBS: mistura + 5 isoladas (uma muda), 3 s |
+//! | `h264_6faixas.mkv` | mistura + 5 isoladas (uma muda), 3 s |
 //! | `h264_sem_bframes.mkv` | encoder sem B-frames (AMF), 2 s |
 //! | `av1.mkv` | AV1 (codec padrão em placa nova), 2 s |
 //! | `hevc.mkv` | HEVC 640×360 (o encoder da placa recusa menos), só se a placa codifica HEVC, 2 s |
 //! | `h264.mp4` | a mesma gravação comum, em MP4 (o que a exportação produz) |
 //! | `interrompido.mkv` | gravação cortada no meio: sem duração no cabeçalho e sem índice (#27) |
-//! | `buffer.mkv` + `continuacao.mkv` | trecho do buffer e a gravação que continuou dele, com 1 s em comum (#62) |
 //! | `uniao_a.mkv` + `uniao_b.mkv` | duas gravações iguais em formato, pra unir |
 //!
 //! Regerar (sobrescreve): `cargo test --release gerar_amostras -- --ignored`.
@@ -58,20 +57,7 @@ fn gerar_amostras() {
     let corte: Vec<_> = gen::all(&comum).into_iter().filter(|p| comum.sec(p) < 2.4).collect();
     gen::mux(&comum, &path("interrompido.mkv"), "matroska", &corte, false, false).unwrap();
 
-    // Buffer + continuação: o buffer vai até 3 s; a gravação começa no keyframe
-    // de 2 s. Os dois com o relógio zerado no próprio começo, como a libobs faz.
-    let buf: Vec<_> = gen::all(&comum).into_iter().filter(|p| comum.sec(p) < 3.0).collect();
-    gen::mux(&comum, &path("buffer.mkv"), "matroska", &buf, true, true).unwrap();
-    let k = comum.pkts.iter().find(|p| p.stream == 0 && p.key && comum.sec(p) >= 1.9).expect("keyframe de 2 s");
-    let k_dts = k.dts;
-    let k_sec = comum.sec(k);
-    let cont: Vec<_> = gen::all(&comum)
-        .into_iter()
-        .filter(|p| if p.stream == 0 { p.dts >= k_dts } else { comum.sec(p) >= k_sec })
-        .collect();
-    gen::mux(&comum, &path("continuacao.mkv"), "matroska", &cont, true, true).unwrap();
-
-    // Seis faixas: o teto do OBS (mistura + 5 isoladas, uma muda).
+    // Seis faixas: mistura + 5 isoladas, uma muda.
     let seis = gen::encode(&Spec {
         seconds: 3.0,
         video: Some(x264(2)),

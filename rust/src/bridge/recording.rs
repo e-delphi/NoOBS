@@ -1,10 +1,10 @@
 //! Ciclo de gravação do Bridge (porte da parte de gravação do `OBSBridge.pas`):
 //! `HandleRecordStart`/`HandleRecordStop`, stop assíncrono pelo sinal "stop"
-//! (pegadinha #41), warmup do libobs (~1,5 s após abrir), tique de 1 s com o
+//! (pegadinha #41), warmup do motor (~1,5 s após abrir), tique de 1 s com o
 //! tamanho já gravado, nome do arquivo por modelo e as caps de encoder.
 //!
 //! Estado de gravação mora numa `thread_local`: o Bridge inteiro vive na main
-//! thread (libobs e UI só nela, pegadinha #3).
+//! thread (motor e UI só nela, pegadinha #3).
 
 use std::cell::RefCell;
 use std::os::windows::fs::OpenOptionsExt;
@@ -22,11 +22,11 @@ use super::{devices, library, post_error, post_json, replay, shell};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
-pub const TIMER_OBS_WARMUP: usize = 7006;
+pub const TIMER_WARMUP: usize = 7006;
 pub const TIMER_STOP_TIMEOUT: usize = 7010;
 const RECORDING_TICK_MS: u32 = 1000;
-/// Tempo para a UI renderizar antes do init do libobs bloquear a main.
-const OBS_WARMUP_DELAY_MS: u32 = 1500;
+/// Tempo para a UI renderizar antes de o motor detectar e aquecer os encoders.
+const WARMUP_DELAY_MS: u32 = 1500;
 /// Se o sinal "stop" nunca chegar (muxer travado, crash interno), força a
 /// finalização depois deste prazo para não deixar a gravação "presa".
 pub(super) const STOP_TIMEOUT_MS: u32 = 10_000;
@@ -251,7 +251,7 @@ pub fn build_recording_path(when: DateTime<Local>, encoder_id: &str) -> PathBuf 
     let enc_id = if !encoder_id.is_empty() {
         encoder_id.to_owned()
     } else {
-        engine::with_engine(|e| e.predict_encoder_id()).unwrap_or_else(|| if engine::native_selected() { String::new() } else { encoder::predict_video_encoder_id() })
+        engine::with_engine(|e| e.predict_encoder_id()).unwrap_or_default()
     };
     let (codec, _hw) = encoder::describe_encoder_id(&enc_id);
     let base = apply_filename_pattern(
@@ -274,7 +274,7 @@ pub fn build_recording_path(when: DateTime<Local>, encoder_id: &str) -> PathBuf 
 // Pushes para a UI
 // ---------------------------------------------------------------------------
 
-/// Avisa que a gravação anterior ainda está sendo finalizada pelo libobs; a UI
+/// Avisa que a gravação anterior ainda está sendo finalizada pelo motor; a UI
 /// desabilita o botão de gravar enquanto isso (em canvas 2x4K passa de 5 s).
 pub fn push_finalizing(active: bool) {
     with_state(|s| s.finalizing = active);
@@ -327,23 +327,21 @@ pub fn push_recording_state() {
 // Encoder caps
 // ---------------------------------------------------------------------------
 
-/// Detecta os encoders do libobs e manda à UI (codecs suportados + logo do
-/// vendor da GPU). A lista da EXPORTAÇÃO é outra (libavcodec, não libobs —
-/// pegadinha #51) e entra com o `FFmpegExport`.
+/// Detecta os encoders da máquina e manda à UI (codecs suportados + logo do
+/// vendor da GPU). A detecção é do MOTOR: abre e aquece os encoders do
+/// libavcodec (o AMF só se inicializa no 1º quadro).
 fn push_encoder_caps() {
-    // A detecção é do MOTOR: a da libobs enumera os IDs dela; a do motor
-    // próprio abre e aquece os encoders do libavcodec.
-    let caps = engine::with_engine(|e| e.encoder_caps()).unwrap_or_else(encoder::detect_encoder_caps);
+    let caps = engine::with_engine(|e| e.encoder_caps()).unwrap_or_default();
     let (vendor, logo) = match caps.vendor {
         GpuVendor::Nvidia => ("nvidia", "nvidia.png"),
         GpuVendor::Amd => ("amd", "amd.png"),
         GpuVendor::Intel => ("intel", "intel.png"),
         GpuVendor::Unknown => ("", ""),
     };
-    // Guarda para a exportação, que roda muito depois do warmup e não pode
-    // depender de o libobs estar respondendo naquele instante.
+    // Guarda para a exportação, que roda muito depois do warmup e não precisa
+    // detectar de novo.
     with_state(|s| s.last_encoder_caps = Some(caps));
-    // Encoders do LIBAVCODEC (não do libobs — pegadinha #51), já filtrados por existência.
+    // Encoders do libavcodec, já filtrados por existência (pegadinha #51).
     let export_encoders: Vec<serde_json::Value> = crate::ffmpeg_export::list_export_encoders(&caps)
         .into_iter()
         .map(|e| json!({ "id": e.id, "name": e.libav_name, "hardware": e.hardware }))
@@ -369,7 +367,7 @@ fn push_encoder_caps() {
     );
 }
 
-/// Empurra as caps UMA vez por sessão, de qualquer caminho que suba o libobs
+/// Empurra as caps UMA vez por sessão, de qualquer caminho que suba o motor
 /// (o warmup NÃO é mais o único — pegadinha #62).
 pub fn push_encoder_caps_once() {
     if with_state(|s| s.encoder_caps_pushed) {
@@ -489,14 +487,9 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     let cold = !engine::with_engine(|e| e.is_initialized()).unwrap_or(false);
     with_engine_result(|e| e.ensure_initialized())?;
     log!("HandleRecordStart: EnsureInitialized em {}ms.", t_step.elapsed().as_millis());
-    // NÃO adianta esperar aqui: a RTWQ é montada pelo win-wasapi na criação da
-    // fonte, não no obs_startup (medido). Só registra para correlacionar no log.
     if cold {
-        log!("HandleRecordStart: cold start (libobs subiu agora).");
+        log!("HandleRecordStart: cold start (motor subiu agora).");
     }
-
-    // Zera antes de montar: o handler de log marca se a captura falhar.
-    engine::reset_audio_capture_fault();
 
     // Continuando o buffer, o codec do nome é o dele (os encoders já rodam).
     let enc_id = if continue_replay { engine::with_engine(|e| e.video_encoder_id().to_owned()).unwrap_or_default() } else { String::new() };
@@ -510,7 +503,6 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     };
 
     let t_step = Instant::now();
-    replay::clear_prefix();
     if continue_replay && !replay::continue_into_recording(&req.output_path) {
         continue_replay = false;
         log!("HandleRecordStart: nao deu pra continuar o buffer — descartando-o.");
@@ -519,13 +511,6 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     if !continue_replay {
         let inputs = gather_capture_inputs();
         with_engine_result(|e| e.build_and_start_recording(&req, &inputs))?;
-    }
-    // Captura de áudio falhou em agendar? SÓ log, sem avisar o usuário: o erro
-    // do win-wasapi é emitido POR FONTE e endpoints virtuais (Steam Streaming,
-    // Saída Digital) falham sozinhos sem afetar os reais — alarme falso ensina
-    // o usuário a ignorar o real.
-    if engine::had_audio_capture_fault() {
-        log!("HandleRecordStart: win-wasapi reportou falha de agendamento (RTWQ). Pode ser so endpoint virtual — nao necessariamente gravacao muda.");
     }
     log!("HandleRecordStart: BuildAndStartRecording em {}ms.", t_step.elapsed().as_millis());
 
@@ -647,14 +632,14 @@ pub fn handle_record_stop() {
     devices::set_recording_for_thumbs(false);
     devices::apply_pending_refreshes();
 
-    // A partir daqui o libobs ainda está fechando o arquivo. Trava o botão até
-    // o sinal "stop" chegar (on_engine_recording_stopped) ou o timeout.
+    // A partir daqui o motor ainda está fechando o arquivo. Trava o botão até
+    // o evento de fim chegar (on_engine_recording_stopped) ou o timeout.
     push_finalizing(true);
     log!("HandleRecordStop: fim (retornando ao message loop).");
 }
 
-/// Pausa/retoma (botão ao lado do de gravar). O arquivo continua o MESMO: a
-/// libobs desconta o intervalo dos timestamps, então o vídeo sai sem o trecho
+/// Pausa/retoma (botão ao lado do de gravar). O arquivo continua o MESMO: o
+/// motor desconta o intervalo dos timestamps, então o vídeo sai sem o trecho
 /// pausado e sem buraco.
 pub fn handle_record_pause(pause: bool) {
     if !recording_active() || !engine::exists() {
@@ -712,18 +697,7 @@ pub fn on_engine_recording_stopped(output_path: &str) {
         return;
     }
 
-    // Gravação que continuou o buffer: o começo dela é outro arquivo. O engine
-    // só chega aqui com o trecho resolvido (salvo ou perdido).
-    let mut last_duration = with_state(|s| s.last_recording_duration);
-    if replay::on_recording_stopped_with_prefix(output_path, &mut last_duration) {
-        // O card sai no fim da emenda; o buffer religa já (a emenda só lê
-        // arquivos, não depende do libobs).
-        if replay::replay_wanted() {
-            replay::start_replay_buffer();
-        }
-        return;
-    }
-    with_state(|s| s.last_recording_duration = last_duration);
+    replay::clear_continuation();
 
     // Layout (canvas + monitores/webcams) + duração + como foi gravado, para o
     // <hash>.json. O codec vem do encoder que o engine REALMENTE criou (o
@@ -892,21 +866,22 @@ pub fn on_hotkey(id: i32) {
 // Warmup e timers
 // ---------------------------------------------------------------------------
 
-/// Agenda o warmup do libobs: com delay para a UI renderizar primeiro; a 1ª
-/// gravação fica instantânea (sem ~300 ms de obs.dll + plugins + D3D11).
+/// Agenda o warmup do motor: com delay para a UI renderizar primeiro; a 1ª
+/// gravação fica instantânea (os encoders já detectados e aquecidos — o AMF
+/// só se inicializa no 1º quadro).
 pub fn schedule_warmup() {
-    ui::set_timer(TIMER_OBS_WARMUP, OBS_WARMUP_DELAY_MS);
+    ui::set_timer(TIMER_WARMUP, WARMUP_DELAY_MS);
 }
 
 fn on_warmup() {
     // One-shot — desliga antes de chamar (o init bloqueia a main por ~300 ms).
-    ui::kill_timer(TIMER_OBS_WARMUP);
+    ui::kill_timer(TIMER_WARMUP);
     if !engine::exists() && !recording_active() {
         engine::ensure_created();
         match with_engine_result(|e| e.ensure_initialized()) {
-            Ok(()) => log!("libobs: warmup pronto — proxima gravacao sera instantanea."),
+            Ok(()) => log!("Motor: warmup pronto — proxima gravacao sera instantanea."),
             Err(e) => {
-                log!("libobs: warmup falhou (gravacao vai inicializar sob demanda): {e}");
+                log!("Motor: warmup falhou (gravacao vai inicializar sob demanda): {e}");
                 engine::destroy();
             }
         }
@@ -915,10 +890,10 @@ fn on_warmup() {
     // timer (watcher de apps ligando o buffer) e as caps têm que sair igual.
     push_encoder_caps_once();
     // /start-record: a hibernação lançou este processo porque o usuário
-    // apertou o atalho (ou o mic entrou em uso). Com o libobs aquecido, grava
+    // apertou o atalho (ou o mic entrou em uso). Com o motor aquecido, grava
     // agora; se o warmup falhou, o start inicializa sob demanda.
     if ui::start_record_requested() && !recording_active() {
-        log!("TIMER_OBS_WARMUP: /start-record — disparando gravacao.");
+        log!("TIMER_WARMUP: /start-record — disparando gravacao.");
         // Veio do watcher de mic: gravação "automática", que para sozinha.
         if ui::start_record_requested_by_mic() {
             set_started_by_mic_watch(true);
@@ -927,7 +902,7 @@ fn on_warmup() {
     }
     // /start-area: o atalho da área salva foi apertado na hibernação.
     if ui::start_area_requested() && !recording_active() {
-        log!("TIMER_OBS_WARMUP: /start-area — gravando a area salva.");
+        log!("TIMER_WARMUP: /start-area — gravando a area salva.");
         super::area::record_saved_area();
     }
     // "Ligar o buffer ao abrir" e o /start-replay viram vontade da sessão.
@@ -942,7 +917,7 @@ pub fn on_timer(id: usize) -> bool {
                 push_recording_state();
             }
         }
-        TIMER_OBS_WARMUP => on_warmup(),
+        TIMER_WARMUP => on_warmup(),
         TIMER_STOP_TIMEOUT => {
             // O sinal "stop" nunca chegou no prazo. One-shot: desarma e força.
             ui::kill_timer(TIMER_STOP_TIMEOUT);
@@ -960,8 +935,8 @@ pub fn install() {
     replay::install();
 }
 
-/// Shutdown do Bridge (idempotente): para o que estiver vivo e encerra o libobs
-/// NA MAIN THREAD, com o STA ainda vivo (pegadinha #31).
+/// Shutdown do Bridge (idempotente): para o que estiver vivo e descarta o
+/// motor NA MAIN THREAD, com o STA ainda vivo (pegadinha #31).
 pub fn shutdown() {
     ui::unregister_global_hotkey(HK_RECORD_TOGGLE);
     ui::unregister_global_hotkey(HK_RECORD_TOGGLE_ALT);
@@ -970,13 +945,13 @@ pub fn shutdown() {
     crate::area_frame::hide();
     lock_detector::stop();
     if engine::exists() {
-        // Sync: no shutdown não há message loop para drenar o sinal.
+        // Sync: no shutdown não há message loop para drenar o evento.
         engine::with_engine(|e| {
             if e.is_recording() || e.is_stopping() {
                 e.stop_recording();
             }
         });
-        engine::destroy(); // Drop → teardown (obs_shutdown + watchdog)
+        engine::destroy(); // Drop → para a sessão de captura
     }
 }
 

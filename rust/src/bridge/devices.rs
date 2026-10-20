@@ -69,7 +69,7 @@ struct DevState {
     /// prévia mesmo se o usuário desplugar um monitor gravando.
     recording_monitors_snapshot: Vec<MonitorInfo>,
     /// Último mudo APLICADO por fonte de mic — o tique de 100 ms não pode
-    /// chamar o libobs sem mudança nenhuma.
+    /// chamar o motor sem mudança nenhuma.
     mic_mute_applied: HashMap<String, bool>,
     thumb_thread_started: bool,
 }
@@ -252,7 +252,7 @@ fn build_audio_json_with_tracks() -> (Value, Value) {
     let (mut mic_en, mut mic_def) = flags(&mic_idxs, mic_id_from_name);
     let (mut spk_en, mut spk_def) = flags(&spk_idxs, out_id_from_name);
 
-    let asg = compute_audio_track_assignments(&mic_en, &mic_def, &spk_en, &spk_def, 0);
+    let asg = compute_audio_track_assignments(&mic_en, &mic_def, &spk_en, &spk_def);
     let (mut mic_tracks, mut spk_tracks) = (asg.mic_tracks, asg.out_tracks);
     sort_audio_parallel_by_track(&mut mic_idxs, &mut mic_tracks, &mut mic_en, &mut mic_def);
     sort_audio_parallel_by_track(&mut spk_idxs, &mut spk_tracks, &mut spk_en, &mut spk_def);
@@ -598,7 +598,7 @@ pub fn apply_pending_refreshes() {
 // Medidores e mudo do microfone
 // ---------------------------------------------------------------------------
 
-/// Pico por device via `IAudioMeterInformation`: funciona sem o libobs.
+/// Pico por device via `IAudioMeterInformation`: funciona sem o motor.
 fn push_audio_meters_from_win() {
     wam::init_audio();
     let levels = wam::read_peak_levels();
@@ -661,7 +661,7 @@ pub fn sync_mic_mute_from_endpoints() {
         };
         let src_id = mic_id_from_name(&dev.name);
         let eff = !config::get_source_active("mics", &dev.name, true) || (use_endpoint && m.muted);
-        // Só chama o libobs quando MUDA: este tique roda 10x por segundo.
+        // Só chama o motor quando MUDA: este tique roda 10x por segundo.
         let changed = with_dev(|d| d.mic_mute_applied.insert(src_id.clone(), eff) != Some(eff));
         if !changed {
             continue;
@@ -924,7 +924,7 @@ pub fn handle_set_auto_source(id: &str, enabled: bool) {
 // Init / timers
 // ---------------------------------------------------------------------------
 
-/// `DoInit` da parte de dispositivos. O libobs só sobe no warmup/ao gravar: a UI
+/// `DoInit` da parte de dispositivos. O motor só sobe no warmup/ao gravar: a UI
 /// funciona inteira por Win32 (monitores) e WASAPI (medidores). A enumeração
 /// WASAPI roda em worker (pode levar 30 s+ em máquinas sem mic).
 pub fn do_init() {
@@ -984,7 +984,7 @@ pub fn do_init() {
     start_thumb_thread();
     // Medidores continuam via WM_TIMER (ok pausar durante o arrasto da janela).
     ui::set_timer(TIMER_AUDIO_METER, AUDIO_METER_MS);
-    // Hot-plug de áudio (continua funcionando sem o libobs).
+    // Hot-plug de áudio (continua funcionando sem o motor).
     audio_watch::start(Arc::new(on_audio_device_change));
     with_dev(|d| d.initialized = true);
 }

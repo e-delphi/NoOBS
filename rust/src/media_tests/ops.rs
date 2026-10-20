@@ -146,49 +146,6 @@ fn unir_com_entrada_invalida() {
     assert!(merge_files(&[a.clone(), "C:\\nao\\existe.mkv".into()], &super::out("m4.mkv")).is_err());
 }
 
-// ---- emenda do buffer com a gravação (#62) ----------------------------------
-
-#[test]
-fn emenda_buffer_e_continuacao_sem_buraco_nem_repeticao() {
-    need_dlls!();
-    let dst = super::out("emendada.mkv");
-    let info = splice_continuation(&path("buffer.mkv"), &path("continuacao.mkv"), &dst, 1000).expect("emenda");
-    assert!(info.contains("repetido"), "{info}");
-    // Os dois foram cortados do MESMO fluxo: emendados, têm que ser exatamente
-    // a gravação inteira — cada pacote uma vez só, na ordem.
-    let (inteira, emendada) = (packets(&path("h264_2faixas.mkv")), packets(&dst));
-    for s in 0..3 {
-        assert_eq!(hashes(&of_stream(&emendada, s)), hashes(&of_stream(&inteira, s)), "stream {s}");
-    }
-    near(probe(&dst).duration, 4.0, 0.1, "duração");
-}
-
-#[test]
-fn emenda_com_lead_desconhecido_ou_errado() {
-    need_dlls!();
-    // O lead só desempata keyframes idênticos; aqui cada quadro é único.
-    for lead in [0, -1, 1000, 1_000_000] {
-        let dst = super::out(&format!("emenda-lead{lead}.mkv"));
-        assert!(splice_continuation(&path("buffer.mkv"), &path("continuacao.mkv"), &dst, lead).is_ok(), "lead {lead}");
-        near(probe(&dst).duration, 4.0, 0.1, "duração");
-    }
-}
-
-#[test]
-fn emenda_sem_ponto_de_encontro_e_recusada() {
-    need_dlls!();
-    // Ordem trocada, gravações sem nada em comum, faixas diferentes, inexistente.
-    for (head, tail) in [
-        (path("continuacao.mkv"), path("buffer.mkv")),
-        (path("uniao_a.mkv"), path("uniao_b.mkv")),
-        (path("buffer.mkv"), path("h264_6faixas.mkv")),
-        (path("buffer.mkv"), "C:\\nao\\existe.mkv".to_owned()),
-    ] {
-        let r = splice_continuation(&head, &tail, &super::out("nao-emendada.mkv"), 1000);
-        assert!(r.is_err(), "{head} + {tail}: {r:?}");
-    }
-}
-
 // ---- miniatura e quadro exato -----------------------------------------------
 
 #[test]

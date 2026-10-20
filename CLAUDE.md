@@ -1516,10 +1516,10 @@ a ordem do frontend do OBS. Só no modo full (`OBSUI.Run`): a hibernação
 não cria fontes libobs, e o `WinMicWatch` usa `IAudioSessionManager2`, não
 RTWQ.
 
-**No Rust isso mudou — ver #68:** a RTWQ NÃO sobe no arranque e o
-`win-wasapi` é impedido de usar o caminho RTWQ (que tem uma corrida de
-escrita em memória liberada ao destruir a fonte). A plataforma só sobe se o
-desvio falhar e outra coisa tiver carregado a DLL.
+**No Rust a libobs saiu** (motor de captura próprio —
+`rust/docs/motor-proprio.md`): sem `win-wasapi`, sem RTWQ; a captura WASAPI
+é nossa e não depende de plataforma nenhuma. Antes disso, o Rust já tinha
+deixado de subir a RTWQ no arranque por causa da #68.
 
 **Confirmação:** log de fechamento são (`destruicao=responde`,
 `Freeing OBS context data`, `shutdown ok em 78ms`) + a 1ª gravação da
@@ -3985,6 +3985,12 @@ pausado e sem buraco: a libobs desconta o intervalo dos timestamps.
 
 ### 68. **Duas corridas da própria libobs ao DESTRUIR fontes de áudio (Rust)**
 
+> **Histórico na versão Rust**: a libobs saiu de lá (fase 7 do
+> `rust/docs/motor-proprio.md`), junto com o desvio de importação e o
+> `rtwq.rs` descritos aqui. Fica o diagnóstico — as duas corridas são do OBS
+> e continuam valendo pro Delphi, que ainda usa a libobs — e o corolário do
+> COM em `thread_local`, que segue valendo no Rust.
+
 Achadas pelos testes `msg-*` (`rust/tests/obs.rs`): gravar e parar de novo e
 de novo derrubava o processo ou corrompia o heap, raramente (~1 em 10
 processos), com sintomas espalhados — queda na thread de áudio, travamento no
@@ -4092,7 +4098,6 @@ recuperáveis manualmente).
 | Chave                            | Valor                                              |
 |----------------------------------|----------------------------------------------------|
 | `version`                        | `1` (discriminator)                                |
-| `captureEngine`                  | `"obs"` (padrão; ausente vale o mesmo) = libobs; `"native"` = motor de captura PRÓPRIO da versão Rust (D3D11 + WGC + WASAPI + FFmpeg, sem libobs — `rust/docs/motor-proprio.md`). Lida ao criar o motor (vale no próximo início). Sem filtros de áudio no próprio |
 | `theme`                          | `"system"` (default — segue o SO via registry), `"dark"` ou `"light"` |
 | `recordDir`                      | path absoluto                                      |
 | `windowTitle`                    | título da janela (barra/taskbar/bandeja), default `"NoOBS"` |

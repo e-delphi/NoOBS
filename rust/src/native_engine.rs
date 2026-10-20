@@ -1,18 +1,14 @@
-//! O motor de captura PRÓPRIO atrás da interface que o Bridge enxerga
-//! (`engine::CaptureEngine`). Traduz o contrato do motor da libobs pro
+//! O motor de captura atrás da interface que o Bridge enxerga
+//! (`engine::CaptureEngine`). Traduz os pedidos do Bridge pro
 //! `capture::pipeline::Session`:
 //!
-//! - as REGRAS de montagem são as mesmas do `Engine::build_capture_graph`
-//!   (monitores habilitados lado a lado, área = uma captura por monitor,
-//!   janela = canvas da janela em múltiplo de 16, webcams no fim, TODAS as
-//!   fontes de áudio — as desmarcadas mudas, pra religar no meio —, faixas
-//!   pelo `compute_audio_track_assignments`, os mesmos nomes `NoOBS Mic - …`
-//!   que o Bridge usa pra mutar);
-//! - o que era assíncrono continua assíncrono (parar, salvar trecho): uma
-//!   thread faz o trabalho e o resultado volta pela fila de eventos do
-//!   `with_engine`, na main thread;
-//! - o que a libobs obrigava e aqui não existe (commit adiado do corte, trecho-
-//!   prefixo pra emendar) responde "não há" — `continuation_is_single_file`.
+//! - montagem: monitores habilitados lado a lado, área = uma captura por
+//!   monitor, janela = canvas da janela em múltiplo de 16, webcams no fim,
+//!   TODAS as fontes de áudio — as desmarcadas mudas, pra religar no meio —,
+//!   faixas pelo `compute_audio_track_assignments` (sem teto), e os nomes
+//!   `NoOBS Mic - …` que o Bridge usa pra mutar;
+//! - o que é demorado (parar, salvar trecho) roda numa thread, e o resultado
+//!   volta pela fila de eventos do `with_engine`, na main thread.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -28,13 +24,13 @@ use crate::capture::encode::VideoEncoderConfig;
 use crate::capture::gpu::{Device, Rect};
 use crate::capture::layout::{area_layout, DesktopRect};
 use crate::capture::pipeline::{AudioConfig, AudioInputSpec, Session, SessionConfig, SourceSpec, VideoTarget};
-use crate::engine::{AreaRect, CaptureEngine, CaptureInputs, Engine, Event, RecordRequest, VideoStats};
-use crate::scene::{filter_enabled_monitors, ObsMonitor};
-use crate::types::{EncoderCaps, ObsAudioDev, RecordingLayout, RecordingRegion};
+use crate::engine::{AreaRect, CaptureEngine, CaptureInputs, Event, RecordRequest, VideoStats};
+use crate::scene::{filter_enabled_monitors, CaptureMonitor};
+use crate::types::{EncoderCaps, AudioDev, RecordingLayout, RecordingRegion};
 use crate::{config, encoder, lang, log, mainthread, win_audio_meter as wam};
 
-/// Prefixo dos nomes das fontes de áudio — o MESMO do motor da libobs: o
-/// Bridge muta pelo nome (`set_source_muted`).
+/// Prefixo dos nomes das fontes de áudio: o Bridge muta pelo nome
+/// (`set_source_muted`).
 const PREFIX: &str = "NoOBS ";
 /// Keyframe do buffer: o corte de um trecho cai num keyframe forçado, mas a
 /// FILA é aparada por GOP inteiro — 1 s de GOP = 1 s de granularidade (#62).
@@ -78,7 +74,7 @@ fn wake_main() {
     });
 }
 
-fn hmonitor_of(m: &ObsMonitor) -> isize {
+fn hmonitor_of(m: &CaptureMonitor) -> isize {
     let p = POINT { x: m.position_x + m.width / 2, y: m.position_y + m.height / 2 };
     unsafe { MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST) }.0 as isize
 }
@@ -122,7 +118,7 @@ impl NativeEngine {
         self.caps.unwrap_or_default()
     }
 
-    /// As regras do `Engine::build_capture_graph`, em forma de `SessionConfig`.
+    /// O pedido do Bridge em forma de `SessionConfig`.
     fn build_config(&mut self, req: &RecordRequest, inputs: &CaptureInputs, replay: Option<(u32, u32)>) -> Result<(SessionConfig, Vec<(String, bool)>), String> {
         let auto_profile = req.auto_profile;
         let src_active = |cat: &str, id: &str, default: bool| -> bool {
@@ -136,7 +132,7 @@ impl NativeEngine {
         let window = req.window.clone().filter(|w| !w.spec.is_empty() && area.is_none());
 
         // ---- vídeo: inventário e canvas ----
-        let mut monitors: Vec<ObsMonitor> = if area.is_some() {
+        let mut monitors: Vec<CaptureMonitor> = if area.is_some() {
             inputs.monitors.clone()
         } else if window.is_some() {
             Vec::new()
@@ -221,9 +217,9 @@ impl NativeEngine {
 
         // ---- áudio: TODOS os dispositivos, desmarcados mudos (religáveis no meio) ----
         let devs = wam::enumerate_audio_devices();
-        let pick = |kind: wam::DeviceKind, default_id: &str| -> Vec<ObsAudioDev> {
-            let mut v: Vec<ObsAudioDev> = devs.iter().filter(|d| d.kind == kind).map(|d| ObsAudioDev { name: d.name.clone(), device_id: d.device_id.clone() }).collect();
-            // Padrão primeiro (mesma ordem do Bridge e do motor da libobs).
+        let pick = |kind: wam::DeviceKind, default_id: &str| -> Vec<AudioDev> {
+            let mut v: Vec<AudioDev> = devs.iter().filter(|d| d.kind == kind).map(|d| AudioDev { name: d.name.clone(), device_id: d.device_id.clone() }).collect();
+            // Padrão primeiro (mesma ordem da lista do Bridge).
             v.sort_by_key(|d| !(!default_id.is_empty() && same_text(&d.device_id, default_id)));
             v
         };
@@ -234,40 +230,42 @@ impl NativeEngine {
         let mic_def: Vec<bool> = mics.iter().map(|m| !inputs.default_mic_id.is_empty() && same_text(&m.device_id, &inputs.default_mic_id)).collect();
         let out_def: Vec<bool> = outs.iter().map(|m| !inputs.default_spk_id.is_empty() && same_text(&m.device_id, &inputs.default_spk_id)).collect();
         let app_pid = window.as_ref().filter(|w| w.audio && self.app_audio_available()).map(|w| window_pid(&w.spec));
-        let mut asg = compute_audio_track_assignments(&mic_en, &mic_def, &out_en, &out_def, app_pid.is_some() as i32);
+        let mut asg = compute_audio_track_assignments(&mic_en, &mic_def, &out_en, &out_def);
         let mut app_track = 0;
         if app_pid.is_some() {
             app_track = asg.total_tracks + 1;
             asg.total_tracks = app_track;
         }
         let mut titles = build_track_names(asg.total_tracks, &mics, &outs, &asg.mic_tracks, &asg.out_tracks);
-        let mask = |track: i32| if track > 0 { 1 | (1u32 << (track - 1)) } else { 1 };
+        // Faixa 1 do MKV = índice 0 (a mistura); desmarcado (0) entra só nela,
+        // mudo — pra poder religar no meio sem remontar.
+        let tracks_of = |track: i32| if track > 1 { vec![0, track as usize - 1] } else { vec![0] };
         let mut inputs_a = Vec::new();
         let mut mutes = Vec::new();
         for (j, m) in mics.iter().enumerate() {
             let name = format!("{PREFIX}Mic - {}", m.name);
-            inputs_a.push(AudioInputSpec { name: name.clone(), device: AudioDevice::Input(m.device_id.clone()), tracks: mask(asg.mic_tracks[j]) });
+            inputs_a.push(AudioInputSpec { name: name.clone(), device: AudioDevice::Input(m.device_id.clone()), tracks: tracks_of(asg.mic_tracks[j]) });
             mutes.push((name, !mic_en[j]));
         }
         for (j, o) in outs.iter().enumerate() {
             let name = format!("{PREFIX}Out - {}", o.name);
-            inputs_a.push(AudioInputSpec { name: name.clone(), device: AudioDevice::Output(o.device_id.clone()), tracks: mask(asg.out_tracks[j]) });
+            inputs_a.push(AudioInputSpec { name: name.clone(), device: AudioDevice::Output(o.device_id.clone()), tracks: tracks_of(asg.out_tracks[j]) });
             mutes.push((name, !out_en[j]));
         }
         if let (Some(pid), Some(w)) = (app_pid, &window) {
             // Som do app: faixa própria; na mistura só se nenhuma saída grava (#66).
-            let mut m = 1u32 << (app_track - 1);
+            let mut tracks = vec![app_track as usize - 1];
             if !out_en.iter().any(|&e| e) {
-                m |= 1;
+                tracks.push(0);
             }
-            inputs_a.push(AudioInputSpec { name: format!("{PREFIX}App"), device: AudioDevice::App(pid), tracks: m });
+            inputs_a.push(AudioInputSpec { name: format!("{PREFIX}App"), device: AudioDevice::App(pid), tracks });
             let app = if w.app.is_empty() { w.title.clone() } else { w.app.clone() };
             titles[(app_track - 1) as usize] = lang::t_with("tracks.appAudio", &[("app", &app)]);
         }
         let audio = (asg.total_tracks > 0).then(|| AudioConfig { inputs: inputs_a, track_titles: titles, kbps: encoder::audio_bitrate_kbps() as u32 });
 
         let keyframe = if replay.is_some() { REPLAY_KEYFRAME_SEC } else { config::get_config_int("recordingKeyframeSec", 2).clamp(1, 10) as u32 };
-        let crf = encoder::quality_level_to_crf(encoder::recording_quality_level());
+        let crf = encoder::quality_level_to_crf(encoder::capture_quality_level());
         self.encoder_id = codec.clone();
         self.fps = fps;
         self.layout = RecordingLayout { canvas_w: cw as i32, canvas_h: ch as i32, regions };
@@ -302,7 +300,7 @@ impl NativeEngine {
     }
 }
 
-/// `HWND` da janela gravada: o Bridge passa o `"título:classe:exe"` do OBS; a
+/// `HWND` da janela gravada: o Bridge passa o `"título:classe:exe"`; a
 /// janela é reencontrada pelo `win_windows` (a lista guarda o handle).
 fn window_hwnd(spec: &str) -> isize {
     crate::win_windows::enumerate_capture_windows().into_iter().find(|w| w.spec == spec).map(|w| w.handle).unwrap_or(0)
@@ -316,12 +314,6 @@ fn window_pid(spec: &str) -> u32 {
 }
 
 impl CaptureEngine for NativeEngine {
-    fn uses_libobs(&self) -> bool {
-        false
-    }
-    fn as_obs(&mut self) -> Option<&mut Engine> {
-        None
-    }
     fn take_events(&mut self) -> Vec<Event> {
         let ev = std::mem::take(&mut *self.events.lock().unwrap_or_else(|p| p.into_inner()));
         for e in &ev {
@@ -332,7 +324,6 @@ impl CaptureEngine for NativeEngine {
                 Event::ReplaySaved(_) => {
                     self.replay_save_start = None;
                 }
-                _ => {}
             }
         }
         ev
@@ -343,9 +334,6 @@ impl CaptureEngine for NativeEngine {
     fn predict_encoder_id(&mut self) -> String {
         let caps = self.caps();
         crate::capture::caps::resolve(&config::get_config_str("codec", "auto"), &caps)
-    }
-    fn continuation_is_single_file(&self) -> bool {
-        true
     }
 
     fn is_initialized(&self) -> bool {
@@ -478,15 +466,6 @@ impl CaptureEngine for NativeEngine {
     fn is_replay_saving(&self) -> bool {
         self.replay_saving.load(Ordering::SeqCst)
     }
-    fn is_replay_save_commit_pending(&self) -> bool {
-        false
-    }
-    fn is_prefix_saving(&self) -> bool {
-        false
-    }
-    fn replay_save_commit_delay_ms(&self) -> u64 {
-        0
-    }
     fn build_and_start_replay(&mut self, dir: &str, max_sec: i32, max_mb: i32, inputs: &CaptureInputs) -> Result<(), String> {
         if self.recording || self.replay_active {
             return Err("Ja esta gravando.".into());
@@ -509,8 +488,7 @@ impl CaptureEngine for NativeEngine {
             Ok(()) => {
                 self.output_path = output_path.to_owned();
                 self.recording = true;
-                // Como no motor da libobs: o buffer virou o começo da gravação e,
-                // pro Bridge, acabou — ele o religa quando a gravação parar. A
+                // O buffer virou o começo da gravação e, pro Bridge, acabou — ele o religa quando a gravação parar. A
                 // fila da sessão fica mínima até lá, e o fim da gravação fecha a
                 // sessão inteira.
                 self.replay_active = false;
@@ -549,7 +527,6 @@ impl CaptureEngine for NativeEngine {
         });
         true
     }
-    fn commit_replay_save(&mut self) {}
     fn abort_replay_save(&mut self) {
         // O corte não tem fase adiada; um trecho em escrita termina sozinho.
         self.replay_saving.store(false, Ordering::SeqCst);

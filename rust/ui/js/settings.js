@@ -292,7 +292,6 @@ const Settings = {
     Bridge.send('get_settings');
   },
   close() {
-    if (typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
     if (typeof VideoTest !== 'undefined') VideoTest.onLeave();
     document.getElementById('settingsOverlay').classList.remove('visible');
   },
@@ -1058,9 +1057,6 @@ const Settings = {
   // listener delegado de 'change' (commit imediato) e os _sync* de
   // dependencia seguem funcionando sem nenhuma alteracao de logica.
   showTab(name) {
-    // Saindo da aba Audio: o som do teste nao continua atras de outra aba.
-    if (this.currentTab === 'audio' && name !== 'audio' &&
-        typeof AudioFilters !== 'undefined') AudioFilters.onLeave();
     // Saindo da aba Video: os clipes do teste de qualidade param de tocar.
     if (this.currentTab === 'recording' && name !== 'recording' &&
         typeof VideoTest !== 'undefined') VideoTest.onLeave();
@@ -1083,8 +1079,6 @@ const Settings = {
     }
     // Lista de dispositivos montada sob demanda.
     if (name === 'devices' && typeof Devices !== 'undefined') Devices.render();
-    // Filtros de audio: estado e rotulos sao do backend (plugin do OBS).
-    if (name === 'audio' && typeof AudioFilters !== 'undefined') AudioFilters.request();
     // Aba Buffer: o estado (limites, teto de RAM, apps, indicador) e do
     // backend — pede na hora de mostrar e redesenha com o que ja se tem.
     if (name === 'replay' && typeof Replay !== 'undefined') {
@@ -1312,10 +1306,8 @@ const Settings = {
         // liga/desliga fica como esta — ele vive na tela principal, nao aqui.
         if (typeof Replay !== 'undefined') Replay.restoreDefaults();
         if (typeof AreaCapture !== 'undefined') AreaCapture.restoreDefaults();
-        // Tema (padrao: seguir o Windows) e filtros de audio (nenhum ligado)
-        // salvam fora do commit().
+        // Tema (padrao: seguir o Windows) salva fora do commit().
         this.setTheme('system');
-        Bridge.send('reset_audio_filters', {});
         // Re-sincroniza a aba visivel: os campos de outras abas estao com
         // display:none na hora do reset, e alguns controles (fill dos
         // sliders, hints) so recalculam direito quando visiveis.

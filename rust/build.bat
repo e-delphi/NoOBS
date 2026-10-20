@@ -6,11 +6,10 @@ REM  Uso:
 REM      build.bat           cargo build --release
 REM      build.bat debug     cargo build (mais rapido, sem otimizacao)
 REM
-REM  Saida: exe\bin\64bit\NoOBS.exe (desta pasta rust\), ao lado da obs.dll,
-REM  das DLLs do FFmpeg, da ui\ e do lang\ - e de la que o app roda.
-REM
-REM  Sem WebView2Loader.dll: no alvo MSVC o webview2-com-sys liga o
-REM  WebView2LoaderStatic.lib, entao o loader ja vai dentro do exe.
+REM  Saida: exe\NoOBS.exe (desta pasta rust\), ao lado das DLLs do FFmpeg -
+REM  e de la que o app roda. O runtime e SO isso: a UI (ui\) e as traducoes
+REM  (lang\) vao dentro do exe, e o loader do WebView2 tambem (no alvo MSVC o
+REM  webview2-com-sys liga o WebView2LoaderStatic.lib).
 REM ---------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
@@ -20,9 +19,11 @@ if errorlevel 1 (
   echo [build] ERRO: cargo nao encontrado. Instale o Rust ^(rustup.rs^).
   exit /b 1
 )
-if not exist "exe\bin\64bit\obs.dll" (
-  echo [build] ERRO: exe\bin\64bit\obs.dll nao existe - falta o runtime do OBS.
-  echo         Copie o OBS portatil ^(32.1.2^) pra exe\ desta pasta: bin\64bit, data, obs-plugins.
+if not exist "exe\avcodec-61.dll" (
+  echo [build] ERRO: exe\avcodec-61.dll nao existe - faltam as DLLs do FFmpeg.
+  echo         Copie pra exe\ desta pasta, do OBS portatil 32.1.2 ^(bin\64bit^):
+  echo         avcodec-61 avformat-61 avutil-59 swscale-8 swresample-5
+  echo         libx264-164 zlib srt librist ^(.dll^).
   exit /b 1
 )
 
@@ -40,10 +41,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
-copy /y "target\%PROFILE%\noobs.exe" "exe\bin\64bit\NoOBS.exe" >nul
+copy /y "target\%PROFILE%\noobs.exe" "exe\NoOBS.exe" >nul
 if errorlevel 1 (
-  echo [build] ERRO: nao consegui copiar o exe ^(o NoOBS de exe\bin\64bit esta aberto?^).
+  echo [build] ERRO: nao consegui copiar o exe ^(o NoOBS de exe\ esta aberto?^).
   exit /b 1
 )
-echo [build] OK: exe\bin\64bit\NoOBS.exe ^(%PROFILE%^)
+echo [build] OK: exe\NoOBS.exe ^(%PROFILE%^)
 exit /b 0

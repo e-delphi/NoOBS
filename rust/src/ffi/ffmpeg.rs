@@ -424,9 +424,10 @@ pub unsafe fn iformat_name(ic: *const AVFormatContext) -> String {
     super::cstr_to_string(*iformat)
 }
 
-/// Texto → UTF-8 para o FFmpeg (pegadinha #29: nunca ANSI/locale).
+/// Texto → UTF-8 para o FFmpeg (pegadinha #29: nunca ANSI/locale). Corta no
+/// primeiro NUL em vez de falhar.
 pub fn to_utf8(s: &str) -> std::ffi::CString {
-    super::obs::cstring(s)
+    std::ffi::CString::new(s.split(' ').next().unwrap_or("")).unwrap_or_default()
 }
 
 /// `av_strerror` legível, no formato `-22 (Invalid argument)`. Só para log — nunca

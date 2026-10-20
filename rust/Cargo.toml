@@ -70,16 +70,26 @@ sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
-# Habilita o alvo `tests/obs.rs` (autoteste da libobs: grava a tela, precisa de
-# placa de vídeo e do runtime em exe/bin/64bit). Fora da suíte padrão:
-#   cargo test --release --features obs-tests --test obs [-- filtro]
-obs-tests = []
+# Torna os módulos públicos pros executáveis de teste de `tests/` (rodam FORA
+# do app, gravam a tela de verdade e precisam das DLLs do FFmpeg em `exe\`).
+# Fora da suíte padrão:
+#   cargo test --release --features app-tests --test mensagens [-- filtro]
+#   cargo test --release --features app-tests --test captura [-- filtro]
+app-tests = []
 
+# As mensagens da página pelo dispatch, com o motor de captura de verdade.
 [[test]]
-name = "obs"
-path = "tests/obs.rs"
+name = "mensagens"
+path = "tests/mensagens.rs"
 harness = false
-required-features = ["obs-tests"]
+required-features = ["app-tests"]
+
+# O motor de captura direto (docs/motor-proprio.md).
+[[test]]
+name = "captura"
+path = "tests/captura.rs"
+harness = false
+required-features = ["app-tests"]
 
 [build-dependencies]
 # Embute o MAINICON (icon.ico) no exe — bandeja, janela e taskbar usam.
@@ -94,11 +104,3 @@ strip = true
 # miniatura, exportação, dispatch, timers…) vira código morto no release e
 # qualquer falha fecha o app sem deixar nada no log. O Delphi trata a mesma
 # falha com try/except e segue; o unwind é o que permite o equivalente.
-
-# Motor de captura próprio (docs/motor-proprio.md), fora da suíte padrão: grava a tela.
-#   cargo test --release --features obs-tests --test captura [-- filtro]
-[[test]]
-name = "captura"
-path = "tests/captura.rs"
-harness = false
-required-features = ["obs-tests"]

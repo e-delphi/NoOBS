@@ -1,5 +1,5 @@
 //! Preferências do buffer em memória (`bridge/replay.rs`) com o buffer
-//! DESLIGADO — ligar/salvar passa pela obs.dll (frentes 3/4).
+//! DESLIGADO — ligar/salvar passa pelo motor (testes externos, `tests/`).
 
 use serde_json::json;
 

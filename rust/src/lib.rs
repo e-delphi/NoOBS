@@ -1,28 +1,30 @@
-//! NoOBS — gravador de tela com OBS embarcado (libobs) e UI em WebView2.
-//! Porte do projeto Delphi para Rust, sem Tauri: janela e WebView2 criados à
-//! mão via Win32 (`windows` + `webview2-com`), como o `OBSUI.pas` faz.
+//! NoOBS — gravador de tela com motor de captura próprio (D3D11 + WGC +
+//! WASAPI + libavcodec) e UI em WebView2. Porte do projeto Delphi para Rust,
+//! sem Tauri: janela e WebView2 criados à mão via Win32 (`windows` +
+//! `webview2-com`), como o `OBSUI.pas` faz. Sem libobs: o runtime é o exe e as
+//! DLLs do FFmpeg.
 //!
-//! Camadas (as mesmas do Delphi):
-//! 1. bindings raw — [`ffi::obs`], [`ffi::ffmpeg`]
-//! 2. wrappers altos — (a portar) `OBSEngine`, `FFmpegOps`, `FFmpegExport`
-//! 3. domínio — [`encoder`], [`probe`], [`config`], [`log`], [`lang`], [`scene`], [`types`]
-//! 4. orquestração — [`ui`], [`bridge`]
+//! Camadas:
+//! 1. bindings raw — [`ffi::ffmpeg`]
+//! 2. captura e mídia — [`capture`], `ffmpeg_ops`, `ffmpeg_export`
+//! 3. domínio — `native_engine`, `encoder`, `probe`, `config`, `lang`, `types`
+//! 4. orquestração — `ui`, `bridge`
 //!
 //! Biblioteca + binário: o `main.rs` só chama [`run_app`]. Os testes rodam
-//! sempre FORA do app: `#[cfg(test)]` (só no `cargo test`) e `tests/obs.rs`
-//! (feature `obs-tests`, ver `modulos!`).
+//! sempre FORA do app: `#[cfg(test)]` (só no `cargo test`) e os executáveis
+//! de `tests/` (feature `app-tests`, ver `modulos!`).
 
 /// Os módulos são PRIVADOS no build normal: o exe não expõe nada. Só com a
-/// feature `obs-tests` (o autoteste da libobs, `tests/obs.rs`) eles viram
-/// públicos, pra aquele executável de teste — que roda FORA do app — chamar o
-/// engine direto. Nenhum código de teste entra no exe por aqui: a feature só
-/// muda a visibilidade.
+/// feature `app-tests` eles viram públicos, pros executáveis de teste de
+/// `tests/` — que rodam FORA do app — chamarem o motor e o dispatch direto.
+/// Nenhum código de teste entra no exe por aqui: a feature só muda a
+/// visibilidade.
 macro_rules! modulos {
     ($($m:ident),* $(,)?) => {
         $(
-            #[cfg(not(feature = "obs-tests"))]
+            #[cfg(not(feature = "app-tests"))]
             mod $m;
-            #[cfg(feature = "obs-tests")]
+            #[cfg(feature = "app-tests")]
             #[doc(hidden)]
             pub mod $m;
         )*
@@ -32,24 +34,24 @@ macro_rules! modulos {
 // `log` e `ffi` fora da macro: eles definem macros `#[macro_export]` (`log!`,
 // `dll_api!`), que não podem nascer de um módulo declarado por macro — o
 // `use crate::log` / `use crate::dll_api` dos outros módulos quebraria.
-#[cfg(not(feature = "obs-tests"))]
+#[cfg(not(feature = "app-tests"))]
 mod log;
-#[cfg(feature = "obs-tests")]
+#[cfg(feature = "app-tests")]
 #[doc(hidden)]
 pub mod log;
-#[cfg(not(feature = "obs-tests"))]
+#[cfg(not(feature = "app-tests"))]
 mod ffi;
-#[cfg(feature = "obs-tests")]
+#[cfg(feature = "app-tests")]
 #[doc(hidden)]
 pub mod ffi;
 
-/// Motor de captura próprio (docs/motor-proprio.md). Público enquanto convive
-/// com a libobs: o executável de teste `tests/captura.rs` o usa direto.
+/// Motor de captura (docs/motor-proprio.md). Público: o executável de teste
+/// `tests/captura.rs` o usa direto.
 pub mod capture;
 
 modulos! {
+    assets,
     native_engine,
-    audio_filters,
     audio_tracks,
     audio_watch,
     autostart,
@@ -77,7 +79,6 @@ modulos! {
     rec_indicator,
     record_icon,
     record_watch,
-    rtwq,
     scene,
     single_instance,
     startup_check,
@@ -108,7 +109,7 @@ mod media_tests;
 /// Ponto de entrada do exe (o `main.rs` só chama isto): o crate é lib + bin
 /// pra que os testes em `tests/` enxerguem os módulos.
 pub fn run_app() {
-    // Dispatch entre o modo "full" (UI + libobs + watchers) e o "hibernate"
+    // Dispatch entre o modo "full" (UI + motor + watchers) e o "hibernate"
     // (só bandeja + hotkey, ~5 MB), no MESMO exe.
     let cmd = win::cmdline_lower();
     let hibernate = cmd.contains("/hibernate");

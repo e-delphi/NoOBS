@@ -7,7 +7,7 @@
   },
   "app": {
     "title": "NoOBS",
-    "tagline": "Grabador de pantalla liviano con OBS Studio integrado"
+    "tagline": "Grabador de pantalla liviano, sin OBS"
   },
   "header": {
     "settings": "Configuración",
@@ -65,8 +65,7 @@
     "restartedBody": "El búfer empezó de nuevo con la nueva configuración de grabación. Lo que tenía guardado se descartó.",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "Ese atajo ya se usa para iniciar/detener la grabación. Elige otra combinación.",
-    "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})",
-    "prefixFileSuffix": "búfer"
+    "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capturar...",
@@ -564,39 +563,6 @@
       "busyRecord": "Espera a que la prueba de calidad termine de grabar la muestra.",
       "failed": "No se pudo hacer la prueba de calidad. Consulta el registro para más detalles."
     },
-    "audioFilters": {
-      "label": "Filtros del micrófono",
-      "hint": "Procesan el sonido de los micrófonos antes de que entre en la grabación y en el búfer. El sonido del sistema no pasa por ellos. Se aplican desde la próxima grabación.",
-      "loading": "Cargando filtros…",
-      "unavailable": "Filtros no disponibles: no se encontró el plugin obs-filters en la instalación.",
-      "noneOn": "Ningún filtro activado.",
-      "nOn": "{{count}} filtro(s) activado(s).",
-      "showSettings": "Ajustes",
-      "hideSettings": "Cerrar ajustes",
-      "reset": "Restaurar valores",
-      "test": "Probar ({{sec}} s)",
-      "testing": "Grabando… habla al micrófono ({{sec}} s)",
-      "compare": "Versión con {{count}} filtro(s). Cambia cualquier filtro y se rehace al instante — alterna entre Original y Con filtros en el mismo punto. La diferencia se nota más en la media: los picos son tu voz.",
-      "testFailed": "No se pudo abrir el micrófono para la prueba.",
-      "micDefault": "{{name}} (predeterminado de Windows)",
-      "original": "Original",
-      "filtered": "Con filtros",
-      "silence": "silencio",
-      "desc": {
-        "noise_suppress_filter_v2": "Elimina el siseo, el ventilador y el ruido de fondo constante. El más útil para micrófonos de portátil o auriculares sencillos.",
-        "noise_gate_filter": "Cierra el micrófono cuando el sonido baja de un umbral: corta el ruido entre frases.",
-        "expander_filter": "Baja los sonidos débiles (respiración, teclado de fondo) sin cortarlos del todo como la puerta de ruido.",
-        "upward_compressor_filter": "Sube las partes bajas de la voz y deja el volumen más uniforme.",
-        "basic_eq_filter": "Ajusta graves, medios y agudos de la voz.",
-        "gain_filter": "Sube o baja el volumen del micrófono.",
-        "compressor_filter": "Acerca el volumen de las partes fuertes y suaves de la voz.",
-        "limiter_filter": "Evita que los picos (risas, gritos) pasen del límite y distorsionen.",
-        "invert_polarity_filter": "Invierte la polaridad de la señal. Solo es útil en casos específicos con micrófonos combinados."
-      },
-      "level": "media {{rms}} dB · pico {{peak}} dB",
-      "testedWithout": "Ningún filtro activado: las dos versiones son iguales. Activa un filtro abajo — la versión con filtros se rehace al instante, sin grabar de nuevo.",
-      "howTo": "Pulsa Probar y habla unos segundos. Después activa, desactiva y ajusta los filtros como quieras: la versión con filtros se rehace al instante a partir del mismo fragmento, sin grabar de nuevo."
-    },
     "muteWhenDeviceMuted": {
       "label": "Silenciar la pista cuando el micrófono esté silenciado en Windows",
       "hint": "Mientras el micrófono esté silenciado en Windows, su pista se graba en silencio. Sirve para el botón de silencio de los auriculares, el silencio del sistema y las aplicaciones de llamadas que avisan a Windows al silenciar. El silencio hecho solo dentro de la aplicación, sin avisar a Windows, no se puede detectar: en esos casos el micrófono se sigue grabando."
@@ -773,7 +739,7 @@
   },
   "about": {
     "title": "Acerca de NoOBS",
-    "tagline": "Grabador de pantalla liviano con OBS Studio integrado",
+    "tagline": "Grabador de pantalla liviano, sin OBS",
     "intro1": "NoOBS nació de la frustración con la complejidad de OBS Studio — configurar escenas, fuentes y dispositivos en cada grabación.",
     "intro2": "La idea aquí es <b>simplicidad</b>: abrir, clic en Grabar, está grabando. Pantallas, cámara, micrófonos y audio del sistema se detectan y quedan listos automáticamente.",
     "intro3": "<b>Liviano, rápido, intuitivo</b> — un producto premium pensado para que tu grabación siempre funcione.",
@@ -795,12 +761,12 @@
       "<b>Contenedor MKV</b> — la grabación sobrevive a un corte de energía"
     ],
     "builtWith": [
-      "Delphi 12 (RAD Studio) — target Win64 nativo",
-      "libobs (núcleo de OBS Studio) — grabación, codificador y captura",
-      "FFmpeg — remux, extracción de pistas y miniaturas",
+      "Rust — target Win64 nativo",
+      "Direct3D 11 + Windows Graphics Capture + WASAPI — captura de pantalla, ventana, cámara y audio",
+      "FFmpeg — codificadores, MKV/MP4, remux, extracción de pistas y miniaturas",
       "WebView2 (Chromium) — interfaz HTML/CSS/JS"
     ],
-    "footer": "Software libre basado en OBS Studio (GPL v2+), FFmpeg (LGPL/GPL) y WebView2 de Microsoft.",
+    "footer": "Usa FFmpeg (LGPL/GPL) y WebView2 de Microsoft.",
     "close": "Cerrar"
   },
   "player": {
@@ -945,8 +911,6 @@
     "moveWhileRecording": "No se puede mover la grabación en curso.",
     "replayStartFailed": "No se pudo activar el búfer en memoria: {{error}}",
     "replaySaveFailed": "No se pudo guardar el fragmento del búfer.",
-    "replayIntoRecordingFailed": "No se pudo incluir lo que guardó el búfer. La grabación sigue, solo que sin ese fragmento.",
-    "replayIntoRecordingSplit": "No se pudo unir el fragmento del búfer con la grabación. Ambos se guardaron como archivos separados.",
     "replayHotkeyConflict": "El atajo del búfer no puede ser el mismo que el de iniciar/detener la grabación.",
     "exportBusyFile": "Esta grabación se está exportando ahora — espera a que termine o cancela la exportación.",
     "localAsr": {
@@ -985,9 +949,6 @@
     "noTrack": "Sin pista",
     "mixName": "Mezcla",
     "appAudio": "{{app}} (sonido de la app)",
-    "micsGroup": "Micrófonos ({{count}})",
-    "outputsGroup": "Salidas ({{count}})",
-    "groupedAudio": "Audio agrupado ({{count}})",
     "devicesGrouped_one": "{{count}} dispositivo agrupado",
     "devicesGrouped_other": "{{count}} dispositivos agrupados",
     "devicesDisabled_one": "{{count}} dispositivo deshabilitado",

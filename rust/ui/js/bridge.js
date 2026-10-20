@@ -109,8 +109,6 @@ const Bridge = {
       // Quadro do motor local: textos (e tamanhos formatados) em JS.
       try { LocalAsr.render(); } catch (e) {}
       try { Settings._fillTranscribeLangs(); } catch (e) {}
-      // Filtros de audio: os rotulos dos campos vem do plugin, no idioma novo.
-      try { AudioFilters.onLanguageChanged(); } catch (e) {}
       try { VideoTest.onLanguageChanged(); } catch (e) {}
       // Rótulos e dica da taxa do áudio também são montados em JS. Refaz
       // com o que está NA TELA, não o salvo: o modal pode estar aberto.
@@ -377,9 +375,6 @@ const Bridge = {
     area_state(data) { AreaCapture.applyState(data); },
     area_countdown(data) { AreaCapture.onCountdown(data && data.sec); },
     // Filtros de audio (aba Audio): lista inteira, um filtro so, e o teste A/B.
-    audio_filters(data)     { AudioFilters.apply(data); },
-    audio_filter(data)      { AudioFilters.applyOne(data); },
-    audio_filter_test(data) { AudioFilters.onTest(data); },
     video_test(data) { VideoTest.onState(data); },
     replay_saved(data) { Replay.onSaved(data); },
     replay_restarted() { Replay.onRestarted(); },

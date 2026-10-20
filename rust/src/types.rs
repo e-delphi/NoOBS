@@ -11,7 +11,7 @@ pub enum GpuVendor {
     Intel,
 }
 
-/// Classes de encoder disponíveis, detectadas via `obs_enum_encoder_types`.
+/// Encoders que a máquina tem (detectados abrindo e codificando um quadro).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct EncoderCaps {
     pub av1_hw: bool,
@@ -22,9 +22,9 @@ pub struct EncoderCaps {
     pub vendor: GpuVendor,
 }
 
-/// Dispositivo de áudio enumerado pelo libobs.
+/// Dispositivo de áudio (endpoint WASAPI).
 #[derive(Debug, Clone, Default)]
-pub struct ObsAudioDev {
+pub struct AudioDev {
     pub name: String,
     pub device_id: String,
 }
@@ -32,7 +32,7 @@ pub struct ObsAudioDev {
 /// Webcam DirectShow (porte de `TWebcamInfo` do `WinWebcam.pas`).
 #[derive(Debug, Clone, Default)]
 pub struct Webcam {
-    /// Moniker display name (passado ao OBS).
+    /// Moniker display name.
     pub device_id: String,
     /// Friendly name (mostrado na UI).
     pub name: String,

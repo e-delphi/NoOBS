@@ -1,10 +1,9 @@
-//! i18n (porte de `OBSLang.pas`): `lang\<code>.json` aninhado, chaves com
-//! ponto, interpolação `{{var}}`, fallback por `meta.fallback` e, no fim, `en`.
+//! i18n (porte de `OBSLang.pas`): `lang\<code>.json` (embutido no exe),
+//! aninhado, chaves com ponto, interpolação `{{var}}`, fallback por
+//! `meta.fallback` e, no fim, `en`.
 //! Chave inexistente devolve `[chave]` (sinalizador visual para o tradutor).
 
 use serde_json::{json, Value};
-use std::fs;
-use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use crate::{config, log};
@@ -25,23 +24,9 @@ fn state() -> &'static Mutex<State> {
     S.get_or_init(|| Mutex::new(State::default()))
 }
 
-/// `<ExeDir>\lang\` — única, em dev e em produção.
-pub fn lang_folder() -> PathBuf {
-    // Teste: o exe de teste mora em target\, longe do lang\ de verdade.
-    #[cfg(test)]
-    {
-        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("exe").join("bin").join("64bit").join("lang");
-    }
-    #[allow(unreachable_code)]
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("lang")))
-        .unwrap_or_else(|| PathBuf::from("lang"))
-}
-
+/// `lang\<code>.json`, embutido no exe (`assets`).
 fn read_bundle(code: &str) -> Option<Value> {
-    let path = lang_folder().join(format!("{code}.json"));
-    let text = fs::read_to_string(path).ok()?;
+    let text = std::str::from_utf8(crate::assets::lang_file(code)?).ok()?;
     serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
         .ok()
         .filter(Value::is_object)
@@ -71,14 +56,7 @@ pub fn load_language(code: &str) -> bool {
 
 /// Códigos disponíveis (nome do arquivo sem `.json`).
 fn available_codes() -> Vec<String> {
-    let Ok(rd) = fs::read_dir(lang_folder()) else { return Vec::new() };
-    let mut v: Vec<String> = rd
-        .filter_map(|e| e.ok())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter_map(|n| n.strip_suffix(".json").map(str::to_owned))
-        .collect();
-    v.sort();
-    v
+    crate::assets::lang_codes()
 }
 
 /// Match exato (`pt-BR`), depois por prefixo de 2 letras (`pt` → `pt-BR`),

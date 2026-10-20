@@ -30,7 +30,7 @@ if not defined MAKENSIS (
   exit /b 1
 )
 
-REM --- 2) Compila e poe o exe em exe\bin\64bit\ ---------------------------
+REM --- 2) Compila e poe o exe em exe\ ------------------------------------
 call "%~dp0build.bat"
 if errorlevel 1 exit /b 1
 

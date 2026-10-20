@@ -2,16 +2,15 @@
 //! nativa criada à mão, `WebView2Loader` via `webview2-com`, mesma lógica do
 //! Delphi.
 //!
-//! * a UI (`exe\bin\64bit\ui\`) é servida do DISCO por
-//!   `SetVirtualHostNameToFolderMapping` num origin `https://noobs.app` real —
-//!   não `NavigateToString` (origin opaco; a Notification API exige contexto
-//!   seguro). Pegadinha #16;
+//! * a UI vem embutida no exe e é servida de uma pasta extraída
+//!   (`assets::ui_dir`) por `SetVirtualHostNameToFolderMapping` num origin
+//!   `https://noobs.app` real — não `NavigateToString` (origin opaco; a
+//!   Notification API exige contexto seguro). Pegadinha #16;
 //! * loop `GetMessage`/`DispatchMessage` puro; o trabalho enfileirado por
 //!   workers é drenado em `WM_APP_WAKE` ([`crate::mainthread`], pegadinha #4);
 //! * a mesma ordem de arranque/encerramento do Delphi: COM → janela →
 //!   loop → `on_shutdown` (com o STA ainda vivo, pegadinha #31) →
-//!   `CoUninitialize` → `StopRtwq` (pegadinha #48). A RTWQ NÃO sobe no
-//!   arranque: só sob demanda, se outra coisa carregou a DLL (ver `rtwq`).
+//!   `CoUninitialize`.
 
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
@@ -40,7 +39,7 @@ use windows::Win32::UI::Shell::{ITaskbarList3, ShellExecuteW, TaskbarList};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::single_instance::{CLASS_NAME, MUTEX_NAME, SHOW_MSG_NAME};
-use crate::{bridge, config, elevate, hibernate, log, mainthread, record_icon, rtwq, startup_check, tray, win};
+use crate::{bridge, config, elevate, hibernate, log, mainthread, record_icon, startup_check, tray, win};
 
 /// Virtual host da UI. `https://` dá contexto seguro (Notification API) e
 /// faz as URLs relativas (`css/`, `js/`, logos) resolverem como num site.
@@ -233,18 +232,18 @@ pub fn unregister_global_hotkey(id: i32) {
     }
 }
 
-/// Só com a feature `obs-tests` (o executável de teste `tests/obs.rs`, fora do
+/// Só com a feature `app-tests` (o executável de teste `tests/obs.rs`, fora do
 /// app): uma janela ESCONDIDA, criada pelo teste, faz o papel da principal — os
 /// `set_timer` do Bridge disparam nela e as workers acordam a fila da main.
-#[cfg(feature = "obs-tests")]
+#[cfg(feature = "app-tests")]
 pub fn attach_headless_window(hwnd: HWND) {
     MAIN_HWND.store(hwnd.0 as isize, Ordering::SeqCst);
     mainthread::set_wake_window(hwnd);
 }
 
-/// Só com `obs-tests`: o `WM_TIMER` da janela do teste vai pro mesmo gancho do
+/// Só com `app-tests`: o `WM_TIMER` da janela do teste vai pro mesmo gancho do
 /// `window_proc` (o `on_timer` do Bridge).
-#[cfg(feature = "obs-tests")]
+#[cfg(feature = "app-tests")]
 pub fn dispatch_timer(id: usize) {
     if let Some(f) = hooks(|h| h.on_timer) {
         f(id);
@@ -574,13 +573,6 @@ fn on_tray_command(id: i32) {
 // WebView2
 // ---------------------------------------------------------------------------
 
-fn ui_folder() -> std::path::PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join("ui")))
-        .unwrap_or_else(|| "ui".into())
-}
-
 /// Liga o `AudioVideoTracks` do Chromium (`HTMLMediaElement.audioTracks`),
 /// que o player usa para desligar o áudio acima de 2× (pegadinha #61). Vai
 /// pela variável de ambiente lida na criação do ambiente, preservando o que
@@ -660,11 +652,7 @@ fn resize_webview(hwnd: HWND) {
 
 /// Mapeia a pasta da UI e navega para `https://noobs.app/index.html`.
 fn start_navigate(webview: &ICoreWebView2) {
-    let folder = ui_folder();
-    if !folder.is_dir() {
-        log!("StartNavigate: pasta UI \"{}\" não existe — abortando.", folder.display());
-        return;
-    }
+    let Some(folder) = crate::assets::ui_dir() else { return };
     log!("StartNavigate: UI folder=\"{}\".", folder.display());
     match webview.cast::<ICoreWebView2_3>() {
         Ok(wv3) => unsafe {
@@ -975,8 +963,8 @@ pub fn run() {
     let replay_auto_start = config::get_config_bool("replayAutoStart", false);
 
     // /autostart + closeToTray + hibernate: o Delphi respawna no modo
-    // hibernate (leve, sem libobs/WebView). EXCEÇÃO: replayAutoStart precisa
-    // do libobs vivo no boot (pegadinha #62) — a preferência é consultada
+    // hibernate (leve, sem motor/WebView). EXCEÇÃO: replayAutoStart precisa
+    // do motor vivo no boot (pegadinha #62) — a preferência é consultada
     // ANTES do desvio.
     if autostart && close_to_tray && config::get_config_bool("hibernate", true) && !replay_auto_start {
         log::log("OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra hibernate::run.");
@@ -985,7 +973,7 @@ pub fn run() {
         return;
     }
     if autostart && replay_auto_start {
-        log::log("OBSUI.Run: /autostart com buffer automatico ligado — subindo FULL escondido na bandeja (hibernacao nao tem libobs pra guardar).");
+        log::log("OBSUI.Run: /autostart com buffer automatico ligado — subindo FULL escondido na bandeja (hibernacao nao tem motor pra guardar).");
     }
     // /autostart: closeToTray ligado = bandeja; desligado = minimizado na
     // taskbar. Nenhum caso de autostart faz a janela "pular" no logon.
@@ -1042,10 +1030,6 @@ pub fn run() {
             return;
         }
 
-        // SEM RTWQ no arranque: com a RTWorkQ.dll fora do processo o win-wasapi
-        // usa a thread de captura, que não corrompe o heap ao destruir a fonte.
-        // Se outra coisa carregar a DLL, o engine sobe a plataforma antes da
-        // fonte (`rtwq::ensure_if_preloaded`, pegadinha #48).
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
@@ -1128,14 +1112,12 @@ pub fn run() {
             DispatchMessageW(&msg);
         }
 
-        // Cleanup AQUI, com o STA da main ainda vivo (pegadinha #31): o
-        // obs_shutdown precisa rodar na thread que chamou obs_startup.
+        // Cleanup AQUI, com o STA da main ainda vivo (pegadinha #31): objetos
+        // COM criados na main saem antes do CoUninitialize.
         if let Some(f) = hooks(|h| h.on_shutdown) {
             f();
         }
         release_thread_com();
         CoUninitialize();
-        // RTWQ por último, depois do obs_shutdown (pegadinha #48).
-        rtwq::stop_rtwq();
     }
 }

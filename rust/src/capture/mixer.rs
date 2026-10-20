@@ -1,7 +1,8 @@
 //! Mixer: a cada bloco de 1024 amostras do relógio, monta as faixas. Cada
-//! fonte tem uma máscara de faixas (bit 0 = faixa 1 = a mistura; os outros =
-//! isoladas), a mesma convenção do `audio_mixers` do OBS e do
-//! `audio_tracks::compute_audio_track_assignments`.
+//! fonte tem a LISTA das faixas em que entra (índice 0 = a mistura; os outros
+//! = isoladas, na ordem do `audio_tracks::compute_audio_track_assignments`).
+//! Lista e não máscara de bits: o número de faixas não tem teto (a libobs
+//! parava em 6, o `MAX_AUDIO_MIXES`).
 //!
 //! Referência: `libobs/obs-audio.c` (`audio_callback`/`mix_audio`) e
 //! `media-io/audio-io.c`. Sem a deduplicação de monitoramento nem o
@@ -18,8 +19,8 @@ pub const MIX_DELAY_NS: u64 = 150_000_000;
 /// Uma fonte e as faixas em que ela entra.
 pub struct MixInput {
     pub source: std::sync::Arc<dyn AudioSource>,
-    /// bit `i` = entra na faixa `i`.
-    pub tracks: u32,
+    /// Índices das faixas (0 = mistura) em que a fonte entra.
+    pub tracks: Vec<usize>,
 }
 
 pub struct AudioMixer {
@@ -48,7 +49,7 @@ impl AudioMixer {
 
     /// Mistura o bloco que começa em `t0_ns`: uma saída intercalada por faixa.
     /// Cada fonte é lida UMA vez (a leitura consome o anel) e somada em
-    /// todas as faixas da máscara dela.
+    /// todas as faixas dela.
     pub fn mix(&mut self, t0_ns: u64, out: &mut [Vec<f32>]) {
         for o in out.iter_mut() {
             o.clear();
@@ -57,11 +58,9 @@ impl AudioMixer {
         for input in &self.inputs {
             self.tmp.fill(0.0);
             input.source.mix_into(t0_ns, &mut self.tmp);
-            for (t, o) in out.iter_mut().enumerate().take(self.tracks) {
-                if input.tracks & (1 << t) != 0 {
-                    for (d, s) in o.iter_mut().zip(&self.tmp) {
-                        *d += *s;
-                    }
+            for &t in input.tracks.iter().filter(|&&t| t < self.tracks) {
+                for (d, s) in out[t].iter_mut().zip(&self.tmp) {
+                    *d += *s;
                 }
             }
         }
@@ -107,8 +106,8 @@ mod tests {
 
     #[test]
     fn mistura_e_isoladas() {
-        // Faixa 1 (bit 0) = mistura dos dois; faixa 2 = mic; faixa 3 = sistema.
-        let mut m = AudioMixer::new(vec![MixInput { source: src("mic", 0.25), tracks: 0b011 }, MixInput { source: src("sys", 0.5), tracks: 0b101 }], 3);
+        // Faixa 0 = mistura dos dois; faixa 1 = mic; faixa 2 = sistema.
+        let mut m = AudioMixer::new(vec![MixInput { source: src("mic", 0.25), tracks: vec![0, 1] }, MixInput { source: src("sys", 0.5), tracks: vec![0, 2] }], 3);
         let mut out = vec![Vec::new(), Vec::new(), Vec::new()];
         m.mix(0, &mut out);
         assert!(out[0].iter().all(|&s| s == 0.75));
@@ -119,7 +118,7 @@ mod tests {
 
     #[test]
     fn mudo_por_nome() {
-        let mut m = AudioMixer::new(vec![MixInput { source: src("mic", 0.25), tracks: 0b1 }, MixInput { source: src("sys", 0.5), tracks: 0b1 }], 1);
+        let mut m = AudioMixer::new(vec![MixInput { source: src("mic", 0.25), tracks: vec![0] }, MixInput { source: src("sys", 0.5), tracks: vec![0] }], 1);
         assert!(m.set_muted("mic", true));
         assert!(!m.set_muted("nada", true));
         let mut out = vec![Vec::new()];

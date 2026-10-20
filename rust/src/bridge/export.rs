@@ -112,22 +112,6 @@ fn make_export_path(src_path: &str, base_name: &str, ext: &str) -> PathBuf {
     cand
 }
 
-/// Selo de codec do arquivo EXPORTADO. O `describe_encoder_id` é para os IDs do
-/// libobs; aqui o nome é do libavcodec, onde "software" é o prefixo `lib`.
-fn describe_export_encoder(name: &str) -> (&'static str, bool) {
-    let n = name.to_lowercase();
-    let family = if n.contains("av1") {
-        "AV1"
-    } else if n.contains("hevc") || n.contains("265") {
-        "HEVC"
-    } else if n.contains("264") {
-        "H.264"
-    } else {
-        ""
-    };
-    (family, !n.starts_with("lib"))
-}
-
 /// Turnos da transcrição para a legenda queimada: só tempo e texto, lidos do
 /// cache — nunca da UI. `<hash>.transcript.json`.
 fn load_caption_turns(path: &str) -> Vec<CaptionTurn> {
@@ -169,7 +153,7 @@ pub fn handle_export_recording(msg: &Value) {
         post_error(lang::t("error.exportBusy"));
         return;
     }
-    // Durante a gravação o libobs já disputa CPU/GPU — mesma lógica que bloqueia
+    // Durante a gravação a captura já disputa CPU/GPU — mesma lógica que bloqueia
     // trocar monitor gravando.
     if recording_active() {
         fail("error.exportWhileRecording");
@@ -322,7 +306,7 @@ pub fn handle_export_recording(msg: &Value) {
                 out_meta.layout = l;
             }
         }
-        let (family, hw) = describe_export_encoder(&opts.encoder_name);
+        let (family, hw) = crate::encoder::describe_encoder_id(&opts.encoder_name);
         out_meta.codec = family.to_owned();
         out_meta.codec_hw = hw;
         out_meta.fps = opts.target_fps;
@@ -521,15 +505,6 @@ fn copy_file_times(from: &str, to: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn selo_do_encoder_exportado() {
-        assert_eq!(describe_export_encoder("libx264"), ("H.264", false));
-        assert_eq!(describe_export_encoder("hevc_nvenc"), ("HEVC", true));
-        assert_eq!(describe_export_encoder("av1_amf"), ("AV1", true));
-        // 'libsvtav1' é AV1 por SOFTWARE (o describe_encoder_id do libobs marcaria hw).
-        assert_eq!(describe_export_encoder("libsvtav1"), ("AV1", false));
-    }
 
     #[test]
     fn arrays_de_inteiros_da_ui() {

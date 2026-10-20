@@ -59,9 +59,9 @@ fn test_dir() -> PathBuf {
     d
 }
 
-/// ID do encoder da libobs → vocabulário do app (`av1-hw`, `h264-sw`…), que é
-/// o que o `resolve_export_encoder` entende. Pela família do nome.
-fn app_codec_from_obs_encoder(id: &str) -> &'static str {
+/// Nome do encoder que gravou → vocabulário do app (`av1-hw`, `h264-sw`…),
+/// que é o que o `resolve_export_encoder` entende. Pela família do nome.
+fn app_codec_from_encoder(id: &str) -> &'static str {
     match encoder::describe_encoder_id(id) {
         ("AV1", true) => "av1-hw",
         ("AV1", false) => "av1-sw",
@@ -106,8 +106,7 @@ pub fn handle_test_video_quality() {
         push_state("error", &lang::t("settings.videoTest.busy"), -1, 0.0);
         return;
     }
-    // O motor de pé (libobs ou o próprio) — não os filtros de áudio, que só a
-    // libobs tem.
+    // O motor de pé (encoders detectados).
     engine::ensure_created();
     if let Err(e) = recording::with_engine_result(|e| e.ensure_initialized()) {
         log!("VideoTest: motor nao subiu: {e}");
@@ -207,7 +206,7 @@ pub fn on_recorded(output_path: &str) {
         return;
     }
     let enc_id = engine::with_engine(|e| e.video_encoder_id().to_owned()).unwrap_or_default();
-    let enc_name = resolve_export_encoder(app_codec_from_obs_encoder(&enc_id), &recording::last_encoder_caps().unwrap_or_default());
+    let enc_name = resolve_export_encoder(app_codec_from_encoder(&enc_id), &recording::last_encoder_caps().unwrap_or_default());
     let cur_level = encoder::recording_quality_level();
     let ref_size = std::fs::metadata(&ref_path).map(|m| m.len()).unwrap_or(0);
     log!("VideoTest: amostra pronta ({enc_id}, {ref_size} bytes); niveis via {enc_name}.");
@@ -336,10 +335,10 @@ mod tests {
 
     #[test]
     fn codec_do_app_pela_familia() {
-        assert_eq!(app_codec_from_obs_encoder("av1_texture_amf"), "av1-hw");
-        assert_eq!(app_codec_from_obs_encoder("ffmpeg_svt_av1"), "av1-sw");
-        assert_eq!(app_codec_from_obs_encoder("obs_nvenc_hevc_tex"), "hevc-hw");
-        assert_eq!(app_codec_from_obs_encoder("h264_texture_amf"), "h264-hw");
-        assert_eq!(app_codec_from_obs_encoder("obs_x264"), "h264-sw");
+        assert_eq!(app_codec_from_encoder("av1_amf"), "av1-hw");
+        assert_eq!(app_codec_from_encoder("libsvtav1"), "av1-sw");
+        assert_eq!(app_codec_from_encoder("hevc_nvenc"), "hevc-hw");
+        assert_eq!(app_codec_from_encoder("h264_amf"), "h264-hw");
+        assert_eq!(app_codec_from_encoder("libx264"), "h264-sw");
     }
 }

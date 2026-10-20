@@ -57,12 +57,12 @@ pub struct SourceSpec {
     pub dest: Option<Rect>,
 }
 
-/// Uma fonte de áudio e as faixas em que ela entra (bit 0 = faixa 1 = mistura).
+/// Uma fonte de áudio e as faixas em que ela entra (índice 0 = a mistura).
 #[derive(Debug, Clone)]
 pub struct AudioInputSpec {
     pub name: String,
     pub device: AudioDevice,
-    pub tracks: u32,
+    pub tracks: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,7 +204,7 @@ impl Session {
                     Ok(s) => {
                         let s: Arc<dyn AudioSource> = Arc::new(s);
                         audio_sources.push(s.clone());
-                        inputs.push(MixInput { source: s, tracks: i.tracks });
+                        inputs.push(MixInput { source: s, tracks: i.tracks.clone() });
                     }
                     Err(e) => log!("Captura: fonte de audio \"{}\" fora da gravacao: {e}", i.name),
                 }

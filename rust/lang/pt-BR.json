@@ -7,7 +7,7 @@
   },
   "app": {
     "title": "NoOBS",
-    "tagline": "Gravador de tela leve com OBS Studio embarcado"
+    "tagline": "Gravador de tela leve, sem OBS"
   },
   "header": {
     "settings": "Configurações",
@@ -65,8 +65,7 @@
     "restartedBody": "O buffer recomeçou com as novas configurações de gravação. O que estava guardado foi descartado.",
     "savedBody": "{{name}} — {{dur}}",
     "hotkeyConflict": "Esse atalho já é o de iniciar/parar a gravação. Escolha outra combinação.",
-    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})",
-    "prefixFileSuffix": "buffer"
+    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capturar...",
@@ -564,39 +563,6 @@
       "busyRecord": "Aguarde o teste de qualidade terminar de gravar a amostra.",
       "failed": "Não foi possível fazer o teste de qualidade. Veja o log para detalhes."
     },
-    "audioFilters": {
-      "label": "Filtros do microfone",
-      "hint": "Tratam o som dos microfones antes de ele entrar na gravação e no buffer. O som do sistema não passa por eles. Valem a partir da próxima gravação.",
-      "loading": "Carregando filtros…",
-      "unavailable": "Filtros indisponíveis: o plugin obs-filters não foi encontrado na instalação.",
-      "noneOn": "Nenhum filtro ligado.",
-      "nOn": "{{count}} filtro(s) ligado(s).",
-      "showSettings": "Ajustes",
-      "hideSettings": "Fechar ajustes",
-      "reset": "Restaurar padrão",
-      "test": "Testar ({{sec}} s)",
-      "testing": "Gravando… fale no microfone ({{sec}} s)",
-      "compare": "Versão com {{count}} filtro(s). Mude qualquer filtro e ela é refeita na hora — alterne entre Original e Com filtros no mesmo ponto. A diferença aparece mais na média: os picos são a sua voz.",
-      "testFailed": "Não foi possível abrir o microfone para o teste.",
-      "micDefault": "{{name}} (padrão do Windows)",
-      "original": "Original",
-      "filtered": "Com filtros",
-      "silence": "silêncio",
-      "desc": {
-        "noise_suppress_filter_v2": "Remove chiado, ventilador e ruído de fundo constante. O mais útil para microfone de notebook ou headset simples.",
-        "noise_gate_filter": "Fecha o microfone quando o som fica abaixo de um limite: corta o ruído entre as falas.",
-        "expander_filter": "Abaixa os sons fracos (respiração, teclado ao fundo) sem cortar de vez como a porta de ruído.",
-        "upward_compressor_filter": "Sobe os trechos baixos da fala, deixando o volume mais uniforme.",
-        "basic_eq_filter": "Ajusta graves, médios e agudos da voz.",
-        "gain_filter": "Aumenta ou diminui o volume do microfone.",
-        "compressor_filter": "Aproxima o volume dos trechos altos e baixos da fala.",
-        "limiter_filter": "Impede que picos (risada, grito) passem do limite e distorçam.",
-        "invert_polarity_filter": "Inverte a polaridade do sinal. Só é útil em casos específicos de microfones combinados."
-      },
-      "level": "média {{rms}} dB · pico {{peak}} dB",
-      "testedWithout": "Nenhum filtro ligado: as duas versões estão iguais. Ligue um filtro abaixo — a versão com filtros é refeita na hora, sem gravar de novo.",
-      "howTo": "Aperte Testar e fale por alguns segundos. Depois ligue, desligue e ajuste os filtros à vontade: a versão com filtros é refeita na hora a partir do mesmo trecho, sem gravar de novo."
-    },
     "muteWhenDeviceMuted": {
       "label": "Silenciar a faixa quando o microfone estiver mudo no Windows",
       "hint": "Enquanto o microfone estiver mudo no Windows, a faixa dele sai em silêncio na gravação. Vale para o botão de mudo do fone, o mudo do sistema e os aplicativos de chamada que avisam o Windows ao mutar. O mudo feito só dentro do aplicativo, sem avisar o Windows, não é detectável — nesses casos o microfone continua sendo gravado."
@@ -773,7 +739,7 @@
   },
   "about": {
     "title": "Sobre o NoOBS",
-    "tagline": "Gravador de tela leve com OBS Studio embarcado",
+    "tagline": "Gravador de tela leve, sem OBS",
     "intro1": "O NoOBS nasceu da frustração com a complexidade do OBS Studio — configurar cenas, fontes e dispositivos a cada gravação.",
     "intro2": "A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar, está gravando. Telas, webcam, microfones e áudio do sistema são detectados e ficam prontos automaticamente.",
     "intro3": "<b>Leve, rápido, intuitivo</b> — um produto premium pensado pra que sua gravação sempre funcione.",
@@ -795,12 +761,12 @@
       "<b>Container MKV</b> — a gravação sobrevive a queda de energia"
     ],
     "builtWith": [
-      "Delphi 12 (RAD Studio) — target Win64 nativo",
-      "libobs (OBS Studio core) — gravação, encoder e captura",
-      "FFmpeg — remux, extração de faixas e thumbnails",
+      "Rust — target Win64 nativo",
+      "Direct3D 11 + Windows Graphics Capture + WASAPI — captura de tela, janela, webcam e áudio",
+      "FFmpeg — encoders, MKV/MP4, remux, extração de faixas e thumbnails",
       "WebView2 (Chromium) — interface HTML/CSS/JS"
     ],
-    "footer": "Software livre baseado em OBS Studio (GPL v2+), FFmpeg (LGPL/GPL) e WebView2 da Microsoft.",
+    "footer": "Usa o FFmpeg (LGPL/GPL) e o WebView2 da Microsoft.",
     "close": "Fechar"
   },
   "player": {
@@ -945,8 +911,6 @@
     "moveWhileRecording": "Não dá pra mover a gravação que está em andamento.",
     "replayStartFailed": "Não foi possível ligar o buffer em memória: {{error}}",
     "replaySaveFailed": "Não foi possível salvar o trecho do buffer.",
-    "replayIntoRecordingFailed": "Não foi possível incluir o que o buffer guardou. A gravação continua, só sem esse trecho.",
-    "replayIntoRecordingSplit": "Não foi possível juntar o trecho do buffer com a gravação. Os dois ficaram salvos como arquivos separados.",
     "replayHotkeyConflict": "O atalho do buffer não pode ser o mesmo de iniciar/parar a gravação.",
     "exportBusyFile": "Esta gravação está sendo exportada agora — espere terminar ou cancele a exportação.",
     "localAsr": {
@@ -985,9 +949,6 @@
     "noTrack": "Sem faixa",
     "mixName": "Mix",
     "appAudio": "{{app}} (som do app)",
-    "micsGroup": "Microfones ({{count}})",
-    "outputsGroup": "Saídas ({{count}})",
-    "groupedAudio": "Áudio agrupado ({{count}})",
     "devicesGrouped_one": "{{count}} dispositivo agrupado",
     "devicesGrouped_other": "{{count}} dispositivos agrupados",
     "devicesDisabled_one": "{{count}} dispositivo desabilitado",

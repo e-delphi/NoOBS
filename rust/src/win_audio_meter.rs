@@ -1,7 +1,7 @@
 //! Dispositivos de áudio (mics e saídas) via WASAPI/MMDevice e pico por
 //! dispositivo via `IAudioMeterInformation` (porte de `WinAudioMeter.pas`).
 //! Substitui o evento `InputVolumeMeters` do OBS: a UI funciona inteira sem o
-//! libobs vivo.
+//! motor de captura de pé.
 //!
 //! Pegadinhas que seguem valendo:
 //! * #12 — o pico de um endpoint de CAPTURA é 0 sem uma sessão aberta: o
@@ -37,7 +37,7 @@ pub enum DeviceKind {
 
 #[derive(Debug, Clone)]
 pub struct AudioDeviceInfo {
-    /// Id único do MMDevice (o mesmo que o libobs usa em `device_id`).
+    /// Id único do MMDevice (o mesmo que a captura WASAPI abre).
     pub device_id: String,
     /// Nome amigável.
     pub name: String,

@@ -273,8 +273,8 @@ Section "NoOBS" SecMain
 
     ; Layout ANTIGO (com a libobs): exe em bin\64bit\, ao lado da obs.dll,
     ; mais data\ e obs-plugins\. Nada disso e usado mais — sai antes de
-    ; copiar o novo. A UI extraida de uma versao anterior (ui\, cache) tambem:
-    ; o app a recria com o conteudo da versao nova.
+    ; copiar o novo. A UI extraida por uma versao anterior (ui\) tambem: hoje
+    ; o app serve a interface da memoria e nao usa mais essa pasta.
     RMDir /r "$INSTDIR\bin"
     RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\obs-plugins"

@@ -7,9 +7,7 @@
 //    desenvolvimento (não checa atualização).
 // 3. Embute a UI (`ui\`) e as traduções (`lang\`) no exe: o runtime é só o
 //    NoOBS.exe e as DLLs do FFmpeg. Gera `assets.rs` no OUT_DIR com a lista
-//    (caminho relativo, bytes) e um hash do conteúdo — a UI é extraída numa
-//    pasta com esse nome (`assets::ui_dir`), então uma UI nova nunca é servida
-//    da pasta da anterior.
+//    (caminho relativo, bytes); o app serve tudo da memória (`assets.rs`).
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,17 +24,8 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
     }
 }
 
-/// FNV-1a 64: estável entre builds (o `DefaultHasher` não promete isso).
-fn fnv(h: &mut u64, bytes: &[u8]) {
-    for b in bytes {
-        *h ^= *b as u64;
-        *h = h.wrapping_mul(0x100000001b3);
-    }
-}
-
 fn embed_assets() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let mut hash = 0xcbf29ce484222325u64;
     let mut code = String::new();
     for (name, var) in [("ui", "UI_FILES"), ("lang", "LANG_FILES")] {
         let root = manifest.join(name);
@@ -46,13 +35,10 @@ fn embed_assets() {
         code += &format!("pub static {var}: &[(&str, &[u8])] = &[\n");
         for (rel, path) in files {
             println!("cargo:rerun-if-changed={}", path.display());
-            fnv(&mut hash, rel.as_bytes());
-            fnv(&mut hash, &std::fs::read(&path).unwrap());
             code += &format!("    ({rel:?}, include_bytes!({:?})),\n", path.display().to_string());
         }
         code += "];\n";
     }
-    code += &format!("pub const ASSETS_HASH: &str = \"{hash:016x}\";\n");
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("assets.rs");
     std::fs::write(out, code).unwrap();
 }

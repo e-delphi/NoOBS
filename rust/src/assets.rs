@@ -1,14 +1,9 @@
 //! UI e traduções EMBUTIDAS no exe (geradas pelo `build.rs` a partir de
 //! `rust\ui\` e `rust\lang\`): o runtime é só o NoOBS.exe e as DLLs do FFmpeg.
-//!
-//! As traduções são lidas direto da memória. A UI não: o WebView2 só serve um
-//! origin `https://` real a partir de uma PASTA (`SetVirtualHostNameToFolderMapping`,
-//! pegadinha #16), então ela é extraída uma vez em
-//! `%LOCALAPPDATA%\NoOBS\ui\<hash do conteúdo>\` — UI nova = pasta nova, nunca
-//! um arquivo velho servido no meio de uma versão nova. As pastas de versões
-//! anteriores são apagadas na extração.
+//! Nada é extraído pro disco: as traduções são lidas da memória, e a UI é
+//! servida da memória pro WebView2 (`ui::start_navigate`, `WebResourceRequested`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::log;
 
@@ -27,58 +22,29 @@ pub fn lang_codes() -> Vec<String> {
     v
 }
 
-fn ui_root() -> PathBuf {
-    let base = std::env::var("LOCALAPPDATA").or_else(|_| std::env::var("APPDATA")).unwrap_or_else(|_| ".".into());
-    Path::new(&base).join("NoOBS").join("ui")
+/// Um arquivo da UI pelo caminho relativo (`index.html`, `js/main.js`).
+pub fn ui_file(path: &str) -> Option<&'static [u8]> {
+    UI_FILES.iter().find(|(n, _)| *n == path).map(|(_, b)| *b)
 }
 
-/// Escreve a UI inteira numa pasta temporária e a renomeia pro nome final:
-/// duas instâncias (full + hibernação promovendo) nunca veem uma pasta pela
-/// metade.
-fn extract_to(dir: &Path) -> std::io::Result<()> {
-    let tmp = dir.with_extension(format!("tmp{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    for (rel, bytes) in UI_FILES {
-        let p = tmp.join(rel);
-        if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&p, bytes)?;
-    }
-    match std::fs::rename(&tmp, dir) {
-        Ok(()) => Ok(()),
-        // Outra instância extraiu antes: vale a dela.
-        Err(_) if dir.join("index.html").is_file() => {
-            let _ = std::fs::remove_dir_all(&tmp);
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+pub fn ui_file_count() -> usize {
+    UI_FILES.len()
 }
 
-/// Pasta da UI desta versão, extraída se ainda não existe. `None` se não
-/// deu pra escrever (disco cheio, permissão) — a janela abre em branco e o
-/// log diz por quê.
-pub fn ui_dir() -> Option<PathBuf> {
-    let root = ui_root();
-    let dir = root.join(ASSETS_HASH);
-    if !dir.join("index.html").is_file() {
-        if let Err(e) = std::fs::create_dir_all(&root).and_then(|()| extract_to(&dir)) {
-            log!("UI: nao consegui extrair a interface em \"{}\": {e}", dir.display());
-            return None;
-        }
-        log!("UI: interface extraida em \"{}\" ({} arquivos).", dir.display(), UI_FILES.len());
-        // Versões anteriores: ninguém mais serve delas. (A extração em curso de
-        // outra instância começa com o mesmo hash e fica.)
-        if let Ok(rd) = std::fs::read_dir(&root) {
-            for e in rd.flatten() {
-                if !e.file_name().to_string_lossy().starts_with(ASSETS_HASH) {
-                    let _ = std::fs::remove_dir_all(e.path());
-                }
-            }
+/// Versões anteriores extraíam a UI em `%LOCALAPPDATA%\NoOBS\ui\`; a pasta
+/// não é mais usada. Apagada no arranque (o instalador também a apaga).
+pub fn remove_old_ui_folder() {
+    let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    if base.is_empty() {
+        return;
+    }
+    let dir = Path::new(&base).join("NoOBS").join("ui");
+    if dir.is_dir() {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => log!("UI: pasta antiga da interface extraida apagada ({}).", dir.display()),
+            Err(e) => log!("UI: nao consegui apagar a pasta antiga \"{}\": {e}", dir.display()),
         }
     }
-    Some(dir)
 }
 
 #[cfg(test)]
@@ -91,5 +57,7 @@ mod tests {
         assert!(UI_FILES.iter().any(|(n, _)| n.starts_with("js/")));
         assert_eq!(lang_codes(), ["en", "es", "pt-BR"]);
         assert!(lang_file("pt-br").is_some());
+        assert!(ui_file("index.html").is_some_and(|b| b.starts_with(b"<!")));
+        assert!(ui_file("nada.js").is_none());
     }
 }

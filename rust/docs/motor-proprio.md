@@ -314,9 +314,13 @@ antigo, no caminho dela); com o motor próprio o mesmo par de cenários passa.
   `obs.dll`, `libobs-d3d11`, `w32-pthreads`, plugins, `data\`, Qt
   (`platforms\`, `styles\`…), `avfilter`/`avdevice`, `libcurl`,
   `datachannel`. A UI (`rust\ui\`) e as traduções (`rust\lang\`) vão dentro
-  do exe (`build.rs` gera a lista; `assets.rs` serve): as traduções da
-  memória, a UI extraída uma vez em `%LOCALAPPDATA%\NoOBS\ui\<hash>\` — o
-  WebView2 só mapeia um origin `https://` real a partir de uma PASTA (#16).
+  do exe (`build.rs` gera a lista; `assets.rs` serve), as duas da memória:
+  a UI pelo `WebResourceRequested` do WebView2, que intercepta
+  `https://noobs.app/*` e responde com os bytes do exe (`SHCreateMemStream`)
+  — mesmo origin de antes (o `localStorage` da página continua valendo). A
+  1ª versão sem libobs extraía a UI em `%LOCALAPPDATA%\NoOBS\ui\<hash>\` por
+  achar que só o mapeamento de PASTA dava origin `https://`; não era
+  verdade, e a pasta é apagada no arranque.
 - **Instalador**: o app vai pra `$INSTDIR\bin\` (só o exe e as DLLs) e a
   instalação apaga o `bin\64bit\`, o `data\` e o `obs-plugins\` antigos.
 - **Testes**: a feature virou `app-tests`; `tests/obs.rs` virou

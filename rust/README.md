@@ -40,10 +40,11 @@ exe\NoOBS.exe
   (`swresample-5`, `libx264-164`, `zlib`, `srt`, `librist`). Nada de
   `obs.dll`, plugins, `data\` ou pastas ao lado (47 MB, eram 81).
 - **A UI e as traduções vão dentro do exe** (`build.rs` → `assets.rs`). As
-  traduções são lidas da memória; a UI é extraída uma vez em
-  `%LOCALAPPDATA%\NoOBS\ui\<hash do conteúdo>\`, porque o WebView2 só serve
-  um origin `https://` real a partir de uma pasta (pegadinha #16). Editar a
-  UI pede `cargo build` (o `build.rs` vigia `ui\` e `lang\`).
+  traduções são lidas da memória, e a UI também: o WebView2 pede cada arquivo
+  de `https://noobs.app/*` e o app responde com os bytes do exe
+  (`WebResourceRequested` em `ui::start_navigate`) — origin `https://` real
+  (pegadinha #16), nada escrito no disco. Editar a UI pede `cargo build` (o
+  `build.rs` vigia `ui\` e `lang\`).
 - **Sem `WebView2Loader.dll`**: no alvo MSVC o `webview2-com-sys` liga o
   `WebView2LoaderStatic.lib`, então o loader já vai dentro do exe.
 - **No git**: código, `ui\`, `lang\`, scripts, `installer.nsi`, `icon.ico`.

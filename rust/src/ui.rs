@@ -2,10 +2,9 @@
 //! nativa criada à mão, `WebView2Loader` via `webview2-com`, mesma lógica do
 //! Delphi.
 //!
-//! * a UI vem embutida no exe e é servida de uma pasta extraída
-//!   (`assets::ui_dir`) por `SetVirtualHostNameToFolderMapping` num origin
-//!   `https://noobs.app` real — não `NavigateToString` (origin opaco; a
-//!   Notification API exige contexto seguro). Pegadinha #16;
+//! * a UI vem embutida no exe e é servida DA MEMÓRIA pelo `WebResourceRequested`
+//!   num origin `https://noobs.app` real — não `NavigateToString` (origin
+//!   opaco; a Notification API exige contexto seguro). Pegadinha #16;
 //! * loop `GetMessage`/`DispatchMessage` puro; o trabalho enfileirado por
 //!   workers é drenado em `WM_APP_WAKE` ([`crate::mainthread`], pegadinha #4);
 //! * a mesma ordem de arranque/encerramento do Delphi: COM → janela →
@@ -20,6 +19,7 @@ use webview2_com::{
     take_pwstr, CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
     CreateCoreWebView2EnvironmentCompletedHandler, NavigationStartingEventHandler,
     NewWindowRequestedEventHandler, PermissionRequestedEventHandler, WebMessageReceivedEventHandler,
+    WebResourceRequestedEventHandler,
 };
 use windows::core::{w, Interface, BOOL, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, COLORREF, E_FAIL, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
@@ -650,27 +650,86 @@ fn resize_webview(hwnd: HWND) {
     });
 }
 
-/// Mapeia a pasta da UI e navega para `https://noobs.app/index.html`.
-fn start_navigate(webview: &ICoreWebView2) {
-    let Some(folder) = crate::assets::ui_dir() else { return };
-    log!("StartNavigate: UI folder=\"{}\".", folder.display());
-    match webview.cast::<ICoreWebView2_3>() {
-        Ok(wv3) => unsafe {
-            let hr = wv3.SetVirtualHostNameToFolderMapping(
-                &HSTRING::from(UI_HOST),
-                &HSTRING::from(folder.to_string_lossy().as_ref()),
-                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW,
-            );
-            log!("StartNavigate: SetVirtualHostNameToFolderMapping UI HR={hr:?}");
-        },
-        Err(_) => log::log("UI: ICoreWebView2_3 indisponível — Notification API pode não funcionar."),
+/// Tipo do arquivo da UI pela extensão (só o que existe em `rust\ui\`).
+fn mime_of(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "png" => "image/png",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
     }
+}
+
+/// Caminho relativo do arquivo da UI pedido em `https://noobs.app/...`
+/// (sem query/fragmento; a raiz é o `index.html`).
+fn ui_path_of(uri: &str) -> Option<&str> {
+    let rest = uri.strip_prefix(&format!("https://{UI_HOST}/")).or_else(|| (uri == format!("https://{UI_HOST}")).then_some(""))?;
+    let path = rest.split(['?', '#']).next().unwrap_or("");
+    Some(if path.is_empty() { "index.html" } else { path })
+}
+
+/// Responde um pedido da página com o arquivo embutido no exe (`assets`).
+/// `SHCreateMemStream` copia os bytes num stream próprio, que o WebView2 lê
+/// quando quiser — nada aponta pra memória nossa depois daqui.
+fn serve_ui_request(env: &ICoreWebView2Environment, args: &ICoreWebView2WebResourceRequestedEventArgs) -> windows::core::Result<()> {
     unsafe {
+        let req = args.Request()?;
+        let mut p = PWSTR::null();
+        req.Uri(&mut p)?;
+        let uri = take_pwstr(p);
+        let Some(path) = ui_path_of(&uri) else { return Ok(()) };
+        let (status, reason, body, mime) = match crate::assets::ui_file(path) {
+            Some(b) => (200, "OK", b, mime_of(path)),
+            None => {
+                // O Chromium pede o favicon sozinho; a página não tem um.
+                if path != "favicon.ico" {
+                    log!("UI: \"{path}\" nao existe na interface embutida (404).");
+                }
+                (404, "Not Found", &[][..], "text/plain")
+            }
+        };
+        let stream = windows::Win32::UI::Shell::SHCreateMemStream(Some(body));
+        // no-cache: o WebView2 guarda o cache por origin entre versões; com o
+        // conteúdo vindo do exe, uma versão nova tem que valer na hora.
+        let headers = format!("Content-Type: {mime}\r\nCache-Control: no-cache");
+        let resp = env.CreateWebResourceResponse(stream.as_ref(), status, &HSTRING::from(reason), &HSTRING::from(headers))?;
+        args.SetResponse(&resp)
+    }
+}
+
+/// Liga o servidor da UI em memória e navega para `https://noobs.app/index.html`.
+fn start_navigate(webview: &ICoreWebView2, env: &ICoreWebView2Environment) {
+    let env = env.clone();
+    let h = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+        if let Some(args) = args {
+            if let Err(e) = serve_ui_request(&env, &args) {
+                log!("UI: falha ao servir um arquivo da interface: {e}");
+            }
+        }
+        Ok(())
+    }));
+    let mut token = Default::default();
+    let filtro = HSTRING::from(format!("https://{UI_HOST}/*"));
+    unsafe {
+        if let Err(e) = webview.AddWebResourceRequestedFilter(&filtro, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL) {
+            log!("StartNavigate: AddWebResourceRequestedFilter falhou: {e}");
+            return;
+        }
+        if let Err(e) = webview.add_WebResourceRequested(&h, &mut token) {
+            log!("StartNavigate: add_WebResourceRequested falhou: {e}");
+            return;
+        }
+        log!("StartNavigate: interface servida da memoria ({} arquivos).", crate::assets::ui_file_count());
         let _ = webview.Navigate(&HSTRING::from(format!("https://{UI_HOST}/index.html")));
     }
 }
 
-fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windows::core::Result<()> {
+fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller, env: &ICoreWebView2Environment) -> windows::core::Result<()> {
     let webview = unsafe { controller.CoreWebView2()? };
 
     unsafe {
@@ -756,7 +815,7 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller) -> windo
     WEB.with(|w| *w.borrow_mut() = Some(WebState { controller, webview: webview.clone() }));
     WEB_READY.with(|r| r.set(true));
     resize_webview(hwnd);
-    start_navigate(&webview);
+    start_navigate(&webview, env);
 
     // Início escondido: a janela estava off-screen como tool window só para o
     // WebView2 inicializar. Agora termina num dos dois estados.
@@ -802,11 +861,12 @@ fn create_webview(hwnd: HWND) {
         log!("TEnvironmentHandler: err={err:?} env={}", env.is_some());
         err?;
         let env = env.ok_or_else(|| windows::core::Error::from(E_FAIL))?;
+        let env_ui = env.clone();
         let ctrl_handler = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |err, controller| {
             log!("TControllerHandler: err={err:?} controller={}", controller.is_some());
             err?;
             let controller = controller.ok_or_else(|| windows::core::Error::from(E_FAIL))?;
-            on_controller_ready(hwnd, controller)
+            on_controller_ready(hwnd, controller, &env_ui)
         }));
         unsafe { env.CreateCoreWebView2Controller(hwnd, &ctrl_handler) }
     }));
@@ -1029,6 +1089,7 @@ pub fn run() {
         if !startup_check::enforce_runtime() {
             return;
         }
+        crate::assets::remove_old_ui_folder();
 
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok();
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -1119,5 +1180,21 @@ pub fn run() {
         }
         release_thread_com();
         CoUninitialize();
+    }
+}
+
+#[cfg(test)]
+mod tests_ui_files {
+    use super::*;
+
+    #[test]
+    fn caminho_do_arquivo_pedido() {
+        assert_eq!(ui_path_of("https://noobs.app/index.html"), Some("index.html"));
+        assert_eq!(ui_path_of("https://noobs.app/"), Some("index.html"));
+        assert_eq!(ui_path_of("https://noobs.app"), Some("index.html"));
+        assert_eq!(ui_path_of("https://noobs.app/js/main.js?v=2#x"), Some("js/main.js"));
+        assert_eq!(ui_path_of("http://127.0.0.1:5000/v/abc"), None);
+        assert_eq!(mime_of("css/base.css"), "text/css; charset=utf-8");
+        assert_eq!(mime_of("amd.png"), "image/png");
     }
 }

@@ -41,11 +41,7 @@
     "resume": "Reanudar grabación",
     "statusPaused": "En pausa",
     "pauseFailed": "No se pudo pausar ahora. Inténtalo de nuevo en un segundo.",
-    "pausedNotify": "Grabación en pausa",
-    "resumedNotify": "Grabación reanudada",
     "recordingFor": "Grabando por {{time}}",
-    "started": "Grabación iniciada.",
-    "finished": "Grabación finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilita al menos un dispositivo (monitor, cámara web, micrófono o altavoz) para iniciar la grabación.",
     "finalizing": "Finalizando grabación...",
     "sizeHint": "Tamaño ya grabado",
@@ -64,8 +60,7 @@
     "saved": "Fragmento guardado",
     "restarted": "Búfer reiniciado",
     "restartedBody": "El búfer empezó de nuevo con la nueva configuración de grabación. Lo que tenía guardado se descartó.",
-    "savedBody": "{{name}} — {{dur}}",
-    "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})"
+    "savedBody": "{{name}} — {{dur}}"
   },
   "windowPicker": {
     "button": "Capturar...",
@@ -435,13 +430,18 @@
     },
     "runAsAdmin": {
       "label": "Abrir como administrador",
-      "hint": "Necesario para que el atajo funcione en juegos que se ejecutan como administrador (p. ej., GTA V). Windows pide confirmación al abrir; si la rechazas, NoOBS se abre normalmente. Se aplica la próxima vez que NoOBS se abra.",
+      "hint": "Necesario para que el atajo funcione con aplicaciones que se ejecutan como administrador (p. ej., el Administrador de tareas). Windows pide confirmación al abrir; si la rechazas, NoOBS se abre normalmente. Se aplica la próxima vez que NoOBS se abra.",
       "stateOn": "Ahora: ejecutándose como administrador.",
       "stateOff": "Ahora: ejecutándose sin administrador."
     },
     "fullscreenDetect": {
-      "label": "Pausar en aplicaciones a pantalla completa",
-      "hint": "Con una aplicación a pantalla completa al frente, oculta los indicadores en pantalla y pausa las vistas previas de los monitores, que encima de un juego bajan los FPS. Desmárcalo si el indicador desaparece o las vistas previas se congelan sin ninguna aplicación a pantalla completa abierta."
+      "label": "Con una aplicación a pantalla completa, ocultar los indicadores y pausar las vistas previas",
+      "labelBoth": "Con una aplicación a pantalla completa, ocultar los indicadores y pausar las vistas previas",
+      "labelRecording": "Con una aplicación a pantalla completa, ocultar el indicador de grabación y pausar las vistas previas",
+      "labelBuffer": "Con una aplicación a pantalla completa, ocultar el indicador del búfer y pausar las vistas previas",
+      "labelPreviews": "Con una aplicación a pantalla completa, pausar las vistas previas de los monitores",
+      "hint": "Las ventanas encima de una aplicación a pantalla completa le bajan los FPS. Desmárcalo si el indicador desaparece o las vistas previas se congelan sin nada a pantalla completa abierto.",
+      "hintPreviews": "Actualizar las vistas previas de la pantalla de inicio encima de una aplicación a pantalla completa le baja los FPS. Desmárcalo si las vistas previas se congelan sin nada a pantalla completa abierto."
     },
     "hiddenFolders": {
       "label": "Carpetas ocultas",
@@ -461,13 +461,9 @@
       "hintTray": "Al iniciar una grabación, la ventana de NoOBS se envía a la bandeja del sistema — útil para grabar la pantalla sin que la propia ventana aparezca en el video. El atajo global sigue funcionando para detener.",
       "hintTaskbar": "Al iniciar una grabación, la ventana de NoOBS se minimiza — útil para grabar la pantalla sin que la propia ventana aparezca en el video. El atajo global sigue funcionando para detener."
     },
-    "notifyOnRecord": {
-      "label": "Notificar en Windows al iniciar/detener la grabación",
-      "hint": "Muestra una notificación de Windows cuando comienza o termina una grabación. Solo tiene sentido cuando la ventana se minimiza automáticamente — de lo contrario el estado ya es visible en la propia ventana."
-    },
     "recIndicator": {
       "label": "Mostrar un indicador de grabación en pantalla",
-      "hint": "Muestra un punto rojo con el tiempo de grabación en una esquina del monitor principal. El indicador aparece para ti, pero no entra en la grabación (se excluye de la captura). Se oculta mientras un juego a pantalla completa está al frente (encima del juego baja los FPS) y vuelve cuando sales de él. Requiere Windows 10 2004+.",
+      "hint": "Muestra un punto rojo con el tiempo de grabación en una esquina del monitor principal. El indicador aparece para ti, pero no entra en la grabación (se excluye de la captura). Se oculta mientras una aplicación a pantalla completa está al frente (encima de ella baja los FPS) y vuelve cuando sales de ella. Requiere Windows 10 2004+.",
       "cornerLabel": "Esquina",
       "clickable": "Hacer clic en el indicador detiene la grabación",
       "clickableHint": "Desmárcalo si el indicador queda encima de algo en lo que necesitas hacer clic: el clic pasa directo a lo que está debajo.",
@@ -697,7 +693,7 @@
       "appsHint": "Nombres de programas separados por comas. Mientras uno esté abierto, el búfer se activa solo; cuando todos se cierren, se apaga. Basta una parte del nombre (\"teams\" encuentra \"ms-teams\"). Funciona también con NoOBS hibernando. Vacío = apagado.",
       "indicator": "Mostrar el indicador del búfer en pantalla",
       "indicatorClickable": "Hacer clic en el indicador guarda el fragmento",
-      "indicatorHint": "Un punto verde con lo que ya está guardado, en la esquina de la pantalla. Lo ves tú pero <b>no entra en la grabación</b>, y al hacer clic guarda el fragmento. Se oculta mientras un juego a pantalla completa está al frente (encima del juego baja los FPS) y vuelve cuando sales de él. Requiere Windows 10 2004+.",
+      "indicatorHint": "Un punto verde con lo que ya está guardado, en la esquina de la pantalla. Lo ves tú pero <b>no entra en la grabación</b>, y al hacer clic guarda el fragmento. Se oculta mientras una aplicación a pantalla completa está al frente (encima de ella baja los FPS) y vuelve cuando sales de ella. Requiere Windows 10 2004+.",
       "duration": "Tiempo guardado",
       "memory": "Memoria máxima",
       "memoryMax": "Máximo ({{size}})",

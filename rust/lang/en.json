@@ -41,11 +41,7 @@
     "resume": "Resume recording",
     "statusPaused": "Paused",
     "pauseFailed": "Couldn't pause right now. Try again in a second.",
-    "pausedNotify": "Recording paused",
-    "resumedNotify": "Recording resumed",
     "recordingFor": "Recording for {{time}}",
-    "started": "Recording started.",
-    "finished": "Recording finished ({{min}}m {{sec}}s).",
     "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording.",
     "finalizing": "Finishing recording...",
     "sizeHint": "Recorded so far",
@@ -64,8 +60,7 @@
     "saved": "Clip saved",
     "restarted": "Buffer restarted",
     "restartedBody": "The buffer started over with the new recording settings. What it was holding was discarded.",
-    "savedBody": "{{name}} — {{dur}}",
-    "savedNotify": "Buffer clip saved ({{min}}:{{sec}})"
+    "savedBody": "{{name}} — {{dur}}"
   },
   "windowPicker": {
     "button": "Capture...",
@@ -435,13 +430,18 @@
     },
     "runAsAdmin": {
       "label": "Open as administrator",
-      "hint": "Needed for the hotkey to work in games that run as administrator (e.g. GTA V). Windows asks for confirmation when opening; if you decline, NoOBS opens normally. Takes effect the next time NoOBS opens.",
+      "hint": "Needed for the hotkey to work with applications that run as administrator (e.g. Task Manager). Windows asks for confirmation when opening; if you decline, NoOBS opens normally. Takes effect the next time NoOBS opens.",
       "stateOn": "Now: running as administrator.",
       "stateOff": "Now: running without administrator."
     },
     "fullscreenDetect": {
-      "label": "Pause during full-screen apps",
-      "hint": "With a full-screen app in front, hides the on-screen indicators and pauses the monitor previews, which drop the FPS when on top of a game. Uncheck it if the indicator disappears or the previews freeze with no full-screen app open."
+      "label": "With a full-screen application, hide the indicators and pause the previews",
+      "labelBoth": "With a full-screen application, hide the indicators and pause the previews",
+      "labelRecording": "With a full-screen application, hide the recording indicator and pause the previews",
+      "labelBuffer": "With a full-screen application, hide the buffer indicator and pause the previews",
+      "labelPreviews": "With a full-screen application, pause the monitor previews",
+      "hint": "Windows on top of a full-screen application drop its FPS. Uncheck it if the indicator disappears or the previews freeze with nothing full-screen open.",
+      "hintPreviews": "Updating the home-screen previews on top of a full-screen application drops its FPS. Uncheck it if the previews freeze with nothing full-screen open."
     },
     "hiddenFolders": {
       "label": "Hidden folders",
@@ -461,13 +461,9 @@
       "hintTray": "When a recording starts, the NoOBS window is sent to the system tray — useful for recording the screen without the app's own window appearing in the video. The global hotkey still works to stop.",
       "hintTaskbar": "When a recording starts, the NoOBS window is minimized — useful for recording the screen without the app's own window appearing in the video. The global hotkey still works to stop."
     },
-    "notifyOnRecord": {
-      "label": "Show Windows notification on record start/stop",
-      "hint": "Shows a Windows notification when a recording starts or finishes. Only useful when the window is automatically minimized — otherwise the recording state is already visible in the window."
-    },
     "recIndicator": {
       "label": "Show a recording indicator on screen",
-      "hint": "Shows a red dot with the elapsed recording time in a corner of the primary monitor. You see the indicator, but it doesn't appear in the recording (it's excluded from capture). It hides while a full-screen game is in front (on top of the game it drops the FPS) and comes back when you leave it. Requires Windows 10 2004+.",
+      "hint": "Shows a red dot with the elapsed recording time in a corner of the primary monitor. You see the indicator, but it doesn't appear in the recording (it's excluded from capture). It hides while a full-screen application is in front (on top of it, it drops the FPS) and comes back when you leave it. Requires Windows 10 2004+.",
       "cornerLabel": "Corner",
       "clickable": "Clicking the indicator stops the recording",
       "clickableHint": "Uncheck it if the indicator sits on top of something you need to click: the click goes straight to whatever is underneath.",
@@ -697,7 +693,7 @@
       "appsHint": "Program names separated by commas. While any of them is open the buffer turns on by itself; when they all close, it turns off. Part of the name is enough (\"teams\" matches \"ms-teams\"). Works with NoOBS hibernating too. Empty = off.",
       "indicator": "Show the buffer indicator on screen",
       "indicatorClickable": "Clicking the indicator saves the clip",
-      "indicatorHint": "A green dot with how much is kept, in the corner of the screen. You see it but it <b>does not enter the recording</b>, and clicking it saves the clip. It hides while a full-screen game is in front (on top of the game it drops the FPS) and comes back when you leave it. Requires Windows 10 2004+.",
+      "indicatorHint": "A green dot with how much is kept, in the corner of the screen. You see it but it <b>does not enter the recording</b>, and clicking it saves the clip. It hides while a full-screen application is in front (on top of it, it drops the FPS) and comes back when you leave it. Requires Windows 10 2004+.",
       "duration": "Time kept",
       "memory": "Maximum memory",
       "memoryMax": "Maximum ({{size}})",

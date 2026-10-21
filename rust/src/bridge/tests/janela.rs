@@ -94,7 +94,6 @@ fn preferencias_booleanas_vao_pro_config() {
         ("set_close_to_tray", "closeToTray"),
         ("set_hibernate", "hibernate"),
         ("set_minimize_on_record", "minimizeOnRecord"),
-        ("set_notify_on_record", "notifyOnRecord"),
         ("set_play_sound_on_record", "playSoundOnRecord"),
         ("set_stop_on_lock", "stopOnLock"),
         ("set_rec_indicator", "recIndicator"),

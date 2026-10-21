@@ -319,7 +319,6 @@ fn dispatch_inner(raw: &str) {
         "set_close_to_tray" => shell::handle_set_close_to_tray(bool_field(&msg, "enabled", false)),
         "set_hibernate" => shell::handle_set_hibernate(bool_field(&msg, "enabled", false)),
         "set_minimize_on_record" => shell::handle_set_config_bool("minimizeOnRecord", bool_field(&msg, "enabled", false)),
-        "set_notify_on_record" => shell::handle_set_config_bool("notifyOnRecord", bool_field(&msg, "enabled", false)),
         "set_play_sound_on_record" => shell::handle_set_config_bool("playSoundOnRecord", bool_field(&msg, "enabled", false)),
         "set_stop_on_lock" => shell::handle_set_config_bool("stopOnLock", bool_field(&msg, "enabled", false)),
         "set_rec_indicator" => recording::handle_set_rec_indicator(bool_field(&msg, "enabled", false)),
@@ -380,7 +379,6 @@ fn do_init() {
         hotkeys::push_state();
         return;
     }
-    shell::set_ui_ready();
     push_theme();
     push_app_icon();
     // HTTP local das prévias/vídeos; falhar aqui não derruba o app.

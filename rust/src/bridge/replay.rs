@@ -252,11 +252,6 @@ fn finish_replay_saved(path: String, result: Result<i32, String>, meta: Recordin
     library::push_recording_added(&path, dur);
     let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     post_json(json!({ "type": "replay_saved", "id": path, "name": name, "durationSec": dur }));
-    // Jogando, a janela está escondida e o toast da UI não aparece.
-    shell::maybe_notify_record(
-        "NoOBS",
-        &lang::t_with("replay.savedNotify", &[("min", &(dur / 60).to_string()), ("sec", &format!("{:02}", dur % 60))]),
-    );
     transcribe::enqueue_after_capture(&path);
 }
 

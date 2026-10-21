@@ -175,7 +175,6 @@ const Settings = {
   currentElevated: false,
   currentCloseToTray: false,
   currentMinimizeOnRecord: false,
-  currentNotifyOnRecord: false,
   currentRecIndicator: false,
   currentRecIndicatorCorner: 'top-right',
   currentRecIndicatorOpacity: 90,
@@ -236,7 +235,6 @@ const Settings = {
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
-    document.getElementById('settingsNotifyOnRecord').checked = !!this.currentNotifyOnRecord;
     document.getElementById('settingsRecIndicator').checked = !!this.currentRecIndicator;
     document.getElementById('settingsRecIndicatorCorner').value = this.currentRecIndicatorCorner || 'top-right';
     document.getElementById('settingsRecIndicatorOpacity').value = this.currentRecIndicatorOpacity || 90;
@@ -270,7 +268,6 @@ const Settings = {
     document.getElementById('settingsLibraryThumbs').value = this.currentLibraryThumbs;
     this._syncLibraryHint();
     this._syncMinimizeOnRecordLabel();
-    this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
     this._syncAutoRecordDevicesVisibility();
@@ -383,7 +380,6 @@ const Settings = {
       const fullscreenDetect = document.getElementById('settingsFullscreenDetect').checked;
       const closeToTray = document.getElementById('settingsCloseToTray').checked;
       const minimizeOnRecord = document.getElementById('settingsMinimizeOnRecord').checked;
-      const notifyOnRecord = document.getElementById('settingsNotifyOnRecord').checked;
       const recIndicator = document.getElementById('settingsRecIndicator').checked;
       const recIndicatorCorner = document.getElementById('settingsRecIndicatorCorner').value;
       const recIndicatorOpacity = parseInt(document.getElementById('settingsRecIndicatorOpacity').value, 10) || 90;
@@ -430,8 +426,6 @@ const Settings = {
         Bridge.send('set_close_to_tray', { enabled: closeToTray });
       if (minimizeOnRecord !== this.currentMinimizeOnRecord)
         Bridge.send('set_minimize_on_record', { enabled: minimizeOnRecord });
-      if (notifyOnRecord !== this.currentNotifyOnRecord)
-        Bridge.send('set_notify_on_record', { enabled: notifyOnRecord });
       if (recIndicator !== this.currentRecIndicator)
         Bridge.send('set_rec_indicator', { enabled: recIndicator });
       if (recIndicatorCorner !== this.currentRecIndicatorCorner)
@@ -486,7 +480,6 @@ const Settings = {
       this.currentFullscreenDetect = fullscreenDetect;
       this.currentCloseToTray = closeToTray;
       this.currentMinimizeOnRecord = minimizeOnRecord;
-      this.currentNotifyOnRecord = notifyOnRecord;
       this.currentRecIndicator = recIndicator;
       this.currentRecIndicatorCorner = recIndicatorCorner;
       this.currentRecIndicatorOpacity = recIndicatorOpacity;
@@ -556,7 +549,6 @@ const Settings = {
     this.currentElevated = !!data.elevated;
     this.currentCloseToTray = !!data.closeToTray;
     this.currentMinimizeOnRecord = !!data.minimizeOnRecord;
-    this.currentNotifyOnRecord = !!data.notifyOnRecord;
     this.currentRecIndicator = !!data.recIndicator;
     this.currentRecIndicatorCorner = data.recIndicatorCorner || 'top-right';
     this.currentRecIndicatorOpacity =
@@ -651,8 +643,6 @@ const Settings = {
     if (ct) ct.checked = this.currentCloseToTray;
     const mr = document.getElementById('settingsMinimizeOnRecord');
     if (mr) mr.checked = this.currentMinimizeOnRecord;
-    const nr = document.getElementById('settingsNotifyOnRecord');
-    if (nr) nr.checked = this.currentNotifyOnRecord;
     const ri = document.getElementById('settingsRecIndicator');
     if (ri) ri.checked = this.currentRecIndicator;
     const ric = document.getElementById('settingsRecIndicatorCorner');
@@ -692,7 +682,6 @@ const Settings = {
     if (ltEl) ltEl.value = this.currentLibraryThumbs;
     this._syncLibraryHint();
     this._syncMinimizeOnRecordLabel();
-    this._syncNotifyOnRecordEnabled();
     this._syncHibernateEnabled();
     this._syncAutoRecordExceptVisibility();
     this._syncAutoRecordDevicesVisibility();
@@ -709,14 +698,9 @@ const Settings = {
   //                              (vai pra bandeja vs minimiza taskbar)
   //                            → habilita/desabilita hibernate
   //                              (hibernar so faz sentido com bandeja ON)
-  //   minimizeOnRecord → habilita/desabilita notifyOnRecord
-  //                      (notify so faz sentido se app fica escondido)
   onTrayChange() {
     this._syncMinimizeOnRecordLabel();
     this._syncHibernateEnabled();
-  },
-  onMinimizeOnRecordChange() {
-    this._syncNotifyOnRecordEnabled();
   },
   onQualityChange() {
     this._syncQualityHint();
@@ -1019,19 +1003,10 @@ const Settings = {
       ? 'settings.minimizeOnRecord.hintTray'
       : 'settings.minimizeOnRecord.hintTaskbar');
   },
-  _syncNotifyOnRecordEnabled() {
-    const minOnRec = document.getElementById('settingsMinimizeOnRecord').checked;
-    const notif = document.getElementById('settingsNotifyOnRecord');
-    const row = document.getElementById('settingsNotifyOnRecordRow');
-    if (!notif || !row) return;
-    notif.disabled = !minOnRec;
-    row.classList.toggle('disabled', !minOnRec);
-    // Forca uncheck quando desabilitado pra evitar estado "ON mas oculto".
-    if (!minOnRec) notif.checked = false;
-  },
+
   // Hibernate so faz sentido com closeToTray ON — sem bandeja, fechar
-  // a janela ja encerra o app e nao tem cenario pra hibernar. Mesma
-  // logica do notifyOnRecord (uncheck forcado pra evitar estado oculto).
+  // a janela ja encerra o app e nao tem cenario pra hibernar (uncheck
+  // forcado pra evitar estado "ON mas oculto").
   _syncHibernateEnabled() {
     const tray = document.getElementById('settingsCloseToTray').checked;
     const hib = document.getElementById('settingsHibernate');
@@ -1176,6 +1151,34 @@ const Settings = {
     const wrap = document.getElementById('settingsRecIndicatorCornerWrap');
     if (!on || !wrap) return;
     wrap.style.display = on.checked ? '' : 'none';
+    this._syncFullscreenDetectText();
+  },
+  // "Pausar em aplicativos de tela cheia" vale pros indicadores (gravacao e
+  // buffer) E pras previas dos monitores. O texto diz quais estao em jogo:
+  // sem nenhum indicador ligado, fala so das previas — senao parece
+  // sub-opcao de algo desligado.
+  // Troca a CHAVE do data-i18n (nao so o texto) pra uma troca de idioma
+  // manter a versao certa.
+  // `replayOn` vem do Replay quando o indicador do buffer acabou de mudar
+  // (o estado dele so chega depois, no push do backend).
+  _syncFullscreenDetectText(replayOn) {
+    const rec = document.getElementById('settingsRecIndicator');
+    if (replayOn === undefined)
+      replayOn = typeof Replay !== 'undefined' && !!(Replay.state && Replay.state.indicator);
+    const recOn = !!(rec && rec.checked);
+    // O rotulo diz exatamente o que acontece: qual indicador some (o da
+    // gravacao, o do buffer, os dois ou nenhum) alem das previas. A dica so
+    // muda entre "com indicador" e "so previas".
+    const label = recOn && replayOn ? 'labelBoth' : recOn ? 'labelRecording'
+                : replayOn ? 'labelBuffer' : 'labelPreviews';
+    const hint = recOn || replayOn ? 'hint' : 'hintPreviews';
+    for (const [id, key] of [['settingsFullscreenDetectLabel', label], ['settingsFullscreenDetectHint', hint]]) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const full = 'settings.fullscreenDetect.' + key;
+      el.setAttribute('data-i18n', full);
+      el.textContent = T(full);
+    }
   },
   // Atualiza o rotulo "NN%" ao lado do slider de opacidade. Chamado pelo
   // oninput do range (ao vivo) e ao abrir/aplicar as Config.
@@ -1226,13 +1229,11 @@ const Settings = {
           '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';
         // Defaults novos: iniciar com Windows, minimizar p/ bandeja, minimizar
         // ao gravar, som de inicio/fim, parar ao bloquear e hibernar vem LIGADOS.
-        // notifyOnRecord segue desligado (opt-in).
         document.getElementById('settingsAutostart').checked = true;
         document.getElementById('settingsRunAsAdmin').checked = false;
         document.getElementById('settingsFullscreenDetect').checked = true;
         document.getElementById('settingsCloseToTray').checked = true;
         document.getElementById('settingsMinimizeOnRecord').checked = true;
-        document.getElementById('settingsNotifyOnRecord').checked = false;
         document.getElementById('settingsRecIndicator').checked = false;
         document.getElementById('settingsRecIndicatorCorner').value = 'top-right';
         document.getElementById('settingsRecIndicatorOpacity').value = 90;
@@ -1269,7 +1270,6 @@ const Settings = {
         document.getElementById('settingsLibraryThumbs').value = 'auto';
         this._syncLibraryHint();
         this._syncMinimizeOnRecordLabel();
-        this._syncNotifyOnRecordEnabled();
         this._syncHibernateEnabled();
         this._syncAutoRecordExceptVisibility();
         this._syncRecIndicatorVisibility();

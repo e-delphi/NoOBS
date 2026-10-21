@@ -31,7 +31,6 @@ fn settings_de_instalacao_nova() {
     for (k, v) in [
         ("closeToTray", true),
         ("minimizeOnRecord", true),
-        ("notifyOnRecord", false),
         ("recIndicator", false),
         ("recIndicatorClickable", true),
         ("playSoundOnRecord", true),
@@ -57,12 +56,12 @@ fn settings_refletem_o_config() {
     let _s = begin();
     config::set_config_str("windowTitle", "X");
     config::set_config_int("recordingFps", 144);
-    config::set_config_bool("notifyOnRecord", true);
+    config::set_config_bool("stopOnLock", false);
     config::set_config_str("transcribeLanguage", "  EN ");
     let st = settings();
     assert_eq!(st["windowTitle"], "X");
     assert_eq!(st["recordingFps"], 144);
-    assert_eq!(st["notifyOnRecord"], true);
+    assert_eq!(st["stopOnLock"], false);
     assert_eq!(st["transcribeLanguage"], "en");
 }
 

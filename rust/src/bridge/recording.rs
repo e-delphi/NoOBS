@@ -551,7 +551,6 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
             ui::minimize_to_taskbar();
         }
     }
-    shell::maybe_notify_record("NoOBS", &lang::t("record.started"));
     // Indicador NA TELA (opcional, padrão desligado), excluído da gravação.
     if config::get_config_bool("recIndicator", false) {
         show_rec_indicator_from_config();
@@ -613,10 +612,6 @@ pub fn handle_record_stop() {
         ui::set_timer(TIMER_STOP_TIMEOUT, STOP_TIMEOUT_MS);
     }
 
-    shell::maybe_notify_record(
-        "NoOBS",
-        &lang::t_with("record.finished", &[("min", &(elapsed / 60).to_string()), ("sec", &(elapsed % 60).to_string())]),
-    );
     // O auto-minimizar escondeu a janela no start: ela volta. Senão continua
     // escondida, e o ócio de hibernação é armado.
     if with_state(|s| std::mem::take(&mut s.window_was_visible_before_record)) {
@@ -669,7 +664,6 @@ pub fn handle_record_pause(pause: bool) {
             rec_indicator::set_paused(pause, start);
         }
     }
-    shell::maybe_notify_record("NoOBS", &lang::t(if pause { "record.pausedNotify" } else { "record.resumedNotify" }));
     push_recording_state();
 }
 

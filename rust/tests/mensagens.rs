@@ -881,7 +881,6 @@ fn run_messages(filtro: &str) -> i32 {
         ("replayIndicator", false),
         ("checkUpdates", false),
         ("stopOnLock", false),
-        ("notifyOnRecord", false),
         ("autoRecordOnMic", false),
     ] {
         config::set_config_bool(k, v);

@@ -1015,8 +1015,8 @@
           <span data-i18n="settings.runAsAdmin.label">Abrir como administrador</span>
         </label>
         <div class="settings-hint" data-i18n="settings.runAsAdmin.hint">
-          Necessário para o atalho funcionar com jogos que rodam como
-          administrador (ex.: GTA V). O Windows pede confirmação ao abrir; se
+          Necessário para o atalho funcionar com aplicações que rodam como
+          administrador (ex.: o Gerenciador de Tarefas). O Windows pede confirmação ao abrir; se
           você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez
           que o NoOBS abrir.
         </div>
@@ -1133,13 +1133,16 @@
       <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
           <input type="checkbox" id="settingsFullscreenDetect">
-          <span data-i18n="settings.fullscreenDetect.label">Pausar em aplicativos de tela cheia</span>
+          <span id="settingsFullscreenDetectLabel"
+                data-i18n="settings.fullscreenDetect.label">Com uma aplicação em tela cheia, esconder os indicadores e pausar as prévias</span>
         </label>
-        <div class="settings-hint" data-i18n="settings.fullscreenDetect.hint">
-          Com um aplicativo em tela cheia na frente, esconde os indicadores na
-          tela e pausa as prévias dos monitores, que por cima de um jogo derrubam
-          o FPS. Desmarque se o indicador sumir ou as prévias congelarem sem
-          nenhum aplicativo em tela cheia aberto.
+        <!-- O texto acompanha os indicadores (Settings._syncFullscreenDetectText):
+             sem nenhum ligado, a opcao so pausa as previas dos monitores. -->
+        <div class="settings-hint" id="settingsFullscreenDetectHint"
+             data-i18n="settings.fullscreenDetect.hint">
+          Janelas por cima de uma aplicação em tela cheia derrubam o FPS dela.
+          Desmarque se o indicador sumir ou as prévias congelarem sem nada em
+          tela cheia aberto.
         </div>
       </div>
       <hr class="settings-divider" data-panel="onrecord">
@@ -1157,22 +1160,8 @@
       </div>
       <hr class="settings-divider" data-panel="onrecord">
       <div class="settings-field" data-panel="onrecord">
-        <label class="settings-check-row" id="settingsNotifyOnRecordRow">
-          <input type="checkbox" id="settingsNotifyOnRecord">
-          <span data-i18n="settings.notifyOnRecord.label">Notificar no Windows ao iniciar/parar gravação</span>
-        </label>
-        <div class="settings-hint" data-i18n="settings.notifyOnRecord.hint">
-          Mostra uma notificação do Windows quando começa ou termina
-          uma gravação. Só faz sentido quando a janela é minimizada
-          automaticamente — caso contrário o estado da gravação já
-          é visível na própria janela.
-        </div>
-      </div>
-      <hr class="settings-divider" data-panel="onrecord">
-      <div class="settings-field" data-panel="onrecord">
         <label class="settings-check-row">
-          <input type="checkbox" id="settingsMinimizeOnRecord"
-                 onchange="Settings.onMinimizeOnRecordChange()">
+          <input type="checkbox" id="settingsMinimizeOnRecord">
           <span id="settingsMinimizeOnRecordLabel">Minimizar ao iniciar a gravação</span>
         </label>
         <div class="settings-hint" id="settingsMinimizeOnRecordHint">

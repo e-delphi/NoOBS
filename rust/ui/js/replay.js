@@ -230,6 +230,9 @@ const Replay = {
   _syncIndicatorVisibility(on) {
     const wrap = document.getElementById('settingsReplayIndicatorWrap');
     if (wrap) wrap.style.display = on ? '' : 'none';
+    // O texto do "Pausar em aplicativos de tela cheia" depende dele.
+    if (typeof Settings !== 'undefined' && Settings._syncFullscreenDetectText)
+      Settings._syncFullscreenDetectText(!!on);
   },
 
   loadIntoSettings() {

@@ -4,7 +4,7 @@
 //!
 //! * a UI vem embutida no exe e é servida DA MEMÓRIA pelo `WebResourceRequested`
 //!   num origin `https://noobs.app` real — não `NavigateToString` (origin
-//!   opaco; a Notification API exige contexto seguro). Pegadinha #16;
+//!   opaco: sem contexto seguro nem URLs relativas). Pegadinha #16;
 //! * loop `GetMessage`/`DispatchMessage` puro; o trabalho enfileirado por
 //!   workers é drenado em `WM_APP_WAKE` ([`crate::mainthread`], pegadinha #4);
 //! * a mesma ordem de arranque/encerramento do Delphi: COM → janela →
@@ -41,7 +41,7 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use crate::single_instance::{CLASS_NAME, MUTEX_NAME, SHOW_MSG_NAME};
 use crate::{bridge, config, elevate, hibernate, log, mainthread, record_icon, startup_check, tray, win};
 
-/// Virtual host da UI. `https://` dá contexto seguro (Notification API) e
+/// Virtual host da UI. `https://` dá contexto seguro (localStorage etc.) e
 /// faz as URLs relativas (`css/`, `js/`, logos) resolverem como num site.
 const UI_HOST: &str = "noobs.app";
 const WM_HOTKEY_DEFAULT_DARK: bool = true;
@@ -777,16 +777,11 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller, env: &IC
         }));
         webview.add_WebMessageReceived(&h, &mut token)?;
 
-        // Só NOTIFICATIONS é permitida; o resto é negado.
+        // A página não pede permissão nenhuma (câmera, microfone,
+        // notificações...): tudo é negado.
         let h = PermissionRequestedEventHandler::create(Box::new(|_, args| {
             if let Some(args) = args {
-                let mut kind = COREWEBVIEW2_PERMISSION_KIND_UNKNOWN_PERMISSION;
-                let _ = args.PermissionKind(&mut kind);
-                let _ = args.SetState(if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
-                    COREWEBVIEW2_PERMISSION_STATE_ALLOW
-                } else {
-                    COREWEBVIEW2_PERMISSION_STATE_DENY
-                });
+                let _ = args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY);
             }
             Ok(())
         }));

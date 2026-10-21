@@ -4,8 +4,6 @@
 //!
 //! Tudo na main thread.
 
-use std::cell::Cell;
-
 use serde_json::json;
 
 use crate::{autostart, config, engine, hotkey, lang, log, tray, ui};
@@ -14,16 +12,6 @@ use super::{export, post_json, recording, transcribe};
 
 /// 1 min sem janela visível e sem trabalho: relança como `/hibernate`.
 const HIBERNATE_IDLE_DELAY_MS: u32 = 60_000;
-
-thread_local! {
-    /// A UI mandou `ready`: antes disso o `show_notification` não chega e a
-    /// notificação cai no balão da bandeja (gravação vinda da hibernação).
-    static UI_READY: Cell<bool> = const { Cell::new(false) };
-}
-
-pub fn set_ui_ready() {
-    UI_READY.with(|r| r.set(true));
-}
 
 /// Liga a bandeja e a janela ao Bridge (parte do `initialization` do Delphi).
 pub fn install() {
@@ -53,20 +41,6 @@ fn replay_active() -> bool {
 /// está guardado).
 pub fn should_hide_on_close() -> bool {
     config::get_config_bool("closeToTray", true) || recording::recording_active() || replay_active()
-}
-
-/// Notificação de início/fim/pausa (`notifyOnRecord`, padrão desligado). Pela
-/// Notification API da UI (o Chromium cuida da Central de Notificações); antes
-/// de a UI subir, balão da bandeja.
-pub fn maybe_notify_record(title: &str, message: &str) {
-    if !config::get_config_bool("notifyOnRecord", false) {
-        return;
-    }
-    if !UI_READY.with(|r| r.get()) {
-        tray::show_balloon(title, message);
-        return;
-    }
-    post_json(json!({ "type": "show_notification", "title": title, "body": message }));
 }
 
 // ---------------------------------------------------------------------------

@@ -138,73 +138,9 @@ const Bridge = {
         try { Player.close(); } catch (e) {}
       }
     },
-    // Notificacao do Windows pedida pelo Delphi (gravacao iniciou/parou).
-    //
-    // Usa a Web Notifications API do Chromium (WebView2 expoe nativamente
-    // e o host ja aprovou a permissao via TPermissionRequestedHandler).
-    // O Chromium se vira com AUMID + Action Center, sem precisarmos
-    // mexer com WinRT em Delphi.
-    //
-    // tag fixa "noobs-record": notificacoes novas SUBSTITUEM a anterior
-    // (em vez de empilhar na Central). renotify: true forca o popup a
-    // reaparecer mesmo com mesma tag.
-    //
-    // setTimeout + close(): remove a notificacao da Central de
-    // Notificacoes depois do popup ter sumido — usuario nao quer ver
-    // historico de "Gravacao iniciada/parou" se acumulando ali.
-    // (Inspirado no padrao do conversa-web/sound.ts.)
-    show_notification(data) {
-      if (!('Notification' in window)) return;
-      if (Notification.permission !== 'granted') {
-        // Permissao deveria estar 'granted' pelo handler do host. Se
-        // por algum motivo nao estiver, pede agora (no-op se 'denied').
-        Notification.requestPermission().then(p => {
-          if (p === 'granted') Bridge.handlers.show_notification(data);
-        });
-        return;
-      }
-      try {
-        if (Bridge._lastNotif) {
-          try { Bridge._lastNotif.onclose = null; Bridge._lastNotif.close(); } catch (e) {}
-        }
-        const opts = {
-          body: data.body || '',
-          tag: 'noobs-record',
-          renotify: true,
-          silent: false,
-        };
-        // Icone do app (data URL ja recebido via app_icon push do
-        // backend). Aparece tanto no popup quanto na Central. Se ainda
-        // nao chegou, o toast sai sem icone — sem fallback de URL
-        // remota, que poderia atrasar/falhar o display.
-        if (Bridge._appIconDataUrl) opts.icon = Bridge._appIconDataUrl;
-
-        const n = new Notification(data.title || 'NoOBS', opts);
-        Bridge._lastNotif = n;
-
-        // Clique no popup (ou na entrada na Central) restaura a janela
-        // principal — usuario espera "clicou na notificacao, app abre".
-        n.onclick = () => {
-          try { n.close(); } catch (e) {}
-          Bridge.send('tray_show');
-        };
-
-        // Auto-fecha apos 5s pra nao acumular na Central de Notificacoes.
-        setTimeout(() => {
-          try { n.close(); } catch (e) {}
-          if (Bridge._lastNotif === n) Bridge._lastNotif = null;
-        }, 5000);
-      } catch (e) {
-        console.warn('show_notification falhou:', e);
-      }
-    },
     app_icon(data) {
-      // Backend extraiu o icon.ico do exe e mandou como data URL.
-      // Guarda no Bridge pra reuso (modal Sobre + icone das notificacoes
-      // do Windows). Esconde o SVG fallback no modal.
-      if (data && data.dataUrl) {
-        Bridge._appIconDataUrl = data.dataUrl;
-      }
+      // Backend extraiu o icon.ico do exe e mandou como data URL: logo do
+      // modal Sobre (esconde o SVG reserva).
       const img = document.getElementById('aboutAppIcon');
       const fb  = document.getElementById('aboutAppIconFallback');
       if (img && data && data.dataUrl) {

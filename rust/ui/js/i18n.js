@@ -15,7 +15,7 @@
 //
 // Uso no JS:
 //   T('toast.saved')                 -> "Configurações salvas"
-//   T('record.finished', {min: 5})   -> "Gravação finalizada (5m 0s)."
+//   T('record.countdown', {sec: 3})  -> "Gravação em 3 s"
 //
 // O texto inicial no HTML serve de fallback enquanto o bundle nao
 // chegou (1o paint antes do 'init' message).

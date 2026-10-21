@@ -111,7 +111,7 @@ fn lookup<'a>(bundle: &'a Value, key: &str) -> Option<&'a str> {
         .and_then(Value::as_str)
 }
 
-/// `t("record.finished", &[("min", "5")])`.
+/// `t_with("record.countdown", &[("sec", "3")])`.
 pub fn t_with(key: &str, args: &[(&str, &str)]) -> String {
     let s = state().lock().unwrap_or_else(|p| p.into_inner());
     let Some(mut out) = lookup(&s.bundle, key)

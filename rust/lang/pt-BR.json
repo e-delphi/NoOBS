@@ -41,11 +41,7 @@
     "resume": "Retomar gravação",
     "statusPaused": "Pausado",
     "pauseFailed": "Não deu para pausar agora. Tente de novo em um segundo.",
-    "pausedNotify": "Gravação pausada",
-    "resumedNotify": "Gravação retomada",
     "recordingFor": "Gravando há {{time}}",
-    "started": "Gravação iniciada.",
-    "finished": "Gravação finalizada ({{min}}m {{sec}}s).",
     "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.",
     "finalizing": "Finalizando gravação...",
     "sizeHint": "Tamanho já gravado",
@@ -64,8 +60,7 @@
     "saved": "Trecho salvo",
     "restarted": "Buffer reiniciado",
     "restartedBody": "O buffer recomeçou com as novas configurações de gravação. O que estava guardado foi descartado.",
-    "savedBody": "{{name}} — {{dur}}",
-    "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})"
+    "savedBody": "{{name}} — {{dur}}"
   },
   "windowPicker": {
     "button": "Capturar...",
@@ -435,13 +430,18 @@
     },
     "runAsAdmin": {
       "label": "Abrir como administrador",
-      "hint": "Necessário para o atalho funcionar com jogos que rodam como administrador (ex.: GTA V). O Windows pede confirmação ao abrir; se você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez que o NoOBS abrir.",
+      "hint": "Necessário para o atalho funcionar com aplicações que rodam como administrador (ex.: o Gerenciador de Tarefas). O Windows pede confirmação ao abrir; se você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez que o NoOBS abrir.",
       "stateOn": "Agora: rodando como administrador.",
       "stateOff": "Agora: rodando sem administrador."
     },
     "fullscreenDetect": {
-      "label": "Pausar em aplicativos de tela cheia",
-      "hint": "Com um aplicativo em tela cheia na frente, esconde os indicadores na tela e pausa as prévias dos monitores, que por cima de um jogo derrubam o FPS. Desmarque se o indicador sumir ou as prévias congelarem sem nenhum aplicativo em tela cheia aberto."
+      "label": "Com uma aplicação em tela cheia, esconder os indicadores e pausar as prévias",
+      "labelBoth": "Com uma aplicação em tela cheia, esconder os indicadores e pausar as prévias",
+      "labelRecording": "Com uma aplicação em tela cheia, esconder o indicador de gravação e pausar as prévias",
+      "labelBuffer": "Com uma aplicação em tela cheia, esconder o indicador do buffer e pausar as prévias",
+      "labelPreviews": "Com uma aplicação em tela cheia, pausar as prévias dos monitores",
+      "hint": "Janelas por cima de uma aplicação em tela cheia derrubam o FPS dela. Desmarque se o indicador sumir ou as prévias congelarem sem nada em tela cheia aberto.",
+      "hintPreviews": "Atualizar as prévias da tela inicial por cima de uma aplicação em tela cheia derruba o FPS dela. Desmarque se as prévias congelarem sem nada em tela cheia aberto."
     },
     "hiddenFolders": {
       "label": "Pastas ocultas",
@@ -461,13 +461,9 @@
       "hintTray": "Ao começar uma gravação, a janela do NoOBS é enviada pra bandeja do sistema — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar.",
       "hintTaskbar": "Ao começar uma gravação, a janela do NoOBS é minimizada — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar."
     },
-    "notifyOnRecord": {
-      "label": "Notificar no Windows ao iniciar/parar gravação",
-      "hint": "Mostra uma notificação do Windows quando começa ou termina uma gravação. Só faz sentido quando a janela é minimizada automaticamente — caso contrário o estado da gravação já é visível na própria janela."
-    },
     "recIndicator": {
       "label": "Mostrar indicador de gravação na tela",
-      "hint": "Mostra uma bolinha vermelha com o tempo de gravação no canto do monitor principal. O indicador aparece pra você, mas não entra na gravação (é excluído da captura). Some enquanto um jogo em tela cheia estiver na frente (por cima do jogo ele derruba o FPS) e volta quando você sai dele. Requer Windows 10 2004+.",
+      "hint": "Mostra uma bolinha vermelha com o tempo de gravação no canto do monitor principal. O indicador aparece pra você, mas não entra na gravação (é excluído da captura). Some enquanto uma aplicação em tela cheia estiver na frente (por cima dela ele derruba o FPS) e volta quando você sai dela. Requer Windows 10 2004+.",
       "cornerLabel": "Canto",
       "clickable": "Clicar no indicador para a gravação",
       "clickableHint": "Desmarque se o indicador ficar em cima de algo que você precisa clicar: o clique passa direto para o que está embaixo.",
@@ -697,7 +693,7 @@
       "appsHint": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"teams\" acha \"ms-teams\"). Funciona também com o NoOBS hibernando. Vazio = desligado.",
       "indicator": "Mostrar indicador do buffer na tela",
       "indicatorClickable": "Clicar no indicador salva o trecho",
-      "indicatorHint": "Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece pra você mas <b>não entra na gravação</b>, e clicar nela salva o trecho. Some enquanto um jogo em tela cheia estiver na frente (por cima do jogo ele derruba o FPS) e volta quando você sai dele. Requer Windows 10 2004+.",
+      "indicatorHint": "Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece pra você mas <b>não entra na gravação</b>, e clicar nela salva o trecho. Some enquanto uma aplicação em tela cheia estiver na frente (por cima dela ele derruba o FPS) e volta quando você sai dela. Requer Windows 10 2004+.",
       "duration": "Tempo guardado",
       "memory": "Memória máxima",
       "memoryMax": "Máximo ({{size}})",

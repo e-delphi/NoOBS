@@ -178,7 +178,7 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `get_root_folders` | — | `transcribe::push_root_folders` | — |
 | `set_folder_hidden` | `hidden`, `name` | `transcribe::handle_set_folder_hidden` | — |
 
-#### Configurações e janela (33)
+#### Configurações e janela (32)
 
 | Mensagem | Campos | Handler | DLLs alcançadas |
 |---|---|---|---|
@@ -212,7 +212,6 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `set_close_to_tray` | `enabled` | `shell::handle_set_close_to_tray` | — |
 | `set_hibernate` | `enabled` | `shell::handle_set_hibernate` | — |
 | `set_minimize_on_record` | `enabled` | `shell::handle_set_config_bool` | — |
-| `set_notify_on_record` | `enabled` | `shell::handle_set_config_bool` | — |
 | `set_play_sound_on_record` | `enabled` | `shell::handle_set_config_bool` | — |
 | `set_stop_on_lock` | `enabled` | `shell::handle_set_config_bool` | — |
 

@@ -62,7 +62,6 @@ pub fn push_settings() {
         "elevated": elevate::is_process_elevated(),
         "closeToTray": config::get_config_bool("closeToTray", true),
         "minimizeOnRecord": config::get_config_bool("minimizeOnRecord", true),
-        "notifyOnRecord": config::get_config_bool("notifyOnRecord", false),
         "recIndicator": config::get_config_bool("recIndicator", false),
         "recIndicatorCorner": config::get_config_str("recIndicatorCorner", "top-right"),
         "recIndicatorOpacity": config::get_config_int("recIndicatorOpacity", 90),

@@ -31,9 +31,6 @@ const WARMUP_DELAY_MS: u32 = 1500;
 /// finalização depois deste prazo para não deixar a gravação "presa".
 pub(super) const STOP_TIMEOUT_MS: u32 = 10_000;
 
-/// Hotkeys globais (`HK_*` do Delphi).
-pub const HK_RECORD_TOGGLE: i32 = 100;
-pub const HK_RECORD_TOGGLE_ALT: i32 = 101;
 
 /// Modelo padrão do nome do arquivo.
 const DEFAULT_FILENAME_PATTERN: &str = "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}";
@@ -846,20 +843,7 @@ pub fn handle_set_fullscreen_detect(enable: bool) {
 
 pub fn on_hotkey(id: i32) {
     log!("Hotkey: id={id} disparado.");
-    if replay::on_hotkey(id) || super::area::on_hotkey(id) {
-        return;
-    }
-    if matches!(id, HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT) {
-        // Na contagem do atraso da área, o atalho de gravar cancela.
-        if super::area::cancel_countdown() {
-            return;
-        }
-        if recording_active() {
-            handle_record_stop();
-        } else {
-            handle_record_start();
-        }
-    }
+    super::hotkeys::on_hotkey(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -900,10 +884,10 @@ fn on_warmup() {
         }
         handle_record_start();
     }
-    // /start-area: o atalho da área salva foi apertado na hibernação.
-    if ui::start_area_requested() && !recording_active() {
-        log!("TIMER_WARMUP: /start-area — gravando a area salva.");
-        super::area::record_saved_area();
+    // /hotkey=N: um atalho da lista foi apertado na hibernação.
+    if let Some(i) = ui::start_hotkey_requested() {
+        log!("TIMER_WARMUP: /hotkey={i} — executando o atalho.");
+        super::hotkeys::trigger(i);
     }
     // "Ligar o buffer ao abrir" e o /start-replay viram vontade da sessão.
     replay::on_warmup();
@@ -938,8 +922,6 @@ pub fn install() {
 /// Shutdown do Bridge (idempotente): para o que estiver vivo e descarta o
 /// motor NA MAIN THREAD, com o STA ainda vivo (pegadinha #31).
 pub fn shutdown() {
-    ui::unregister_global_hotkey(HK_RECORD_TOGGLE);
-    ui::unregister_global_hotkey(HK_RECORD_TOGGLE_ALT);
     // O overlay some junto com o app.
     rec_indicator::hide();
     crate::area_frame::hide();

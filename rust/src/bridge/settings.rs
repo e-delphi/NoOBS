@@ -56,7 +56,6 @@ pub fn push_settings() {
         "muteWhenDeviceMuted": config::get_config_bool("muteWhenDeviceMuted", true),
         "filenamePattern": config::get_config_str("filenamePattern", DEFAULT_FILENAME_PATTERN),
         "codec": config::get_config_str("codec", "auto"),
-        "hotkey": config::get_config_str("hotkey", "Pause/Break"),
         "autostart": autostart::is_autostart_enabled(),
         "runAsAdmin": config::get_config_bool("runAsAdmin", false),
         "fullscreenDetect": config::get_config_bool("fullscreenDetect", true),

@@ -9,8 +9,9 @@
 //!   a cada 50 ms). Ctrl+Shift+clique entra/sai do modo de edição. Os dois
 //!   juntos, e não só o Ctrl: Ctrl+clique é gesto comum em outros apps
 //!   (selecionar, abrir link) e acionaria a moldura por acidente;
-//! * **edição** — só existe no modo de edição: um véu escuro sobre a área que
-//!   recebe o mouse (arrastar o meio move, as bordas/cantos redimensionam;
+//! * **edição** — só existe no modo de edição: um véu INVISÍVEL (alfa 1)
+//!   sobre a área que recebe o mouse — escurecer atrapalhava ver o que está
+//!   sendo gravado (arrastar o meio move, as bordas/cantos redimensionam;
 //!   setas movem 1 px, Shift+setas 10 px; Enter/Esc terminam).
 //!
 //! Cada mudança vai pro callback na hora (o engine troca recorte/posição das
@@ -49,10 +50,9 @@ use crate::{log, rec_indicator};
 const FRAME_CLASS: PCWSTR = w!("TNoOBSAreaFrame");
 const BUTTON_CLASS: PCWSTR = w!("TNoOBSAreaButton");
 const EDIT_CLASS: PCWSTR = w!("TNoOBSAreaEdit");
-const KEY: COLORREF = COLORREF(0x00FF_00FF);
-/// Vermelho da gravação / âmbar da edição (COLORREF = 0x00BBGGRR).
-const RED: COLORREF = COLORREF(0x0035_39E5);
-const AMBER: COLORREF = COLORREF(0x0000_B3FF);
+/// Vermelho da gravação / âmbar da edição (ARGB pré-multiplicado, opaco).
+const RED: u32 = 0xFFE5_3935;
+const AMBER: u32 = 0xFFFF_B300;
 const TIMER_CTRL: usize = 1;
 const CTRL_POLL_MS: u32 = 50;
 /// A cada N tiques do teclado (= 500 ms) reavalia o "app em tela cheia".
@@ -83,8 +83,8 @@ struct State {
     ctrl: bool,
     fs_hidden: bool,
     ticks: u32,
-    /// Exclusão da captura funcionou? Sem ela o véu da edição fica invisível
-    /// (alfa 1): ele fica DENTRO da área e apareceria no vídeo.
+    /// Exclusão da captura funcionou? O véu da edição também é excluído
+    /// quando dá (ele é invisível de qualquer jeito, alfa 1).
     excluded: bool,
     dpi: i32,
     on_changed: Option<OnChanged>,
@@ -117,7 +117,7 @@ fn pad(dpi: i32) -> i32 {
 }
 
 fn border(dpi: i32) -> i32 {
-    sx(dpi, 3).max(2)
+    sx(dpi, 2).max(1)
 }
 
 fn button_size(dpi: i32) -> i32 {
@@ -153,7 +153,6 @@ pub fn show(area: AreaRect, on_changed: OnChanged) {
             log::log("AreaFrame: CreateWindowEx (moldura) falhou.");
             return;
         };
-        let _ = SetLayeredWindowAttributes(frame, KEY, 255, LWA_COLORKEY);
         // A borda fica por FORA da área (não entra no vídeo nem sem a
         // exclusão); excluir é pras alças e pro véu da edição.
         let excluded = SetWindowDisplayAffinity(frame, WDA_EXCLUDEFROMCAPTURE).is_ok();
@@ -204,11 +203,7 @@ pub fn set_countdown(n: Option<u32>) {
     if frame.is_none() || !changed {
         return;
     }
-    unsafe {
-        if let Some(f) = frame {
-            let _ = InvalidateRect(Some(f), None, false);
-        }
-    }
+    draw_frame();
     draw_button();
 }
 
@@ -218,9 +213,8 @@ fn layout() {
     let p = pad(dpi);
     let flags = SWP_NOACTIVATE | SWP_NOZORDER;
     unsafe {
-        if let Some(f) = frame {
-            let _ = SetWindowPos(f, None, area.x - p, area.y - p, area.w + 2 * p, area.h + 2 * p, flags);
-            let _ = InvalidateRect(Some(f), None, false);
+        if frame.is_some() {
+            draw_frame();
         }
         if let Some(e) = edit {
             let _ = SetWindowPos(e, None, area.x - p, area.y - p, area.w + 2 * p, area.h + 2 * p, flags);
@@ -254,57 +248,91 @@ fn button_pos(area: AreaRect, dpi: i32) -> (i32, i32) {
 // Moldura
 // ---------------------------------------------------------------------------
 
-fn paint_frame(hwnd: HWND) {
-    let (area, dpi, editing, counting) = with(|s| (s.area, s.dpi, s.editing, s.countdown.is_some()));
+/// Desenha a moldura com `UpdateLayeredWindow`, que troca posição, tamanho
+/// e imagem NUMA operação só. Antes era cor-chave + `WM_PAINT`: ao arrastar
+/// uma borda a janela crescia primeiro e o pedaço novo aparecia PRETO até a
+/// pintura chegar — um piscar escuro sobre a área a cada movimento.
+/// Fora da borda e das alças os pixels são alfa 0 (o mouse atravessa).
+fn draw_frame() {
+    let (frame, area, dpi, editing, counting) = with(|s| (s.frame, s.area, s.dpi, s.editing, s.countdown.is_some()));
+    let Some(hwnd) = frame else { return };
     let (p, b) = (pad(dpi), border(dpi));
+    let (w, h) = (area.w + 2 * p, area.h + 2 * p);
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    let color = if editing || counting { AMBER } else { RED };
     unsafe {
-        let mut ps = PAINTSTRUCT::default();
-        let dc = BeginPaint(hwnd, &mut ps);
-        let key = CreateSolidBrush(KEY);
-        let color = CreateSolidBrush(if editing || counting { AMBER } else { RED });
-        let full = RECT { left: 0, top: 0, right: area.w + 2 * p, bottom: area.h + 2 * p };
-        FillRect(dc, &full, key);
+        let screen = GetDC(None);
+        let mem = CreateCompatibleDC(Some(screen));
+        let bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+        let Ok(dib) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) else {
+            let _ = DeleteDC(mem);
+            ReleaseDC(None, screen);
+            return;
+        };
+        // O DIB nasce zerado (transparente): só a borda e as alças são escritas,
+        // então o custo é o do contorno, não o da área inteira.
+        let px = std::slice::from_raw_parts_mut(bits as *mut u32, (w * h) as usize);
+        let mut fill = |r: RECT| {
+            let (l, t) = (r.left.max(0), r.top.max(0));
+            let (rr, bb) = (r.right.min(w), r.bottom.min(h));
+            for y in t..bb {
+                let row = (y * w) as usize;
+                px[row + l as usize..row + rr.max(l) as usize].fill(color);
+            }
+        };
         // Borda por fora da área: [p-b, p) de cada lado.
         let inner = RECT { left: p, top: p, right: p + area.w, bottom: p + area.h };
         let outer = RECT { left: p - b, top: p - b, right: p + area.w + b, bottom: p + area.h + b };
-        for side in [
-            RECT { left: outer.left, top: outer.top, right: outer.right, bottom: inner.top },
-            RECT { left: outer.left, top: inner.bottom, right: outer.right, bottom: outer.bottom },
-            RECT { left: outer.left, top: inner.top, right: inner.left, bottom: inner.bottom },
-            RECT { left: inner.right, top: inner.top, right: outer.right, bottom: inner.bottom },
-        ] {
-            FillRect(dc, &side, color);
-        }
+        fill(RECT { left: outer.left, top: outer.top, right: outer.right, bottom: inner.top });
+        fill(RECT { left: outer.left, top: inner.bottom, right: outer.right, bottom: outer.bottom });
+        fill(RECT { left: outer.left, top: inner.top, right: inner.left, bottom: inner.bottom });
+        fill(RECT { left: inner.right, top: inner.top, right: outer.right, bottom: inner.bottom });
         // Editando: alças nos cantos e no meio de cada lado (por fora da área).
         if editing {
             let (cx, cy) = (p + area.w / 2, p + area.h / 2);
-            let h = p;
+            let hs = p;
             for (x, y) in [
                 (0, 0),
                 (p + area.w, 0),
                 (0, p + area.h),
                 (p + area.w, p + area.h),
-                (cx - h / 2, 0),
-                (cx - h / 2, p + area.h),
-                (0, cy - h / 2),
-                (p + area.w, cy - h / 2),
+                (cx - hs / 2, 0),
+                (cx - hs / 2, p + area.h),
+                (0, cy - hs / 2),
+                (p + area.w, cy - hs / 2),
             ] {
-                FillRect(dc, &RECT { left: x, top: y, right: x + h, bottom: y + h }, color);
+                fill(RECT { left: x, top: y, right: x + hs, bottom: y + hs });
             }
         }
-        let _ = DeleteObject(HGDIOBJ(key.0));
-        let _ = DeleteObject(HGDIOBJ(color.0));
-        let _ = EndPaint(hwnd, &ps);
+        let old = SelectObject(mem, HGDIOBJ(dib.0));
+        let blend = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: AC_SRC_ALPHA as u8 };
+        let dst = POINT { x: area.x - p, y: area.y - p };
+        let size = SIZE { cx: w, cy: h };
+        let src = POINT { x: 0, y: 0 };
+        let _ = UpdateLayeredWindow(hwnd, Some(screen), Some(&dst), Some(&size), Some(mem), Some(&src), COLORREF(0), Some(&blend), ULW_ALPHA);
+        SelectObject(mem, old);
+        let _ = DeleteObject(HGDIOBJ(dib.0));
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
     }
 }
 
 extern "system" fn frame_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
-        WM_PAINT => {
-            paint_frame(hwnd);
-            LRESULT(0)
-        }
-        WM_ERASEBKGND => LRESULT(1),
         WM_TIMER if wparam.0 == TIMER_CTRL => {
             on_tick();
             LRESULT(0)
@@ -567,10 +595,13 @@ fn begin_edit() {
             log::log("AreaFrame: CreateWindowEx (edicao) falhou.");
             return;
         };
-        // Véu leve, fora da captura. Sem exclusão (Windows antigo) ele ficaria
-        // dentro do vídeo: some (alfa 1), mas continua recebendo o mouse.
-        let veil_ok = excluded && SetWindowDisplayAffinity(edit, WDA_EXCLUDEFROMCAPTURE).is_ok();
-        let _ = SetLayeredWindowAttributes(edit, COLORREF(0), if veil_ok { 70 } else { 1 }, LWA_ALPHA);
+        // Véu invisível (alfa 1: a janela layered só recebe o mouse com alfa
+        // > 0) e fora da captura. A moldura âmbar e as alças já dizem que a
+        // área está em edição; escurecer escondia justamente o conteúdo.
+        if excluded {
+            let _ = SetWindowDisplayAffinity(edit, WDA_EXCLUDEFROMCAPTURE);
+        }
+        let _ = SetLayeredWindowAttributes(edit, COLORREF(0), 1, LWA_ALPHA);
         with(|s| {
             s.edit = Some(edit);
             s.editing = true;
@@ -584,10 +615,8 @@ fn begin_edit() {
         let _ = SetForegroundWindow(edit);
         let _ = SetFocus(Some(edit));
     }
-    if let Some(f) = frame {
-        unsafe {
-            let _ = InvalidateRect(Some(f), None, false);
-        }
+    if frame.is_some() {
+        draw_frame();
     }
     draw_button();
     log::log("AreaFrame: edicao ligada (Ctrl+Shift+clique no botao).");
@@ -604,9 +633,9 @@ fn end_edit() {
         if let Some(e) = edit {
             let _ = DestroyWindow(e);
         }
-        if let Some(f) = frame {
-            let _ = InvalidateRect(Some(f), None, false);
-        }
+    }
+    if frame.is_some() {
+        draw_frame();
     }
     draw_button();
     log!("AreaFrame: edicao encerrada — area {}x{} em ({}, {}).", area.w, area.h, area.x, area.y);

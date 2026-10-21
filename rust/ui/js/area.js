@@ -1,32 +1,14 @@
 // =====================================================================
-// Captura de area (aba "Area" das Configuracoes) — bridge/area.rs.
+// Area da tela: previa de uma area sobre os monitores + contagem regressiva.
 //
-// Tres coisas: a AREA SALVA (escolhida pela mesma selecao do
-// "Capturar... -> Area", so que guardada em vez de gravar), o ATALHO que
-// grava ela (padrao Ctrl+Shift+Pause/Break; o backend so o registra com uma
-// area salva) e o ATRASO antes de comecar (0 = desligado). O estado vem
-// inteiro do backend em `area_state`; a contagem do atraso, em
-// `area_countdown`.
+// A previa (monitores com as imagens da tela inicial + o retangulo
+// destacado) e usada pelos atalhos de area da aba Atalhos (hotkeys.js). A
+// contagem (`record_countdown`, bridge/countdown.rs) vale pra qualquer
+// atalho com atraso: a linha de status da tela principal diz quanto falta.
 // =====================================================================
 const AreaCapture = {
-  state: { saved: null, hotkey: '', delay: 0, delayMax: 60 },
-  currentHotkey: '',   // ultimo atalho aceito (pra nao reenviar o mesmo)
   countdown: 0,
-  DEFAULT_HOTKEY: 'Ctrl+Shift+Pause/Break',
-  HOTKEY_PREFIX: 'settingsAreaHotkey',
-  DELAY_OPTIONS: [0, 3, 5, 10, 15, 30],
 
-  applyState(data) {
-    if (!data) return;
-    this.state = Object.assign({}, this.state, data);
-    this.currentHotkey = this.state.hotkey || '';
-    this._renderSavedButton();
-    this.renderPreviews();
-    const modal = document.getElementById('settingsOverlay');
-    if (modal && modal.classList.contains('visible')) this.loadIntoSettings();
-  },
-
-  // ---- Previa: monitores + area salva destacada --------------------------
   // Monitores e area estao no MESMO sistema de coordenadas (pixels fisicos
   // da area de trabalho virtual), entao a previa e so uma regra de tres: a
   // caixa recebe o aspect-ratio do conjunto e cada peca vai em %, sem
@@ -39,19 +21,10 @@ const AreaCapture = {
     return all.filter(m => m.width > 0 && m.height > 0);
   },
 
-  renderPreviews() {
-    this._renderPreview('settingsAreaPreview');
-    this._renderPreview('windowPickerAreaPreview');
-    // No seletor, a previa substitui o desenho explicativo.
-    const pv = document.getElementById('windowPickerAreaPreview');
-    const art = document.querySelector('.winpick-area-art');
-    if (pv && art) art.style.display = pv.hidden ? '' : 'none';
-  },
-
-  _renderPreview(boxId) {
-    const box = document.getElementById(boxId);
+  // Desenha a previa da area `a` ({x,y,w,h}) dentro de `box`. Sem area ou
+  // sem monitores conhecidos, a caixa some.
+  renderPreview(box, a) {
     if (!box) return;
-    const a = this.state.saved;
     const mons = this._monitors();
     if (!a || !mons.length) {
       box.hidden = true;
@@ -112,12 +85,15 @@ const AreaCapture = {
     box.appendChild(r);
   },
 
+  // Monitores mudaram (lista de dispositivos): refaz as previas abertas.
+  renderPreviews() {
+    if (typeof Hotkeys !== 'undefined') Hotkeys.renderPreviews();
+  },
+
   // Tique das previas (a cada ~500 ms): troca so as imagens, sem refazer.
   updateThumbs(items) {
     for (const it of items) this._thumbs[it.id] = it.thumb || '';
-    for (const boxId of ['settingsAreaPreview', 'windowPickerAreaPreview']) {
-      const box = document.getElementById(boxId);
-      if (!box || box.hidden) continue;
+    document.querySelectorAll('.area-preview:not([hidden])').forEach(box => {
       box.querySelectorAll('.area-preview-mon').forEach(el => {
         const url = this._thumbs[el.dataset.id];
         if (url === undefined) return;
@@ -131,119 +107,54 @@ const AreaCapture = {
         }
         if (img.getAttribute('src') !== url) img.src = url;
       });
-    }
+    });
   },
 
-  _savedText() {
-    const a = this.state.saved;
-    if (!a) return T('settings.area.none');
-    return T('settings.area.savedValue', { w: a.w, h: a.h, x: a.x, y: a.y });
-  },
-
-  loadIntoSettings() {
-    const txt = document.getElementById('settingsAreaSaved');
-    if (txt) {
-      txt.textContent = this._savedText();
-      txt.classList.toggle('empty', !this.state.saved);
-    }
-    const def = document.getElementById('settingsAreaDefine');
-    if (def) def.textContent = T(this.state.saved ? 'settings.area.redefine' : 'settings.area.define');
-    const clr = document.getElementById('settingsAreaClear');
-    if (clr) clr.hidden = !this.state.saved;
-    this._fillDelay(this.state.delay || 0);
-    this.renderPreviews();
-    Settings._loadHotkeyIntoUi(this.currentHotkey, this.HOTKEY_PREFIX);
-  },
-
-  _fillDelay(value) {
-    const sel = document.getElementById('settingsAreaDelay');
-    if (!sel) return;
-    const opts = this.DELAY_OPTIONS.slice();
-    // Valor do config fora da lista (JSON editado a mao) continua escolhivel.
-    if (!opts.includes(value)) { opts.push(value); opts.sort((a, b) => a - b); }
-    sel.innerHTML = '';
-    for (const v of opts) {
-      const o = document.createElement('option');
-      o.value = String(v);
-      o.textContent = v === 0 ? T('settings.area.delayOff')
-                              : T('settings.area.delaySec', { sec: v });
-      sel.appendChild(o);
-    }
-    sel.value = String(value);
-  },
-
-  // A selecao escurece os monitores: as Configuracoes ficam embaixo, e o
-  // `area_state` que volta (salva ou cancelada) atualiza a aba.
-  define() { Bridge.send('define_capture_area', {}); },
-  clear() { Bridge.send('clear_capture_area', {}); },
-
-  onDelayChange(v) {
-    Bridge.send('set_area_delay', { sec: parseInt(v, 10) || 0 });
-  },
-
-  onHotkeyChange() {
-    Settings._updateHotkeyPreview(this.HOTKEY_PREFIX);
-    this._commitHotkey();
-  },
-  // Mesmo fluxo do atalho do buffer: nao pode repetir o de gravar nem o do
-  // buffer (o Windows so aceita um registro por combinacao). O backend
-  // confere de novo e devolve o estado.
-  async _commitHotkey() {
-    const hotkey = Settings._readHotkeyFromUi(this.HOTKEY_PREFIX);
-    if (hotkey === this.currentHotkey) return;
-    if (hotkey !== '') {
-      const taken = [Settings.currentHotkey,
-                     typeof Replay !== 'undefined' ? Replay.currentHotkey : ''];
-      if (taken.includes(hotkey)) {
-        Toast.show(T('toast.invalidHotkey'), T('settings.area.hotkeyConflict'),
-          { warn: true, ttl: 7000 });
-        return;
-      }
-      const validation = await validateHotkeyWithBackend(hotkey);
-      if (!validation.ok) {
-        Toast.show(T('toast.invalidHotkey'), validation.reason +
-          ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
-        return;
-      }
-    }
-    Bridge.send('set_area_hotkey', { hotkey });
-    this.currentHotkey = hotkey;
-  },
-
-  // "Restaurar padroes": atalho e atraso voltam; a area salva e escolha do
-  // usuario e fica.
-  restoreDefaults() {
-    Settings._loadHotkeyIntoUi(this.DEFAULT_HOTKEY, this.HOTKEY_PREFIX);
-    this._commitHotkey();
-    if ((this.state.delay || 0) !== 0) this.onDelayChange(0);
-  },
-
-  // Botao "Gravar a area salva" do seletor Capturar... -> Area.
-  _renderSavedButton() {
-    const btn = document.getElementById('windowPickerSavedAreaBtn');
-    if (!btn) return;
-    const a = this.state.saved;
-    btn.hidden = !a;
-    if (a) btn.textContent = T('windowPicker.savedArea', { w: a.w, h: a.h });
-  },
-
-  // Contagem do atraso: a linha de status da tela principal diz quanto falta
-  // e que clicar em gravar cancela.
-  onCountdown(sec) {
+  // Contagem do atraso: o botao de gravar mostra os segundos no lugar do
+  // icone e um anel em volta que esvazia ate zero (animacao CSS de `total`
+  // segundos, comecando no ponto certo se a contagem ja estava andando); a
+  // linha de status diz quanto falta e que clicar em gravar cancela.
+  countdownTotal: 0,
+  onCountdown(sec, total) {
+    const prev = this.countdown;
     this.countdown = sec || 0;
+    if (total) this.countdownTotal = total;
+    const btn = document.getElementById('recordBtn');
+    const num = document.getElementById('recordCountdownNum');
+    const label = document.getElementById('recordLabel');
+    if (btn && num) {
+      if (this.countdown > 0) {
+        const tot = Math.max(this.countdownTotal, this.countdown);
+        if (!btn.classList.contains('counting') || this.countdown > prev) {
+          // Contagem nova: reinicia a animacao do anel (tirar a classe e
+          // forcar o reflow e o que faz o navegador recomecar do zero).
+          btn.classList.remove('counting');
+          void btn.offsetWidth;
+          btn.style.setProperty('--cd-total', tot + 's');
+          btn.style.setProperty('--cd-delay', -(tot - this.countdown) + 's');
+          btn.classList.add('counting');
+        }
+        num.textContent = String(this.countdown);
+        num.classList.remove('tick');
+        void num.offsetWidth;
+        num.classList.add('tick');
+        if (label) label.textContent = T('record.countdownCancel');
+      } else if (btn.classList.contains('counting')) {
+        btn.classList.remove('counting');
+        num.textContent = '';
+        if (label && !_lastRecordingActive) label.textContent = T('record.start');
+      }
+    }
     const st = document.getElementById('recStatusText');
     if (!st) return;
     if (this.countdown > 0)
-      st.textContent = T('record.areaCountdown', { sec: this.countdown });
+      st.textContent = T('record.countdown', { sec: this.countdown });
     else if (!_lastRecordingActive)
       st.textContent = T('record.statusReady');
   },
 
   // Troca de idioma: textos montados aqui.
   relabel() {
-    this._renderSavedButton();
     if (this.countdown > 0) this.onCountdown(this.countdown);
-    const modal = document.getElementById('settingsOverlay');
-    if (modal && modal.classList.contains('visible')) this.loadIntoSettings();
   },
 };

@@ -67,6 +67,7 @@ modulos! {
     gpu_usage,
     hibernate,
     hotkey,
+    hotkeys,
     lang,
     numbers_pt,
     local_asr,

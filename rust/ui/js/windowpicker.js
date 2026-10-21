@@ -23,6 +23,10 @@
 // numa faixa propria. A escolha e preferencia de uso desta maquina
 // (localStorage, como a legenda do player), nao do config.json. O backend
 // diz no `capture_windows` se o Windows tem captura por processo.
+//
+// Atalho de janela com VARIAS janelas casando o titulo: o backend manda
+// `window_picker_matches` e o seletor abre so com elas (openMatches), sem
+// abas; a escolha volta no `record_window` com o atraso do atalho.
 const WindowPicker = {
   items: [],
   thumbs: {},      // id -> url (chega depois da lista)
@@ -41,7 +45,9 @@ const WindowPicker = {
   // na aba de area nao gasta o PrintWindow de todas as janelas a toa).
   setMode(mode) {
     this.mode = mode === 'area' ? 'area' : 'window';
-    try { localStorage.setItem(this.MODE_KEY, this.mode); } catch (_) {}
+    if (!this.matches) {
+      try { localStorage.setItem(this.MODE_KEY, this.mode); } catch (_) {}
+    }
     const isArea = this.mode === 'area';
     const tabs = [['windowPickerModeWindow', !isArea], ['windowPickerModeArea', isArea]];
     for (const [id, on] of tabs) {
@@ -56,13 +62,19 @@ const WindowPicker = {
     if (refresh) refresh.hidden = isArea;
     const sub = document.getElementById('windowPickerSub');
     if (sub) sub.textContent = T(isArea ? 'windowPicker.areaSubtitle' : 'windowPicker.subtitle');
+    // Modo "so as janelas que o atalho achou": sem abas, sem atualizar.
+    const modeBar = document.querySelector('#windowPickerOverlay .winpick-modes');
+    if (modeBar) modeBar.style.display = this.matches ? 'none' : '';
+    if (refresh && this.matches) refresh.hidden = true;
+    if (sub && this.matches)
+      sub.textContent = T('windowPicker.matchesSubtitle', { title: this.matches.pattern });
     if (isArea) {
-      // Area salva: a previa com o retangulo dela (AreaCapture, area.js).
-      if (typeof AreaCapture !== 'undefined') AreaCapture.renderPreviews();
+      // Atalhos de area com retangulo salvo (Hotkeys, hotkeys.js).
+      if (typeof Hotkeys !== 'undefined') Hotkeys.renderPickerAreas();
       const btn = document.getElementById('windowPickerAreaBtn');
       if (btn) setTimeout(() => btn.focus(), 30);
     } else {
-      if (!this.items.length && !this.loading) this.refresh();
+      if (!this.items.length && !this.loading && !this.matches) this.refresh();
       const search = document.getElementById('windowPickerSearch');
       if (search) setTimeout(() => search.focus(), 30);
     }
@@ -73,11 +85,6 @@ const WindowPicker = {
   selectArea() {
     this.close();
     Bridge.send('select_capture_area');
-  },
-  // A area salva nas Configuracoes (AreaCapture), sem selecionar de novo.
-  recordSavedArea() {
-    this.close();
-    Bridge.send('record_saved_area');
   },
 
   _audioWanted() {
@@ -111,12 +118,37 @@ const WindowPicker = {
     ov.classList.add('visible');
     // Lista nova a cada abertura (janelas abrem/fecham entre uma e outra).
     this.items = [];
+    this.matches = null;
     this.setMode(this._savedMode());
+  },
+
+  // Atalho de janela com VARIAS janelas casando o titulo: o seletor abre so
+  // com elas (o backend ja guardou a lista), com o "som do app" do atalho, e
+  // o atraso dele conta depois da escolha.
+  matches: null,   // { pattern, delaySec } enquanto aberto por um atalho
+  openMatches(data) {
+    if (!data) return;
+    const ov = document.getElementById('windowPickerOverlay');
+    if (!ov) return;
+    const search = document.getElementById('windowPickerSearch');
+    if (search) search.value = '';
+    this.matches = { pattern: data.pattern || '', delaySec: data.delaySec || 0 };
+    this.seq = data.seq || 0;
+    this.items = Array.isArray(data.items) ? data.items : [];
+    this.thumbs = {};
+    this.loading = false;
+    this._syncAudio(data.appAudio !== false);
+    const cb = document.getElementById('windowPickerAudio');
+    if (cb) cb.checked = !!data.wantAppAudio;
+    ov.classList.add('visible');
+    this.setMode('window');
+    this.render();
   },
 
   close() {
     const ov = document.getElementById('windowPickerOverlay');
     if (ov) ov.classList.remove('visible');
+    this.matches = null;
   },
 
   isOpen() {
@@ -155,12 +187,13 @@ const WindowPicker = {
 
   pick(id) {
     if (!id) return;
+    const delaySec = this.matches ? this.matches.delaySec : 0;
     this.close();
     if (typeof triggerRecordRipple === 'function') triggerRecordRipple();
     const wrap = document.getElementById('windowPickerAudioWrap');
     const cb = document.getElementById('windowPickerAudio');
     const appAudio = !!(cb && cb.checked && !(wrap && wrap.hidden));
-    Bridge.send('record_window', { id, appAudio });
+    Bridge.send('record_window', { id, appAudio, delaySec });
   },
 
   _placeholderSvg() {

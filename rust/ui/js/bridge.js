@@ -80,6 +80,7 @@ const Bridge = {
       // Status do buffer em memoria (texto montado em JS com {{held}}).
       try { Replay.render(); } catch (e) {}
       try { AreaCapture.relabel(); } catch (e) {}
+      try { Hotkeys.relabel(); } catch (e) {}
       // Re-render do estado de gravacao pra atualizar label/status do
       // botao de gravar (T('record.start'/'stop'/'statusReady'/...)).
       // Re-aplica estado de gravacao pra atualizar label (T('record.start'/stop'))
@@ -371,9 +372,11 @@ const Bridge = {
     keyframes(data) { Player.onKeyframes(data); },
     // Buffer em memoria (replay.js).
     replay_state(data) { Replay.applyState(data); },
-    // Captura de area: area salva/atalho/atraso e a contagem (area.js).
-    area_state(data) { AreaCapture.applyState(data); },
-    area_countdown(data) { AreaCapture.onCountdown(data && data.sec); },
+    // Aba Atalhos (hotkeys.js) e a contagem do atraso de um atalho (area.js).
+    hotkeys_state(data) { Hotkeys.applyState(data); },
+    record_countdown(data) { AreaCapture.onCountdown(data && data.sec, data && data.total); },
+    // Atalho de janela com varias janelas casando: o seletor so com elas.
+    window_picker_matches(data) { WindowPicker.openMatches(data); },
     // Filtros de audio (aba Audio): lista inteira, um filtro so, e o teste A/B.
     video_test(data) { VideoTest.onState(data); },
     replay_saved(data) { Replay.onSaved(data); },

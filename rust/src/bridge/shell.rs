@@ -128,41 +128,8 @@ pub fn on_hibernate_idle() {
 }
 
 // ---------------------------------------------------------------------------
-// Atalho global configurável (OBSHotkey)
+// Validação de atalho (a lista mora em `bridge::hotkeys`)
 // ---------------------------------------------------------------------------
-
-/// Lê `hotkey` e (re)registra. Padrão `Pause/Break`; vazio = nenhum atalho.
-pub fn apply_hotkey_from_config() {
-    ui::unregister_global_hotkey(recording::HK_RECORD_TOGGLE);
-    ui::unregister_global_hotkey(recording::HK_RECORD_TOGGLE_ALT);
-    let spec = config::get_config_str("hotkey", "Pause/Break");
-    if spec.trim().is_empty() {
-        log::log("Hotkey: desativada (config vazia).");
-        return;
-    }
-    let Some(hk) = hotkey::parse_hotkey(&spec) else {
-        log!("Hotkey: spec invalido \"{spec}\" — ignorado.");
-        return;
-    };
-    // Rede de segurança: a UI já bloqueia antes de mandar.
-    if let Some(reason) = hotkey::reserved_reason(hk.modifiers, hk.vk) {
-        log!("Hotkey: \"{spec}\" e reservado pelo Windows ({reason}) — ignorado.");
-        return;
-    }
-    if ui::register_global_hotkey(recording::HK_RECORD_TOGGLE, hk.modifiers, hk.vk) {
-        log!("Hotkey: registrado \"{spec}\".");
-    } else {
-        log!("Hotkey: RegisterHotKey falhou pra \"{spec}\" (outro app pode estar usando).");
-    }
-    // Ctrl+Pause não gera VK_PAUSE: vira VK_CANCEL ("Break"). Registra os dois.
-    if hk.vk == hotkey::VK_PAUSE && hk.modifiers & hotkey::MOD_CTRL != 0 {
-        if ui::register_global_hotkey(recording::HK_RECORD_TOGGLE_ALT, hk.modifiers, hotkey::VK_CANCEL) {
-            log::log("Hotkey: alias Ctrl+Break (VK_CANCEL) registrado pra cobrir Ctrl+Pause.");
-        } else {
-            log::log("Hotkey: alias Ctrl+Break (VK_CANCEL) falhou — Ctrl+Pause pode nao disparar.");
-        }
-    }
-}
 
 /// Valida um atalho para a UI (`hotkey_validation_result`), com o motivo já
 /// traduzido. A regra (lista de reservados) fica toda no backend.
@@ -182,36 +149,6 @@ pub fn handle_validate_hotkey(spec: &str) {
         "ok": reason.is_none(),
         "reason": reason.map(lang::t).unwrap_or_default(),
     }));
-}
-
-/// Vazio limpa; válido é gravado na forma canônica e aplicado na hora. Não
-/// pode repetir o atalho do buffer nem o da área: o Windows aceita um registro
-/// por combinação, e o outro deixaria de funcionar sem aviso.
-pub fn handle_set_hotkey(spec: &str) {
-    let mut normalized = spec.trim().to_owned();
-    if !normalized.is_empty() {
-        let Some(hk) = hotkey::parse_hotkey(&normalized) else {
-            log!("HandleSetHotkey: spec invalido \"{normalized}\" — ignorado.");
-            return;
-        };
-        if let Some(reason) = hotkey::reserved_reason(hk.modifiers, hk.vk) {
-            log!("HandleSetHotkey: \"{normalized}\" reservado pelo Windows ({reason}) — ignorado.");
-            return;
-        }
-        normalized = hotkey::format_hotkey(hk.modifiers, hk.vk);
-        for (taken, msg) in [
-            (super::replay::hotkey_spec(), "error.replayHotkeyConflict"),
-            (super::area::hotkey_spec(), "error.areaHotkeyConflict"),
-        ] {
-            if normalized.eq_ignore_ascii_case(&taken) {
-                log!("HandleSetHotkey: \"{normalized}\" ja e outro atalho do NoOBS — ignorado.");
-                super::post_error(lang::t(msg));
-                return;
-            }
-        }
-    }
-    config::set_config_str("hotkey", &normalized);
-    apply_hotkey_from_config();
 }
 
 // ---------------------------------------------------------------------------

@@ -1,12 +1,12 @@
 //! Modo "hibernação" (porte de `OBSHibernate.pas`): o MESMO exe com
 //! `/hibernate`, carregando só o mínimo — ícone na bandeja ("NoOBS
-//! (hibernando)"), o atalho global de gravar e, se ligados, os watchers de
+//! (hibernando)"), os atalhos de gravação (aba Atalhos) e, se ligados, os watchers de
 //! microfone e de apps. Sem motor de captura, WebView2, FFmpeg nem medidores: ~5 MB
 //! contra ~150 MB do modo completo, zero CPU/GPU parado.
 //!
 //! Clique na bandeja, atalho, microfone em uso ou jogo aberto PROMOVEM a
-//! hibernação: libera mutex/bandeja/atalho, lança o exe (com `/start-record`,
-//! `/start-record-mic` ou `/start-replay`) e sai.
+//! hibernação: libera mutex/bandeja/atalhos, lança o exe (com `/hotkey=N`,
+//! `/start-record`, `/start-record-mic` ou `/start-replay`) e sai.
 //!
 //! Instância única: o MESMO mutex do modo completo (pegadinha #36). Uma 2ª
 //! instância manda `WM_SHOW_INSTANCE`, que aqui vira "promover a completo".
@@ -22,7 +22,7 @@ use windows::Win32::UI::Shell::{ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::single_instance::{MUTEX_NAME, SHOW_MSG_NAME};
-use crate::{config, elevate, hotkey, lang, log, mic_watch, proc_watch, win};
+use crate::{config, elevate, hotkey, hotkeys, lang, log, mic_watch, proc_watch, win};
 
 const CLASS_NAME: &str = "TNoOBSHibernate";
 const TOOLTIP: &str = "NoOBS (hibernando)";
@@ -36,12 +36,6 @@ const WM_REPLAY_TRIGGER: u32 = WM_USER + 102;
 const ID_TRAY_RECORD: usize = 9001;
 const ID_TRAY_OPEN: usize = 9002;
 const ID_TRAY_QUIT: usize = 9003;
-/// Mesmos ids do modo completo.
-const HK_RECORD_TOGGLE: i32 = 100;
-const HK_RECORD_TOGGLE_ALT: i32 = 101;
-/// Atalho da área salva (mesmos ids do `bridge::area`).
-const HK_AREA_RECORD: i32 = 104;
-const HK_AREA_RECORD_ALT: i32 = 105;
 
 static MAIN: AtomicIsize = AtomicIsize::new(0);
 static SHOW_MSG: AtomicU32 = AtomicU32::new(0);
@@ -76,72 +70,50 @@ fn remove_tray() {
     }
 }
 
-/// Lê `hotkey` do config e registra (mesma regra do modo completo).
-fn register_record_hotkey() {
-    let spec = config::get_config_str("hotkey", "Pause/Break");
-    if spec.trim().is_empty() {
-        log::log("Hibernate: hotkey desativada (config vazia).");
-        return;
-    }
-    let Some(hk) = hotkey::parse_hotkey(&spec) else {
-        log!("Hibernate: hotkey spec invalido \"{spec}\".");
-        return;
-    };
-    if let Some(reason) = hotkey::reserved_reason(hk.modifiers, hk.vk) {
-        log!("Hibernate: hotkey \"{spec}\" e reservada ({reason}).");
-        return;
-    }
+/// Ids registrados aqui (mesmo esquema do modo completo, `hotkeys::ids_of`).
+static REGISTERED: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+
+/// Registra os atalhos de GRAVAÇÃO da lista (o de salvar trecho não: aqui não
+/// há buffer). Apertado, promove a completo com `/hotkey=N`.
+fn register_hotkeys() {
+    let list = hotkeys::load();
     let hwnd = main_hwnd();
-    unsafe {
-        if RegisterHotKey(Some(hwnd), HK_RECORD_TOGGLE, HOT_KEY_MODIFIERS(hk.modifiers), hk.vk).is_ok() {
-            log!("Hibernate: hotkey \"{spec}\" registrada.");
-        } else {
-            log!("Hibernate: RegisterHotKey falhou pra \"{spec}\" (outro app?).");
+    let mut reg = Vec::new();
+    for (i, it) in list.iter().enumerate() {
+        if !it.mode.records() || hotkeys::duplicates(&list).contains(&i) {
+            continue;
         }
-        // Ctrl+Pause chega como VK_CANCEL.
-        if hk.vk == hotkey::VK_PAUSE && hk.modifiers & hotkey::MOD_CTRL != 0 {
-            let _ = RegisterHotKey(Some(hwnd), HK_RECORD_TOGGLE_ALT, HOT_KEY_MODIFIERS(hk.modifiers), hotkey::VK_CANCEL);
+        let Some(hk) = hotkey::parse_hotkey(&it.hotkey) else { continue };
+        if hotkey::reserved_reason(hk.modifiers, hk.vk).is_some() {
+            continue;
+        }
+        let (id, alt) = hotkeys::ids_of(i);
+        unsafe {
+            if RegisterHotKey(Some(hwnd), id, HOT_KEY_MODIFIERS(hk.modifiers), hk.vk).is_ok() {
+                log!("Hibernate: atalho \"{}\" ({}) registrado.", it.hotkey, it.mode.as_str());
+                reg.push(id);
+            } else {
+                log!("Hibernate: RegisterHotKey falhou pra \"{}\" (outro app?).", it.hotkey);
+                continue;
+            }
+            // Ctrl+Pause chega como VK_CANCEL.
+            if hk.vk == hotkey::VK_PAUSE
+                && hk.modifiers & hotkey::MOD_CTRL != 0
+                && RegisterHotKey(Some(hwnd), alt, HOT_KEY_MODIFIERS(hk.modifiers), hotkey::VK_CANCEL).is_ok()
+            {
+                reg.push(alt);
+            }
         }
     }
+    *REGISTERED.lock().unwrap_or_else(|p| p.into_inner()) = reg;
 }
 
-/// Atalho da área salva: só com uma área salva (`areaSaved`), como no modo
-/// completo. Apertado aqui, promove com `/start-area`.
-fn register_area_hotkey() {
-    if config::get_config_json("areaSaved").is_none() {
-        return;
-    }
-    let spec = config::get_config_str("areaHotkey", "Ctrl+Shift+Pause/Break");
-    if spec.trim().is_empty() {
-        return;
-    }
-    let Some(hk) = hotkey::parse_hotkey(&spec) else {
-        log!("Hibernate: atalho da area invalido \"{spec}\".");
-        return;
-    };
-    if hotkey::reserved_reason(hk.modifiers, hk.vk).is_some() {
-        return;
-    }
+fn unregister_hotkeys() {
     let hwnd = main_hwnd();
-    unsafe {
-        if RegisterHotKey(Some(hwnd), HK_AREA_RECORD, HOT_KEY_MODIFIERS(hk.modifiers), hk.vk).is_ok() {
-            log!("Hibernate: atalho da area \"{spec}\" registrado.");
-        } else {
-            log!("Hibernate: RegisterHotKey falhou pro atalho da area \"{spec}\".");
+    for id in std::mem::take(&mut *REGISTERED.lock().unwrap_or_else(|p| p.into_inner())) {
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), id);
         }
-        if hk.vk == hotkey::VK_PAUSE && hk.modifiers & hotkey::MOD_CTRL != 0 {
-            let _ = RegisterHotKey(Some(hwnd), HK_AREA_RECORD_ALT, HOT_KEY_MODIFIERS(hk.modifiers), hotkey::VK_CANCEL);
-        }
-    }
-}
-
-fn unregister_record_hotkey() {
-    let hwnd = main_hwnd();
-    unsafe {
-        let _ = UnregisterHotKey(Some(hwnd), HK_RECORD_TOGGLE);
-        let _ = UnregisterHotKey(Some(hwnd), HK_RECORD_TOGGLE_ALT);
-        let _ = UnregisterHotKey(Some(hwnd), HK_AREA_RECORD);
-        let _ = UnregisterHotKey(Some(hwnd), HK_AREA_RECORD_ALT);
     }
 }
 
@@ -162,7 +134,7 @@ fn spawn_full_and_exit(args: &str) {
     log!("Hibernate: spawn full \"{exe}\" args=\"{args}\"");
     mic_watch::stop();
     proc_watch::stop();
-    unregister_record_hotkey();
+    unregister_hotkeys();
     remove_tray();
     release_mutex();
     let rc = unsafe { ShellExecuteW(None, PCWSTR::null(), &HSTRING::from(exe), &HSTRING::from(args), PCWSTR::null(), SW_SHOWNORMAL) };
@@ -214,10 +186,11 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         }
         WM_HOTKEY => {
             log!("Hibernate: WM_HOTKEY id={}", wparam.0);
-            match wparam.0 as i32 {
-                HK_RECORD_TOGGLE | HK_RECORD_TOGGLE_ALT => spawn_full_and_exit("/start-record"),
-                HK_AREA_RECORD | HK_AREA_RECORD_ALT => spawn_full_and_exit("/start-area"),
-                _ => {}
+            let id = wparam.0 as i32;
+            if REGISTERED.lock().unwrap_or_else(|p| p.into_inner()).contains(&id) {
+                if let Some(i) = hotkeys::index_of_id(id) {
+                    spawn_full_and_exit(&format!("/hotkey={i}"));
+                }
             }
             LRESULT(0)
         }
@@ -249,7 +222,7 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             log::log("Hibernate: WM_DESTROY.");
             mic_watch::stop();
             proc_watch::stop();
-            unregister_record_hotkey();
+            unregister_hotkeys();
             remove_tray();
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
@@ -329,8 +302,7 @@ pub fn run() {
         win::apply_menu_theme(Some(hwnd), theme == "dark");
 
         install_tray();
-        register_record_hotkey();
-        register_area_hotkey();
+        register_hotkeys();
 
         // Auto-gravação em chamadas: vigia o mic mesmo hibernando (poll de 1 s).
         if config::get_config_bool("autoRecordOnMic", false) {

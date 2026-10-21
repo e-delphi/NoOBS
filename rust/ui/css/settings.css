@@ -608,14 +608,46 @@
     transition: background 150ms ease, border-color 150ms ease;
   }
   .settings-btn:hover { background: var(--panel-3); border-color: var(--border-2); }
-  /* Aba Area: a area salva ("1280 x 720 em (100, 200)") + definir/remover. */
-  .area-saved-row {
+  /* Aba Atalhos: uma linha (cartao) por atalho — modo + combinacao + x no
+     cabecalho, campos do modo embaixo, situacao (repetido, em uso...) no pe. */
+  .hk-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .hk-empty { margin: 0; }
+  .hk-row {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel-2);
+    padding: 10px 12px;
     display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-top: 8px;
+    flex-direction: column;
+    gap: 10px;
   }
+  .hk-row-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hk-row-head .hk-mode { width: auto; min-width: 150px; flex: none; }
+  .hk-row-head .hotkey-builder { flex: 1 1 auto; }
+  .hk-remove {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .hk-remove:hover { color: var(--danger-2); border-color: var(--border-2); }
+  .hk-row-body { display: flex; flex-direction: column; gap: 8px; }
+  .hk-field { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hk-field-label { font-size: 13px; color: var(--text-2); min-width: 140px; }
+  .hk-field .settings-input { width: auto; flex: 1 1 200px; max-width: 360px; }
+  .hk-field .hk-delay { flex: none; min-width: 160px; }
+  .hk-area { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .area-preview.hk-area-preview { max-width: 420px; margin-top: 0; }
+  .hk-status { margin: 0; }
+  .hk-status.warn { color: var(--danger-2); }
+  .hk-add-row { margin-top: 12px; }
   .area-saved-text {
     flex: 1 1 160px;
     min-width: 0;
@@ -625,7 +657,7 @@
   }
   .area-saved-text.empty { color: var(--text-3); }
   .settings-btn[hidden] { display: none; }
-  /* Previa da area salva: os monitores (imagens da tela inicial) em % de uma
+  /* Previa de uma area (atalhos de area): os monitores (imagens da tela inicial) em % de uma
      caixa com o aspect-ratio do conjunto, e a area destacada por cima. A
      sombra gigante da area escurece o resto; o overflow a corta na caixa. */
   .area-preview {

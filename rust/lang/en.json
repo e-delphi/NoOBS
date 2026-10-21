@@ -49,7 +49,8 @@
     "needDevice": "Enable at least one device (monitor, webcam, microphone or speaker) to start recording.",
     "finalizing": "Finishing recording...",
     "sizeHint": "Recorded so far",
-    "areaCountdown": "Recording the area in {{sec}} s — click record to cancel"
+    "countdown": "Recording in {{sec}} s",
+    "countdownCancel": "Cancel countdown"
   },
   "replay": {
     "label": "Memory buffer",
@@ -64,13 +65,13 @@
     "restarted": "Buffer restarted",
     "restartedBody": "The buffer started over with the new recording settings. What it was holding was discarded.",
     "savedBody": "{{name}} — {{dur}}",
-    "hotkeyConflict": "That shortcut is already used to start/stop recording. Pick another combination.",
     "savedNotify": "Buffer clip saved ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capture...",
     "title": "Capture",
     "subtitle": "Only the chosen window goes into the video, even when other windows cover it. Audio follows the selected devices.",
+    "matchesSubtitle": "More than one window with \"{{title}}\" — pick which one to record",
     "refresh": "Refresh list",
     "close": "Close",
     "search": "Filter windows...",
@@ -251,7 +252,7 @@
       "recording": "Video",
       "audio": "Audio",
       "replay": "Buffer",
-      "area": "Area",
+      "hotkeys": "Hotkeys",
       "files": "Files",
       "devices": "Devices",
       "about": "About",
@@ -308,15 +309,11 @@
       "hint": "Automatic picks the best available option in the order H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Only choose manually if you know what you're doing."
     },
     "hotkey": {
-      "label": "Global hotkey to start/stop recording",
       "ctrl": "Ctrl",
       "shift": "Shift",
       "alt": "Alt",
       "win": "Win",
       "plus": "+",
-      "hint": "Check the desired modifiers (Ctrl, Shift, Alt, Win) and pick a main key. Examples: Pause or Ctrl+Shift+G.",
-      "noKey": "No hotkey set. Pick a main key (and optionally modifiers) to enable the global hotkey.",
-      "activeHint": "Current hotkey: <code>{{spec}}</code>. Uncheck all modifiers and pick <b>Not set</b> to disable.",
       "notDefined": "Not set",
       "chooseAnother": "Choose another combination.",
       "groups": {
@@ -705,27 +702,43 @@
       "memory": "Maximum memory",
       "memoryMax": "Maximum ({{size}})",
       "memoryHint": "Whichever runs out first wins: the buffer drops the oldest part once it exceeds the time OR the memory. A still screen takes a few MB per minute; a 4K 120 fps game at maximum quality reaches ~1.5 GB per minute. The maximum in the list is what fits on this machine, always leaving 4 GB of RAM free.",
-      "hotkey": "Shortcut to save the clip",
-      "hotkeyHint": "Only active while the buffer is on — when it's off, the combination goes back to other programs.",
       "seconds": "{{n}} seconds",
       "minutes": "{{n}} min"
-    },
-    "area": {
-      "savedLabel": "Saved area",
-      "savedHint": "Pick once the part of the screen you always record, then record it straight from the shortcut below, without selecting again.",
-      "none": "No saved area",
-      "savedValue": "{{w}} × {{h}} at ({{x}}, {{y}})",
-      "define": "Set area",
-      "redefine": "Pick another",
-      "clear": "Remove",
-      "hotkey": "Shortcut to record the saved area",
-      "hotkeyHint": "Only works with a saved area. Press it again to stop recording.",
-      "hotkeyConflict": "The area shortcut can't be the same as the recording or buffer one.",
-      "delay": "Delay before starting",
-      "delayOff": "Off",
-      "delaySec": "{{sec}} seconds",
-      "delayHint": "Time to get ready: the area frame shows up with a countdown and recording starts when it reaches zero. Applies to the shortcut and to \"Capture... → Area\". Pressing the shortcut or the record button during the countdown cancels it."
     }
+  },
+  "hotkeys": {
+    "hint": "Each hotkey works in any program, even with NoOBS in the tray or hibernating. Recording hotkeys, pressed again, stop the recording (or cancel the delay countdown).",
+    "add": "+ Add hotkey",
+    "empty": "No hotkeys. Use \"Add hotkey\" to create one.",
+    "remove": "Remove hotkey",
+    "mode": {
+      "record": "Record the screens",
+      "window": "Record a window",
+      "area": "Record an area",
+      "replay": "Save buffer clip"
+    },
+    "titleLabel": "Window title contains",
+    "titlePlaceholder": "e.g. new tab",
+    "areaAsk": "No saved area — the hotkey opens the selection for you to draw",
+    "areaChoosing": "Choosing…",
+    "areaClear": "Choose each time",
+    "areaValue": "{{w}} × {{h}} at ({{x}}, {{y}})",
+    "areaDefine": "Set area",
+    "areaRedefine": "Choose another",
+    "delayLabel": "Delay before starting",
+    "delayOff": "No delay",
+    "delaySec": "{{sec}} seconds",
+    "status": {
+      "empty": "No combination: pick a key to enable it.",
+      "duplicate": "Repeated combination: only the first one in the list works.",
+      "invalid": "Invalid combination.",
+      "reserved": "Combination reserved by Windows.",
+      "busy": "Another program already uses this combination — pick another.",
+      "inactive": "Active only while the buffer is on."
+    },
+    "duplicate": "That combination already belongs to the \"{{mode}}\" hotkey.",
+    "noWindow": "No open window with \"{{title}}\" in its title.",
+    "noTitle": "The window hotkey has no title text."
   },
   "devices": {
     "hint": "Uncheck to hide a device from the main screen. Hidden devices don't show in the list and aren't recorded.",
@@ -911,7 +924,6 @@
     "moveWhileRecording": "The recording in progress cannot be moved.",
     "replayStartFailed": "Could not turn on the memory buffer: {{error}}",
     "replaySaveFailed": "Could not save the buffer clip.",
-    "replayHotkeyConflict": "The buffer shortcut can't be the same as the start/stop recording one.",
     "exportBusyFile": "This recording is being exported right now — wait for it to finish or cancel the export.",
     "localAsr": {
       "download": "Could not download {{file}}: {{error}}",
@@ -924,9 +936,7 @@
       "decode": "Could not read the recording's audio.",
       "memory": "There is not enough memory to load the transcription engine, neither on the graphics card nor in the system. Close other programs and try again. Detail: {{detail}}"
     },
-    "areaNotSaved": "No saved area. Set one in Settings → Area.",
-    "areaOffScreen": "The saved area is outside the screens connected right now. Set another one in Settings → Area.",
-    "areaHotkeyConflict": "The area shortcut can't be the same as the recording or buffer one."
+    "areaOffScreen": "The saved area is outside the screens connected right now. Set another one in Settings → Area."
   },
   "warning": {
     "canvasOverflow": "Combined display resolution exceeds the codec limit ({{max}} × {{max}}). The recording will be scaled down proportionally. Switch to AV1 or HEVC in Settings to record up to 8192 × 8192."

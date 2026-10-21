@@ -23,7 +23,7 @@ use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, 
 use windows::Win32::Foundation::FILETIME;
 
 use crate::types::RecordingMeta;
-use crate::{config, encoder, engine, file_meta, gpu_usage, hotkey, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
+use crate::{config, encoder, engine, file_meta, gpu_usage, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
 
 use super::recording;
 use super::{library, post_error, post_json, shell, transcribe};
@@ -45,10 +45,6 @@ const REPLAY_MAX_MB: i32 = 32768;
 /// RAM que o buffer nunca toca: acima disso o Windows pagina — exatamente o
 /// engasgo que o buffer existe pra não causar.
 const REPLAY_RAM_RESERVE_MB: i64 = 4096;
-const DEFAULT_REPLAY_HOTKEY: &str = "Ctrl+Shift+F10";
-
-pub const HK_REPLAY_SAVE: i32 = 102;
-pub const HK_REPLAY_SAVE_ALT: i32 = 103;
 
 #[derive(Default)]
 struct State {
@@ -201,7 +197,7 @@ pub fn push_replay_state() {
         "maxSec": max_sec_cfg(),
         "maxMb": max_mb_cfg(),
         "maxMbLimit": mem_limit_mb(),
-        "hotkey": hotkey_spec(),
+        "hotkey": super::hotkeys::spec_of(crate::hotkeys::Mode::Replay),
         "apps": config::get_config_str("replayAutoApps", ""),
         "indicator": config::get_config_bool("replayIndicator", true),
         "indicatorCorner": config::get_config_str("replayIndicatorCorner", "top-right"),
@@ -214,43 +210,10 @@ pub fn push_replay_state() {
 // Atalho de salvar
 // ---------------------------------------------------------------------------
 
-/// Atalho de salvar configurado (ou o padrão).
-pub(super) fn hotkey_spec() -> String {
-    config::get_config_str("replayHotkey", DEFAULT_REPLAY_HOTKEY)
-}
-
-fn unregister_hotkey() {
-    ui::unregister_global_hotkey(HK_REPLAY_SAVE);
-    ui::unregister_global_hotkey(HK_REPLAY_SAVE_ALT);
-}
-
-/// Só com o buffer LIGADO: desligado, a combinação volta a ser dos outros apps.
+/// A lista de atalhos (`bridge::hotkeys`) registra os de salvar trecho só com
+/// o buffer LIGADO: desligado, a combinação volta a ser dos outros apps.
 fn apply_hotkey() {
-    unregister_hotkey();
-    if !replay_active() {
-        return;
-    }
-    let spec = hotkey_spec();
-    if spec.trim().is_empty() {
-        log::log("Buffer: atalho de salvar desativado (config vazia).");
-        return;
-    }
-    let Some(hk) = hotkey::parse_hotkey(&spec) else {
-        log!("Buffer: atalho invalido \"{spec}\" — ignorado.");
-        return;
-    };
-    if let Some(reason) = hotkey::reserved_reason(hk.modifiers, hk.vk) {
-        log!("Buffer: atalho \"{spec}\" e reservado pelo Windows ({reason}) — ignorado.");
-        return;
-    }
-    if ui::register_global_hotkey(HK_REPLAY_SAVE, hk.modifiers, hk.vk) {
-        log!("Buffer: atalho de salvar registrado \"{spec}\".");
-    } else {
-        log!("Buffer: RegisterHotKey falhou pra \"{spec}\" (outro app, ou o atalho de gravar, ja usa a combinacao).");
-    }
-    if hk.vk == hotkey::VK_PAUSE && hk.modifiers & hotkey::MOD_CTRL != 0 {
-        ui::register_global_hotkey(HK_REPLAY_SAVE_ALT, hk.modifiers, hotkey::VK_CANCEL);
-    }
+    super::hotkeys::apply();
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +355,6 @@ pub fn start_replay_buffer() {
 
 pub fn stop_replay_buffer(arm_hibernate: bool) {
     ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
-    unregister_hotkey();
     hide_indicator();
     let was = replay_active();
     if was {
@@ -403,6 +365,7 @@ pub fn stop_replay_buffer(arm_hibernate: bool) {
         engine::with_engine(|e| e.stop_replay());
     }
     with(|s| s.active = false);
+    apply_hotkey();
     sync_transcribe_pause();
     push_replay_state();
     // Desligado com a janela escondida: volta a poder hibernar.
@@ -427,7 +390,7 @@ pub fn continue_into_recording(output_path: &str) -> bool {
         s.prefix_sec = held;
         s.active = false;
     });
-    unregister_hotkey();
+    apply_hotkey();
     hide_indicator();
     log_mem_usage("buffer virando gravacao");
     ui::kill_timer(TIMER_REPLAY_MEM);
@@ -663,14 +626,6 @@ pub fn on_warmup() {
     }
 }
 
-pub fn on_hotkey(id: i32) -> bool {
-    if matches!(id, HK_REPLAY_SAVE | HK_REPLAY_SAVE_ALT) {
-        handle_save_replay();
-        return true;
-    }
-    false
-}
-
 pub fn on_timer(id: usize) -> bool {
     match id {
         TIMER_REPLAY_MEM => {
@@ -696,7 +651,6 @@ pub fn shutdown() {
     for t in [TIMER_REPLAY_SAVE_TIMEOUT, TIMER_REPLAY_MEM, TIMER_PERF_LOG] {
         ui::kill_timer(t);
     }
-    unregister_hotkey();
     stop_perf_monitor();
 }
 
@@ -808,33 +762,3 @@ pub fn handle_set_replay_limits(max_sec: i32, max_mb: i32) {
     push_replay_state();
 }
 
-/// Mesma regra do atalho de gravar, mais uma: não pode ser a MESMA
-/// combinação do de gravar nem do da área (o `RegisterHotKey` recusaria a
-/// segunda, e um dos dois deixaria de funcionar sem aviso).
-pub fn handle_set_replay_hotkey(spec: &str) {
-    let mut normalized = spec.trim().to_owned();
-    if !normalized.is_empty() {
-        let Some(hk) = hotkey::parse_hotkey(&normalized) else {
-            log!("HandleSetReplayHotkey: spec invalido \"{normalized}\" — ignorado.");
-            return;
-        };
-        if let Some(reason) = hotkey::reserved_reason(hk.modifiers, hk.vk) {
-            log!("HandleSetReplayHotkey: \"{normalized}\" reservado ({reason}) — ignorado.");
-            return;
-        }
-        normalized = hotkey::format_hotkey(hk.modifiers, hk.vk);
-        if normalized.eq_ignore_ascii_case(&config::get_config_str("hotkey", "Pause/Break")) {
-            log!("HandleSetReplayHotkey: \"{normalized}\" ja e o atalho de gravar — ignorado.");
-            post_error(lang::t("error.replayHotkeyConflict"));
-            return;
-        }
-        if normalized.eq_ignore_ascii_case(&super::area::hotkey_spec()) {
-            log!("HandleSetReplayHotkey: \"{normalized}\" ja e o atalho da area — ignorado.");
-            post_error(lang::t("error.areaHotkeyConflict"));
-            return;
-        }
-    }
-    config::set_config_str("replayHotkey", &normalized);
-    apply_hotkey();
-    push_replay_state();
-}

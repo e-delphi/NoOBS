@@ -19,7 +19,6 @@ fn settings_de_instalacao_nova() {
     assert_eq!(st["recordDir"], s.rec.to_string_lossy().as_ref());
     assert_eq!(st["windowTitle"], "NoOBS");
     assert_eq!(st["codec"], "auto");
-    assert_eq!(st["hotkey"], "Pause/Break");
     assert_eq!(st["filenamePattern"], "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}");
     assert_eq!(st["recordingQuality"], 5);
     assert_eq!(st["recordingFps"], 30);

@@ -4,7 +4,6 @@
 use serde_json::json;
 
 use crate::config;
-use crate::lang;
 use crate::testkit::{self, begin, send};
 
 fn state() -> serde_json::Value {
@@ -82,39 +81,4 @@ fn limites_de_tempo_e_memoria() {
     let st = testkit::last_of("replay_state").unwrap();
     assert_eq!(st["maxSec"], 120);
     assert_eq!(st["maxMb"].as_i64().unwrap(), 256.min(limit));
-}
-
-#[test]
-fn atalho_de_salvar() {
-    let _s = begin();
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "alt+f9" }));
-    assert_eq!(config::get_config_str("replayHotkey", ""), "Alt+F9");
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "" }));
-    assert_eq!(config::get_config_str("replayHotkey", "?"), "");
-    for ruim in ["Ctrl+Shift", "Alt+Tab", "Win+L"] {
-        send(json!({ "type": "set_replay_hotkey", "hotkey": ruim }));
-        assert_eq!(config::get_config_str("replayHotkey", "?"), "", "{ruim}");
-    }
-}
-
-#[test]
-fn atalho_de_salvar_nao_repete_o_de_gravar() {
-    let _s = begin();
-    config::set_config_str("hotkey", "Ctrl+F9");
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "Alt+F9" }));
-    testkit::clear_sent();
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "ctrl+f9" }));
-    assert_eq!(config::get_config_str("replayHotkey", ""), "Alt+F9");
-    assert_eq!(testkit::errors(), vec![lang::t("error.replayHotkeyConflict")]);
-}
-
-#[test]
-fn atalho_de_salvar_nao_repete_o_da_area() {
-    let _s = begin();
-    config::set_config_str("areaHotkey", "Ctrl+Alt+F8");
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "Alt+F9" }));
-    testkit::clear_sent();
-    send(json!({ "type": "set_replay_hotkey", "hotkey": "Ctrl+Alt+F8" }));
-    assert_eq!(config::get_config_str("replayHotkey", ""), "Alt+F9");
-    assert_eq!(testkit::errors(), vec![lang::t("error.areaHotkeyConflict")]);
 }

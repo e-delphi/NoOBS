@@ -11,6 +11,7 @@
 //! motor ou no FFmpeg (frentes 2–4).
 
 mod area;
+mod atalhos;
 mod biblioteca;
 mod buffer;
 mod configuracoes;

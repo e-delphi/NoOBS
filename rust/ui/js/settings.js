@@ -126,8 +126,8 @@ document.addEventListener('keydown', (e) => {
 
 // Commit IMEDIATO: qualquer 'change' num input do modal aplica na hora (sem
 // botao Salvar). 'change' dispara no blur/Enter pra textos e no toggle pra
-// checkboxes/dropdowns/sliders — nao a cada tecla. A hotkey tem handler proprio
-// (onHotkeyChange -> _commitHotkey); aqui o commit() so ignora ela.
+// checkboxes/dropdowns/sliders — nao a cada tecla. Os atalhos tem handler
+// proprio (Hotkeys, hotkeys.js); aqui o commit() so ignora eles.
 document.getElementById('settingsOverlay').addEventListener('change', (e) => {
   if (typeof Settings !== 'undefined' && Settings.commit) Settings.commit();
   // Ligar/desligar a auto-gravacao mostra/esconde a lista de dispositivos do
@@ -169,7 +169,6 @@ const Settings = {
   currentCodec: 'auto',
   currentWindowTitle: 'NoOBS',
   currentFilenamePattern: '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}',
-  currentHotkey: '',
   currentAutostart: false,
   currentRunAsAdmin: false,
   currentFullscreenDetect: true,
@@ -232,11 +231,8 @@ const Settings = {
     document.getElementById('settingsWindowTitle').value = this.currentWindowTitle || '';
     document.getElementById('settingsFilenamePattern').value = this.currentFilenamePattern || '';
     this._renderFilenamePreview();
-    this._loadHotkeyIntoUi(this.currentHotkey || '');
-    // Buffer em memoria: limites + atalho de salvar (estado vive no Replay).
+    // Buffer em memoria: limites, apps e indicador (estado vive no Replay).
     if (typeof Replay !== 'undefined') Replay.loadIntoSettings();
-    // Captura de area: area salva, atalho e atraso (estado vive no AreaCapture).
-    if (typeof AreaCapture !== 'undefined') AreaCapture.loadIntoSettings();
     document.getElementById('settingsAutostart').checked = !!this.currentAutostart;
     document.getElementById('settingsCloseToTray').checked = !!this.currentCloseToTray;
     document.getElementById('settingsMinimizeOnRecord').checked = !!this.currentMinimizeOnRecord;
@@ -339,8 +335,8 @@ const Settings = {
   },
   // Aplica as configuracoes IMEDIATAMENTE (sem botao Salvar). O listener de
   // 'change' do modal chama isto a cada alteracao — le todos os campos e envia
-  // so os que mudaram (diff contra current*). A hotkey e tratada a parte
-  // (onHotkeyChange -> _commitHotkey), pois exige validacao async no backend.
+  // so os que mudaram (diff contra current*). Os atalhos sao tratados a parte
+  // (Hotkeys, hotkeys.js), pois exigem validacao async no backend.
   // Lista "Pastas ocultas" da aba Arquivos. Cada caixa vale na hora (o
   // backend reempurra a galeria), como os dispositivos ocultos.
   renderHiddenFolders(data) {
@@ -554,7 +550,6 @@ const Settings = {
     if (prevCodec !== this.currentCodec &&
         typeof Displays !== 'undefined' && Displays._updateCount)
       Displays._updateCount();
-    this.currentHotkey = data.hotkey || '';
     this.currentAutostart = !!data.autostart;
     this.currentRunAsAdmin = !!data.runAsAdmin;
     this.currentFullscreenDetect = data.fullscreenDetect !== false;
@@ -641,7 +636,6 @@ const Settings = {
     const fp = document.getElementById('settingsFilenamePattern');
     if (fp) fp.value = this.currentFilenamePattern;
     this._renderFilenamePreview();
-    this._loadHotkeyIntoUi(this.currentHotkey);
     const as = document.getElementById('settingsAutostart');
     if (as) as.checked = this.currentAutostart;
     const ra = document.getElementById('settingsRunAsAdmin');
@@ -1085,10 +1079,10 @@ const Settings = {
       Replay.loadIntoSettings();
       Bridge.send('get_replay_state');
     }
-    // Aba Area: idem (a area salva pode ter mudado pelo seletor).
-    if (name === 'area' && typeof AreaCapture !== 'undefined') {
-      AreaCapture.loadIntoSettings();
-      Bridge.send('get_area_state');
+    // Aba Atalhos: idem (a lista e a situacao de cada atalho sao do backend).
+    if (name === 'hotkeys' && typeof Hotkeys !== 'undefined') {
+      Hotkeys.render();
+      Bridge.send('get_hotkeys');
     }
     // Idem pro perfil de auto-gravacao: ao entrar na aba Gravacao,
     // re-sincroniza visibilidade + renderiza da Devices.all atual (pega
@@ -1230,7 +1224,6 @@ const Settings = {
         document.getElementById('settingsWindowTitle').value = 'NoOBS';
         document.getElementById('settingsFilenamePattern').value =
           '{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}';
-        this._loadHotkeyIntoUi('Pause/Break');
         // Defaults novos: iniciar com Windows, minimizar p/ bandeja, minimizar
         // ao gravar, som de inicio/fim, parar ao bloquear e hibernar vem LIGADOS.
         // notifyOnRecord segue desligado (opt-in).
@@ -1301,11 +1294,11 @@ const Settings = {
         this.currentRecordingFps = -1;
         // Aplica os defaults IMEDIATAMENTE (nao ha botao Salvar).
         this.commit();
-        this._commitHotkey();
-        // Buffer em memoria: limites e atalho de salvar voltam ao padrao. O
+        // Buffer em memoria: limites voltam ao padrao, e a lista de atalhos
+        // volta a gravar + salvar trecho. O
         // liga/desliga fica como esta — ele vive na tela principal, nao aqui.
         if (typeof Replay !== 'undefined') Replay.restoreDefaults();
-        if (typeof AreaCapture !== 'undefined') AreaCapture.restoreDefaults();
+        if (typeof Hotkeys !== 'undefined') Hotkeys.restoreDefaults();
         // Tema (padrao: seguir o Windows) salva fora do commit().
         this.setTheme('system');
         // Re-sincroniza a aba visivel: os campos de outras abas estao com
@@ -1323,37 +1316,6 @@ const Settings = {
   // 1 dropdown lista as teclas principais (F1-F12, letras, numeros, etc).
   // Combinacao final: [mods marcados na ordem canonica] + tecla principal.
 
-  onHotkeyChange() {
-    this._updateHotkeyPreview();
-    this._commitHotkey();
-  },
-  // Aplica a hotkey imediatamente (async: valida no backend). Separada do
-  // commit() geral. Se invalida, avisa e NAO aplica (currentHotkey fica).
-  async _commitHotkey() {
-    const hotkey = this._readHotkeyFromUi();
-    if (hotkey === this.currentHotkey) return;
-    if (hotkey !== '') {
-      // Mesma regra do backend: um atalho por recurso (o Windows aceita um
-      // registro por combinacao).
-      const taken = [
-        [typeof Replay !== 'undefined' ? Replay.currentHotkey : '', 'replay.hotkeyConflict'],
-        [typeof AreaCapture !== 'undefined' ? AreaCapture.currentHotkey : '', 'settings.area.hotkeyConflict'],
-      ].find(([spec]) => spec && spec === hotkey);
-      if (taken) {
-        Toast.show(T('toast.invalidHotkey'), T(taken[1]), { warn: true, ttl: 7000 });
-        return;
-      }
-      const validation = await validateHotkeyWithBackend(hotkey);
-      if (!validation.ok) {
-        Toast.show(T('toast.invalidHotkey'), validation.reason +
-          ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
-        return;
-      }
-    }
-    Bridge.send('set_hotkey', { hotkey });
-    this.currentHotkey = hotkey;
-  },
-
   _makeOpt(val, label) {
     const o = document.createElement('option');
     o.value = val;
@@ -1362,12 +1324,12 @@ const Settings = {
   },
 
   // Os helpers de atalho abaixo recebem o PREFIXO dos ids do construtor
-  // (<prefixo>Ctrl/Shift/Alt/Win/Key/Preview). Padrao = o atalho de gravar;
-  // o buffer em memoria usa 'settingsReplayHotkey' (Replay em replay.js).
+  // (<prefixo>Ctrl/Shift/Alt/Win/Key). Quem usa e a aba Atalhos
+  // (hotkeys.js), com um prefixo por linha.
 
   // Constroi as opcoes do dropdown de tecla principal. Roda 1x quando
   // o modal abre (ou no _loadHotkeyIntoUi inicial).
-  _buildHotkeyKeyDropdown(prefix = 'settingsHotkey') {
+  _buildHotkeyKeyDropdown(prefix) {
     const sel = document.getElementById(prefix + 'Key');
     if (!sel) return;
     // Preserva selecao atual se ja foi construido antes (re-abrir modal).
@@ -1393,7 +1355,7 @@ const Settings = {
 
   // Le checkboxes + dropdown e monta a spec final no formato canonico
   // do backend: Ctrl+Shift+Alt+Win+Tecla.
-  _readHotkeyFromUi(prefix = 'settingsHotkey') {
+  _readHotkeyFromUi(prefix) {
     const parts = [];
     if (document.getElementById(prefix + 'Ctrl').checked)  parts.push('Ctrl');
     if (document.getElementById(prefix + 'Shift').checked) parts.push('Shift');
@@ -1405,7 +1367,7 @@ const Settings = {
   },
 
   // Carrega uma spec ("Ctrl+Shift+F9" / "Pause" / "") nos controles.
-  _loadHotkeyIntoUi(spec, prefix = 'settingsHotkey') {
+  _loadHotkeyIntoUi(spec, prefix) {
     const parts = (spec || '').split('+').map(s => s.trim()).filter(Boolean);
     document.getElementById(prefix + 'Ctrl').checked  = parts.includes('Ctrl');
     document.getElementById(prefix + 'Shift').checked = parts.includes('Shift');
@@ -1414,20 +1376,8 @@ const Settings = {
     const main = parts.find(p => !isHotkeyModifier(p)) || '';
     this._buildHotkeyKeyDropdown(prefix);
     document.getElementById(prefix + 'Key').value = main;
-    this._updateHotkeyPreview(prefix);
   },
 
-  _updateHotkeyPreview(prefix = 'settingsHotkey') {
-    const spec = this._readHotkeyFromUi(prefix);
-    const el = document.getElementById(prefix + 'Preview');
-    if (!el) return;
-    // Bundle traz HTML simples nesses 2 hints (code/b). T() faz interpolacao
-    // {{spec}} pro atalho atual; o noKey nao tem var.
-    if (spec)
-      el.innerHTML = T('settings.hotkey.activeHint', { spec });
-    else
-      el.innerHTML = T('settings.hotkey.noKey');
-  },
   // caps = { av1Hw, hevcHw, h264Hw, h264Sw, vendor, vendorLogo }
   encoderCaps: null,
   applyEncoderCaps(caps) {

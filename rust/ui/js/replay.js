@@ -26,7 +26,6 @@ const Replay = {
            indicatorOpacity: 90, indicatorClickable: true },
   _receivedAt: 0,     // performance.now() do ultimo push (base do relogio)
   _ticker: null,
-  currentHotkey: '',  // ultimo atalho aceito (pra nao reenviar o mesmo)
 
   // Opcoes dos seletores das Configuracoes. Valores fora da lista (config
   // editado a mao) entram como opcao extra em _fillSelect.
@@ -39,14 +38,11 @@ const Replay = {
                12288, 14336, 16384, 20480, 24576, 28672],
   DEFAULT_MAX_SEC: 300,
   DEFAULT_MAX_MB: 2048,
-  DEFAULT_HOTKEY: 'Ctrl+Shift+F10',
-  HOTKEY_PREFIX: 'settingsReplayHotkey',
 
   applyState(data) {
     if (!data) return;
     this.state = Object.assign({}, this.state, data);
     this._receivedAt = performance.now();
-    this.currentHotkey = this.state.hotkey || '';
     this.render();
     // Relogio de "quanto ja esta guardado" anda sozinho entre pushes: o
     // backend so manda estado quando algo muda.
@@ -260,7 +256,6 @@ const Replay = {
       this.state.maxSec || this.DEFAULT_MAX_SEC, v => this._secLabel(v));
     this._fillSelect('settingsReplayMaxMb', this._mbOptions(),
       this.state.maxMb || this.DEFAULT_MAX_MB, v => this._mbOptionLabel(v));
-    Settings._loadHotkeyIntoUi(this.currentHotkey, this.HOTKEY_PREFIX);
   },
 
   _mbOptionLabel(v) {
@@ -273,38 +268,6 @@ const Replay = {
     const sec = parseInt(document.getElementById('settingsReplayMaxSec').value, 10) || 0;
     const mb = parseInt(document.getElementById('settingsReplayMaxMb').value, 10) || 0;
     Bridge.send('set_replay_limits', { maxSec: sec, maxMb: mb });
-  },
-
-  onHotkeyChange() {
-    Settings._updateHotkeyPreview(this.HOTKEY_PREFIX);
-    this._commitHotkey();
-  },
-  // Mesmo fluxo do atalho de gravar (Settings._commitHotkey), com a regra a
-  // mais: nao pode repetir o atalho de gravar — o Windows so deixa um
-  // registro por combinacao, e o segundo simplesmente nao dispararia.
-  async _commitHotkey() {
-    const hotkey = Settings._readHotkeyFromUi(this.HOTKEY_PREFIX);
-    if (hotkey === this.currentHotkey) return;
-    if (hotkey !== '') {
-      if (hotkey === Settings.currentHotkey) {
-        Toast.show(T('toast.invalidHotkey'), T('replay.hotkeyConflict'),
-          { warn: true, ttl: 7000 });
-        return;
-      }
-      if (typeof AreaCapture !== 'undefined' && hotkey === AreaCapture.currentHotkey) {
-        Toast.show(T('toast.invalidHotkey'), T('settings.area.hotkeyConflict'),
-          { warn: true, ttl: 7000 });
-        return;
-      }
-      const validation = await validateHotkeyWithBackend(hotkey);
-      if (!validation.ok) {
-        Toast.show(T('toast.invalidHotkey'), validation.reason +
-          ' ' + T('settings.hotkey.chooseAnother'), { warn: true, ttl: 7000 });
-        return;
-      }
-    }
-    Bridge.send('set_replay_hotkey', { hotkey });
-    this.currentHotkey = hotkey;
   },
 
   // Chamado pelo "Restaurar padroes" das Configuracoes, depois dos outros.
@@ -332,7 +295,5 @@ const Replay = {
     this._fillSelect('settingsReplayMaxMb', this._mbOptions(),
       this.DEFAULT_MAX_MB, v => this._mbOptionLabel(v));
     this.onLimitsChange();
-    Settings._loadHotkeyIntoUi(this.DEFAULT_HOTKEY, this.HOTKEY_PREFIX);
-    this._commitHotkey();
   },
 };

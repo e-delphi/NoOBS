@@ -12,7 +12,7 @@
 //!   `CoUninitialize`.
 
 use std::cell::{Cell, RefCell};
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
@@ -64,8 +64,11 @@ static REAL_QUIT: AtomicBool = AtomicBool::new(false);
 static START_RECORD: AtomicBool = AtomicBool::new(false);
 static START_RECORD_MIC: AtomicBool = AtomicBool::new(false);
 static START_REPLAY: AtomicBool = AtomicBool::new(false);
-/// `/start-area`: o atalho da área salva foi apertado na hibernação.
-static START_AREA: AtomicBool = AtomicBool::new(false);
+/// `/hotkey=N`: o atalho N da lista foi apertado na hibernação (-1 = nenhum).
+static START_HOTKEY: AtomicI32 = AtomicI32::new(-1);
+/// Ids registrados com `register_global_hotkey` — a troca pra hibernação
+/// solta todos antes de lançar o outro processo.
+static REGISTERED_HOTKEYS: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
 
 /// Estado de janela que só a main thread toca.
 #[derive(Default)]
@@ -216,6 +219,7 @@ pub fn register_global_hotkey(id: i32, modifiers: u32, vk: u32) -> bool {
     }
     let ok = unsafe { RegisterHotKey(Some(hwnd), id, HOT_KEY_MODIFIERS(modifiers), vk) }.is_ok();
     if ok {
+        REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).push(id);
         log!("OBSUI: hotkey registrado (id={id} mod=${modifiers:x} vk=${vk:x}).");
     } else {
         log!("OBSUI: falha ao registrar hotkey (id={id} mod=${modifiers:x} vk=${vk:x}) — já em uso?");
@@ -224,6 +228,7 @@ pub fn register_global_hotkey(id: i32, modifiers: u32, vk: u32) -> bool {
 }
 
 pub fn unregister_global_hotkey(id: i32) {
+    REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).retain(|&r| r != id);
     let hwnd = main_window();
     if !hwnd.0.is_null() {
         unsafe {
@@ -300,8 +305,16 @@ pub fn start_record_requested_by_mic() -> bool {
 pub fn start_replay_requested() -> bool {
     START_REPLAY.load(Ordering::SeqCst)
 }
-pub fn start_area_requested() -> bool {
-    START_AREA.load(Ordering::SeqCst)
+pub fn start_hotkey_requested() -> Option<usize> {
+    let i = START_HOTKEY.load(Ordering::SeqCst);
+    (i >= 0).then_some(i as usize)
+}
+
+/// `"/hotkey=3"` → 3.
+fn parse_hotkey_arg(cmd: &str) -> Option<usize> {
+    let rest = &cmd[cmd.find("/hotkey=")? + "/hotkey=".len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// Janela visível e não minimizada.
@@ -532,8 +545,9 @@ pub fn spawn_hibernate_and_exit() {
         }
         log::log("SpawnHibernate: mutex liberado.");
     }
-    // Gravar (100/101) e área salva (104/105): a hibernação registra os dois.
-    for id in [100, 101, 104, 105] {
+    // A hibernação registra os mesmos atalhos.
+    let ids: Vec<i32> = REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    for id in ids {
         unregister_global_hotkey(id);
     }
     log::log("SpawnHibernate: hotkey liberada (antes do spawn).");
@@ -1042,8 +1056,8 @@ pub fn run() {
     // /start-record-mic CONTÉM /start-record; o sufixo só diz a origem.
     let start_record = cmd.contains("/start-record");
     let start_replay = cmd.contains("/start-replay");
-    let start_area = cmd.contains("/start-area");
-    START_AREA.store(start_area, Ordering::SeqCst);
+    let start_hotkey = parse_hotkey_arg(&cmd);
+    START_HOTKEY.store(start_hotkey.map_or(-1, |i| i as i32), Ordering::SeqCst);
     START_RECORD.store(start_record, Ordering::SeqCst);
     START_RECORD_MIC.store(cmd.contains("/start-record-mic"), Ordering::SeqCst);
     START_REPLAY.store(start_replay, Ordering::SeqCst);
@@ -1053,12 +1067,13 @@ pub fn run() {
     if start_replay {
         log::log("OBSUI.Run: /start-replay detectado — buffer ligara apos o warmup.");
     }
-    if start_area {
-        log::log("OBSUI.Run: /start-area detectado — a area salva sera gravada apos o warmup.");
+    if let Some(i) = start_hotkey {
+        log!("OBSUI.Run: /hotkey={i} detectado — o atalho roda apos o warmup.");
     }
+    let start_hotkey = start_hotkey.is_some();
     // Todo flag de promoção entra aqui E na instalação da bandeja (pegadinha
     // #62): abrir um jogo não pode fazer a janela pular na frente.
-    let hidden_start = start_in_tray || start_minimized || start_record || start_replay || start_area;
+    let hidden_start = start_in_tray || start_minimized || start_record || start_replay || start_hotkey;
 
     unsafe {
         // Single-instance: a 2ª instância acorda a 1ª e sai. Mesmos literais
@@ -1162,7 +1177,7 @@ pub fn run() {
         let _ = UpdateWindow(hwnd);
         // Bandeja só faz sentido com closeToTray ou promoção da hibernação; o
         // minimizado (closeToTray desligado) fica acessível pela taskbar.
-        if start_in_tray || start_record || start_replay || start_area {
+        if start_in_tray || start_record || start_replay || start_hotkey {
             tray::install(hwnd, &window_title());
         }
 

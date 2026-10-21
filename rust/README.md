@@ -108,7 +108,7 @@ A feature `app-tests` só torna os módulos públicos pros executáveis de
 | `OBSLocalAsr` | `local_asr.rs` (+ `win_http.rs` WinHTTP com cancelamento, `win_proc.rs` `RunHidden`) | portado (instalação com retomada/SHA-256/espelho, servidor sob Job Object, reamostrador, pipeline de 2 passadas) |
 | `OBSTranscribe` | `transcribe.rs` (+ `transcribe/merge.rs`, `bridge/transcribe.rs`) | portado: fila persistida/reordenável/manual×automática/pausa, espera do servidor, 2 motores, dedup de eco por palavra, transcrição herdada pela exportação, diagnóstico WSL→Docker→container, falantes e busca. Handlers de `transcribe_*`, `local_asr_*`, `root_folders` ligados ao dispatch |
 | `OBSTray`, `OBSRecordIcon` | `tray.rs`, `record_icon.rs` | portado (ícone, menu, balão, ícone de gravando por DIB 32-bit) |
-| `OBSHibernate` | `hibernate.rs` | portado (bandeja + atalho + watchers; promove a completo com `/start-record`, `/start-record-mic`, `/start-replay`) |
+| `OBSHibernate` | `hibernate.rs` | portado (bandeja + atalhos de gravação da lista + watchers; promove a completo com `/hotkey=N`, `/start-record`, `/start-record-mic`, `/start-replay`) |
 | `OBSHotkey` | `hotkey.rs` (+ testes) | portado (parse/format, pontuação OEM — #43, reservados) |
 | `OBSAutostart`, `OBSElevate` | `autostart.rs`, `elevate.rs` | portado |
 | `WinMicWatch`, `WinProcWatch` | `mic_watch.rs`, `proc_watch.rs` (+ testes) | portado (usados pela hibernação; o bridge os liga junto com o buffer e a auto-gravação) |
@@ -147,34 +147,38 @@ abas: **Janela** (o de sempre) e **Área**.
   atravessável pelo mouse (`WS_EX_TRANSPARENT`) e só deixa de ser enquanto
   **Ctrl+Shift** estão pressionados (lidos a cada 50 ms) — só Ctrl seria
   acionado por acidente com o Ctrl+clique comum de outros apps.
-  Ctrl+Shift+clique liga a edição: um véu sobre a área recebe o mouse
+  Ctrl+Shift+clique liga a edição: um véu invisível sobre a área recebe o mouse
   (meio move, bordas/cantos redimensionam, setas movem 1 px / Shift 10 px)
   e Ctrl+Shift+clique, Enter ou Esc terminam. Com jogo em tela cheia na
   frente tudo some, como o indicador (#49).
 - Não continua o buffer em memória (a cena dele são as telas), igual à
   gravação de janela.
-- **Área salva + atalho + atraso** (`bridge/area.rs`, aba **Área** das
-  Configurações, `js/area.js`):
-  - "Definir área" abre a MESMA seleção, mas só guarda o retângulo em
-    `areaSaved` (`{x,y,w,h}`, px físicos). O seletor "Capturar... → Área"
-    ganha o botão "Gravar a área salva".
-  - `areaHotkey` (padrão `Ctrl+Shift+Pause/Break`) grava a área salva; de
-    novo, para. Só é registrado COM uma área salva — sem ela a combinação
-    volta a ser dos outros programas. Não pode repetir o atalho de gravar
-    nem o do buffer. Ctrl+Pause chega como `VK_CANCEL`: registra o alias
-    (ids 104/105), como os outros atalhos.
-  - Na hibernação o atalho também vale: ela promove com `/start-area` (não
-    `/start-record-area`: o `cmd.contains("/start-record")` pegaria também)
-    e o warmup grava a área salva. O flag entra no `hidden_start` e na
-    bandeja, como o `/start-replay` (#62).
-  - A área salva é recortada pela área de trabalho virtual de AGORA: monitor
-    desligado não vira pedaço preto; fora de todas as telas = aviso.
-  - `areaDelaySec` (0 = desligado, padrão): a moldura aparece âmbar com os
-    segundos no botão (GDI+ `DrawString`) e a gravação começa no zero
-    (`TIMER_AREA_COUNTDOWN`). Vale pro atalho e pela seleção. Durante a
-    contagem a edição fica travada, e o atalho da área, o de gravar e o
-    botão de gravar CANCELAM. A tela principal mostra a contagem na linha
-    de status (`area_countdown`).
+- **Atalhos** (aba **Atalhos** das Configurações — `hotkeys.rs` é o modelo,
+  `bridge/hotkeys.rs` registra e executa, `bridge/countdown.rs` faz o
+  atraso, `js/hotkeys.js` a tela): uma LISTA, sem limite, em `hotkeys` no
+  config — cada item é uma combinação e um modo:
+  - `record` grava as telas; `window` grava a janela cujo título CONTÉM
+    `title` (sem diferenciar maiúsculas) — uma janela casando grava direto,
+    várias abrem o seletor só com elas (o atraso conta depois da escolha),
+    nenhuma avisa; `area` grava o retângulo salvo no item (recortado pelas
+    telas de AGORA; fora de todas = aviso) ou, com `area: null`, abre a
+    seleção na hora; `replay` salva o trecho do buffer e só é registrado com
+    o buffer ligado.
+  - `delaySec` (0..60) nos três de gravação: a contagem aparece na linha de
+    status e, na área, na moldura âmbar. Sem tempo máximo de gravação.
+  - Qualquer atalho de gravação, apertado durante uma gravação, PARA; durante
+    a contagem, CANCELA (o botão de gravar também).
+  - Combinação repetida: a tela recusa; editada a mão, vale a primeira da
+    lista e a linha mostra o motivo (`hotkeys_state.status`: repetida,
+    reservada pelo Windows, em uso por outro programa, inativa).
+  - Ids do `RegisterHotKey`: `200 + 2·índice` (+1 pro Ctrl+Break do
+    Ctrl+Pause), iguais no modo completo e na hibernação. Na hibernação os de
+    gravação valem e promovem com `/hotkey=N`, que entra no `hidden_start` e
+    na bandeja como os outros flags de promoção (#62).
+  - As chaves antigas (`hotkey`, `replayHotkey`, `areaHotkey`, `areaSaved`,
+    `areaDelaySec`) viram itens na primeira leitura e são apagadas.
+  - O seletor "Capturar... → Área" mostra um botão por atalho de área com
+    retângulo salvo.
 
 ## Como o Rust mudou o desenho
 

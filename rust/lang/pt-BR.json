@@ -49,7 +49,8 @@
     "needDevice": "Habilite ao menos um dispositivo (monitor, webcam, microfone ou alto-falante) pra iniciar a gravação.",
     "finalizing": "Finalizando gravação...",
     "sizeHint": "Tamanho já gravado",
-    "areaCountdown": "Gravando a área em {{sec}} s — clique em gravar para cancelar"
+    "countdown": "Gravação em {{sec}} s",
+    "countdownCancel": "Cancelar contagem"
   },
   "replay": {
     "label": "Buffer em memória",
@@ -64,13 +65,13 @@
     "restarted": "Buffer reiniciado",
     "restartedBody": "O buffer recomeçou com as novas configurações de gravação. O que estava guardado foi descartado.",
     "savedBody": "{{name}} — {{dur}}",
-    "hotkeyConflict": "Esse atalho já é o de iniciar/parar a gravação. Escolha outra combinação.",
     "savedNotify": "Trecho do buffer salvo ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capturar...",
     "title": "Capturar",
     "subtitle": "Só a janela escolhida entra no vídeo, mesmo coberta por outras. O áudio segue os dispositivos marcados.",
+    "matchesSubtitle": "Mais de uma janela com \"{{title}}\" — escolha qual gravar",
     "refresh": "Atualizar lista",
     "close": "Fechar",
     "search": "Filtrar janelas...",
@@ -251,7 +252,7 @@
       "recording": "Vídeo",
       "audio": "Áudio",
       "replay": "Buffer",
-      "area": "Área",
+      "hotkeys": "Atalhos",
       "files": "Arquivos",
       "devices": "Dispositivos",
       "about": "Sobre",
@@ -308,15 +309,11 @@
       "hint": "Automático escolhe a melhor opção disponível na ordem H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Use uma escolha manual só se souber o que está fazendo."
     },
     "hotkey": {
-      "label": "Atalho global para iniciar/parar gravação",
       "ctrl": "Ctrl",
       "shift": "Shift",
       "alt": "Alt",
       "win": "Win",
       "plus": "+",
-      "hint": "Marque os modificadores desejados (Ctrl, Shift, Alt, Win) e escolha uma tecla principal. Exemplos: Pause ou Ctrl+Shift+G.",
-      "noKey": "Nenhum atalho definido. Selecione uma tecla principal (e opcionalmente modificadores) para ativar o atalho global.",
-      "activeHint": "Atalho atual: <code>{{spec}}</code>. Desmarque todos os modificadores e selecione <b>Não definida</b> para desativar.",
       "notDefined": "Não definida",
       "chooseAnother": "Escolha outra combinação.",
       "groups": {
@@ -705,27 +702,43 @@
       "memory": "Memória máxima",
       "memoryMax": "Máximo ({{size}})",
       "memoryHint": "O que acabar primeiro manda: o buffer descarta o trecho mais antigo quando passa do tempo OU da memória. Tela parada ocupa poucos MB por minuto; um jogo em 4K a 120 fps na qualidade máxima chega a ~1,5 GB por minuto. O máximo da lista é o que cabe nesta máquina, sempre deixando 4 GB de RAM livres.",
-      "hotkey": "Atalho para salvar o trecho",
-      "hotkeyHint": "Só fica ativo com o buffer ligado — desligado, a combinação volta a ser dos outros programas.",
       "seconds": "{{n}} segundos",
       "minutes": "{{n}} min"
-    },
-    "area": {
-      "savedLabel": "Área salva",
-      "savedHint": "Escolha uma vez a parte da tela que você grava sempre e grave ela direto pelo atalho abaixo, sem selecionar de novo.",
-      "none": "Nenhuma área salva",
-      "savedValue": "{{w}} × {{h}} em ({{x}}, {{y}})",
-      "define": "Definir área",
-      "redefine": "Escolher outra",
-      "clear": "Remover",
-      "hotkey": "Atalho para gravar a área salva",
-      "hotkeyHint": "Só funciona com uma área salva. Apertar de novo para a gravação.",
-      "hotkeyConflict": "O atalho da área não pode ser o mesmo de gravar nem o do buffer.",
-      "delay": "Atraso antes de começar",
-      "delayOff": "Desativado",
-      "delaySec": "{{sec}} segundos",
-      "delayHint": "Tempo para se preparar: a moldura da área aparece com a contagem e a gravação começa quando ela chega a zero. Vale para o atalho e para o \"Capturar... → Área\". Apertar o atalho ou o botão de gravar durante a contagem cancela."
     }
+  },
+  "hotkeys": {
+    "hint": "Cada atalho funciona em qualquer programa, mesmo com o NoOBS na bandeja ou hibernando. Os de gravação, apertados de novo, param a gravação (ou cancelam a contagem do atraso).",
+    "add": "+ Adicionar atalho",
+    "empty": "Nenhum atalho. Use \"Adicionar atalho\" para criar um.",
+    "remove": "Remover atalho",
+    "mode": {
+      "record": "Gravar as telas",
+      "window": "Gravar uma janela",
+      "area": "Gravar uma área",
+      "replay": "Salvar trecho do buffer"
+    },
+    "titleLabel": "Título da janela contém",
+    "titlePlaceholder": "ex.: nova guia",
+    "areaAsk": "Sem área salva — o atalho abre a seleção para você desenhar",
+    "areaChoosing": "Escolhendo…",
+    "areaClear": "Escolher na hora",
+    "areaValue": "{{w}} × {{h}} em ({{x}}, {{y}})",
+    "areaDefine": "Definir área",
+    "areaRedefine": "Escolher outra",
+    "delayLabel": "Atraso antes de começar",
+    "delayOff": "Sem atraso",
+    "delaySec": "{{sec}} segundos",
+    "status": {
+      "empty": "Sem combinação: escolha uma tecla para ativar.",
+      "duplicate": "Combinação repetida: só a primeira da lista funciona.",
+      "invalid": "Combinação inválida.",
+      "reserved": "Combinação reservada pelo Windows.",
+      "busy": "Outro programa já usa esta combinação — escolha outra.",
+      "inactive": "Ativo só com o buffer ligado."
+    },
+    "duplicate": "Essa combinação já é do atalho \"{{mode}}\".",
+    "noWindow": "Nenhuma janela aberta com \"{{title}}\" no título.",
+    "noTitle": "O atalho de janela está sem o texto do título."
   },
   "devices": {
     "hint": "Desmarque para ocultar o dispositivo da tela inicial. Dispositivos ocultos não aparecem na lista e não entram na gravação.",
@@ -911,7 +924,6 @@
     "moveWhileRecording": "Não dá pra mover a gravação que está em andamento.",
     "replayStartFailed": "Não foi possível ligar o buffer em memória: {{error}}",
     "replaySaveFailed": "Não foi possível salvar o trecho do buffer.",
-    "replayHotkeyConflict": "O atalho do buffer não pode ser o mesmo de iniciar/parar a gravação.",
     "exportBusyFile": "Esta gravação está sendo exportada agora — espere terminar ou cancele a exportação.",
     "localAsr": {
       "download": "Não foi possível baixar {{file}}: {{error}}",
@@ -924,9 +936,7 @@
       "decode": "Não foi possível ler o áudio da gravação.",
       "memory": "Não há memória suficiente para carregar o motor de transcrição, nem na placa de vídeo nem no sistema. Feche outros programas e tente de novo. Detalhe: {{detail}}"
     },
-    "areaNotSaved": "Nenhuma área salva. Defina uma em Configurações → Área.",
-    "areaOffScreen": "A área salva está fora das telas conectadas agora. Defina outra em Configurações → Área.",
-    "areaHotkeyConflict": "O atalho da área não pode ser o mesmo de gravar nem o do buffer."
+    "areaOffScreen": "A área salva está fora das telas conectadas agora. Defina outra em Configurações → Área."
   },
   "warning": {
     "canvasOverflow": "Resolução combinada das telas excede o limite do codec ({{max}} × {{max}}). A gravação será reduzida proporcionalmente. Mude pra AV1 ou HEVC em Configurações pra gravar até 8192 × 8192."

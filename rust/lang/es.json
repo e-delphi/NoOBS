@@ -49,7 +49,8 @@
     "needDevice": "Habilita al menos un dispositivo (monitor, cámara web, micrófono o altavoz) para iniciar la grabación.",
     "finalizing": "Finalizando grabación...",
     "sizeHint": "Tamaño ya grabado",
-    "areaCountdown": "Grabando el área en {{sec}} s — haz clic en grabar para cancelar"
+    "countdown": "Grabando en {{sec}} s",
+    "countdownCancel": "Cancelar cuenta atrás"
   },
   "replay": {
     "label": "Búfer en memoria",
@@ -64,13 +65,13 @@
     "restarted": "Búfer reiniciado",
     "restartedBody": "El búfer empezó de nuevo con la nueva configuración de grabación. Lo que tenía guardado se descartó.",
     "savedBody": "{{name}} — {{dur}}",
-    "hotkeyConflict": "Ese atajo ya se usa para iniciar/detener la grabación. Elige otra combinación.",
     "savedNotify": "Fragmento del búfer guardado ({{min}}:{{sec}})"
   },
   "windowPicker": {
     "button": "Capturar...",
     "title": "Capturar",
     "subtitle": "Solo la ventana elegida entra en el video, aunque otras la cubran. El audio sigue los dispositivos marcados.",
+    "matchesSubtitle": "Hay más de una ventana con \"{{title}}\" — elige cuál grabar",
     "refresh": "Actualizar lista",
     "close": "Cerrar",
     "search": "Filtrar ventanas...",
@@ -251,7 +252,7 @@
       "recording": "Vídeo",
       "audio": "Audio",
       "replay": "Búfer",
-      "area": "Área",
+      "hotkeys": "Atajos",
       "files": "Archivos",
       "devices": "Dispositivos",
       "about": "Acerca de",
@@ -308,15 +309,11 @@
       "hint": "Automático elige la mejor opción disponible en el orden H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Solo elige manualmente si sabes lo que estás haciendo."
     },
     "hotkey": {
-      "label": "Atajo global para iniciar/detener la grabación",
       "ctrl": "Ctrl",
       "shift": "Shift",
       "alt": "Alt",
       "win": "Win",
       "plus": "+",
-      "hint": "Marca los modificadores deseados (Ctrl, Shift, Alt, Win) y elige una tecla principal. Ejemplos: Pause o Ctrl+Shift+G.",
-      "noKey": "No hay atajo configurado. Elige una tecla principal (y opcionalmente modificadores) para activar el atajo global.",
-      "activeHint": "Atajo actual: <code>{{spec}}</code>. Desmarca todos los modificadores y elige <b>No definida</b> para desactivar.",
       "notDefined": "No definida",
       "chooseAnother": "Elige otra combinación.",
       "groups": {
@@ -705,27 +702,43 @@
       "memory": "Memoria máxima",
       "memoryMax": "Máximo ({{size}})",
       "memoryHint": "Manda lo que se acabe primero: el búfer descarta la parte más antigua cuando supera el tiempo O la memoria. Una pantalla quieta ocupa pocos MB por minuto; un juego en 4K a 120 fps en calidad máxima llega a ~1,5 GB por minuto. El máximo de la lista es lo que cabe en esta máquina, dejando siempre 4 GB de RAM libres.",
-      "hotkey": "Atajo para guardar el fragmento",
-      "hotkeyHint": "Solo está activo con el búfer encendido — apagado, la combinación vuelve a ser de los demás programas.",
       "seconds": "{{n}} segundos",
       "minutes": "{{n}} min"
-    },
-    "area": {
-      "savedLabel": "Área guardada",
-      "savedHint": "Elige una vez la parte de la pantalla que siempre grabas y grábala directo con el atajo de abajo, sin seleccionar de nuevo.",
-      "none": "Ninguna área guardada",
-      "savedValue": "{{w}} × {{h}} en ({{x}}, {{y}})",
-      "define": "Definir área",
-      "redefine": "Elegir otra",
-      "clear": "Quitar",
-      "hotkey": "Atajo para grabar el área guardada",
-      "hotkeyHint": "Solo funciona con un área guardada. Pulsarlo de nuevo detiene la grabación.",
-      "hotkeyConflict": "El atajo del área no puede ser el mismo que el de grabar ni el del búfer.",
-      "delay": "Retraso antes de empezar",
-      "delayOff": "Desactivado",
-      "delaySec": "{{sec}} segundos",
-      "delayHint": "Tiempo para prepararte: el marco del área aparece con la cuenta atrás y la grabación empieza cuando llega a cero. Vale para el atajo y para \"Capturar... → Área\". Pulsar el atajo o el botón de grabar durante la cuenta atrás la cancela."
     }
+  },
+  "hotkeys": {
+    "hint": "Cada atajo funciona en cualquier programa, incluso con NoOBS en la bandeja o hibernando. Los de grabación, pulsados de nuevo, detienen la grabación (o cancelan la cuenta atrás del retraso).",
+    "add": "+ Añadir atajo",
+    "empty": "No hay atajos. Usa \"Añadir atajo\" para crear uno.",
+    "remove": "Quitar atajo",
+    "mode": {
+      "record": "Grabar las pantallas",
+      "window": "Grabar una ventana",
+      "area": "Grabar un área",
+      "replay": "Guardar fragmento del búfer"
+    },
+    "titleLabel": "El título de la ventana contiene",
+    "titlePlaceholder": "p. ej.: nueva pestaña",
+    "areaAsk": "Sin área guardada — el atajo abre la selección para que la dibujes",
+    "areaChoosing": "Eligiendo…",
+    "areaClear": "Elegir en el momento",
+    "areaValue": "{{w}} × {{h}} en ({{x}}, {{y}})",
+    "areaDefine": "Definir área",
+    "areaRedefine": "Elegir otra",
+    "delayLabel": "Retraso antes de empezar",
+    "delayOff": "Sin retraso",
+    "delaySec": "{{sec}} segundos",
+    "status": {
+      "empty": "Sin combinación: elige una tecla para activarlo.",
+      "duplicate": "Combinación repetida: solo funciona la primera de la lista.",
+      "invalid": "Combinación no válida.",
+      "reserved": "Combinación reservada por Windows.",
+      "busy": "Otro programa ya usa esta combinación — elige otra.",
+      "inactive": "Activo solo con el búfer encendido."
+    },
+    "duplicate": "Esa combinación ya es del atajo \"{{mode}}\".",
+    "noWindow": "No hay ninguna ventana abierta con \"{{title}}\" en el título.",
+    "noTitle": "Al atajo de ventana le falta el texto del título."
   },
   "devices": {
     "hint": "Desmarca para ocultar el dispositivo de la pantalla principal. Los ocultos no aparecen en la lista ni se graban.",
@@ -911,7 +924,6 @@
     "moveWhileRecording": "No se puede mover la grabación en curso.",
     "replayStartFailed": "No se pudo activar el búfer en memoria: {{error}}",
     "replaySaveFailed": "No se pudo guardar el fragmento del búfer.",
-    "replayHotkeyConflict": "El atajo del búfer no puede ser el mismo que el de iniciar/detener la grabación.",
     "exportBusyFile": "Esta grabación se está exportando ahora — espera a que termine o cancela la exportación.",
     "localAsr": {
       "download": "No se pudo descargar {{file}}: {{error}}",
@@ -924,9 +936,7 @@
       "decode": "No se pudo leer el audio de la grabación.",
       "memory": "No hay memoria suficiente para cargar el motor de transcripción, ni en la tarjeta gráfica ni en el sistema. Cierra otros programas e inténtalo de nuevo. Detalle: {{detail}}"
     },
-    "areaNotSaved": "No hay área guardada. Define una en Configuración → Área.",
-    "areaOffScreen": "El área guardada está fuera de las pantallas conectadas ahora. Define otra en Configuración → Área.",
-    "areaHotkeyConflict": "El atajo del área no puede ser el mismo que el de grabar ni el del búfer."
+    "areaOffScreen": "El área guardada está fuera de las pantallas conectadas ahora. Define otra en Configuración → Área."
   },
   "warning": {
     "canvasOverflow": "La resolución combinada de las pantallas excede el límite del códec ({{max}} × {{max}}). La grabación se reducirá proporcionalmente. Cambia a AV1 o HEVC en Configuración para grabar hasta 8192 × 8192."

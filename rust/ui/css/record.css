@@ -573,10 +573,9 @@
   .winpick-area-steps li + li { margin-top: 6px; }
   .winpick-area-btn { min-width: 180px; }
   .winpick-area-btn[hidden] { display: none; }
-  /* "Gravar a área salva": logo abaixo do principal, mais junto dele. */
-  #windowPickerSavedAreaBtn { margin-top: -8px; }
-  /* Previa da area salva no seletor (regras base em settings.css). */
-  .area-preview.winpick-area-preview { max-width: 420px; margin-top: 0; }
+  /* Atalhos de area com retangulo salvo: logo abaixo do principal. */
+  .winpick-saved-areas { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: -8px; }
+  .winpick-saved-areas[hidden] { display: none; }
   .winpick-audio {
     display: inline-flex;
     align-items: center;
@@ -661,3 +660,55 @@
     text-overflow: ellipsis;
     font-variant-numeric: tabular-nums;
   }
+
+/* Contagem do atraso de um atalho (area.js): os segundos no lugar do icone
+   e um anel ambar em volta do botao esvaziando ate zero — a animacao dura o
+   atraso inteiro (--cd-total) e comeca do ponto certo (--cd-delay negativo)
+   se a pagina pegou a contagem no meio. */
+.record-btn .cd-ring {
+  display: none;
+  position: absolute;
+  inset: -12px;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
+  transform: rotate(-90deg);
+  overflow: visible;
+  pointer-events: none;
+}
+.record-btn .cd-ring circle { fill: none; stroke-width: 3; }
+.record-btn .cd-ring-track { stroke: rgba(245, 158, 11, 0.18); }
+.record-btn .cd-ring-bar {
+  stroke: var(--warning, #f59e0b);
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6));
+}
+.record-btn.counting .cd-ring { display: block; }
+.record-btn.counting .cd-ring-bar {
+  animation: recCountdownRing var(--cd-total, 3s) linear var(--cd-delay, 0s) forwards;
+}
+@keyframes recCountdownRing {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: 100; }
+}
+.record-btn .cd-num {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.record-btn.counting .icon { opacity: 0; }
+.record-btn.counting .cd-num { display: block; }
+.record-btn .cd-num.tick { animation: recCountdownTick 0.35s ease-out; }
+@keyframes recCountdownTick {
+  from { transform: translate(-50%, -50%) scale(1.35); opacity: 0.4; }
+  to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}

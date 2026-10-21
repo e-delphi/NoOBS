@@ -32,9 +32,9 @@ assinaturas por nome (não por tipo).
    de todos os `Bridge.send('…')` dos `js/*.js` com o `dispatch` não deixa
    sobra.
 2. **Três mensagens tratadas nunca são enviadas pela página** (⚠️ na Tabela
-   A): `open_recording`, `set_check_updates` e `cancel_area_countdown`. A
-   última foi criada com a área salva e ficou sem botão (a contagem se cancela
-   pelo botão de gravar ou pelo atalho). Candidatas a remover ou a ganhar uso.
+   A): `open_recording`, `set_check_updates` e `cancel_countdown`. A
+   última ficou sem botão (a contagem do atraso se cancela pelo botão de
+   gravar ou pelo atalho). Candidatas a remover ou a ganhar uso.
 3. **Todas as 181 funções declaradas das DLLs são usadas** — não há binding
    morto.
 4. **Funções de mídia sem nenhum teste hoje:** `probe::probe`,
@@ -65,7 +65,7 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 ### Tabela A — 114 mensagens da página (`dispatch` em `src/bridge.rs`)
 
 
-#### Gravação (20)
+#### Gravação (19)
 
 | Mensagem | Campos | Handler | DLLs alcançadas |
 |---|---|---|---|
@@ -78,19 +78,18 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `set_rec_indicator_clickable` | `enabled` | `recording::handle_set_rec_indicator_clickable` | — |
 | `set_fullscreen_detect` | `enabled` | `recording::handle_set_fullscreen_detect` | — |
 | `list_capture_windows` | — | `window_record::handle_list_capture_windows` | obs.dll |
-| `record_window` | `appAudio`, `id` | `window_record::handle_record_window` | FFmpeg + obs.dll |
+| `record_window` | `appAudio`, `delaySec`, `id` | `window_record::handle_record_window` | FFmpeg + obs.dll |
 | `select_capture_area` | — | `area::handle_select_capture_area` | — |
-| `record_saved_area` | — | `area::record_saved_area` | FFmpeg + obs.dll |
-| `get_area_state` | — | `area::push_area_state` | — |
-| `cancel_area_countdown` ⚠️ | — | `area::cancel_countdown` | — |
-| `define_capture_area` | — | `area::handle_define_area` | — |
-| `clear_capture_area` | — | `area::handle_clear_area` | — |
-| `set_area_hotkey` | `hotkey` | `area::handle_set_area_hotkey` | — |
-| `set_area_delay` | `sec` | `area::handle_set_area_delay` | — |
+| `cancel_countdown` ⚠️ | — | `countdown::cancel` | — |
+| `get_hotkeys` | — | `hotkeys::push_state` | — |
+| `set_hotkeys` | `items` | `hotkeys::handle_set_hotkeys` | — |
+| `reset_hotkeys` | — | `hotkeys::handle_reset` | — |
+| `define_hotkey_area` | `index` | `hotkeys::handle_define_area` | — |
+| `trigger_hotkey` | `index` | `hotkeys::trigger` | FFmpeg |
 | `test_video_quality` | — | `video_test::handle_test_video_quality` | FFmpeg + obs.dll |
 | `cancel_video_test` | — | `video_test::handle_cancel_video_test` | obs.dll |
 
-#### Buffer em memória (12)
+#### Buffer em memória (11)
 
 | Mensagem | Campos | Handler | DLLs alcançadas |
 |---|---|---|---|
@@ -105,7 +104,6 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `set_replay_autostart` | `autoStart` | `replay::handle_set_replay_autostart` | — |
 | `set_replay_into_recording` | `enabled` | `replay::handle_set_replay_into_recording` | — |
 | `set_replay_limits` | `maxMb`, `maxSec` | `replay::handle_set_replay_limits` | — |
-| `set_replay_hotkey` | `hotkey` | `replay::handle_set_replay_hotkey` | — |
 
 #### Dispositivos (4)
 
@@ -180,7 +178,7 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `get_root_folders` | — | `transcribe::push_root_folders` | — |
 | `set_folder_hidden` | `hidden`, `name` | `transcribe::handle_set_folder_hidden` | — |
 
-#### Configurações e janela (34)
+#### Configurações e janela (33)
 
 | Mensagem | Campos | Handler | DLLs alcançadas |
 |---|---|---|---|
@@ -208,7 +206,6 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `tray_show` | — | `shell::handle_tray_show` | — |
 | `toggle_fullscreen` | — | `ui::toggle_fullscreen` | — |
 | `set_window_title` | `title` | `shell::handle_set_window_title` | — |
-| `set_hotkey` | `hotkey` | `shell::handle_set_hotkey` | — |
 | `validate_hotkey` | `hotkey` | `shell::handle_validate_hotkey` | — |
 | `set_autostart` | `enabled` | `shell::handle_set_autostart` | — |
 | `set_run_as_admin` | `enabled` | `shell::handle_set_run_as_admin` | — |
@@ -678,7 +675,7 @@ cargo test --release --features obs-tests --test obs -- msg-janela,msg-area     
 | `msg-pausa` | `record_pause` | ignorado sem gravação; relógio parado na pausa; o arquivo não tem o trecho pausado |
 | `msg-fontes` | `toggle_source`, `set_source_hidden`, `set_mute_when_device_muted` | monitor recusado gravando (erro na UI, config intacto); mic muda na fonte viva |
 | `msg-janela` | `list_capture_windows`, `record_window` | id fora da lista = erro; janela de outro processo listada com prévia; vídeo no tamanho da área cliente |
-| `msg-area` | `record_saved_area` | sem área salva = erro; contagem 2 → 1 no timer; 640x360 → 640x352 |
+| `msg-area` | `set_hotkeys`, `trigger_hotkey` | área fora das telas = erro; contagem 2 → 1 no timer; 640x360 → 640x352 |
 | `msg-buffer` | `set_replay_enabled`, `save_replay`, `set_codec`/`set_recording_quality`/`set_recording_fps`/`set_audio_bitrate` | salvar sem buffer não faz nada; trecho salvo vira card; cada troca de encoder manda `replay_restarted` e o mesmo valor não; gravar continua o buffer (emenda) e ele religa no fim |
 | `msg-buffer-apps` | `set_replay_apps` | `explorer` liga o buffer na 1ª leitura; lista vazia desliga |
 | `msg-teste-video` | `test_video_quality`, `cancel_video_test` | gravar durante a amostra = erro; 11 níveis com PNG, nível 10 maior que o 0; cancelar no meio |
@@ -797,8 +794,7 @@ Quatro frentes, da mais barata (roda em qualquer `cargo test`) pra mais cara
   `%LOCALAPPDATA%\NoOBS`): sem isso os testes mexeriam nas preferências reais.
 - Por mensagem: valor normal, valor fora da faixa (clamp), campo ausente
   (default), tipo errado (string no lugar de número), e o efeito no config.
-  Ex.: `set_area_delay` com −5 / 3 / 999; `set_area_hotkey` igual ao de
-  gravar (conflito); `set_replay_limits` acima da RAM; `set_filename_pattern`
+  Ex.: `set_hotkeys` com atraso −5 / 3 / 999 e combinação repetida; `set_replay_limits` acima da RAM; `set_filename_pattern`
   com caracteres inválidos.
 
 ### 2. FFmpeg (as funções da Tabela C de `probe`, `ffmpeg_ops`, `ffmpeg_export`, `export_captions`) — precisa das DLLs, não de GPU

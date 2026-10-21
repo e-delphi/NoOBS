@@ -682,22 +682,25 @@ fn m_janela(exe: &str) -> Result<String, String> {
 }
 
 fn m_area() -> Result<String, String> {
-    config::set_config_json("areaSaved", None);
-    clear_sent();
-    send(json!({ "type": "record_saved_area" }));
-    expect_error("error.areaNotSaved")?;
+    // Dois atalhos de área (sem combinação: só pelo `trigger_hotkey`): um fora
+    // de todas as telas, outro no 1º monitor com 2 s de atraso.
     let mon = win_preview::monitors_from_win_preview().into_iter().next().ok_or("sem monitor")?;
-    config::set_config_json("areaSaved", Some(json!({ "x": mon.position_x + 100, "y": mon.position_y + 100, "w": 640, "h": 360 })));
-    config::set_config_int("areaDelaySec", 2);
+    send(json!({ "type": "set_hotkeys", "items": [
+        { "mode": "area", "hotkey": "", "area": { "x": -900000, "y": -900000, "w": 640, "h": 480 } },
+        { "mode": "area", "hotkey": "", "area": { "x": mon.position_x + 100, "y": mon.position_y + 100, "w": 640, "h": 360 }, "delaySec": 2 },
+    ] }));
     clear_sent();
-    passo("record_saved_area");
-    send(json!({ "type": "record_saved_area" }));
+    send(json!({ "type": "trigger_hotkey", "index": 0 }));
+    expect_error("error.areaOffScreen")?;
+    clear_sent();
+    passo("trigger_hotkey (area)");
+    send(json!({ "type": "trigger_hotkey", "index": 1 }));
     // A contagem anda no timer da janela: 2 → 1 → grava.
-    wait_msg("area_countdown", 2_000, |v| v["sec"] == 2)?;
-    wait_msg("area_countdown", 3_000, |v| v["sec"] == 1)?;
+    wait_msg("record_countdown", 2_000, |v| v["sec"] == 2)?;
+    wait_msg("record_countdown", 3_000, |v| v["sec"] == 1)?;
     let st = wait_msg("recording_state", 5_000, |v| v["active"] == true)?;
     check(st["window"].as_str().is_some_and(|w| w.contains("640")), format!("recording_state.window = {}", st["window"]))?;
-    config::set_config_int("areaDelaySec", 0);
+    send(json!({ "type": "set_hotkeys", "items": [] }));
     let (r, _) = msg_finish(1.5)?;
     let v = r.video_stream().ok_or("sem video")?;
     check(v.width == 640 && v.height == 352, format!("{}x{} (esperado 640x352)", v.width, v.height))?;
@@ -883,9 +886,8 @@ fn run_messages(filtro: &str) -> i32 {
     ] {
         config::set_config_bool(k, v);
     }
-    for k in ["hotkey", "replayHotkey", "areaHotkey"] {
-        config::set_config_str(k, "");
-    }
+    // Nenhum atalho global: o teste não pode tomar combinações da máquina.
+    config::set_config_json("hotkeys", Some(json!([])));
     unsafe {
         let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_APARTMENTTHREADED).ok();
         let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

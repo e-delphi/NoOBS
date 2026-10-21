@@ -19,9 +19,11 @@ use serde_json::{json, Value};
 use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui};
 
 mod area;
+mod countdown;
 mod devices;
 pub mod export;
 mod folders;
+mod hotkeys;
 mod library;
 mod recording;
 mod replay;
@@ -85,7 +87,7 @@ fn on_timer(id: usize) {
 }
 
 fn on_timer_inner(id: usize) {
-    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) || area::on_timer(id) {
+    if recording::on_timer(id) || replay::on_timer(id) || devices::on_timer(id) || settings::on_timer(id) || video_test::on_timer(id) || countdown::on_timer(id) {
         return;
     }
     on_timer_other(id);
@@ -109,7 +111,8 @@ pub fn shutdown() {
     export::signal_cancel();
     video_test::shutdown();
     replay::shutdown();
-    area::shutdown();
+    countdown::shutdown();
+    hotkeys::shutdown();
     devices::shutdown();
     log::log("Shutdown: dispositivos off");
     record_watch::stop();
@@ -209,7 +212,7 @@ fn dispatch_inner(raw: &str) {
         "ready" => do_init(),
         // Na contagem do atraso da área, o botão de gravar CANCELA.
         "record_start" => {
-            if !area::cancel_countdown() {
+            if !countdown::cancel() {
                 recording::handle_record_start();
             }
         }
@@ -291,7 +294,6 @@ fn dispatch_inner(raw: &str) {
         "set_replay_autostart" => replay::handle_set_replay_autostart(bool_field(&msg, "autoStart", false)),
         "set_replay_into_recording" => replay::handle_set_replay_into_recording(bool_field(&msg, "enabled", false)),
         "set_replay_limits" => replay::handle_set_replay_limits(int_field(&msg, "maxSec", 0), int_field(&msg, "maxMb", 0)),
-        "set_replay_hotkey" => replay::handle_set_replay_hotkey(str_field(&msg, "hotkey")),
         "get_settings" => settings::push_settings(),
         "set_codec" => settings::handle_set_codec(str_field(&msg, "codec")),
         "set_recording_quality" => settings::handle_set_recording_quality(int_field(&msg, "level", 0)),
@@ -311,7 +313,6 @@ fn dispatch_inner(raw: &str) {
         "tray_show" => shell::handle_tray_show(),
         "toggle_fullscreen" => ui::toggle_fullscreen(),
         "set_window_title" => shell::handle_set_window_title(str_field(&msg, "title")),
-        "set_hotkey" => shell::handle_set_hotkey(str_field(&msg, "hotkey")),
         "validate_hotkey" => shell::handle_validate_hotkey(str_field(&msg, "hotkey")),
         "set_autostart" => shell::handle_set_autostart(bool_field(&msg, "enabled", false)),
         "set_run_as_admin" => shell::handle_set_run_as_admin(bool_field(&msg, "enabled", false)),
@@ -327,17 +328,25 @@ fn dispatch_inner(raw: &str) {
         "set_rec_indicator_clickable" => recording::handle_set_rec_indicator_clickable(bool_field(&msg, "enabled", true)),
         "set_fullscreen_detect" => recording::handle_set_fullscreen_detect(bool_field(&msg, "enabled", true)),
         "list_capture_windows" => window_record::handle_list_capture_windows(),
-        "record_window" => window_record::handle_record_window(str_field(&msg, "id"), bool_field(&msg, "appAudio", false)),
+        "record_window" => window_record::handle_record_window(
+            str_field(&msg, "id"),
+            bool_field(&msg, "appAudio", false),
+            int_field(&msg, "delaySec", 0).max(0) as u32,
+        ),
         "select_capture_area" => area::handle_select_capture_area(),
-        "record_saved_area" => area::record_saved_area(),
-        "get_area_state" => area::push_area_state(),
-        "cancel_area_countdown" => {
-            area::cancel_countdown();
+        "cancel_countdown" => {
+            countdown::cancel();
         }
-        "define_capture_area" => area::handle_define_area(),
-        "clear_capture_area" => area::handle_clear_area(),
-        "set_area_hotkey" => area::handle_set_area_hotkey(str_field(&msg, "hotkey")),
-        "set_area_delay" => area::handle_set_area_delay(int_field(&msg, "sec", 0)),
+        "get_hotkeys" => hotkeys::push_state(),
+        "reset_hotkeys" => hotkeys::handle_reset(),
+        "set_hotkeys" => hotkeys::handle_set_hotkeys(msg.get("items").unwrap_or(&Value::Null)),
+        "define_hotkey_area" => hotkeys::handle_define_area(int_field(&msg, "index", -1).max(0) as usize),
+        "trigger_hotkey" => {
+            let i = int_field(&msg, "index", -1);
+            if i >= 0 {
+                hotkeys::trigger(i as usize);
+            }
+        }
         "test_video_quality" => video_test::handle_test_video_quality(),
         "cancel_video_test" => video_test::handle_cancel_video_test(),
         other => not_ported(other),
@@ -368,7 +377,7 @@ fn do_init() {
         devices::do_init();
         settings::push_settings();
         recording::push_recording_state();
-        area::push_area_state();
+        hotkeys::push_state();
         return;
     }
     shell::set_ui_ready();
@@ -408,10 +417,9 @@ fn do_init() {
     // instantânea. NUNCA inicializar o motor direto aqui (detectar encoders
     // bloqueia a main). Falha do warmup → a gravação inicializa sob demanda.
     recording::schedule_warmup();
-    // Atalho global (falha de registro não é fatal — pegadinha #33).
-    shell::apply_hotkey_from_config();
-    // Atalho da área salva (só com uma área salva) + estado pra UI.
-    area::do_init();
+    // Lista de atalhos (aba Atalhos; falha de registro não é fatal —
+    // pegadinha #33) + estado pra UI.
+    hotkeys::do_init();
     // Indicador de tela + parar ao bloquear a tela.
     recording::init_indicator_and_lock();
     // Auto-gravação em chamadas (se ligada), buffer ligado por programas

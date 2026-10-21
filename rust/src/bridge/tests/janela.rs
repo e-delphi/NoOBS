@@ -1,4 +1,4 @@
-//! Janela, bandeja, atalho de gravar e preferências de comportamento
+//! Janela, bandeja, validação de atalho e preferências de comportamento
 //! (`bridge/shell.rs` + os `set_rec_indicator*` de `bridge/recording.rs`).
 //!
 //! Sem janela principal no teste: bandeja, tela cheia e registro do atalho
@@ -36,63 +36,7 @@ fn titulo_da_janela() {
     assert_eq!(config::get_config_str("windowTitle", ""), "NoOBS");
 }
 
-// ---- atalho de gravar -------------------------------------------------------
-
-#[test]
-fn atalho_valido_fica_na_forma_canonica() {
-    let _s = begin();
-    for (entrada, esperado) in [
-        ("ctrl+shift+f9", "Ctrl+Shift+F9"),
-        ("  Alt+F10 ", "Alt+F10"),
-        ("Pause", "Pause/Break"),
-        ("Ctrl+Pause/Break", "Ctrl+Pause/Break"),
-        ("Ctrl+-", "Ctrl+-"),
-        ("Ctrl+;", "Ctrl+;"),
-        ("Win+Shift+Numpad5", "Shift+Win+Numpad5"),
-    ] {
-        send(json!({ "type": "set_hotkey", "hotkey": entrada }));
-        assert_eq!(config::get_config_str("hotkey", "?"), esperado, "entrada {entrada:?}");
-    }
-}
-
-#[test]
-fn atalho_vazio_desliga() {
-    let _s = begin();
-    send(json!({ "type": "set_hotkey", "hotkey": "F9" }));
-    send(json!({ "type": "set_hotkey", "hotkey": "" }));
-    assert_eq!(config::get_config_str("hotkey", "?"), "");
-}
-
-#[test]
-fn atalho_invalido_ou_reservado_nao_muda_o_config() {
-    let _s = begin();
-    send(json!({ "type": "set_hotkey", "hotkey": "F9" }));
-    for spec in ["Ctrl+Shift", "Ctrl+Foo", "+++", "Alt+Tab", "Win+L", "Ctrl+Alt+Delete", "Alt+F4", "Win+Shift+S"] {
-        send(json!({ "type": "set_hotkey", "hotkey": spec }));
-        assert_eq!(config::get_config_str("hotkey", "?"), "F9", "spec {spec:?}");
-    }
-}
-
-#[test]
-fn atalho_de_gravar_nao_repete_buffer_nem_area() {
-    let _s = begin();
-    config::set_config_str("replayHotkey", "Ctrl+F10");
-    config::set_config_str("areaHotkey", "Ctrl+F11");
-    send(json!({ "type": "set_hotkey", "hotkey": "F9" }));
-    for (spec, msg) in [("ctrl+f10", "error.replayHotkeyConflict"), ("Ctrl+F11", "error.areaHotkeyConflict")] {
-        testkit::clear_sent();
-        send(json!({ "type": "set_hotkey", "hotkey": spec }));
-        assert_eq!(config::get_config_str("hotkey", "?"), "F9", "{spec}");
-        assert_eq!(testkit::errors(), vec![lang::t(msg)], "{spec}");
-    }
-    // Os PADRÕES dos outros também contam (nunca configurados).
-    config::set_config_json("replayHotkey", None);
-    config::set_config_json("areaHotkey", None);
-    for padrao in ["Ctrl+Shift+F10", "Ctrl+Shift+Pause/Break"] {
-        send(json!({ "type": "set_hotkey", "hotkey": padrao }));
-        assert_eq!(config::get_config_str("hotkey", "?"), "F9", "{padrao}");
-    }
-}
+// ---- validação de atalho (usada pela aba Atalhos) ----------------------------
 
 #[test]
 fn validar_atalho_responde_com_o_motivo() {

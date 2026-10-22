@@ -102,11 +102,10 @@ const Bridge = {
       // usa T() pluralizado. recalcRecMetaFromDom le do DOM atual.
       try { recalcRecMetaFromDom(); } catch (e) {}
       // Etapa da transcrição é traduzida em tempo de render (o código
-      // vem da API em inglês), então precisa repintar na troca de idioma.
+      // vem do backend em inglês), então precisa repintar na troca de idioma.
       try { Transcribe.render(); } catch (e) {}
-      // Diagnóstico e seletor de idioma da transcrição: textos montados
-      // em JS, e o "Idioma do NoOBS (…)" muda de nome com a interface.
-      try { TranscribeSetup.rerender(); } catch (e) {}
+      // Seletor de idioma da transcrição: o "Idioma do NoOBS (…)" muda de
+      // nome com a interface.
       // Quadro do motor local: textos (e tamanhos formatados) em JS.
       try { LocalAsr.render(); } catch (e) {}
       try { Settings._fillTranscribeLangs(); } catch (e) {}
@@ -186,8 +185,6 @@ const Bridge = {
     transcribe_state(data)   { Transcribe.applyState(data); },
     transcribe_pending(data) { Transcribe.applyPending(data); },
     transcribe_queue(data)   { Transcribe.applyQueue(data); },
-    transcribe_health(data)  { Transcribe.onHealth(data); },
-    transcribe_setup(data)   { TranscribeSetup.apply(data); },
     local_asr_state(data)    { LocalAsr.apply(data); },
     // A tela de exportacao pede a transcricao pra legenda da previa; quem
     // estiver esperando por ESTE id fica com ela (os dois nunca abrem juntos).
@@ -322,6 +319,8 @@ const Bridge = {
     // O `id` diz em qual card a barra vive (a tela pode estar fechada).
     export_progress(data) { Export.onProgress(data && data.pct, data && data.id); },
     export_done(data) { Export.onDone(data); },
+    export_preview_progress(data) { Export.onPreviewProgress(data && data.pct); },
+    export_preview_done(data) { Export.onPreviewDone(data); },
     recording_state(data) {
       // elapsedMs (fracao de segundo) quando vier; elapsed e o inteiro.
       const el = typeof data.elapsedMs === 'number' ? data.elapsedMs / 1000 : data.elapsed;

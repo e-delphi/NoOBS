@@ -601,9 +601,10 @@ fn push_play_url(path: &str, url: &str, mode: &str) {
     }));
 }
 
-/// Valida o path da UI: dentro da pasta de gravação e existente (senão avisa).
+/// Valida o path da UI: dentro da pasta de gravação (ou uma prévia de
+/// exportação — só LEITURA passa por aqui) e existente (senão avisa).
 fn checked_recording(path: &str, warn_missing: bool) -> bool {
-    if path.is_empty() || !is_path_in_record_dir(path) {
+    if path.is_empty() || !(is_path_in_record_dir(path) || super::export::is_preview_path(path)) {
         return false;
     }
     if !Path::new(path).is_file() {

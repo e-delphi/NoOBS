@@ -1,26 +1,20 @@
-//! Fila de transcrição contra a Transcritor API (<https://github.com/e-delphi/transcritor-api>,
-//! um container local com faster-whisper + diarização por falante) ou contra o motor
-//! local ([`crate::local_asr`]). Porte de `OBSTranscribe.pas`.
+//! Fila de transcrição contra o motor LOCAL ([`crate::local_asr`]: Qwen3 + audio.cpp na
+//! placa de vídeo). Porte de `OBSTranscribe.pas` — que também falava com a Transcritor API
+//! (um container com faster-whisper); essa opção saiu, só o motor local ficou.
 //!
 //! Desenho em pontos que não são óbvios:
 //!
-//! 1. MANDA ÁUDIO, NUNCA O VÍDEO. A API tem `MAX_UPLOAD_MB` por padrão e uma gravação 4K
-//!    passa disso fácil. O áudio sai em m4a por [`ffmpeg_ops::extract_audio_tracks`]: 1
-//!    hora dá ~70 MB. E manda as faixas ISOLADAS, uma transcrição por faixa, não a
-//!    mistura: cada faixa é um dispositivo, com o nome dele escrito no MKV — a atribuição
-//!    de falante sai de graça. Custa N vezes mais tempo, então só vale com 2+ isoladas;
-//!    faixa muda nem é enviada ([`plan_tracks`]). O preço é o ECO: o que sai pelos
-//!    alto-falantes volta pelo microfone ([`merge`]).
-//! 2. MODELO ASSÍNCRONO, COM PROGRESSO REAL. `POST /jobs` devolve um id na hora;
-//!    `GET /jobs/{id}` dá estágio, percentual e ETA — e o `result` só com
-//!    `?incluir_resultado=true`. O id do job é o SHA-256 do áudio + as opções, então
-//!    reenviar a mesma gravação devolve o resultado pronto.
-//! 3. UMA POR VEZ. O container serializa as requisições, então paralelizar aqui só
-//!    encheria a fila do outro lado. Uma thread, uma fila — e o cancelamento aborta até o
-//!    item em voo, via `DELETE /jobs/{id}`.
-//! 4. DOIS MOTORES. `server` é a Transcritor API; `local` é o OBSLocalAsr (Qwen3 +
-//!    audio.cpp na GPU). Tudo o que vem depois do `run_job` (turnos, eco, cache) não sabe
-//!    qual motor rodou — os dois devolvem o MESMO JSON.
+//! 1. TRANSCREVE O ÁUDIO, NUNCA O VÍDEO. O áudio sai em m4a por
+//!    [`ffmpeg_ops::extract_audio_tracks`]. E vão as faixas ISOLADAS, uma transcrição por
+//!    faixa, não a mistura: cada faixa é um dispositivo, com o nome dele escrito no MKV — a
+//!    atribuição de falante sai de graça (o motor local não separa falantes). Custa N vezes
+//!    mais tempo, então só vale com 2+ isoladas; faixa muda nem é transcrita
+//!    ([`plan_tracks`]). O preço é o ECO: o que sai pelos alto-falantes volta pelo
+//!    microfone ([`merge`]).
+//! 2. UMA POR VEZ. O motor carrega os modelos na placa uma vez só. Uma thread, uma fila — e
+//!    o cancelamento corta até o bloco em voo ([`local_asr::abort_request`]).
+//! 3. MOTOR NÃO INSTALADO NÃO É FALHA: o item espera na fila (persistida) e anda quando a
+//!    instalação termina.
 //!
 //! O resultado vai para dois arquivos no cache: `<hash>.transcript.json` (resposta inteira)
 //! e `<hash>.txt` (só o texto puro, para a BUSCA — carregar o JSON inteiro de cada gravação
@@ -37,48 +31,24 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use crate::win_http::{self, Request, Response, Timeouts};
 use crate::{config, ffmpeg_ops, file_meta, lang, local_asr, log, mainthread, player, probe};
 
-// Rotas FIXAS de propósito: o usuário informa host e porta, não o caminho.
-const JOBS_PATH: &str = "/jobs";
-const HEALTH_PATH: &str = "/health";
-/// A v2 da API separou andamento de resultado: o JSON da transcrição vem neste parâmetro.
-const STATUS_QUERY: &str = "?incluir_resultado=true";
-const DEFAULT_HOST: &str = "http://localhost:8000";
-
-const HEALTH_TIMEOUT_MS: i32 = 4000;
-const CONNECT_TIMEOUT_MS: i32 = 5000;
-/// O `POST /jobs` só espera o UPLOAD (a API responde ao enfileirar), mas uma gravação longa
-/// vira dezenas de MB — daí a folga.
-const SUBMIT_TIMEOUT_MS: i32 = 5 * 60 * 1000;
-const POLL_TIMEOUT_MS: i32 = 10_000;
-/// Consulta barata e local. O progresso anda aos saltos (janelas de 30 s do Whisper), então
-/// 1 s já mostra cada degrau.
-const POLL_INTERVAL_MS: u64 = 1000;
-
-/// Faixa cujo pico nunca passa disso não vai para o servidor: é o microfone que ninguém
-/// usou. Mandar assim só gastaria minutos de fila para receber zero turnos.
+/// Faixa cujo pico nunca passa disso não é transcrita: é o microfone que ninguém usou.
+/// Transcrever assim só gastaria minutos de fila para receber zero turnos.
 const SILENCE_PEAK_MIN: f32 = 0.02;
 const SILENCE_BUCKETS: usize = 400;
 
-/// Entre tentativas com o servidor fora. O teste é um `GET /health` local.
-const SERVER_RETRY_MS: u64 = 10_000;
+/// Entre olhadas com o motor ainda não instalado (o fim da instalação acorda antes).
+const INSTALL_RETRY_MS: u64 = 10_000;
 
 const QUEUE_FILE: &str = "transcribe-queue.json";
 
-/// Timeouts do diagnóstico. O `docker info` é o mais lento: com o Docker Desktop subindo
-/// ele pode segurar vários segundos antes de responder.
-const DIAG_WSL_TIMEOUT_MS: u64 = 10_000;
-const DIAG_DOCKER_TIMEOUT_MS: u64 = 20_000;
-
 /// Por que um item parou. Os dois primeiros NÃO são falha: cancelamento do usuário, e
-/// servidor/motor indisponível (o item volta para a frente da espera — com a transcrição
-/// automática ao fim da gravação, gravar com o Docker ainda subindo é o caso COMUM).
+/// motor não instalado (o item volta para a frente da espera e anda quando a instalação
+/// terminar).
 #[derive(Debug)]
 enum Stop {
     Canceled,
-    ServerDown,
     LocalMissing,
     Msg(String),
 }
@@ -99,7 +69,7 @@ struct Inner {
     /// Caminhos (minúsculos) pedidos A MÃO — rodam mesmo com a fila pausada. Um conjunto à
     /// parte em vez de mudar o tipo da fila: a marca só interessa a quem escolhe o próximo
     /// item. Sai daqui quando o item termina de verdade (não quando a worker o pega:
-    /// servidor fora do ar devolve o item para a fila, e ele tem que voltar ainda manual).
+    /// motor não instalado devolve o item para a fila, e ele tem que voltar ainda manual).
     manual: HashSet<String>,
     running: bool,
     current_name: String,
@@ -108,7 +78,7 @@ struct Inner {
     stage: String,
     /// -1 = ainda sem número
     progress: f64,
-    /// -1 = a API ainda não arrisca
+    /// -1 = ainda sem estimativa
     eta: i32,
     cancel_current: bool,
     done: i32,
@@ -121,7 +91,8 @@ struct Inner {
     queue_rev: i32,
     track: i32,
     track_count: i32,
-    waiting_server: bool,
+    /// Fila parada esperando a instalação do motor local.
+    waiting_install: bool,
     /// Fila segurada pelo Bridge (gravação ou buffer ligado).
     paused: bool,
     /// O item em curso JÁ terminou e só falta a próxima volta do laço tirá-lo do estado.
@@ -190,8 +161,7 @@ fn wait_stop_or_wake(ms: u64) -> bool {
     }
 }
 
-/// Acorda a worker que espera o servidor, sem aguardar o próximo ciclo. Chamado quando um
-/// teste ou diagnóstico acabou de ver o servidor de pé.
+/// Acorda a worker que espera a instalação, sem aguardar o próximo ciclo.
 pub fn nudge_queue() {
     let s = signals();
     s.state.lock().unwrap().1 = true;
@@ -266,7 +236,7 @@ pub fn current_progress() -> f64 {
     with(|i| i.progress)
 }
 
-/// Segundos restantes segundo a API. -1 = ela ainda não arrisca (só aparece a partir de ~10%).
+/// Segundos restantes (extrapolados do progresso). -1 = ainda sem estimativa (antes de ~10%).
 pub fn current_eta_sec() -> i32 {
     with(|i| i.eta)
 }
@@ -308,8 +278,8 @@ pub fn last_error_name() -> String {
     with(|i| i.last_error_name.clone())
 }
 
-pub fn waiting_for_server() -> bool {
-    with(|i| i.waiting_server)
+pub fn waiting_for_install() -> bool {
+    with(|i| i.waiting_install)
 }
 
 /// Contador que muda quando a COMPOSIÇÃO da fila muda (entrou, saiu, mudou de lugar) — e
@@ -433,31 +403,11 @@ pub fn export_transcript(src: &str, dst: &str, starts: &[f64], ends: &[f64], spe
 // Configuração
 // ---------------------------------------------------------------------------
 
-/// Base do servidor, do config (`transcribeHost`). Sempre sem barra final.
-pub fn host_base() -> String {
-    let h = config::get_config_str("transcribeHost", DEFAULT_HOST);
-    let h = h.trim().trim_end_matches('/');
-    if h.is_empty() { DEFAULT_HOST.to_owned() } else { h.to_owned() }
-}
-
-/// Padrão: o motor LOCAL (audio.cpp na placa de vídeo) — não exige Docker, e o item só
-/// espera na fila até a instalação. Exceção para quem já usava o servidor antes deste
-/// padrão: a chave não existia, mas quem configurou um host o escreveu no config.
-pub fn use_local_engine() -> bool {
-    let engine = config::get_config_str("transcribeEngine", "");
-    let engine = engine.trim();
-    if engine.is_empty() {
-        config::get_config_str("transcribeHost", "").trim().is_empty()
-    } else {
-        engine.eq_ignore_ascii_case("local")
-    }
-}
-
-/// Idioma que vai para a API. O padrão é MANDAR, nunca deixar detectar: sem `language`, o
-/// faster-whisper decide pelos primeiros 30 s do áudio, e quando erra (silêncio, música,
-/// ruído — comum numa faixa isolada) ele "transcreve" no idioma errado, que na prática é
-/// TRADUZIR a fala inteira. `''`/`app` → idioma da interface do NoOBS; `auto` → vazio (a API
-/// detecta; só por escolha explícita); outro → o código escolhido na tela.
+/// Idioma pedido ao motor. O padrão é MANDAR, nunca deixar detectar: detectando, o modelo
+/// decide pelo começo do áudio, e quando erra (silêncio, música, ruído — comum numa faixa
+/// isolada) ele "transcreve" no idioma errado, que na prática é TRADUZIR a fala inteira.
+/// `''`/`app` → idioma da interface do NoOBS; `auto` → vazio (o motor detecta; só por
+/// escolha explícita); outro → o código escolhido na tela.
 pub fn resolve_transcribe_language() -> String {
     let pref = config::get_config_str("transcribeLanguage", "").trim().to_lowercase();
     if pref == "auto" {
@@ -708,9 +658,8 @@ pub fn enqueue_many(paths: &[String], manual: bool, manual_paths: &[String]) {
     notify_changed();
 }
 
-/// Cancela a fila inteira E aborta o item em voo (`DELETE /jobs/{id}`; no motor local, o
-/// pedido em voo é derrubado na hora). A worker vê a flag na próxima consulta (no máximo
-/// 1 s), manda o DELETE e desiste. Cancelar é melhor-esforço.
+/// Cancela a fila inteira E aborta o item em voo: o pedido em andamento no motor local é
+/// derrubado na hora.
 pub fn cancel_all() {
     with(|i| {
         i.queue.clear();
@@ -722,14 +671,14 @@ pub fn cancel_all() {
         i.failed = 0;
         i.last_error.clear();
         i.last_error_name.clear();
-        i.waiting_server = false;
+        i.waiting_install = false;
     });
     log!("Transcribe: fila cancelada.");
-    // Motor local: o bloco em voo leva de segundos (GPU) a ~30 s (CPU) — derruba o pedido
-    // agora em vez de esperar ele voltar.
+    // O bloco em voo leva de segundos (GPU) a ~30 s (CPU) — derruba o pedido agora em vez
+    // de esperar ele voltar.
     local_asr::abort_request();
     save_queue();
-    // Se a worker esperava o servidor, acorda: com a fila vazia ela sai do modo de espera
+    // Se a worker esperava a instalação, acorda: com a fila vazia ela sai do modo de espera
     // na hora.
     nudge_queue();
     notify_changed();
@@ -777,195 +726,6 @@ fn ensure_started() {
 // HTTP (servidor remoto / container)
 // ---------------------------------------------------------------------------
 
-/// "HTTP 422" sozinho não diz NADA — quem sabe o motivo é o CORPO da resposta. A
-/// Transcritor API é FastAPI, então erro sai como `{"detail": ...}`: string nos erros de
-/// negócio e ARRAY nos de validação (422). Pega o `detail` quando dá, senão o corpo cru.
-/// Trunca e tira quebras de linha porque isto vira UMA linha na tela.
-fn http_err_text(resp: &Response) -> String {
-    const MAX_LEN: usize = 300;
-    let mut result = format!("HTTP {}", resp.status);
-    let body = resp.text();
-    let body = body.trim();
-    if body.is_empty() {
-        return result;
-    }
-    let mut detail = body.to_owned();
-    if let Ok(Value::Object(o)) = serde_json::from_str::<Value>(body) {
-        match o.get("detail") {
-            Some(Value::String(s)) => detail = s.clone(),
-            Some(v) => detail = v.to_string(),
-            None => {}
-        }
-    }
-    let detail = detail.replace(['\r', '\n'], " ");
-    let detail = detail.trim();
-    if detail.is_empty() {
-        return result;
-    }
-    result.push_str(": ");
-    if detail.chars().count() > MAX_LEN {
-        result.extend(detail.chars().take(MAX_LEN));
-        result.push_str("...");
-    } else {
-        result.push_str(detail);
-    }
-    result
-}
-
-/// Falha de CONEXÃO chega aqui como texto cru do WinHTTP, que descreve o sintoma e não o que
-/// fazer. Container parado dá justamente isso, e o usuário não tem como ligar uma coisa à
-/// outra. Troca pela frase que diz o que houve e ONDE; o texto técnico vai para o log.
-fn net_err_text(msg: &str) -> String {
-    log!("Transcribe: falha de rede contra {}: {msg}", host_base());
-    lang::t_with("error.transcribe.serverDown", &[("host", &host_base())])
-}
-
-fn get(url: &str, ms: i32) -> Result<Response, win_http::HttpError> {
-    win_http::request(&Request::new("GET", url).header("User-Agent", "NoOBS").timeouts(Timeouts { connect_ms: ms, send_ms: ms, receive_ms: ms }))
-}
-
-/// `GET /health`. `Ok` = servidor de pé. Roda na worker (a UI chama por um botão "Testar").
-/// Devolve o texto CRU da falha de propósito: aqui o usuário apertou "Testar" e quer o
-/// diagnóstico. Quem transcreve usa o `serverDown`.
-pub fn check_health(host: &str) -> Result<(), String> {
-    let base = host.trim().trim_end_matches('/');
-    if base.is_empty() {
-        return Err(lang::t("error.transcribe.emptyHost"));
-    }
-    match get(&format!("{base}{HEALTH_PATH}"), HEALTH_TIMEOUT_MS) {
-        Err(e) => Err(e.to_string()),
-        Ok(r) if r.status != 200 => Err(http_err_text(&r)),
-        Ok(_) => Ok(()),
-    }
-}
-
-/// A Transcritor API tem duas versões: o container (WhisperX), que separa falantes, e a
-/// nativa do Windows (Qwen3 + audio.cpp, na GPU), que não separa e RECUSA
-/// `diarization=true` com HTTP 400. O `/health` da nativa diz o motor (`"engine": "audiocpp"`);
-/// o container 2.0 não manda o campo. Sem `engine`, ou `whisperx`, pede a separação; qualquer
-/// outro, não. Na dúvida (health sem resposta) pede, que é o comportamento de sempre.
-fn server_diarizes() -> bool {
-    let Ok(r) = get(&format!("{}{HEALTH_PATH}", host_base()), HEALTH_TIMEOUT_MS) else { return true };
-    if r.status != 200 {
-        return true;
-    }
-    match serde_json::from_str::<Value>(&r.text()) {
-        Ok(v) => v.get("engine").and_then(Value::as_str).map_or(true, |e| e.eq_ignore_ascii_case("whisperx")),
-        Err(_) => true,
-    }
-}
-
-/// `POST /jobs` — devolve na hora um identificador (HTTP 202), sem esperar a transcrição. O
-/// upload é a única parte demorada aqui, e ele é rápido porque só vai áudio.
-fn submit_job(audio_path: &str) -> Result<String, String> {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let boundary = format!("----NoOBS{nanos:032x}");
-    let audio = std::fs::read(audio_path).map_err(|e| e.to_string())?;
-    let file_name = Path::new(audio_path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "audio.m4a".into());
-
-    let mut payload: Vec<u8> = Vec::with_capacity(audio.len() + 1024);
-    let mut field = |name: &str, value: &str| {
-        payload.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n").as_bytes());
-    };
-    // Idioma SEMPRE explícito, salvo escolha de "detectar" — deixar a API adivinhar era o
-    // que traduzia a transcrição.
-    let language = resolve_transcribe_language();
-    if !language.is_empty() {
-        field("language", &language);
-    }
-    if language.is_empty() {
-        log!("Transcribe: idioma: deteccao automatica.");
-    } else {
-        log!("Transcribe: idioma: {language}");
-    }
-    // Separação por falante — é o que torna o painel do player útil. Só quando o servidor
-    // sabe fazer: a versão nativa recusa com 400.
-    if server_diarizes() {
-        field("diarization", "true");
-    } else {
-        log!("Transcribe: servidor sem separacao por falante; enviando sem diarizacao.");
-    }
-    // Alinhamento por palavra. O padrão da API já é true, mas vai EXPLÍCITO porque o recorte
-    // de turnos depende dele (pegadinha #60k).
-    field("alignment", "true");
-    payload.extend_from_slice(
-        format!("--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\nContent-Type: audio/mp4\r\n\r\n").as_bytes(),
-    );
-    payload.extend_from_slice(&audio);
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    drop(audio);
-
-    let url = format!("{}{JOBS_PATH}", host_base());
-    let req = Request::new("POST", &url)
-        .header("User-Agent", "NoOBS")
-        .header("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
-        .body(&payload)
-        .timeouts(Timeouts { connect_ms: CONNECT_TIMEOUT_MS, send_ms: SUBMIT_TIMEOUT_MS, receive_ms: SUBMIT_TIMEOUT_MS });
-    let resp = win_http::request(&req).map_err(|e| net_err_text(&e.to_string()))?;
-    // 202 é o esperado; aceita 200 também para não quebrar se a API mudar o código de sucesso.
-    if resp.status != 202 && resp.status != 200 {
-        return Err(http_err_text(&resp));
-    }
-    let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&resp.text()) else {
-        return Err(lang::t("error.transcribe.jobsNotJson"));
-    };
-    let id = o.get("job_id").and_then(Value::as_str).unwrap_or("").trim().to_owned();
-    if id.is_empty() {
-        return Err(lang::t("error.transcribe.noJobId"));
-    }
-    Ok(id)
-}
-
-/// Melhor esforço: se o cancelamento não chegar, o job termina sozinho e expira pelo
-/// `JOB_TTL_SECONDS` da API. Não vale falhar por causa disso.
-fn delete_job(job_id: &str) {
-    if job_id.is_empty() {
-        return;
-    }
-    let url = format!("{}{JOBS_PATH}/{job_id}", host_base());
-    let t = Timeouts { connect_ms: CONNECT_TIMEOUT_MS, send_ms: POLL_TIMEOUT_MS, receive_ms: POLL_TIMEOUT_MS };
-    let _ = win_http::request(&Request::new("DELETE", &url).timeouts(t));
-    log!("Transcribe: job {job_id} cancelado no servidor.");
-}
-
-#[derive(Default)]
-struct JobStatus {
-    status: String,
-    stage: String,
-    error: String,
-    progress: f64,
-    eta: i32,
-    result: String,
-}
-
-/// `GET /jobs/{id}`. `Ok` se a consulta em si funcionou (mesmo com status `error` do job —
-/// isso vem em `status`/`error`); senão a falha de rede.
-fn poll_job(job_id: &str) -> Result<JobStatus, String> {
-    let url = format!("{}{JOBS_PATH}/{job_id}{STATUS_QUERY}", host_base());
-    let t = Timeouts { connect_ms: CONNECT_TIMEOUT_MS, send_ms: POLL_TIMEOUT_MS, receive_ms: POLL_TIMEOUT_MS };
-    let resp = win_http::request(&Request::new("GET", &url).header("User-Agent", "NoOBS").timeouts(t)).map_err(|e| net_err_text(&e.to_string()))?;
-    if resp.status == 404 {
-        return Err(lang::t("error.transcribe.jobGone"));
-    }
-    if resp.status != 200 {
-        return Err(http_err_text(&resp));
-    }
-    let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&resp.text()) else {
-        return Err(lang::t("error.transcribe.statusNotJson"));
-    };
-    let s = |k: &str| o.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-    Ok(JobStatus {
-        status: s("status"),
-        stage: s("stage"),
-        error: s("error"),
-        progress: o.get("progress").and_then(Value::as_f64).unwrap_or(0.0),
-        // `eta_seconds` só aparece a partir de ~10% (antes disso extrapolar não faz sentido).
-        eta: o.get("eta_seconds").and_then(Value::as_f64).map_or(-1, |e| e.round_ties_even() as i32),
-        // O `result` só vem quando `status = done`, e só porque pedimos (`STATUS_QUERY`).
-        result: o.get("result").filter(|r| r.is_object()).map(Value::to_string).unwrap_or_default(),
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Planejamento das faixas
 // ---------------------------------------------------------------------------
@@ -975,7 +735,7 @@ fn poll_job(job_id: &str) -> Result<JobStatus, String> {
 ///
 /// Stream 0 é a MISTURA; 1..N-1 são as ISOLADAS por dispositivo. Mandar as isoladas separadas
 /// dá a atribuição de falante DE GRAÇA — o nome do dispositivo foi escrito como título da
-/// stream no MKV. O custo é uma transcrição POR FAIXA, e o container roda uma de cada vez.
+/// stream no MKV. O custo é uma transcrição POR FAIXA, e o motor roda uma de cada vez.
 /// Daí o corte: só vale com DUAS ou mais isoladas. Com uma só, a mistura tem exatamente o
 /// mesmo conteúdo e sairia o mesmo texto pelo dobro do tempo.
 fn plan_tracks(path: &str) -> Option<(Vec<String>, Vec<i32>)> {
@@ -1000,8 +760,8 @@ fn plan_tracks(path: &str) -> Option<(Vec<String>, Vec<i32>)> {
 }
 
 /// Decodifica a faixa e olha o pico. Faixa muda (microfone que ninguém usou, alto-falante de
-/// uma gravação silenciosa) não vai para o servidor: gastaria minutos de fila para voltar com
-/// zero turnos. Decodar custa segundos; a transcrição custaria minutos.
+/// uma gravação silenciosa) não é transcrita: gastaria minutos de fila para voltar com zero
+/// turnos. Decodar custa segundos; a transcrição custaria minutos.
 fn track_has_sound(audio_path: &str) -> bool {
     // Na dúvida, MANDA: perder fala é pior que gastar tempo. Cancelado sai "com som" e quem
     // chamou vê o cancelamento logo em seguida.
@@ -1013,10 +773,13 @@ fn track_has_sound(audio_path: &str) -> bool {
 // Execução de um arquivo de áudio
 // ---------------------------------------------------------------------------
 
-/// O `run_job` do motor LOCAL. Mesmas regras de progresso do caminho da API: fração do
-/// CONJUNTO de faixas e "faltam" somando as faixas que nem começaram, pela régua da primeira
-/// que terminou.
-fn run_local(audio_path: &str, track: i32, track_count: i32, start: Instant, est_per_track: &mut i32) -> Res<String> {
+/// Transcreve UM arquivo de áudio. O progresso publicado é o do CONJUNTO de faixas, não o
+/// da faixa: com 3 faixas, a segunda a 50% vale 50% do total, senão a barra voltaria para
+/// zero três vezes. E o "faltam" soma as faixas que ainda nem começaram, pela régua da
+/// primeira que terminou.
+fn run_job(audio_path: &str, track: i32, track_count: i32, est_per_track: &mut i32) -> Res<String> {
+    let start = Instant::now();
+    set_track(track, track_count);
     let est = *est_per_track;
     let on_progress = |stage: &str, fraction: f64| {
         let elapsed = start.elapsed().as_secs() as i32;
@@ -1032,7 +795,7 @@ fn run_local(audio_path: &str, track: i32, track_count: i32, start: Instant, est
         set_stage(stage, total, track_eta);
     };
     let cancel = || cancel_requested() || shutting_down();
-    match local_asr::transcribe(audio_path, &resolve_transcribe_language(), Some(&on_progress), Some(&cancel)) {
+    match engine_transcribe(audio_path, &resolve_transcribe_language(), &on_progress, &cancel) {
         local_asr::Outcome::Canceled => {
             if shutting_down() {
                 return fail(lang::t("error.transcribe.shuttingDown"));
@@ -1054,88 +817,38 @@ fn run_local(audio_path: &str, track: i32, track_count: i32, start: Instant, est
     }
 }
 
-/// Sobe UM arquivo de áudio e acompanha até o fim. O progresso publicado é o do CONJUNTO de
-/// faixas, não o da faixa: com 3 faixas, a segunda a 50% vale 50% do total, senão a barra
-/// voltaria para zero três vezes. E o "faltam" soma as faixas que ainda nem começaram,
-/// usando o tempo medido da primeira que terminou.
-fn run_job(audio_path: &str, track: i32, track_count: i32, est_per_track: &mut i32) -> Res<String> {
-    let start = Instant::now();
-    set_track(track, track_count);
-
-    if use_local_engine() {
-        // Motor local: mesmo contrato (JSON da API); progresso e ETA calculados aqui — não há
-        // servidor que os mande.
-        return run_local(audio_path, track, track_count, start, est_per_track);
+fn engine_transcribe(audio: &str, language: &str, on_progress: &dyn Fn(&str, f64), cancel: &dyn Fn() -> bool) -> local_asr::Outcome {
+    #[cfg(test)]
+    if let Some(f) = test_engine::get() {
+        return f(audio);
     }
-
-    let overall = |inner: f64| -> f64 {
-        if track_count <= 1 {
-            return inner;
-        }
-        (track as f64 + inner.max(0.0)) / track_count as f64
-    };
-
-    set_stage("uploading", overall(0.0), -1);
-    let job_id = submit_job(audio_path).map_err(Stop::Msg)?;
-    log!("Transcribe: job {job_id} aceito (faixa {} de {track_count}).", track + 1);
-
-    loop {
-        if shutting_down() {
-            delete_job(&job_id);
-            return fail(lang::t("error.transcribe.shuttingDown"));
-        }
-        if cancel_requested() {
-            delete_job(&job_id);
-            return Err(Stop::Canceled);
-        }
-        let st = poll_job(&job_id).map_err(Stop::Msg)?;
-        if st.status == "done" {
-            if st.result.trim().is_empty() {
-                return fail(lang::t("error.transcribe.emptyResult"));
-            }
-            // A primeira faixa concluída vira a régua para as que faltam.
-            if *est_per_track <= 0 {
-                *est_per_track = start.elapsed().as_secs() as i32;
-            }
-            set_stage("done", overall(1.0), -1);
-            return Ok(st.result);
-        }
-        if st.status == "error" {
-            return fail(if st.error.is_empty() { lang::t("error.transcribe.serverSilent") } else { st.error });
-        }
-        let mut total_eta = st.eta;
-        if total_eta >= 0 && *est_per_track > 0 {
-            total_eta += (track_count - track - 1) * *est_per_track;
-        }
-        set_stage(&st.stage, overall(st.progress), total_eta);
-
-        // Espera interrompível: o stop tira a thread daqui na hora, em vez de deixar o
-        // fechamento do app esperando um sleep.
-        if wait_stop(POLL_INTERVAL_MS) {
-            delete_job(&job_id);
-            return fail(lang::t("error.transcribe.shuttingDown"));
-        }
-    }
+    local_asr::transcribe(audio, language, Some(on_progress), Some(cancel))
 }
 
-/// O `/health` acabou de responder. Se a fila estava esperando o servidor, tira a frase de
-/// espera da tela AGORA — antes ela só saía quando o item terminava de transcrever, minutos
-/// depois, e parecia que o erro tinha ficado preso. Só a frase de espera (nome vazio),
-/// nunca a falha real de uma gravação.
-fn server_back_up() {
-    let changed = with(|i| {
-        if !i.waiting_server {
-            return false;
-        }
-        i.waiting_server = false;
-        if i.last_error_name.is_empty() {
-            i.last_error.clear();
-        }
-        true
-    });
-    if changed {
-        log!("Transcribe: servidor voltou ({}) — fila retomada.", host_base());
-        notify_changed();
+fn engine_installed() -> bool {
+    #[cfg(test)]
+    if test_engine::get().is_some() {
+        return true;
+    }
+    local_asr::is_installed()
+}
+
+/// Só no `cargo test`: um motor falso no lugar do audio.cpp (que exige 3,7 GB instalados e
+/// a placa de vídeo), para testar o caminho inteiro — extrair, escolher faixas, juntar e
+/// gravar. Nada disto entra no exe.
+#[cfg(test)]
+pub mod test_engine {
+    use std::sync::Mutex;
+
+    pub type Engine = fn(&str) -> crate::local_asr::Outcome;
+    static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
+
+    pub fn set(f: Option<Engine>) {
+        *ENGINE.lock().unwrap() = f;
+    }
+
+    pub fn get() -> Option<Engine> {
+        *ENGINE.lock().unwrap()
     }
 }
 
@@ -1150,26 +863,9 @@ fn process_one(path: &str) -> Res {
         return fail(lang::t("error.transcribe.fileMissing"));
     }
 
-    // PING ANTES DE QUALQUER TRABALHO: (1) servidor fora do ar só aparecia depois de extrair
-    // o áudio — dezenas de MB jogados fora por item do lote; (2) o erro que chegava era o do
-    // WinHTTP no meio do upload, que não tem como ser lido como "o container não está
-    // rodando". O `/health` é barato e local. Motor LOCAL: não há servidor para pingar; o que
-    // falta, se falta, é a instalação. O servidor local sobe sozinho dentro do `run_local`.
-    if use_local_engine() {
-        if !local_asr::is_installed() {
-            return Err(Stop::LocalMissing);
-        }
-    } else {
-        set_stage("checking", 0.0, -1);
-        if let Err(e) = check_health(&host_base()) {
-            // Uma linha por queda, não uma a cada tentativa.
-            if !waiting_for_server() {
-                log!("Transcribe: /health nao respondeu ({}): {e}", host_base());
-            }
-            // O worker poe o item de volta na frente da espera e tenta de novo depois.
-            return Err(Stop::ServerDown);
-        }
-        server_back_up();
+    // Motor não instalado: o item espera na fila (não é falha), sem gastar a extração.
+    if !engine_installed() {
+        return Err(Stop::LocalMissing);
     }
 
     // GRAVAÇÃO SEM ÁUDIO nenhum (só monitores, nenhum microfone marcado): não há o que
@@ -1188,13 +884,12 @@ fn process_one(path: &str) -> Res {
     let cache_base = player::cache_root_dir().join(player::hash_name(path));
     let plan = plan_tracks(path);
     let per_track = plan.is_some();
-    // Caminho antigo: SÓ O ÁUDIO da mistura. O vídeo passaria do `MAX_UPLOAD_MB` da API numa
-    // gravação 4K de poucos minutos.
+    // Uma faixa só: a MISTURA (stream 0).
     let (names, streams) = plan.unwrap_or_else(|| (vec![String::new()], vec![0]));
 
     let files: Vec<String> = streams.iter().map(|s| format!("{}_tr{s}.m4a", cache_base.to_string_lossy())).collect();
-    // Os m4a são só veículo do upload — regeneram em segundos, e uma hora de áudio ocupa ~70 MB
-    // que não vale guardar.
+    // Os m4a são só veículo da transcrição — regeneram em segundos, e uma hora de áudio ocupa
+    // ~70 MB que não vale guardar.
     struct Cleanup<'a>(&'a [String]);
     impl Drop for Cleanup<'_> {
         fn drop(&mut self) {
@@ -1223,8 +918,8 @@ fn process_one(path: &str) -> Res {
         return Err(Stop::Canceled);
     }
 
-    // Faixa muda não vai para o servidor. Com várias faixas isto é o que impede o microfone
-    // que ninguém usou de gastar uma fila inteira.
+    // Faixa muda não é transcrita. Com várias faixas isto é o que impede o microfone que
+    // ninguém usou de gastar uma fila inteira.
     let mut send: Vec<&String> = Vec::new();
     let mut used_names: Vec<String> = Vec::new();
     for (i, f) in files.iter().enumerate() {
@@ -1235,7 +930,7 @@ fn process_one(path: &str) -> Res {
             return fail(lang::t("error.transcribe.extractMissing"));
         }
         if per_track && !track_has_sound(f) {
-            log!("Transcribe: faixa \"{}\" sem som — nao vai pro servidor.", names[i]);
+            log!("Transcribe: faixa \"{}\" sem som — nao sera transcrita.", names[i]);
             continue;
         }
         used_names.push(names[i].clone());
@@ -1253,32 +948,19 @@ fn process_one(path: &str) -> Res {
         let mut est = 0;
         let mut bodies = Vec::with_capacity(send.len());
         for (i, f) in send.iter().enumerate() {
-            // Cancelado durante a extração (ou entre faixas): nem sobe o áudio.
+            // Cancelado durante a extração (ou entre faixas): nem começa a faixa.
             if cancel_requested() {
                 return Err(Stop::Canceled);
             }
-            match run_job(f, i as i32, send.len() as i32, &mut est) {
-                Ok(b) => bodies.push(b),
-                Err(Stop::Msg(m)) => {
-                    // O container pode cair NO MEIO do job (Docker reiniciado, computador
-                    // suspenso). Isso chega como erro de rede, mas é o mesmo caso do servidor
-                    // fora antes de começar: se o `/health` agora não responde, o item espera
-                    // em vez de ser descartado.
-                    if !shutting_down() && !use_local_engine() && check_health(&host_base()).is_err() {
-                        return Err(Stop::ServerDown);
-                    }
-                    return Err(Stop::Msg(m));
-                }
-                Err(e) => return Err(e),
-            }
+            bodies.push(run_job(f, i as i32, send.len() as i32, &mut est)?);
         }
-        // Só a MISTURA passa direto: o JSON da API já está no formato final, e reescrevê-lo
+        // Só a MISTURA passa direto: o JSON do motor já está no formato final, e reescrevê-lo
         // jogaria fora os segmentos com timestamp por palavra que o merge não carrega. Por
         // faixa, mesmo com UMA sobrando (as outras mudas), o merge roda: é ele quem troca o
         // SPEAKER_00 pelo nome do dispositivo.
         if !per_track {
             let mut body = bodies.swap_remove(0);
-            // Mesmo aqui os turnos são remontados: o `turns` da API quebra só em troca de
+            // Mesmo aqui os turnos são remontados: o `turns` do motor quebra só em troca de
             // falante, e o player destaca o bloco inteiro. O resto da resposta é preservado.
             if let Some(re) = merge::rechunk_turns(&body) {
                 body = re;
@@ -1373,10 +1055,10 @@ fn pick_next() -> Option<String> {
             i.eta = -1;
             i.cancel_current = false;
             // Fila vazia: não há mais o que esperar — nem o aviso de espera.
-            if i.waiting_server && i.last_error_name.is_empty() {
+            if i.waiting_install && i.last_error_name.is_empty() {
                 i.last_error.clear();
             }
-            i.waiting_server = false;
+            i.waiting_install = false;
             // Os contadores do lote NÃO são zerados aqui: a UI precisa continuar mostrando
             // "7 de 7 concluídas" depois que a fila esvazia. Quem zera é o próximo lote.
             None
@@ -1405,7 +1087,7 @@ fn worker_loop() {
         let mut result = std::panic::catch_unwind(|| process_one(&path)).unwrap_or_else(|_| Err(Stop::Msg("panic".into())));
 
         // Cancelado enquanto este item rodava: o que quer que ele tenha devolvido depois
-        // (erro de rede, servidor fora, falha de extração) é consequência do cancelamento ou
+        // (motor ausente, falha de extração) é consequência do cancelamento ou
         // já não interessa. Um sucesso passa (a transcrição já foi gravada), mas não conta no
         // lote zerado.
         let was_canceled = cancel_requested();
@@ -1414,16 +1096,15 @@ fn worker_loop() {
         }
         // Gravação APAGADA enquanto esperava ou rodava (o usuário excluiu, a pasta foi
         // movida): não é falha, e ninguém precisa de aviso por um arquivo que ele mesmo tirou.
-        if matches!(result, Err(Stop::Msg(_) | Stop::ServerDown | Stop::LocalMissing)) && !Path::new(&path).exists() {
+        if matches!(result, Err(Stop::Msg(_) | Stop::LocalMissing)) && !Path::new(&path).exists() {
             log!("Transcribe: \"{path}\" nao existe mais — tirado da fila sem aviso.");
             result = Err(Stop::Canceled);
         }
 
-        // SERVIDOR FORA DO AR: não é defeito do arquivo. Devolve o item para a FRENTE da
-        // espera, sem contar como falha nem soltar aviso de erro por item, e tenta de novo
-        // daqui a `SERVER_RETRY_MS` — ou antes, se alguém chamar `nudge_queue`.
-        if matches!(result, Err(Stop::ServerDown | Stop::LocalMissing)) && !stop_set() {
-            let missing = matches!(result, Err(Stop::LocalMissing));
+        // MOTOR NÃO INSTALADO: não é defeito do arquivo. Devolve o item para a FRENTE da
+        // espera, sem contar como falha nem soltar aviso por item, e olha de novo daqui a
+        // `INSTALL_RETRY_MS` — ou antes, quando a instalação terminar (`nudge_queue`).
+        if matches!(result, Err(Stop::LocalMissing)) && !stop_set() {
             with(|i| {
                 i.queue.insert(0, path.clone());
                 i.queue_rev += 1;
@@ -1432,25 +1113,20 @@ fn worker_loop() {
                 i.current_path.clear();
                 i.current_name.clear();
                 i.current_start = None;
-                i.stage = if missing { "waitingInstall" } else { "waiting" }.into();
+                i.stage = "waitingInstall".into();
                 i.progress = -1.0;
                 i.eta = -1;
-                if !i.waiting_server {
-                    i.waiting_server = true;
-                    // Nome vazio de propósito: não é a gravação que falhou, é o servidor.
-                    if missing {
-                        i.last_error = lang::t("error.localAsr.notInstalled");
-                        log!("Transcribe: motor local nao instalado — fila em espera.");
-                    } else {
-                        i.last_error = lang::t_with("error.transcribe.serverDown", &[("host", &host_base())]);
-                        log!("Transcribe: servidor fora do ar — fila em espera.");
-                    }
+                if !i.waiting_install {
+                    i.waiting_install = true;
+                    // Nome vazio de propósito: não é a gravação que falhou, é o motor que falta.
+                    i.last_error = lang::t("error.localAsr.notInstalled");
                     i.last_error_name.clear();
+                    log!("Transcribe: motor local nao instalado — fila em espera.");
                 }
             });
             save_queue();
             notify_changed();
-            if wait_stop_or_wake(SERVER_RETRY_MS) {
+            if wait_stop_or_wake(INSTALL_RETRY_MS) {
                 break;
             }
             continue;
@@ -1461,10 +1137,10 @@ fn worker_loop() {
             // Terminou de verdade (sucesso, falha ou cancelamento): a marca de manual morre
             // aqui, não quando a worker pegou o item.
             i.manual.remove(&path.to_lowercase());
-            // Passou do /health: o servidor voltou. Tira a frase de espera da tela — só ela
-            // (nome vazio), nunca a falha real de uma gravação.
-            if i.waiting_server {
-                i.waiting_server = false;
+            // O motor rodou: tira a frase de espera da tela — só ela (nome vazio), nunca a
+            // falha real de uma gravação.
+            if i.waiting_install {
+                i.waiting_install = false;
                 if i.last_error_name.is_empty() {
                     i.last_error.clear();
                 }
@@ -1472,7 +1148,7 @@ fn worker_loop() {
             match &result {
                 // Cancelado pelo usuário (ou fechamento): não conta como concluído nem como
                 // falha, e não vira mensagem de erro na tela.
-                Err(Stop::Canceled | Stop::ServerDown | Stop::LocalMissing) => log!("Transcribe: cancelado \"{path}\""),
+                Err(Stop::Canceled | Stop::LocalMissing) => log!("Transcribe: cancelado \"{path}\""),
                 Ok(()) => {
                     if !was_canceled {
                         i.done += 1;
@@ -1497,174 +1173,9 @@ fn worker_loop() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Diagnóstico do ambiente (aba Transcrição)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Default)]
-pub struct Setup {
-    pub server_ok: bool,
-    pub server_error: String,
-    /// o host aponta para esta máquina
-    pub is_local: bool,
-    pub port: u16,
-    pub wsl_ok: bool,
-    pub docker_installed: bool,
-    pub docker_running: bool,
-    /// vazio = não achou o executável
-    pub docker_desktop_path: String,
-    /// vazio = nenhum container publica a porta
-    pub container_id: String,
-    pub container_image: String,
-    /// `running` | `exited` | `created` | ...
-    pub container_state: String,
-    /// texto do docker ("Up 3 minutes")
-    pub container_status: String,
-    /// `always` | `no` | ...
-    pub restart_policy: String,
-}
-
-/// `http://localhost:8000/` → `("localhost", 8000)`. Aceita IPv6 entre colchetes. Sem porta,
-/// vale a do esquema.
-fn parse_host(host: &str) -> (String, u16) {
-    let mut s = host.trim();
-    let mut port: u16 = if s.to_lowercase().starts_with("https://") { 443 } else { 80 };
-    if let Some(p) = s.find("://") {
-        s = &s[p + 3..];
-    }
-    if let Some(p) = s.find('/') {
-        s = &s[..p];
-    }
-    let mut name = s.to_owned();
-    if s.starts_with('[') {
-        if let Some(p) = s.find(']') {
-            name = s[1..p].to_owned();
-            if let Some(rest) = s[p + 1..].strip_prefix(':') {
-                port = rest.parse().unwrap_or(port);
-            }
-        }
-    } else if let Some(p) = s.rfind(':') {
-        name = s[..p].to_owned();
-        port = s[p + 1..].parse().unwrap_or(port);
-    }
-    (name.trim().to_lowercase(), port)
-}
-
-fn find_in_path(exe: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(exe)).find(|f| f.is_file()))
-}
-
-/// Em ETAPAS, e cada uma só roda se a anterior passou — a tela mostra o primeiro degrau que
-/// falta, com a instrução dele, e não uma lista de coisas que talvez estejam erradas:
-///
-/// 1. o servidor responde? sim → pronto, nada mais importa;
-/// 2. o host é desta máquina? não → servidor remoto: Docker local não tem nada a ver;
-/// 3. WSL instalado? (o Docker Desktop precisa dele);
-/// 4. Docker instalado? 5. Docker em execução?
-/// 6. há container publicando a porta? parado, rodando, de outra imagem?
-///
-/// O passo 6 existe para NÃO mandar o usuário rodar `docker run` de novo quando o container
-/// já existe e só está parado: o segundo brigaria pela mesma porta. O container é achado pela
-/// PORTA publicada, não pelo nome da imagem: quem fez build local tem `transcritor-api:latest`.
-///
-/// Roda processos wsl/docker e pode levar alguns segundos: chame SÓ de worker thread.
-pub fn diagnose_setup(host: &str) -> Setup {
-    use crate::win_proc::run_hidden;
-    let mut r = Setup::default();
-    match check_health(host) {
-        Ok(()) => r.server_ok = true,
-        Err(e) => r.server_error = e,
-    }
-    let (host_name, port) = parse_host(host);
-    r.port = port;
-    let computer = std::env::var("COMPUTERNAME").unwrap_or_default().to_lowercase();
-    r.is_local = ["localhost", "127.0.0.1", "::1", "0.0.0.0"].contains(&host_name.as_str()) || (!computer.is_empty() && host_name == computer);
-    if r.server_ok || !r.is_local {
-        return r;
-    }
-
-    // WSL: em versões novas do Windows o wsl.exe existe como "stub" mesmo sem WSL instalado,
-    // então a existência do arquivo não basta — o que decide é o `--status` sair com 0.
-    let wsl = PathBuf::from(std::env::var("WINDIR").unwrap_or_default()).join("System32").join("wsl.exe");
-    r.wsl_ok = wsl.is_file() && run_hidden(&wsl.to_string_lossy(), "--status", DIAG_WSL_TIMEOUT_MS).0 == 0;
-
-    // Docker: primeiro pelo PATH, depois no lugar padrão do Docker Desktop. O PATH do NoOBS é
-    // o do momento em que ele abriu — quem instalou o Docker com o app aberto não o teria ali.
-    let prog_files = PathBuf::from(std::env::var("ProgramFiles").unwrap_or_default());
-    let mut docker = find_in_path("docker.exe");
-    let default_docker = prog_files.join("Docker\\Docker\\resources\\bin\\docker.exe");
-    if docker.is_none() && default_docker.is_file() {
-        docker = Some(default_docker);
-    }
-    let desktop = prog_files.join("Docker\\Docker\\Docker Desktop.exe");
-    if desktop.is_file() {
-        r.docker_desktop_path = desktop.to_string_lossy().into_owned();
-    }
-    r.docker_installed = docker.is_some() || !r.docker_desktop_path.is_empty();
-    let Some(docker) = docker else { return r };
-    let docker = docker.to_string_lossy().into_owned();
-
-    r.docker_running = run_hidden(&docker, "info --format \"{{.ServerVersion}}\"", DIAG_DOCKER_TIMEOUT_MS).0 == 0;
-    if !r.docker_running {
-        return r;
-    }
-
-    let (code, out) = run_hidden(
-        &docker,
-        &format!("ps -a --filter \"publish={port}\" --format \"{{{{.ID}}}}|{{{{.Image}}}}|{{{{.State}}}}|{{{{.Status}}}}\""),
-        DIAG_DOCKER_TIMEOUT_MS,
-    );
-    if code == 0 {
-        // Vários parados podem publicar a mesma porta; só um roda. Prefere o que está
-        // rodando, senão o primeiro listado (o mais recente).
-        for line in out.split(['\r', '\n']).filter(|l| !l.is_empty()) {
-            let parts: Vec<&str> = line.split('|').collect();
-            if parts.len() < 4 {
-                continue;
-            }
-            if r.container_id.is_empty() || parts[2].trim().eq_ignore_ascii_case("running") {
-                r.container_id = parts[0].trim().to_owned();
-                r.container_image = parts[1].trim().to_owned();
-                r.container_state = parts[2].trim().to_lowercase();
-                r.container_status = parts[3].trim().to_owned();
-                if r.container_state == "running" {
-                    break;
-                }
-            }
-        }
-    }
-    if !r.container_id.is_empty() {
-        let (code, out) = run_hidden(&docker, &format!("inspect {} --format \"{{{{.HostConfig.RestartPolicy.Name}}}}\"", r.container_id), DIAG_DOCKER_TIMEOUT_MS);
-        if code == 0 {
-            r.restart_policy = out.trim().to_lowercase();
-        }
-    }
-    r
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn host_com_porta_e_esquema() {
-        assert_eq!(parse_host("http://localhost:8000/"), ("localhost".into(), 8000));
-        assert_eq!(parse_host("https://exemplo.com"), ("exemplo.com".into(), 443));
-        assert_eq!(parse_host("http://[::1]:9000/x"), ("::1".into(), 9000));
-        assert_eq!(parse_host(" 192.168.0.5:8080 "), ("192.168.0.5".into(), 8080));
-    }
-
-    #[test]
-    fn erro_http_pega_o_detail_do_fastapi() {
-        let r = Response { status: 422, body: br#"{"detail":[{"msg":"campo obrigatorio"}]}"#.to_vec() };
-        let t = http_err_text(&r);
-        assert!(t.starts_with("HTTP 422: "));
-        assert!(t.contains("campo obrigatorio"));
-        let r = Response { status: 400, body: br#"{"detail":"sem diarizacao"}"#.to_vec() };
-        assert_eq!(http_err_text(&r), "HTTP 400: sem diarizacao");
-        let r = Response { status: 500, body: Vec::new() };
-        assert_eq!(http_err_text(&r), "HTTP 500");
-    }
 
     #[test]
     fn estado_de_transcricao_so_com_stat() {

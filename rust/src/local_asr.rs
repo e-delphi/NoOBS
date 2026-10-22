@@ -595,8 +595,6 @@ fn install_worker() {
         config::set_config_int("localAsrMaxModels", 2);
         let marker = json!({ "engine": ENGINE_ZIP, "asr": ASR_FILE, "align": ALIGN_FILE, "backend": backend, "device": device });
         std::fs::write(root.join(MARKER_FILE), marker.to_string()).map_err(|e| Fail::Msg(e.to_string()))?;
-        // Quem instalou quer usar: vira o motor da transcrição na hora.
-        config::set_config_str("transcribeEngine", "local");
         log!("LocalAsr: instalado ({backend}{}).", if device.is_empty() { String::new() } else { format!(", {device}") });
         Ok(())
     })();
@@ -921,9 +919,6 @@ pub fn uninstall() -> bool {
             log!("LocalAsr: falha ao apagar {}: {e}", root_dir().display());
         }
     }
-    // Sempre explícito: o padrão da chave é o motor LOCAL, então só apagar a escolha
-    // deixaria a fila esperando uma instalação que não existe mais.
-    config::set_config_str("transcribeEngine", "server");
     with_state(|s| {
         s.status = Status::Missing;
         s.stage.clear();

@@ -31,8 +31,9 @@ assinaturas por nome (não por tipo).
 1. **Nenhuma mensagem enviada pela página fica sem tratamento.** O cruzamento
    de todos os `Bridge.send('…')` dos `js/*.js` com o `dispatch` não deixa
    sobra.
-2. **Três mensagens tratadas nunca são enviadas pela página** (⚠️ na Tabela
-   A): `open_recording`, `set_check_updates` e `cancel_countdown`. A
+2. **Duas mensagens tratadas nunca são enviadas pela página** (⚠️ na Tabela
+   A): `open_recording` e `cancel_countdown`. (O `set_check_updates` era a
+   terceira: a página lia a caixa e não mandava — a opção nunca era salva.) A
    última ficou sem botão (a contagem do atraso se cancela pelo botão de
    gravar ou pelo atalho). Candidatas a remover ou a ganhar uso.
 3. **Todas as 181 funções declaradas das DLLs são usadas** — não há binding
@@ -151,17 +152,12 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `reset_audio_filters` | — | `filters::handle_reset_audio_filters` | FFmpeg + obs.dll |
 | `test_audio_filters` | `device` | `filters::handle_test_audio_filters` | FFmpeg + obs.dll |
 
-#### Transcrição (22)
+#### Transcrição (18)
 
 | Mensagem | Campos | Handler | DLLs alcançadas |
 |---|---|---|---|
-| `set_transcribe_host` | `host` | `transcribe::handle_set_transcribe_host` | — |
-| `test_transcribe_host` | `host` | `transcribe::handle_test_transcribe_host` | — |
 | `set_transcribe_language` | `language` | `transcribe::handle_set_transcribe_language` | — |
 | `set_transcribe_on_stop` | `enabled` | `transcribe::handle_set_transcribe_on_stop` | — |
-| `check_transcribe_setup` | `host`, `seq` | `transcribe::handle_check_transcribe_setup` | — |
-| `transcribe_setup_action` | `action` | `transcribe::handle_transcribe_setup_action` | — |
-| `set_transcribe_engine` | `engine` | `transcribe::handle_set_transcribe_engine` | — |
 | `local_asr_install` | — | `local_asr::start_install` | — |
 | `local_asr_cancel` | — | `local_asr::cancel_install` | — |
 | `local_asr_remove` | — | `transcribe::handle_local_asr_remove` | — |
@@ -176,6 +172,7 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `set_speaker_name` | `id`, `name`, `speaker` | `transcribe::handle_set_speaker_name` | — |
 | `search_transcripts` | `query` | `transcribe::handle_search_transcripts` | — |
 | `get_root_folders` | — | `transcribe::push_root_folders` | — |
+| `reset_hidden_lists` | — | `transcribe::handle_reset_hidden_lists` | — |
 | `set_folder_hidden` | `hidden`, `name` | `transcribe::handle_set_folder_hidden` | — |
 
 #### Configurações e janela (32)
@@ -202,7 +199,7 @@ chamadas até achar uma que chama a DLL. É uma aproximação:
 | `set_auto_record_mic_apps` | `apps` | `settings::handle_set_auto_record_mic_apps` | — |
 | `set_auto_record_mic_except` | `apps` | `settings::handle_set_auto_record_mic_except` | — |
 | `check_updates` | — | `settings::handle_check_updates` | — |
-| `set_check_updates` ⚠️ | `enabled` | `settings::handle_set_check_updates` | — |
+| `set_check_updates` | `enabled` | `settings::handle_set_check_updates` | — |
 | `tray_show` | — | `shell::handle_tray_show` | — |
 | `toggle_fullscreen` | — | `ui::toggle_fullscreen` | — |
 | `set_window_title` | `title` | `shell::handle_set_window_title` | — |
@@ -640,8 +637,8 @@ baixadas e conferidas): `play_recording`, `request_transcode`,
 `request_video_info`, `request_waveform`, `request_keyframes`,
 `request_audio_tracks`, `open_folder`/`set_library_thumbs` (miniaturas),
 `set_record_dir`, `export_recording`, `merge_recordings` e a transcrição pela
-mistura e por faixa contra uma Transcritor API FALSA (um `TcpListener` no
-próprio teste).
+mistura e por faixa contra um motor FALSO (`transcribe::test_engine`, que só
+existe no `cargo test`).
 
 As que chegam na **obs.dll** rodam no executável da frente 3, num SEGUNDO
 processo (`--mensagens`, a libobs sobe do zero), pelo `dispatch` de verdade:

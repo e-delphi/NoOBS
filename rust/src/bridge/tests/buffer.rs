@@ -22,7 +22,7 @@ fn estado_de_instalacao_nova() {
     assert_eq!(st["autoStart"], false);
     assert_eq!(st["intoRecording"], true);
     assert_eq!(st["maxSec"], 300);
-    assert_eq!(st["hotkey"], "Ctrl+Shift+F10");
+    assert_eq!(st["hotkey"], "Ctrl+Shift+Pause/Break");
     assert_eq!(st["apps"], "");
     assert_eq!(st["indicator"], true);
     assert_eq!(st["indicatorCorner"], "top-right");

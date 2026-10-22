@@ -23,6 +23,9 @@ use super::{countdown, is_shutting_down, post_error, post_json, recording};
 
 thread_local! {
     static LAST_LIST: RefCell<Vec<CaptureWindow>> = const { RefCell::new(Vec::new()) };
+    /// Seletor pedido por um atalho com a interface descarregada: vai quando a
+    /// página nova mandar `ready`.
+    static PENDING_PICKER: RefCell<Option<serde_json::Value>> = const { RefCell::new(None) };
     static SEQ: Cell<u32> = const { Cell::new(0) };
 }
 
@@ -191,7 +194,7 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
                 .collect();
             let handles: Vec<(isize, String)> = matches.iter().map(|w| (w.handle, w.title.clone())).collect();
             LAST_LIST.with(|l| *l.borrow_mut() = list);
-            post_json(json!({
+            let msg = json!({
                 "type": "window_picker_matches",
                 "seq": seq,
                 "pattern": pattern,
@@ -199,8 +202,21 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
                 "wantAppAudio": app_audio,
                 "delaySec": delay_sec,
                 "items": items,
-            }));
+            });
+            // Hibernando, a página ainda vai subir: a mensagem espera o `ready`.
+            if super::is_light() {
+                PENDING_PICKER.with(|p| *p.borrow_mut() = Some(msg));
+            } else {
+                post_json(msg);
+            }
             std::thread::spawn(move || thumbs_worker(seq, handles));
         }
+    }
+}
+
+/// Página nova pronta: o seletor que um atalho pediu enquanto ela subia.
+pub fn on_page_ready() {
+    if let Some(msg) = PENDING_PICKER.with(|p| p.borrow_mut().take()) {
+        post_json(msg);
     }
 }

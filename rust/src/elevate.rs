@@ -6,8 +6,7 @@
 //!
 //! O dispatcher do `main` chama [`relaunch_elevated_if_wanted`] ANTES de tudo
 //! (mutex, janela, motor). UAC recusado = segue normal: a opção é um pedido,
-//! nunca um bloqueio. Filho de elevado nasce elevado, então o vai-e-volta
-//! full ↔ hibernação não pergunta de novo.
+//! nunca um bloqueio.
 //!
 //! O mesmo UIPI ao contrário: janela ELEVADA não recebe mensagens acima de
 //! `WM_USER` de quem não é (clique na bandeja, `TaskbarCreated`, aviso de uma

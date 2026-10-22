@@ -2,17 +2,12 @@
 // Transcrição — fila e progresso (aba Configurações → Transcrição)
 // =====================================================================
 // O trabalho pesado é do backend (OBSTranscribe): fila de um item por
-// vez contra a Transcritor API. Aqui só desenhamos o estado.
+// vez contra o motor local (audio.cpp na placa de vídeo). Aqui só
+// desenhamos o estado.
 //
-// O progresso é REAL: a API trabalha com jobs (POST /jobs devolve um id
-// na hora, GET /jobs/{id} dá estágio, percentual e ETA) e o percentual
-// vem do trecho de áudio já coberto pelos segmentos. Nada aqui é
-// estimado por nós.
-//
-// Duas consequências no desenho: a barra pode chegar a 100% sem mentir,
-// e ela anda AOS SALTOS — o Whisper processa em janelas de 30s, então em
-// áudio curto são poucos degraus. O ETA só aparece a partir de ~10%,
-// onde a extrapolação da API passa a fazer sentido.
+// O progresso é o do motor: a fração dos blocos de fala já transcritos,
+// então a barra anda AOS SALTOS (um bloco por vez). O ETA só aparece a
+// partir de ~10%, onde a extrapolação passa a fazer sentido.
 
 const Transcribe = {
   running: false,
@@ -22,8 +17,8 @@ const Transcribe = {
   failed: 0,
   current: '',
   elapsed: 0,
-  progress: -1,   // 0..1 vindo da API; -1 = ainda sem número
-  eta: -1,        // segundos restantes; -1 = a API ainda não arrisca
+  progress: -1,   // 0..1; -1 = ainda sem número
+  eta: -1,        // segundos restantes; -1 = ainda sem estimativa
   _etaShown: -1,  // o ETA que vai pra TELA: conta pra baixo (ver _syncEta)
   _etaFor: '',    // de qual gravação ele é — trocou de item, recomeça
   stage: '',
@@ -39,7 +34,7 @@ const Transcribe = {
   // tempo, e a pessoa clicava de novo achando que nao tinha pegado.
   canceling: false,
   _cancelClicked: false,
-  waiting: false,   // fila parada esperando o servidor (não é falha)
+  waiting: false,   // fila parada esperando a instalação do motor (não é falha)
   pendingCloud: 0,  // ficaram de fora: só na nuvem (não baixamos em lote)
   queueItems: [],  // [{id,name,duration,current}] na ordem de execução
   _dragId: null,   // item sendo arrastado AGORA (trava o re-render)
@@ -47,25 +42,6 @@ const Transcribe = {
   _tick: null,
 
   // ---- ações ---------------------------------------------------------
-
-  test() {
-    const el = document.getElementById('settingsTranscribeHost');
-    const status = document.getElementById('settingsTranscribeStatus');
-    if (status) status.textContent = T('settings.transcribe.testing');
-    Bridge.send('test_transcribe_host', { host: el ? el.value.trim() : '' });
-  },
-
-  onHealth(data) {
-    // O "Testar" sabe a mesma coisa que o diagnóstico: servidor de pé
-    // esconde o painel de etapas; fora do ar, mostra o que falta.
-    if (data && data.ok) TranscribeSetup.apply({ seq: TranscribeSetup._seq, serverOk: true });
-    else if (TranscribeSetup.isHidden()) TranscribeSetup.check();
-    const status = document.getElementById('settingsTranscribeStatus');
-    if (!status) return;
-    status.textContent = data && data.ok
-      ? T('settings.transcribe.ok')
-      : T('settings.transcribe.fail', { error: (data && data.error) || '' });
-  },
 
   transcribePending() {
     Bridge.send('transcribe_pending', {});
@@ -448,9 +424,8 @@ const Transcribe = {
     let txt = T('settings.transcribe.progress',
       { pos: pos, total: this.total || pos, name: this.current || '—' });
 
-    // Etapa: traduzida a partir do código da API ('transcribing', …), não
-    // do `stage_label` que ela manda pronto — aquele vem só em português
-    // e a UI tem três idiomas.
+    // Etapa: traduzida a partir do código que o backend manda
+    // ('transcribing', …).
     const st = this.stage ? T('settings.transcribe.stage.' + this.stage) : '';
     if (st && st.charAt(0) !== '[') txt += ' · ' + st;
 
@@ -460,8 +435,7 @@ const Transcribe = {
       txt += ' · ' + T('settings.transcribe.trackN',
         { n: this.track + 1, total: this.trackCount });
 
-    // Barra com o percentual REAL. Sem teto artificial: quando a API diz
-    // 100%, é 100%.
+    // Barra com o percentual do motor. Sem teto artificial.
     if (fill) {
       fill.style.width = this.progress >= 0
         ? (this.progress * 100).toFixed(1) + '%' : '0%';
@@ -469,9 +443,8 @@ const Transcribe = {
     if (this.progress >= 0)
       txt += ' · ' + Math.round(this.progress * 100) + '%';
 
-    // Só com ETA > 0: em "faltam ~0:00" o número não informa nada, e é
-    // o que a API devolve no instante em que termina. O valor aqui é o
-    // de _syncEta (que só desce), NUNCA o `eta` cru do servidor.
+    // Só com ETA > 0: em "faltam ~0:00" o número não informa nada. O
+    // valor aqui é o de _syncEta (que só desce), NUNCA o `eta` cru.
     if (this._etaShown > 0)
       txt += ' · ' + T('settings.transcribe.remaining',
         { eta: this._fmt(this._etaShown) });
@@ -488,247 +461,10 @@ const Transcribe = {
 
 
 // =====================================================================
-// Diagnóstico do servidor de transcrição (aba Configurações → Transcrição)
-// =====================================================================
-// O backend descobre EM ETAPAS por que o servidor não responde (rodando
-// wsl.exe e docker.exe) e manda o resultado cru. Aqui só decidimos o que
-// dizer: a tela mostra o PRIMEIRO degrau que falta, com a instrução dele e
-// o comando pronto pra copiar — não uma lista de coisas que talvez estejam
-// erradas.
-//
-// Ordem das etapas e por quê:
-//   servidor responde  -> pronto; nada mais importa
-//   host remoto        -> Docker local não tem nada a ver com isso
-//   WSL                -> o Docker Desktop precisa dele
-//   Docker instalado / em execução
-//   container          -> ausente: `docker run`; PARADO: `docker start`.
-//                         Mandar `docker run` com um container parado
-//                         criaria um segundo brigando pela mesma porta.
-
-const TRANSCRITOR_IMAGE = 'eduardo20041995/transcritor-api:latest';
-
-const TranscribeSetup = {
-  _seq: 0,
-  _last: null,
-
-  check() {
-    const el = document.getElementById('settingsTranscribeHost');
-    const host = el ? el.value.trim() : '';
-    this._seq++;
-    this._last = { checking: true };
-    this._render(this._last);
-    Bridge.send('check_transcribe_setup', { host: host, seq: this._seq });
-  },
-
-  apply(data) {
-    // Resposta de uma verificação já superada (o usuário clicou de novo,
-    // ou trocou de aba e voltou): descarta, senão o estado velho venceria.
-    if (!data || data.seq !== this._seq) return;
-    this._last = data;
-    this._render(data);
-  },
-
-  // Troca de idioma: redesenha com os textos novos, sem verificar de novo.
-  rerender() { if (this._last) this._render(this._last); },
-
-  isHidden() {
-    const box = document.getElementById('transcribeSetup');
-    return !box || box.hidden;
-  },
-
-  action(name) { Bridge.send('transcribe_setup_action', { action: name }); },
-
-  async copy(text, btn) {
-    let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
-    if (!ok) {
-      // Sem permissão de clipboard: o caminho antigo ainda funciona.
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try { ok = document.execCommand('copy'); } catch (e) {}
-      ta.remove();
-    }
-    if (btn && ok) {
-      btn.textContent = T('settings.transcribe.setup.copied');
-      btn.disabled = true;
-      setTimeout(() => {
-        btn.textContent = T('settings.transcribe.setup.copy');
-        btn.disabled = false;
-      }, 1500);
-    }
-  },
-
-  // ---- desenho ------------------------------------------------------
-
-  _row(body, state, text) {
-    const r = document.createElement('div');
-    r.className = 'ts-row ' + state;
-    const i = document.createElement('span');
-    i.className = 'ts-icon';
-    i.textContent = state === 'ok' ? '✓' : state === 'fail' ? '✕' : '…';
-    const t = document.createElement('span');
-    t.textContent = text;
-    r.appendChild(i);
-    r.appendChild(t);
-    body.appendChild(r);
-  },
-
-  _detail(body) {
-    const d = document.createElement('div');
-    d.className = 'ts-detail';
-    body.appendChild(d);
-    return d;
-  },
-
-  _p(parent, text) {
-    const p = document.createElement('p');
-    p.textContent = text;
-    parent.appendChild(p);
-  },
-
-  _cmd(parent, command) {
-    const box = document.createElement('div');
-    box.className = 'ts-cmd';
-    const code = document.createElement('code');
-    code.textContent = command;
-    const btn = document.createElement('button');
-    btn.className = 'settings-btn';
-    btn.type = 'button';
-    btn.textContent = T('settings.transcribe.setup.copy');
-    btn.onclick = () => this.copy(command, btn);
-    box.appendChild(code);
-    box.appendChild(btn);
-    parent.appendChild(box);
-  },
-
-  _button(parent, label, action) {
-    const wrap = document.createElement('div');
-    wrap.className = 'ts-actions';
-    const btn = document.createElement('button');
-    btn.className = 'settings-btn';
-    btn.type = 'button';
-    btn.textContent = label;
-    btn.onclick = () => this.action(action);
-    wrap.appendChild(btn);
-    parent.appendChild(wrap);
-  },
-
-  _render(d) {
-    const body = document.getElementById('transcribeSetupBody');
-    const btn = document.getElementById('transcribeSetupCheckBtn');
-    if (!body) return;
-    body.textContent = '';
-    if (btn) btn.disabled = !!d.checking;
-    const S = (k, a) => T('settings.transcribe.setup.' + k, a);
-
-    // SERVIDOR NO AR: o painel inteiro some — as etapas existem pra
-    // orientar o que falta, e não falta nada. Verificando, fica como
-    // estava: quem já estava escondido não pisca "verificando…" a cada
-    // abertura da aba (o caso comum é o servidor estar de pé), e quem
-    // mostrava uma falha continua visível enquanto re-verifica.
-    const box = document.getElementById('transcribeSetup');
-    if (d.checking) { this._row(body, 'wait', S('checking')); return; }
-    if (box) box.hidden = !!d.serverOk;
-    if (d.serverOk) return;
-    if (!d.isLocal) {
-      this._row(body, 'fail', S('remote'));
-      this._p(this._detail(body), S('remoteHow', { error: d.serverError || '' }));
-      return;
-    }
-
-    // WSL só entra na conversa enquanto o Docker não roda: com ele de pé,
-    // o WSL obviamente está ok (ou o Docker usa outro backend).
-    if (!d.dockerRunning) {
-      this._row(body, d.wslOk ? 'ok' : 'fail', S(d.wslOk ? 'wslOk' : 'wslMissing'));
-      if (!d.wslOk) {
-        const det = this._detail(body);
-        this._p(det, S('wslHow'));
-        this._cmd(det, 'wsl --install');
-        this._p(det, S('wslAfter'));
-        return;
-      }
-    }
-
-    this._row(body, d.dockerInstalled ? 'ok' : 'fail',
-      S(d.dockerInstalled ? 'dockerOk' : 'dockerMissing'));
-    if (!d.dockerInstalled) {
-      const det = this._detail(body);
-      this._p(det, S('dockerHow'));
-      this._button(det, S('dockerDownload'), 'openDockerSite');
-      this._p(det, S('dockerAfter'));
-      return;
-    }
-
-    this._row(body, d.dockerRunning ? 'ok' : 'fail',
-      S(d.dockerRunning ? 'runningOk' : 'runningMissing'));
-    if (!d.dockerRunning) {
-      const det = this._detail(body);
-      this._p(det, S('runningHow'));
-      if (d.canStartDocker) this._button(det, S('openDocker'), 'startDockerDesktop');
-      return;
-    }
-
-    const port = d.port || 8000;
-    if (!d.containerId) {
-      this._row(body, 'fail', S('containerMissing'));
-      const det = this._detail(body);
-      this._p(det, S('containerHow'));
-      this._cmd(det, 'docker run --restart=always -d -p ' + port +
-        ':8000 -v transcritor-dados:/data ' + TRANSCRITOR_IMAGE);
-      this._p(det, S('containerAfter'));
-      return;
-    }
-
-    // Alguém usa a porta, mas não é o transcritor: não adianta mandar
-    // `docker start` num container que não é o nosso.
-    if (!/transcritor/i.test(d.containerImage || '')) {
-      this._row(body, 'fail', S('portBusy', { port: port, image: d.containerImage }));
-      this._p(this._detail(body), S('portBusyHow'));
-      return;
-    }
-
-    const noRestart = (d.restartPolicy || '') !== 'always';
-    const updateCmd = 'docker update --restart=always ' + d.containerId;
-
-    if (d.containerState !== 'running') {
-      this._row(body, 'fail', S('containerStopped', { status: d.containerStatus }));
-      const det = this._detail(body);
-      this._p(det, S('containerStartHow'));
-      // Duas linhas, não `a && b`: o `&&` não existe no PowerShell 5, que é
-      // onde muita gente vai colar. Colar várias linhas roda uma por vez.
-      this._cmd(det, (noRestart ? updateCmd + '\n' : '') + 'docker start ' + d.containerId);
-      if (noRestart) this._p(det, S('containerRestartWhy'));
-      return;
-    }
-
-    this._row(body, 'ok', S('containerRunning', { status: d.containerStatus }));
-    this._row(body, 'wait', S('serverLoading'));
-    const det = this._detail(body);
-    this._p(det, S('serverLoadingHow'));
-    if (noRestart) {
-      this._p(det, S('containerRestartTip'));
-      this._cmd(det, updateCmd);
-    }
-  }
-};
-
-
-// =====================================================================
 // Motor local (aba Configurações → Transcrição)
 // =====================================================================
-// "Onde transcrever": nesta máquina (OBSLocalAsr — Qwen3 + audio.cpp na
-// placa de vídeo, instalado por aqui, sem Docker) ou num servidor da
-// Transcritor API. O estado da instalação é do backend (local_asr_state);
-// aqui só se desenha.
-//
-// O RÁDIO segue o fluxo das Configurações: só vale no Salvar (Settings
-// manda set_transcribe_engine). A exceção é o backend trocar sozinho —
-// terminar a instalação liga o motor local, porque quem instala quer usar
-// — e aí o push traz `engine` e o rádio acompanha.
+// O estado (instalação, GPU, erro) vem do backend em `local_asr_state`;
+// aqui só desenhamos o quadro e os botões de instalar/cancelar/remover.
 const LocalAsr = {
   state: null,        // último local_asr_state
   _confirmRemove: false,
@@ -737,38 +473,8 @@ const LocalAsr = {
     this.state = data;
     if (data.removeRefused)
       Toast.show(T('settings.transcribe.local.removeBusy'), '', { ttl: 4000, warn: true });
-    // O backend mudou o motor (instalação terminou / motor removido):
-    // o rádio e o "valor salvo" acompanham, senão o próximo Salvar
-    // desfaria a troca.
-    if (data.engine && typeof Settings !== 'undefined' &&
-        data.engine !== Settings.currentTranscribeEngine) {
-      Settings.currentTranscribeEngine = data.engine;
-      this.setEngine(data.engine);
-    }
     this.render();
     TranscribeChip.sync();
-  },
-
-  // Motor marcado na TELA (pode ainda não ter sido salvo).
-  selectedEngine() {
-    const local = document.getElementById('settingsTranscribeEngineLocal');
-    return local && local.checked ? 'local' : 'server';
-  },
-
-  setEngine(engine) {
-    const local = document.getElementById('settingsTranscribeEngineLocal');
-    const server = document.getElementById('settingsTranscribeEngineServer');
-    if (local) local.checked = engine === 'local';
-    if (server) server.checked = engine !== 'local';
-    this.render();
-  },
-
-  onEngineChange() {
-    this._confirmRemove = false;
-    this.render();
-    // Voltou pro servidor: o diagnóstico dele passa a importar de novo.
-    if (this.selectedEngine() === 'server' && typeof TranscribeSetup !== 'undefined')
-      TranscribeSetup.check();
   },
 
   install() { Bridge.send('local_asr_install', {}); },
@@ -806,25 +512,8 @@ const LocalAsr = {
   },
 
   render() {
-    const isLocal = this.selectedEngine() === 'local';
     const box = document.getElementById('localAsrBox');
-    const serverBox = document.getElementById('transcribeServerBox');
-    if (serverBox) {
-      serverBox.hidden = isLocal;
-      // Some o campo inteiro E o divisor de cima: sem isso sobravam dois
-      // divisores seguidos com o campo vazio no meio. Classe (e nao
-      // style.display), porque o Settings.showTab reescreve o display.
-      const field = serverBox.closest('.settings-field');
-      if (field) {
-        field.classList.toggle('settings-off', isLocal);
-        const hr = field.previousElementSibling;
-        if (hr && hr.classList.contains('settings-divider')) hr.classList.toggle('settings-off', isLocal);
-      }
-    }
     if (!box) return;
-    box.hidden = !isLocal;
-    if (!isLocal) return;
-
     const status = document.getElementById('localAsrStatus');
     const detail = document.getElementById('localAsrDetail');
     const actions = document.getElementById('localAsrActions');
@@ -875,8 +564,7 @@ const LocalAsr = {
 
 // ===== Selo da transcrição na tela inicial ================================
 // Aparece no cabeçalho do cartão de gravação quando há algo na fila ou
-// transcrevendo, e o motor está pronto pra rodar: o local instalado, ou o
-// servidor escolhido (servidor não se instala). Sem motor pronto a fila só
+// transcrevendo, e o motor local está instalado. Sem motor a fila só
 // espera, e um selo ali só apontaria pra uma instalação — isso a aba já diz.
 // Clique abre a aba Transcrição. O texto vai na dica (data-hint); no selo,
 // só o número, porque o cartão é estreito.
@@ -885,9 +573,7 @@ const TranscribeChip = {
     const el = document.getElementById('transcribeChip');
     if (!el) return;
     const st = LocalAsr.state;
-    const engine = (st && st.engine) ||
-      (typeof Settings !== 'undefined' && Settings.currentTranscribeEngine) || 'local';
-    const ready = engine !== 'local' || (!!st && st.status === 'ready');
+    const ready = !!st && st.status === 'ready';
     const running = !!Transcribe.running;
     // QueueLength do backend já conta o item em curso.
     const total = Transcribe.queue || 0;

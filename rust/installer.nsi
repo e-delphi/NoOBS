@@ -107,7 +107,7 @@ FunctionEnd
 ;
 ; Por isso: mata, confere pelo nome do processo, e repete (ate ~15 s). O
 ; taskkill vai DE NOVO a cada volta porque um processo pode nascer no meio
-; (o modo full se relancando como /hibernate ao fechar).
+; (versoes antigas: o modo full se relancando como /hibernate ao fechar).
 ;
 ; O que sobra depois disso e o NoOBS aberto COMO ADMINISTRADOR (opcao
 ; runAsAdmin): o instalador roda sem elevacao e o taskkill recebe "acesso

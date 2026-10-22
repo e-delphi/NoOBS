@@ -237,7 +237,15 @@
     "cropReset": "Usar la pantalla entera",
     "cropHint": "Arrastra los bordes de la vista previa para recortar; arrastra el centro del marco para reposicionar. Ctrl + rueda del ratón acerca (o los botones − y + de arriba). Con la vista acercada, arrastra con el botón central del ratón —o con Shift + botón izquierdo— para desplazar la vista y alcanzar el resto de la imagen.",
     "cropOf": "Recorte de {{w}}×{{h}}, de {{sw}}×{{sh}} del origen",
-    "zoomReset": "100%"
+    "zoomReset": "100%",
+    "preview": {
+      "button": "Generar vista previa",
+      "generating": "Generando vista previa… {{pct}}%",
+      "canceled": "Vista previa cancelada",
+      "hint": "Exporta solo unos segundos, desde el cursor de la línea de tiempo, con las mismas opciones, y los abre en el reproductor para comprobar antes de exportar todo.",
+      "durationAria": "Duración de la vista previa",
+      "fileSuffix": "vista previa"
+    }
   },
   "settings": {
     "title": "Configuración",
@@ -561,18 +569,12 @@
       "hint": "Mientras el micrófono esté silenciado en Windows, su pista se graba en silencio. Sirve para el botón de silencio de los auriculares, el silencio del sistema y las aplicaciones de llamadas que avisan a Windows al silenciar. El silencio hecho solo dentro de la aplicación, sin avisar a Windows, no se puede detectar: en esos casos el micrófono se sigue grabando."
     },
     "transcribe": {
-      "host": "Servidor de transcripción",
-      "hostHint": "Dirección y puerto del contenedor de Transcritor API. Las rutas son fijas (/jobs y /health): solo el host es configurable.",
       "pendingCloud": "{{count}} grabación(es) quedaron fuera: están solo en la nube. Transcribir las descargaría, así que el lote las omite — abre la grabación para descargarla, o transcribe una por una desde su menú.",
-      "test": "Probar",
-      "testing": "Probando…",
-      "ok": "El servidor respondió. Listo para transcribir.",
-      "fail": "No se pudo contactar el servidor: {{error}}",
       "queue": "Cola",
       "pending": "Transcribir pendientes",
       "pendingN": "Transcribir pendientes ({{count}})",
       "pendingNone": "Nada pendiente",
-      "queueHint": "Una transcripción a la vez: el propio contenedor serializa las solicitudes, así que encolar más no ayudaría. El porcentaje viene de la API y es real: mide cuánto audio ya se transcribió, y avanza a saltos porque el procesamiento se hace en ventanas de 30 segundos.",
+      "queueHint": "Una transcripción a la vez: el motor carga los modelos en la tarjeta gráfica una sola vez. El porcentaje avanza a saltos, un tramo de voz a la vez.",
       "progress": "{{pos}} de {{total}} · {{name}}",
       "elapsed": "{{elapsed}} transcurrido",
       "doneAll": "{{total}} transcripción(es) completada(s).",
@@ -585,16 +587,11 @@
       "errorNamed": "Error en \"{{name}}\": {{error}}",
       "remaining": "faltan ~{{eta}}",
       "stage": {
-        "checking": "comprobando el servidor",
         "extracting": "extrayendo el audio",
-        "uploading": "enviando",
-        "queued": "en cola en el servidor",
         "decoding": "decodificando",
         "transcribing": "transcribiendo",
         "aligning": "alineando palabras",
-        "diarizing": "separando hablantes",
         "done": "completado",
-        "waiting": "esperando al servidor",
         "paused": "automáticas en pausa durante la captura",
         "starting": "iniciando el motor local",
         "waitingInstall": "esperando la instalación del motor local"
@@ -607,50 +604,11 @@
       },
       "onStop": {
         "label": "Transcribir automáticamente al terminar una grabación",
-        "hint": "La grabación entra en la cola en cuanto termina. Si el servidor está caído espera, y la cola se guarda: continúa después de cerrar la app o reiniciar el equipo."
-      },
-      "setup": {
-        "title": "Estado del servidor",
-        "verify": "Verificar",
-        "checking": "Verificando el entorno…",
-        "ok": "Servidor respondiendo: todo listo para transcribir.",
-        "remote": "El servidor configurado no está en este equipo y no respondió",
-        "remoteHow": "Comprueba que esté en marcha y accesible por la red. Detalle: {{error}}",
-        "wslOk": "WSL instalado",
-        "wslMissing": "WSL no está instalado",
-        "wslHow": "Docker necesita WSL (Subsistema de Windows para Linux). Abre el Símbolo del sistema como administrador — en el menú Inicio escribe cmd, haz clic derecho en \"Símbolo del sistema\" y elige \"Ejecutar como administrador\" — y ejecuta:",
-        "wslAfter": "Cuando termine, reinicia el equipo y haz clic en Verificar.",
-        "dockerOk": "Docker instalado",
-        "dockerMissing": "Docker no está instalado",
-        "dockerHow": "El transcriptor funciona dentro de Docker, que hay que instalar primero. Descarga Docker Desktop para Windows:",
-        "dockerDownload": "Descargar Docker Desktop",
-        "dockerAfter": "Después de instalarlo, abre Docker Desktop una vez, acepta los términos y haz clic en Verificar.",
-        "runningOk": "Docker en ejecución",
-        "runningMissing": "Docker no está en ejecución",
-        "runningHow": "Docker está instalado pero cerrado. Abre Docker Desktop, espera a que termine de iniciar y haz clic en Verificar.",
-        "openDocker": "Abrir Docker Desktop",
-        "containerMissing": "El transcriptor todavía no está instalado en Docker",
-        "containerHow": "Abre el Símbolo del sistema y ejecuta:",
-        "containerAfter": "La primera vez descarga la imagen (algunos GB) y carga los modelos; puede tardar varios minutos. --restart=always hace que el transcriptor vuelva solo cada vez que Docker inicia.",
-        "portBusy": "El puerto {{port}} está ocupado por otro contenedor ({{image}})",
-        "portBusyHow": "Detén ese contenedor en Docker Desktop, o usa otro puerto en la dirección del servidor de arriba.",
-        "containerStopped": "Transcriptor instalado, pero detenido ({{status}})",
-        "containerStartHow": "Abre el Símbolo del sistema y ejecuta:",
-        "containerRestartWhy": "La primera línea hace que el transcriptor vuelva solo cuando el equipo se reinicia; hoy se queda detenido.",
-        "containerRunning": "Transcriptor en ejecución ({{status}})",
-        "serverLoading": "El servidor todavía no responde",
-        "serverLoadingHow": "Justo después de iniciar, el transcriptor tarda unos minutos en cargar los modelos. Espera y haz clic en Verificar.",
-        "containerRestartTip": "Para que vuelva solo cuando el equipo se reinicia, ejecuta también:",
-        "copy": "Copiar",
-        "copied": "Copiado"
-      },
-      "engine": {
-        "label": "Dónde transcribir",
-        "local": "En este equipo, con la tarjeta gráfica",
-        "server": "En un servidor (Docker u otro equipo)",
-        "hint": "En este equipo es más rápido y marca cada palabra con más precisión, pero no distingue quién habló — grabando con pistas aisladas, el hablante sigue saliendo del nombre del dispositivo. El servidor (Transcritor API) separa a los hablantes."
+        "hint": "La grabación entra en la cola en cuanto termina. Con el motor aún sin instalar espera, y la cola se guarda: continúa después de cerrar la app o reiniciar el equipo."
       },
       "local": {
+        "label": "Motor de transcripción",
+        "hint": "Se ejecuta en este equipo, en la tarjeta gráfica, sin internet. No distingue quién habló: grabando con pistas aisladas, el hablante viene del nombre del dispositivo de cada pista.",
         "missing": "El motor local aún no está instalado.",
         "missingHow": "La descarga es de unos {{size}} (el motor audio.cpp y los modelos Qwen3) y se hace una sola vez. Necesita una tarjeta gráfica con controlador Vulkan — AMD, NVIDIA o Intel. Sin Docker y sin instalar nada más.",
         "install": "Descargar e instalar",
@@ -874,21 +832,12 @@
   },
   "error": {
     "transcribe": {
-      "emptyHost": "La dirección del servidor de transcripción está vacía. Complétala en Configuración → Transcripción.",
-      "serverDown": "El servidor de transcripción no respondió en {{host}}. Verifica que el contenedor esté en ejecución.",
-      "noResponse": "El servidor de transcripción no respondió. Verifica que el contenedor esté activo y que la dirección sea correcta.",
-      "jobsNotJson": "El servidor respondió algo que no es JSON al encolar el trabajo. ¿La dirección apunta realmente a Transcritor API?",
-      "noJobId": "El servidor aceptó el audio pero no devolvió un identificador de trabajo.",
-      "jobGone": "El trabajo desapareció del servidor antes de terminar (pudo expirar o el contenedor se reinició).",
-      "statusNotJson": "El servidor respondió algo que no es JSON al consultarle el avance.",
       "fileMissing": "La grabación ya no existe en el disco.",
       "extractFailed": "No se pudo extraer el audio de la grabación. Puede estar dañada o no tener pista de audio.",
       "extractMissing": "El audio se extrajo pero no se encontró el archivo. Verifica el espacio libre en disco.",
       "shuttingDown": "La transcripción se interrumpió porque la aplicación se está cerrando.",
-      "emptyResult": "El servidor dio el trabajo por terminado pero no devolvió el resultado.",
-      "resultNotJson": "El resultado devuelto por el servidor no es JSON.",
-      "writeFailed": "No se pudo guardar la transcripción en el disco: {{error}}",
-      "serverSilent": "el servidor no dijo el motivo"
+      "resultNotJson": "El resultado devuelto por el motor de transcripción no es JSON.",
+      "writeFailed": "No se pudo guardar la transcripción en el disco: {{error}}"
     },
     "loadVideo": "Error al cargar el video.",
     "unsupportedCodec": "Códec no soportado, convirtiendo...",
@@ -926,7 +875,7 @@
       "checksum": "El archivo {{file}} llegó dañado (el SHA-256 no coincide) y se descartó. Inténtalo de nuevo.",
       "extract": "No se pudo descomprimir el motor: {{error}}",
       "noVulkan": "El motor no pudo iniciarse en este equipo. Necesita una tarjeta gráfica con un controlador Vulkan actualizado (AMD, NVIDIA o Intel).",
-      "notInstalled": "La transcripción en este equipo aún no está instalada. Instálala en Configuración → Transcripción, o elige un servidor.",
+      "notInstalled": "La transcripción aún no está instalada. Instálala en Configuración → Transcripción.",
       "serverStart": "El motor de transcripción local no se inició. Los detalles están en {{log}}",
       "request": "El motor de transcripción local respondió con un error: {{error}}",
       "decode": "No se pudo leer el audio de la grabación.",
@@ -1004,5 +953,8 @@
   "areaSelect": {
     "hint": "Arrastra para elegir el área que se grabará  •  Esc cancela",
     "hintSave": "Arrastra para elegir el área del atajo  •  Esc cancela"
+  },
+  "tray": {
+    "hibernating": "{{title}} (hibernando)"
   }
 }

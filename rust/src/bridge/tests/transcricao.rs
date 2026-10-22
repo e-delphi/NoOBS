@@ -1,6 +1,6 @@
 //! Transcrição (`bridge/transcribe.rs`) sem rodar transcrição de verdade:
 //! configuração, fila (só os caminhos de recusa — enfileirar extrai áudio pelo
-//! FFmpeg), servidor, motor local, falantes, painel do player, busca e pastas
+//! FFmpeg), motor local, falantes, painel do player, busca e pastas
 //! ocultas.
 
 use serde_json::json;
@@ -10,28 +10,6 @@ use crate::testkit::{self, begin, send};
 use crate::transcribe;
 
 // ---- configuração -----------------------------------------------------------
-
-#[test]
-fn host_sem_barra_no_fim() {
-    let _s = begin();
-    send(json!({ "type": "set_transcribe_host", "host": "  http://192.168.0.10:8000///  " }));
-    assert_eq!(config::get_config_str("transcribeHost", ""), "http://192.168.0.10:8000");
-    // Vazio volta pro padrão na leitura.
-    send(json!({ "type": "set_transcribe_host", "host": "" }));
-    assert_eq!(transcribe::host_base(), "http://localhost:8000");
-}
-
-#[test]
-fn quem_ja_tinha_host_continua_no_servidor() {
-    let _s = begin();
-    // Sem `transcribeEngine` no config: local, a não ser que exista um host.
-    assert!(transcribe::use_local_engine());
-    send(json!({ "type": "set_transcribe_host", "host": "http://srv:8000" }));
-    assert!(!transcribe::use_local_engine());
-    // Escolha explícita vence.
-    send(json!({ "type": "set_transcribe_engine", "engine": "local" }));
-    assert!(transcribe::use_local_engine());
-}
 
 #[test]
 fn idioma_da_transcricao() {
@@ -61,20 +39,6 @@ fn transcrever_ao_parar() {
     assert!(config::get_config_bool("transcribeOnStop", false));
 }
 
-#[test]
-fn motor_valido_responde_estado_e_invalido_e_ignorado() {
-    let _s = begin();
-    send(json!({ "type": "set_transcribe_engine", "engine": "server" }));
-    assert_eq!(config::get_config_str("transcribeEngine", ""), "server");
-    assert_eq!(testkit::last_of("local_asr_state").unwrap()["engine"], "server");
-    testkit::clear_sent();
-    for ruim in ["", "LOCAL", "docker", "gpu"] {
-        send(json!({ "type": "set_transcribe_engine", "engine": ruim }));
-    }
-    assert_eq!(config::get_config_str("transcribeEngine", ""), "server");
-    assert!(testkit::sent().is_empty());
-}
-
 // ---- motor local ------------------------------------------------------------
 
 #[test]
@@ -99,43 +63,6 @@ fn remover_motor_local_nao_instalado() {
     for st in testkit::sent_of("local_asr_state") {
         assert_eq!(st["status"], "missing");
     }
-}
-
-// ---- servidor ---------------------------------------------------------------
-
-#[test]
-fn testar_servidor_fora_do_ar() {
-    let _s = begin();
-    // Porta 1 em loopback: recusa na hora.
-    send(json!({ "type": "test_transcribe_host", "host": "http://127.0.0.1:1" }));
-    let r = testkit::wait_for("transcribe_health", 15_000).expect("transcribe_health");
-    assert_eq!(r["ok"], false);
-    assert!(!r["error"].as_str().unwrap().is_empty());
-}
-
-#[test]
-fn diagnostico_devolve_o_seq() {
-    let _s = begin();
-    send(json!({ "type": "check_transcribe_setup", "host": "http://127.0.0.1:1", "seq": 42 }));
-    let r = testkit::wait_for("transcribe_setup", 60_000).expect("transcribe_setup");
-    assert_eq!(r["seq"], 42);
-    assert_eq!(r["serverOk"], false);
-    assert_eq!(r["isLocal"], true);
-    assert_eq!(r["port"], 1);
-}
-
-#[test]
-fn acoes_do_diagnostico_so_alvos_fixos() {
-    let _s = begin();
-    send(json!({ "type": "transcribe_setup_action", "action": "openDockerSite" }));
-    send(json!({ "type": "transcribe_setup_action", "action": "https://malicioso" }));
-    send(json!({ "type": "transcribe_setup_action", "action": "" }));
-    let ef = testkit::effects();
-    assert_eq!(ef, vec!["shell_open:https://www.docker.com/products/docker-desktop/"]);
-    // Docker Desktop: abre se estiver instalado nesta máquina, senão nada.
-    send(json!({ "type": "transcribe_setup_action", "action": "startDockerDesktop" }));
-    let novos = &testkit::effects()[1..];
-    assert!(novos.is_empty() || (novos.len() == 1 && novos[0].ends_with("Docker Desktop.exe")), "{novos:?}");
 }
 
 // ---- fila: estado e recusas -------------------------------------------------
@@ -349,4 +276,24 @@ fn ocultar_pasta_com_nome_invalido() {
     }
     assert!(config::get_config_json("hiddenFolders").is_none());
     assert!(testkit::sent().is_empty());
+}
+
+#[test]
+fn chaves_do_servidor_antigo_saem_do_config() {
+    let _s = begin();
+    config::set_config_str("transcribeHost", "http://srv:8000");
+    config::set_config_str("transcribeEngine", "server");
+    super::super::transcribe::do_init();
+    assert_eq!(config::get_config_str("transcribeHost", "-"), "-");
+    assert_eq!(config::get_config_str("transcribeEngine", "-"), "-");
+    // O estado do motor local não fala mais de "engine".
+    send(json!({ "type": "get_local_asr_state" }));
+    assert!(testkit::last_of("local_asr_state").unwrap().get("engine").is_none());
+    // As mensagens do servidor não existem mais (caem no "não portado", sem resposta).
+    testkit::clear_sent();
+    for ty in ["set_transcribe_host", "test_transcribe_host", "check_transcribe_setup", "transcribe_setup_action", "set_transcribe_engine"] {
+        send(json!({ "type": ty, "host": "http://127.0.0.1:1", "engine": "server", "action": "openDockerSite" }));
+    }
+    assert!(testkit::sent().is_empty());
+    assert!(testkit::effects().is_empty());
 }

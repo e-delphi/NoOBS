@@ -65,7 +65,6 @@ modulos! {
     ffmpeg_export,
     ffmpeg_ops,
     gpu_usage,
-    hibernate,
     hotkey,
     hotkeys,
     lang,
@@ -110,11 +109,8 @@ mod media_tests;
 /// Ponto de entrada do exe (o `main.rs` só chama isto): o crate é lib + bin
 /// pra que os testes em `tests/` enxerguem os módulos.
 pub fn run_app() {
-    // Dispatch entre o modo "full" (UI + motor + watchers) e o "hibernate"
-    // (só bandeja + hotkey, ~5 MB), no MESMO exe.
     let cmd = win::cmdline_lower();
-    let hibernate = cmd.contains("/hibernate");
-    log::init_log(hibernate);
+    log::init_log();
     // Toda falha (panic) vai pro log do NoOBS com o local exato, em qualquer
     // thread. Antes nada ficava registrado: o app sumia e o log parava no meio.
     std::panic::set_hook(Box::new(|info| {
@@ -137,17 +133,10 @@ pub fn run_app() {
         return;
     }
 
-    // i18n também na hibernação: o menu da bandeja sai no idioma do usuário.
     lang::init_language();
 
-    if hibernate {
-        log::log("Dispatcher: rota -> hibernate::run (modo minimo).");
-        hibernate::run();
-        log::log("Dispatcher: hibernate::run retornou — processo encerrando.");
-    } else {
-        log::log("Dispatcher: rota -> ui::run (modo full).");
-        bridge::install_hooks();
-        ui::run();
-        log::log("Dispatcher: ui::run retornou — processo encerrando.");
-    }
+    // Um processo só: hibernar é descarregar a interface, não trocar de exe.
+    bridge::install_hooks();
+    ui::run();
+    log::log("Dispatcher: ui::run retornou — processo encerrando.");
 }

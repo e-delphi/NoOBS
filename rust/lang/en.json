@@ -237,7 +237,15 @@
     "cropReset": "Use the whole frame",
     "cropHint": "Drag the edges of the preview to crop; drag the middle of the frame to reposition. Ctrl + mouse wheel zooms in (or the − and + buttons above). Once zoomed, drag with the middle mouse button — or Shift + left button — to pan and reach the rest of the image.",
     "cropOf": "Cropped to {{w}}×{{h}}, from {{sw}}×{{sh}} of the source",
-    "zoomReset": "100%"
+    "zoomReset": "100%",
+    "preview": {
+      "button": "Generate preview",
+      "generating": "Generating preview… {{pct}}%",
+      "canceled": "Preview canceled",
+      "hint": "Exports just a few seconds, from the timeline cursor, with the same options, and opens them in the player so you can check before exporting everything.",
+      "durationAria": "Preview length",
+      "fileSuffix": "preview"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -561,18 +569,12 @@
       "hint": "While the microphone is muted in Windows, its track is recorded as silence. This covers the mute button on your headset, the system mute, and call apps that tell Windows when you mute. A mute done only inside the app, without telling Windows, cannot be detected — in those cases the microphone keeps being recorded."
     },
     "transcribe": {
-      "host": "Transcription server",
-      "hostHint": "Address and port of the Transcritor API container. The routes are fixed (/jobs and /health) — only the host is configurable.",
       "pendingCloud": "{{count}} recording(s) left out: they are cloud-only. Transcribing would download them, so the batch skips them — open a recording to download it, or transcribe one at a time from its menu.",
-      "test": "Test",
-      "testing": "Testing…",
-      "ok": "Server responded. Ready to transcribe.",
-      "fail": "Could not reach the server: {{error}}",
       "queue": "Queue",
       "pending": "Transcribe pending",
       "pendingN": "Transcribe pending ({{count}})",
       "pendingNone": "Nothing pending",
-      "queueHint": "One transcription at a time — the container itself serializes requests, so queuing more would not help. The percentage comes from the API and is real: it measures how much audio has been transcribed, and it advances in jumps because processing happens in 30-second windows.",
+      "queueHint": "One transcription at a time: the engine loads the models on the graphics card only once. The percentage advances in jumps, one stretch of speech at a time.",
       "progress": "{{pos}} of {{total}} · {{name}}",
       "elapsed": "{{elapsed}} elapsed",
       "doneAll": "{{total}} transcription(s) finished.",
@@ -585,16 +587,11 @@
       "errorNamed": "\"{{name}}\" failed: {{error}}",
       "remaining": "~{{eta}} left",
       "stage": {
-        "checking": "checking the server",
         "extracting": "extracting audio",
-        "uploading": "uploading",
-        "queued": "queued on the server",
         "decoding": "decoding",
         "transcribing": "transcribing",
         "aligning": "aligning words",
-        "diarizing": "separating speakers",
         "done": "done",
-        "waiting": "waiting for the server",
         "paused": "automatic ones paused while capturing",
         "starting": "starting the local engine",
         "waitingInstall": "waiting for the local engine to be installed"
@@ -607,50 +604,11 @@
       },
       "onStop": {
         "label": "Transcribe automatically when a recording ends",
-        "hint": "The recording joins the queue as soon as it ends. If the server is down it waits, and the queue is saved — it carries on after closing the app or restarting the computer."
-      },
-      "setup": {
-        "title": "Server status",
-        "verify": "Check",
-        "checking": "Checking the environment…",
-        "ok": "Server responding — ready to transcribe.",
-        "remote": "The configured server is not on this computer and did not respond",
-        "remoteHow": "Make sure it is running and reachable over the network. Details: {{error}}",
-        "wslOk": "WSL installed",
-        "wslMissing": "WSL is not installed",
-        "wslHow": "Docker needs WSL (Windows Subsystem for Linux). Open Command Prompt as administrator — type cmd in the Start menu, right-click \"Command Prompt\" and choose \"Run as administrator\" — and run:",
-        "wslAfter": "When it finishes, restart the computer and click Check.",
-        "dockerOk": "Docker installed",
-        "dockerMissing": "Docker is not installed",
-        "dockerHow": "The transcriber runs inside Docker, which has to be installed first. Download Docker Desktop for Windows:",
-        "dockerDownload": "Download Docker Desktop",
-        "dockerAfter": "After installing, open Docker Desktop once, accept the terms and click Check.",
-        "runningOk": "Docker running",
-        "runningMissing": "Docker is not running",
-        "runningHow": "Docker is installed but closed. Open Docker Desktop, wait for it to finish starting and click Check.",
-        "openDocker": "Open Docker Desktop",
-        "containerMissing": "The transcriber is not installed in Docker yet",
-        "containerHow": "Open Command Prompt and run:",
-        "containerAfter": "The first time it downloads the image (a few GB) and loads the models — this can take several minutes. --restart=always brings the transcriber back on its own whenever Docker starts.",
-        "portBusy": "Port {{port}} is taken by another container ({{image}})",
-        "portBusyHow": "Stop that container in Docker Desktop, or use another port in the server address above.",
-        "containerStopped": "Transcriber installed but stopped ({{status}})",
-        "containerStartHow": "Open Command Prompt and run:",
-        "containerRestartWhy": "The first line makes the transcriber come back on its own when the computer restarts — right now it stays stopped.",
-        "containerRunning": "Transcriber running ({{status}})",
-        "serverLoading": "The server is not responding yet",
-        "serverLoadingHow": "Right after starting, the transcriber takes a few minutes to load its models. Wait and click Check.",
-        "containerRestartTip": "To make it come back on its own when the computer restarts, also run:",
-        "copy": "Copy",
-        "copied": "Copied"
-      },
-      "engine": {
-        "label": "Where to transcribe",
-        "local": "On this computer, using the graphics card",
-        "server": "On a server (Docker or another computer)",
-        "hint": "On this computer it is faster and times each word more precisely, but it does not tell speakers apart — when recording with isolated tracks, the speaker still comes from the device name. The server (Transcritor API) separates speakers."
+        "hint": "The recording joins the queue as soon as it ends. With the engine not installed yet it waits, and the queue is saved — it carries on after closing the app or restarting the computer."
       },
       "local": {
+        "label": "Transcription engine",
+        "hint": "Runs on this computer, on the graphics card, with no internet. It does not tell speakers apart: when recording with isolated tracks, the speaker comes from the device name of each track.",
         "missing": "The local engine is not installed yet.",
         "missingHow": "The download is about {{size}} (the audio.cpp engine and the Qwen3 models) and happens only once. It needs a graphics card with a Vulkan driver — AMD, NVIDIA or Intel. No Docker, nothing else to install.",
         "install": "Download and install",
@@ -874,21 +832,12 @@
   },
   "error": {
     "transcribe": {
-      "emptyHost": "The transcription server address is empty. Fill it in under Settings → Transcription.",
-      "serverDown": "The transcription server did not respond at {{host}}. Check that the container is running.",
-      "noResponse": "The transcription server did not respond. Check that the container is running and the address is correct.",
-      "jobsNotJson": "The server replied with something that is not JSON when queuing the job. Does the address really point to the Transcritor API?",
-      "noJobId": "The server accepted the audio but did not return a job id.",
-      "jobGone": "The job disappeared from the server before finishing (it may have expired, or the container restarted).",
-      "statusNotJson": "The server replied with something that is not JSON when asked about progress.",
       "fileMissing": "The recording no longer exists on disk.",
       "extractFailed": "Could not extract the audio from the recording. It may be corrupted or have no audio track.",
       "extractMissing": "The audio was extracted but the file was not found. Check the free disk space.",
       "shuttingDown": "Transcription was interrupted because the app is closing.",
-      "emptyResult": "The server reported the job as finished but returned no result.",
-      "resultNotJson": "The result returned by the server is not JSON.",
-      "writeFailed": "Could not write the transcription to disk: {{error}}",
-      "serverSilent": "the server did not say why"
+      "resultNotJson": "The result returned by the transcription engine is not JSON.",
+      "writeFailed": "Could not write the transcription to disk: {{error}}"
     },
     "loadVideo": "Error loading video.",
     "unsupportedCodec": "Unsupported codec, converting...",
@@ -926,7 +875,7 @@
       "checksum": "The file {{file}} arrived corrupted (SHA-256 mismatch) and was discarded. Please try again.",
       "extract": "Could not unpack the engine: {{error}}",
       "noVulkan": "The engine could not start on this computer. It needs a graphics card with an up-to-date Vulkan driver (AMD, NVIDIA or Intel).",
-      "notInstalled": "Transcription on this computer is not installed yet. Install it in Settings → Transcription, or choose a server.",
+      "notInstalled": "Transcription is not installed yet. Install it in Settings → Transcription.",
       "serverStart": "The local transcription engine did not start. Details are in {{log}}",
       "request": "The local transcription engine returned an error: {{error}}",
       "decode": "Could not read the recording's audio.",
@@ -1004,5 +953,8 @@
   "areaSelect": {
     "hint": "Drag to choose the area to record  •  Esc cancels",
     "hintSave": "Drag to choose the shortcut area  •  Esc cancels"
+  },
+  "tray": {
+    "hibernating": "{{title}} (hibernating)"
   }
 }

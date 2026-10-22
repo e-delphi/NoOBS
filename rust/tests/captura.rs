@@ -1618,7 +1618,7 @@ fn main() {
     let root = out_dir();
     let _ = std::fs::create_dir_all(&root);
     std::env::set_var("LOCALAPPDATA", &root);
-    noobs::log::init_log(false);
+    noobs::log::init_log();
     let exe = std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
 
     let mut rep = Report { ok: 0, fail: 0, skip: 0 };

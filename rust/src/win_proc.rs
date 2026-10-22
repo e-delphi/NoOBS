@@ -1,6 +1,6 @@
 //! Roda programas de console sem janela (porte do `RunHidden` do `OBSTranscribe`).
-//! Existe SÓ para o diagnóstico do ambiente (wsl/docker) e para o `audiocpp_cli` do
-//! motor local — toda mídia continua in-process.
+//! Existe SÓ para o `audiocpp_cli` do motor local (detectar a placa de vídeo) — toda
+//! mídia continua in-process.
 
 use std::io::Read;
 use std::os::windows::process::CommandExt;

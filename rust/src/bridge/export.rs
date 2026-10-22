@@ -13,6 +13,10 @@
 //! * o arquivo exportado HERDA o que a gravação tinha (pegadinha #51h): layout
 //!   recalculado, selo de codec, duração. A transcrição e os nomes de falante
 //!   entram com o `OBSTranscribe`.
+//! * PRÉVIA (`preview` no pedido): a MESMA exportação, com as mesmas opções, só
+//!   que de poucos segundos a partir do cursor e numa pasta temporária fora da
+//!   biblioteca (`export-preview`). Não vira card, não leva transcrição; o player
+//!   da galeria a abre (os pedidos só de leitura aceitam [`is_preview_path`]).
 
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -44,8 +48,14 @@ static EXPORT_CANCEL: AtomicI32 = AtomicI32::new(0);
 /// Último push de progresso (ms desde `t0`).
 static LAST_PUSH_MS: AtomicU64 = AtomicU64::new(0);
 
+/// Durações de prévia aceitas (segundos do arquivo final).
+const PREVIEW_SECS: [f64; 3] = [5.0, 10.0, 30.0];
+
 thread_local! {
     static BUSY: Cell<bool> = const { Cell::new(false) };
+    /// A exportação em curso é uma prévia (progresso e fim vão por outras
+    /// mensagens: a barra do card é da exportação de verdade).
+    static PREVIEW: Cell<bool> = const { Cell::new(false) };
     /// Gravação de ORIGEM da exportação em curso. A UI desenha a barra no card
     /// certo, e os caminhos que mexem no arquivo recusam enquanto ele é lido.
     static SOURCE: RefCell<String> = const { RefCell::new(String::new()) };
@@ -81,13 +91,70 @@ fn source() -> String {
 }
 
 fn push_export_progress(pct: f64) {
+    if PREVIEW.with(Cell::get) {
+        post_json(json!({ "type": "export_preview_progress", "pct": pct }));
+        return;
+    }
     // Id da ORIGEM: com a tela fechada, a barra vive no card dela.
     post_json(json!({ "type": "export_progress", "pct": pct, "id": source() }));
 }
 
 fn push_export_done(ok: bool, canceled: bool, path: &str) {
+    if PREVIEW.with(Cell::get) {
+        post_json(json!({ "type": "export_preview_done", "ok": ok, "canceled": canceled, "path": path }));
+        return;
+    }
     // `sourceId`: o card da origem, onde a UI apaga a barra de progresso.
     post_json(json!({ "type": "export_done", "ok": ok, "canceled": canceled, "path": path, "sourceId": source() }));
+}
+
+// ---------------------------------------------------------------------------
+// Prévia
+// ---------------------------------------------------------------------------
+
+/// Pasta das prévias: fora da biblioteca (o watcher não as vê, a galeria não as
+/// lista) e esvaziada a cada prévia nova e no fechamento.
+fn preview_dir() -> PathBuf {
+    crate::config::config_dir().join("export-preview")
+}
+
+/// O path é uma prévia de exportação (dentro da pasta delas)? Só os pedidos de
+/// LEITURA do player aceitam; excluir/renomear/mover continuam só na biblioteca.
+pub fn is_preview_path(path: &str) -> bool {
+    let dir = preview_dir();
+    let (Ok(dir), Ok(full)) = (std::fs::canonicalize(&dir), std::fs::canonicalize(path)) else { return false };
+    full.starts_with(&dir) && full != dir
+}
+
+/// Apaga as prévias (a anterior, ao gerar outra; todas, no fechamento).
+pub fn clear_previews() {
+    let _ = std::fs::remove_dir_all(preview_dir());
+}
+
+/// Trechos da prévia: `out_sec` segundos do arquivo FINAL (já com a velocidade)
+/// a partir de `from` (tempo da origem), seguindo só os trechos mantidos. Cursor
+/// num trecho tirado começa no próximo mantido; depois do último, volta ao
+/// primeiro. A prévia pode sair mais curta se o fim chegar antes.
+pub fn preview_segments(segs: &[ExportSegment], from: f64, out_sec: f64, speed: f64) -> Vec<ExportSegment> {
+    let mut budget = out_sec * speed.max(1.0);
+    // Cursor depois do último trecho mantido: começa do primeiro.
+    let (first, from) = match segs.iter().position(|s| s.end_sec > from + 0.05) {
+        Some(i) => (i, from),
+        None => (0, f64::MIN),
+    };
+    let mut out = Vec::new();
+    for (k, s) in segs.iter().enumerate().skip(first) {
+        if budget <= 0.0 {
+            break;
+        }
+        let start = if k == first { s.start_sec.max(from).min(s.end_sec) } else { s.start_sec };
+        let end = (start + budget).min(s.end_sec);
+        if end - start > 0.01 {
+            out.push(ExportSegment { start_sec: start, end_sec: end });
+            budget -= end - start;
+        }
+    }
+    out
 }
 
 /// `<pasta da ORIGEM>\<nome><ext>`, com sufixo ` (N)` se já existir. Fica ao lado
@@ -169,6 +236,13 @@ pub fn handle_export_recording(msg: &Value) {
         return;
     }
 
+    // Prévia: segundos do arquivo final a partir do cursor.
+    let preview = msg.get("preview").filter(|p| p.is_object()).map(|p| {
+        let sec = p.get("sec").and_then(Value::as_f64).unwrap_or(10.0);
+        let sec = PREVIEW_SECS.iter().copied().find(|&s| (s - sec).abs() < 0.5).unwrap_or(10.0);
+        (p.get("fromMs").and_then(Value::as_f64).unwrap_or(0.0).max(0.0) / 1000.0, sec)
+    });
+
     let mut opts = ExportOptions { src_path: src_path.clone(), ..Default::default() };
     // Meta da origem (layout de monitores, fps): serve às regiões, ao layout do
     // arquivo exportado e ao selo de fps.
@@ -204,6 +278,15 @@ pub fn handle_export_recording(msg: &Value) {
         opts.speed = 1.0;
     }
     opts.speed = opts.speed.min(EXPORT_SPEED_MAX);
+    if let Some((from, sec)) = preview {
+        opts.segments = preview_segments(&opts.segments, from, sec, opts.speed);
+        total_sec = opts.segments.iter().map(|s| s.end_sec - s.start_sec).sum();
+        if opts.segments.is_empty() || total_sec <= 0.0 {
+            fail("error.exportBadRange");
+            return;
+        }
+        log!("Export: previa de {sec}s a partir de {from:.1}s ({total_sec:.1}s da origem).");
+    }
     opts.mix_audio = msg.get("mixAudio").and_then(Value::as_bool).unwrap_or(false);
     // Qualidade: CRF na escala do x264. O ffmpeg_export traduz para o controle
     // nativo de cada encoder, sempre em VBR — não existe alvo de bitrate.
@@ -291,8 +374,8 @@ pub fn handle_export_recording(msg: &Value) {
 
     // A transcrição só acompanha o arquivo se o ÁUDIO dele ainda for o que foi
     // transcrito: a mistura, ou todas as faixas isoladas. Quem sabe quantas faixas
-    // existem é a UI, que manda a conclusão.
-    let keep_transcript = msg.get("keepTranscript").and_then(Value::as_bool).unwrap_or(true);
+    // existem é a UI, que manda a conclusão. A prévia não leva.
+    let keep_transcript = preview.is_none() && msg.get("keepTranscript").and_then(Value::as_bool).unwrap_or(true);
     let seg_starts: Vec<f64> = opts.segments.iter().map(|s| s.start_sec).collect();
     let seg_ends: Vec<f64> = opts.segments.iter().map(|s| s.end_sec).collect();
 
@@ -346,7 +429,14 @@ pub fn handle_export_recording(msg: &Value) {
 
     // Escreve num ".part" e só renomeia no fim (#51e).
     let name = msg.get("name").and_then(Value::as_str).unwrap_or("");
-    let final_path = make_export_path(&src_path, name, ext);
+    let final_path = if preview.is_some() {
+        clear_previews();
+        let _ = std::fs::create_dir_all(preview_dir());
+        let base = sanitize_file_name(&format!("{} ({})", if name.trim().is_empty() { "Exportado" } else { name.trim() }, lang::t("export.preview.fileSuffix")));
+        preview_dir().join(format!("{base}{ext}"))
+    } else {
+        make_export_path(&src_path, name, ext)
+    };
     let part_path = format!("{}.part", final_path.to_string_lossy());
     opts.dst_path = part_path.clone();
 
@@ -356,7 +446,7 @@ pub fn handle_export_recording(msg: &Value) {
     let src_size = std::fs::metadata(&src_path).map(|m| m.len() as i64).unwrap_or(0);
     let needed = src_size + 64 * 1024 * 1024;
     let free = record_dir_free_bytes();
-    if free >= 0 && free < needed {
+    if preview.is_none() && free >= 0 && free < needed {
         log!("Export: espaco insuficiente — precisa ~{needed}, livre {free}.");
         push_export_done(false, false, "");
         post_error(lang::t_with("error.exportNoSpace", &[("needed", &format_bytes_short(needed)), ("free", &format_bytes_short(free))]));
@@ -364,6 +454,7 @@ pub fn handle_export_recording(msg: &Value) {
     }
 
     BUSY.with(|b| b.set(true));
+    PREVIEW.with(|p| p.set(preview.is_some()));
     SOURCE.with(|s| *s.borrow_mut() = src_path.clone());
     EXPORT_CANCEL.store(0, Ordering::SeqCst);
     LAST_PUSH_MS.store(0, Ordering::SeqCst);
@@ -378,6 +469,7 @@ pub fn handle_export_recording(msg: &Value) {
     );
 
     let speed = opts.speed;
+    let is_preview = preview.is_some();
     std::thread::spawn(move || {
         let t0 = Instant::now();
         let progress = |pct: f64| {
@@ -416,8 +508,10 @@ pub fn handle_export_recording(msg: &Value) {
             // modificação, e um arquivo recém-escrito cairia no dia de hoje. Antes do
             // rename, para o watcher já ver a data certa. Falhar aqui só muda o dia
             // em que ele aparece.
-            if let Err(e) = copy_file_times(&src_path, &opts.dst_path) {
-                log!("Export: nao copiei as datas da origem: {e}");
+            if !is_preview {
+                if let Err(e) = copy_file_times(&src_path, &opts.dst_path) {
+                    log!("Export: nao copiei as datas da origem: {e}");
+                }
             }
             let _ = std::fs::remove_file(&final_path);
             if let Err(e) = std::fs::rename(&opts.dst_path, &final_path) {
@@ -451,6 +545,17 @@ pub fn handle_export_recording(msg: &Value) {
             BUSY.with(|b| b.set(false));
             if is_shutting_down() {
                 SOURCE.with(|s| s.borrow_mut().clear());
+                PREVIEW.with(|p| p.set(false));
+                return;
+            }
+            // Prévia pronta: só a meta (layout dos monitores pro player) e o aviso.
+            // Nada de card, GC ou cópia no fim do arquivo — ela é descartável.
+            if is_preview && res == ExportResult::Ok {
+                player::save_recording_meta(&final_path_s, &out_meta);
+                log!("Export: previa pronta em \"{final_path_s}\".");
+                push_export_done(true, false, &final_path_s);
+                SOURCE.with(|s| s.borrow_mut().clear());
+                PREVIEW.with(|p| p.set(false));
                 return;
             }
             match res {
@@ -482,6 +587,7 @@ pub fn handle_export_recording(msg: &Value) {
                 }
             }
             SOURCE.with(|s| s.borrow_mut().clear());
+            PREVIEW.with(|p| p.set(false));
         });
     });
 }
@@ -511,5 +617,32 @@ mod tests {
         let v = json!({ "regions": [0, 2, "x", 1.0] });
         assert_eq!(int_array(&v, "regions"), vec![0, 2, -1, 1]);
         assert!(int_array(&v, "nada").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests_previa {
+    use super::*;
+
+    fn seg(a: f64, b: f64) -> ExportSegment {
+        ExportSegment { start_sec: a, end_sec: b }
+    }
+
+    fn pairs(v: &[ExportSegment]) -> Vec<(f64, f64)> {
+        v.iter().map(|s| ((s.start_sec * 100.0).round() / 100.0, (s.end_sec * 100.0).round() / 100.0)).collect()
+    }
+
+    #[test]
+    fn previa_comeca_no_cursor_e_atravessa_os_cortes() {
+        let segs = [seg(0.0, 10.0), seg(20.0, 30.0), seg(40.0, 60.0)];
+        assert_eq!(pairs(&preview_segments(&segs, 5.0, 10.0, 1.0)), vec![(5.0, 10.0), (20.0, 25.0)]);
+        // Cursor num trecho tirado: começa no próximo mantido.
+        assert_eq!(pairs(&preview_segments(&segs, 15.0, 5.0, 1.0)), vec![(20.0, 25.0)]);
+        // Depois do último: volta ao começo.
+        assert_eq!(pairs(&preview_segments(&segs, 70.0, 5.0, 1.0)), vec![(0.0, 5.0)]);
+        // Acelerado: 5 s de saída a 4x = 20 s da origem.
+        assert_eq!(pairs(&preview_segments(&segs, 0.0, 5.0, 4.0)), vec![(0.0, 10.0), (20.0, 30.0)]);
+        // Perto do fim, sai mais curta.
+        assert_eq!(pairs(&preview_segments(&segs, 55.0, 30.0, 1.0)), vec![(55.0, 60.0)]);
     }
 }

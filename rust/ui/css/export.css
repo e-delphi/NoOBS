@@ -692,6 +692,10 @@ select.export-input {
   gap: 12px;
   padding-top: 4px;
 }
+/* Prévia: botão + duração, ao lado do Exportar. Gerando, o botão vira
+   "Cancelar prévia" e mostra o percentual no próprio texto. */
+.export-preview-gen { display: inline-flex; align-items: center; gap: 6px; }
+.export-preview-sec { width: 76px; flex: none; }
 .export-progress-wrap { flex: 1; min-width: 0; display: none; }
 .export-overlay.running .export-progress-wrap { display: block; }
 .export-progress-bar {

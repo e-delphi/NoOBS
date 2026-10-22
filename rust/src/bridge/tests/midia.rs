@@ -3,11 +3,11 @@
 //! gravação da sessão. Confere a resposta, o que ficou no disco e — pras URLs
 //! do player — baixa o arquivo de verdade pelo servidor HTTP local.
 //!
-//! A transcrição vai contra um servidor FALSO da Transcritor API (no próprio
-//! teste, em 127.0.0.1): é o único jeito de passar pela extração de áudio, pelo
-//! upload e pela montagem dos turnos sem Docker e sem o motor local.
+//! A transcrição vai contra um motor FALSO (`transcribe::test_engine`, só no
+//! `cargo test`): é o único jeito de passar pela extração de áudio, pela escolha
+//! das faixas e pela montagem dos turnos sem os 3,7 GB do motor local.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
@@ -319,6 +319,50 @@ fn exportar_como_a_pagina_manda() {
 }
 
 #[test]
+fn previa_da_exportacao_fica_fora_da_biblioteca_e_toca_no_player() {
+    let s = begin();
+    if !testkit::media() {
+        return;
+    }
+    let f = s.sample("h264_2faixas.mkv", "origem.mkv");
+    let pedir = |from_ms: i64| {
+        testkit::clear_sent();
+        send(json!({
+            "type": "export_recording", "id": f, "name": "Recorte",
+            "segments": [{ "startMs": 0, "endMs": 4000 }],
+            "encoder": "h264-sw", "crf": 30, "container": "mp4", "audioStreams": [1], "mixTrackIndex": 1,
+            "preview": { "fromMs": from_ms, "sec": 5 },
+        }));
+        testkit::wait_for("export_preview_done", 60_000).expect("export_preview_done")
+    };
+    // Do cursor (1 s) até o fim da gravação de 4 s: 3 s, menos que os 5 pedidos.
+    let r = pedir(1000);
+    assert_eq!(r["ok"], true, "{r}");
+    let out = r["path"].as_str().unwrap().to_owned();
+    assert!(!out.to_lowercase().starts_with(&s.rec.to_string_lossy().to_lowercase()), "fora da pasta de gravação: {out}");
+    let rep = crate::probe::probe(std::path::Path::new(&out)).unwrap();
+    assert!((rep.duration - 3.0).abs() < 0.3, "{}", rep.duration);
+    // Prévia não é exportação: sem card, sem barra no card da origem.
+    assert!(testkit::sent_of("export_done").is_empty());
+    assert!(testkit::sent_of("recording_added").is_empty());
+    assert!(testkit::sent_of("export_progress").is_empty());
+    assert!(!testkit::sent_of("export_preview_progress").is_empty());
+    // O player da galeria toca.
+    testkit::clear_sent();
+    send(json!({ "type": "play_recording", "id": out }));
+    assert_eq!(testkit::last_of("play_url").expect("play_url")["id"], out.as_str());
+    // Mexer no arquivo, não: renomear/excluir são só da biblioteca.
+    send(json!({ "type": "delete_recording", "id": out }));
+    assert!(std::path::Path::new(&out).exists());
+    // Prévia nova substitui a anterior.
+    let r2 = pedir(0);
+    assert_eq!(r2["ok"], true, "{r2}");
+    let out2 = r2["path"].as_str().unwrap().to_owned();
+    let n = std::fs::read_dir(std::path::Path::new(&out2).parent().unwrap()).unwrap().count();
+    assert_eq!(n, 1, "só a prévia mais recente fica");
+}
+
+#[test]
 fn exportar_so_audio_sai_mp3_e_nome_repetido_ganha_sufixo() {
     let s = begin();
     if !testkit::media() {
@@ -421,85 +465,52 @@ fn unir_incompativeis_avisa_e_mantem_as_partes() {
     assert!(testkit::sent_of("merge_pending").is_empty() && testkit::sent_of("merge_done").is_empty());
 }
 
-// ---- transcrição contra um servidor falso -----------------------------------
+// ---- transcrição contra um motor falso --------------------------------------
 
-/// Servidor falso da Transcritor API: `/health`, `POST /jobs` (guarda o áudio
-/// recebido), `GET /jobs/{id}` (pronto na hora, com palavras DIFERENTES por job
-/// — palavras iguais no mesmo instante seriam tiradas como eco).
-struct FakeApi {
-    port: u16,
-    uploads: Arc<Mutex<Vec<Vec<u8>>>>,
+/// O que o motor falso recebeu: os bytes de cada áudio, na ordem.
+static CALLS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+
+/// Pronto na hora, com palavras DIFERENTES por chamada — palavras iguais no
+/// mesmo instante seriam tiradas como eco.
+fn fake_engine(audio: &str) -> crate::local_asr::Outcome {
+    let n = {
+        let mut c = CALLS.lock().unwrap();
+        c.push(std::fs::read(audio).unwrap_or_default());
+        c.len()
+    };
+    let (w1, w2) = (format!("palavra{n}a"), format!("palavra{n}b"));
+    let t0 = 0.3 + n as f64 * 0.1;
+    let words = json!([
+        { "word": w1, "start": t0, "end": t0 + 0.4, "score": 0.9 },
+        { "word": w2, "start": t0 + 0.5, "end": t0 + 0.9, "score": 0.9 }
+    ]);
+    let text = format!("{w1} {w2}");
+    let result = json!({
+        "language": "pt",
+        "text": text,
+        "turns": [{ "speaker": null, "start": t0, "end": t0 + 0.9, "text": text }],
+        "segments": [{ "start": t0, "end": t0 + 0.9, "text": text, "speaker": null, "words": words }]
+    });
+    crate::local_asr::Outcome::Done(result.to_string())
 }
 
-fn fake_api() -> FakeApi {
-    use std::io::{Read, Write};
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let uploads: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
-    let up = uploads.clone();
-    std::thread::spawn(move || {
-        for conn in listener.incoming().flatten() {
-            let mut c = conn;
-            let _ = c.set_read_timeout(Some(std::time::Duration::from_secs(10)));
-            let mut buf = Vec::new();
-            let mut tmp = [0u8; 65536];
-            // Cabeçalho, depois o corpo pelo Content-Length.
-            let head_end = loop {
-                let n = c.read(&mut tmp).unwrap_or(0);
-                if n == 0 {
-                    break None;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-                if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                    break Some(p + 4);
-                }
-            };
-            let Some(head_end) = head_end else { continue };
-            let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
-            let len = head.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
-            while buf.len() < head_end + len {
-                let n = c.read(&mut tmp).unwrap_or(0);
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-            }
-            let body = &buf[head_end..];
-            let first = head.lines().next().unwrap_or("").to_owned();
-            let (code, json) = if first.starts_with("GET /health") {
-                (200, json!({ "status": "ok" }))
-            } else if first.starts_with("POST /jobs") {
-                // O arquivo é a parte depois do cabeçalho do campo "file".
-                let marker = b"Content-Type: audio/mp4\r\n\r\n";
-                let start = body.windows(marker.len()).position(|w| w == marker).map(|p| p + marker.len()).unwrap_or(0);
-                let end = body.windows(4).rposition(|w| w == b"\r\n--").unwrap_or(body.len());
-                let mut u = up.lock().unwrap();
-                u.push(body[start..end].to_vec());
-                (202, json!({ "job_id": format!("job{}", u.len()) }))
-            } else if first.starts_with("GET /jobs/") {
-                let n: usize = first.split("/jobs/job").nth(1).and_then(|r| r.split(['?', ' ']).next()).and_then(|x| x.parse().ok()).unwrap_or(1);
-                let (w1, w2) = (format!("palavra{n}a"), format!("palavra{n}b"));
-                let t0 = 0.3 + n as f64 * 0.1;
-                let words = json!([
-                    { "word": w1, "start": t0, "end": t0 + 0.4, "score": 0.9 },
-                    { "word": w2, "start": t0 + 0.5, "end": t0 + 0.9, "score": 0.9 }
-                ]);
-                let text = format!("{w1} {w2}");
-                let result = json!({
-                    "language": "pt",
-                    "text": text,
-                    "turns": [{ "speaker": null, "start": t0, "end": t0 + 0.9, "text": text }],
-                    "segments": [{ "start": t0, "end": t0 + 0.9, "text": text, "speaker": null, "words": words }]
-                });
-                (200, json!({ "status": "done", "stage": "done", "progress": 1.0, "result": result }))
-            } else {
-                (200, json!({}))
-            };
-            let body = json.to_string();
-            let _ = write!(c, "HTTP/1.1 {code} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-        }
-    });
-    FakeApi { port, uploads }
+/// Liga o motor falso enquanto viver.
+struct FakeEngine;
+
+fn fake_engine_on() -> FakeEngine {
+    CALLS.lock().unwrap().clear();
+    crate::transcribe::test_engine::set(Some(fake_engine));
+    FakeEngine
+}
+
+impl Drop for FakeEngine {
+    fn drop(&mut self) {
+        crate::transcribe::test_engine::set(None);
+    }
+}
+
+fn calls() -> Vec<Vec<u8>> {
+    CALLS.lock().unwrap().clone()
 }
 
 fn transcrita(path: &str) -> bool {
@@ -512,24 +523,22 @@ fn transcrever_pela_mistura() {
     if !testkit::media() {
         return;
     }
-    let api = fake_api();
+    let _engine = fake_engine_on();
     super::super::transcribe::do_init();
-    send(json!({ "type": "set_transcribe_engine", "engine": "server" }));
-    send(json!({ "type": "set_transcribe_host", "host": format!("http://127.0.0.1:{}", api.port) }));
     let f = s.sample("h264_2faixas.mkv", "conversa.mkv");
     send(json!({ "type": "transcribe_recording", "id": f }));
     let ok = (0..300).any(|_| {
         testkit::settle(100);
         transcrita(&f)
     });
-    assert!(ok, "não transcreveu em 30 s; uploads={} estado={:?}", api.uploads.lock().unwrap().len(), testkit::last_of("transcribe_state"));
+    assert!(ok, "não transcreveu em 30 s; chamadas={} estado={:?}", calls().len(), testkit::last_of("transcribe_state"));
     // Mistura + 1 isolada: vai SÓ a mistura (uma isolada repetiria o texto).
-    let ups = api.uploads.lock().unwrap().clone();
+    let ups = calls();
     assert_eq!(ups.len(), 1);
-    // O que subiu é áudio AAC de verdade, com a duração da gravação.
-    let m4a = testkit::sandbox_root().join("upload-mistura.m4a");
+    // O que o motor recebeu é áudio AAC de verdade, com a duração da gravação.
+    let m4a = testkit::sandbox_root().join("audio-mistura.m4a");
     std::fs::write(&m4a, &ups[0]).unwrap();
-    let rep = crate::probe::probe(&m4a).expect("upload legível");
+    let rep = crate::probe::probe(&m4a).expect("audio legível");
     assert!(rep.video_stream().is_none());
     assert_eq!(rep.audio_track_count(), 1);
     assert!((rep.duration - 4.0).abs() < 0.2, "{}", rep.duration);
@@ -551,10 +560,8 @@ fn transcrever_por_faixa_pula_a_muda_e_nomeia_pelo_dispositivo() {
     if !testkit::media() {
         return;
     }
-    let api = fake_api();
+    let _engine = fake_engine_on();
     super::super::transcribe::do_init();
-    send(json!({ "type": "set_transcribe_engine", "engine": "server" }));
-    send(json!({ "type": "set_transcribe_host", "host": format!("http://127.0.0.1:{}", api.port) }));
     let f = s.sample("h264_6faixas.mkv", "reuniao.mkv");
     send(json!({ "type": "transcribe_recording", "id": f }));
     let ok = (0..600).any(|_| {
@@ -562,8 +569,8 @@ fn transcrever_por_faixa_pula_a_muda_e_nomeia_pelo_dispositivo() {
         transcrita(&f)
     });
     assert!(ok, "não transcreveu em 60 s");
-    // 5 isoladas, uma muda ("Alto-falantes"): sobem 4.
-    assert_eq!(api.uploads.lock().unwrap().len(), 4);
+    // 5 isoladas, uma muda ("Alto-falantes"): vão 4 pro motor.
+    assert_eq!(calls().len(), 4);
     send(json!({ "type": "request_transcript", "id": f }));
     let t = testkit::wait_for("transcript", 5000).unwrap();
     let falantes: std::collections::BTreeSet<String> = t["turns"].as_array().unwrap().iter().map(|x| x["speaker"].as_str().unwrap().to_owned()).collect();
@@ -581,10 +588,8 @@ fn transcrever_pendentes_e_estado_da_fila() {
     if !testkit::media() {
         return;
     }
-    let api = fake_api();
+    let _engine = fake_engine_on();
     super::super::transcribe::do_init();
-    send(json!({ "type": "set_transcribe_engine", "engine": "server" }));
-    send(json!({ "type": "set_transcribe_host", "host": format!("http://127.0.0.1:{}", api.port) }));
     let a = s.sample("uniao_a.mkv", "p1.mkv");
     let b = s.sample("uniao_b.mkv", "Pasta\\p2.mkv");
     send(json!({ "type": "get_transcribe_state" }));

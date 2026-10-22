@@ -465,6 +465,20 @@
         <button class="export-btn primary" id="exportRunBtn"
                 onclick="Export.primaryAction()"
                 data-i18n="export.action">Exportar</button>
+        <!-- Prévia: as mesmas opções, só alguns segundos a partir do cursor,
+             abertos no player da galeria (export.js, `preview`). -->
+        <div class="export-preview-gen">
+          <button class="export-btn" id="exportPreviewBtn"
+                  onclick="Export.previewAction()"
+                  data-i18n-hint="export.preview.hint"
+                  data-i18n="export.preview.button">Gerar prévia</button>
+          <select class="export-input export-preview-sec" id="exportPreviewSec"
+                  data-i18n-aria="export.preview.durationAria" aria-label="Duração da prévia">
+            <option value="5">5 s</option>
+            <option value="10" selected>10 s</option>
+            <option value="30">30 s</option>
+          </select>
+        </div>
         <div class="export-progress-wrap">
           <div class="export-progress-bar">
             <div class="export-progress-fill" id="exportProgressFill"></div>
@@ -1232,73 +1246,22 @@
         </div>
       </div>
       <!-- ===== Transcricao ===== -->
-      <!-- ONDE transcrever: nesta máquina (OBSLocalAsr: Qwen3 + audio.cpp na
-           GPU, instalado por aqui mesmo, sem Docker) ou num servidor da
-           Transcritor API. O quadro de instalação é montado em JS (LocalAsr)
-           a partir do local_asr_state; o do servidor some no modo local. -->
+      <!-- Motor LOCAL (OBSLocalAsr: Qwen3 + audio.cpp na placa de video),
+           instalado por aqui mesmo. O quadro e montado em JS (LocalAsr) a
+           partir do local_asr_state. -->
       <div class="settings-field" data-panel="transcribe">
-        <label data-i18n="settings.transcribe.engine.label">Onde transcrever</label>
-        <div class="engine-options">
-          <label class="settings-check-row">
-            <input type="radio" name="transcribeEngine" value="local"
-                   id="settingsTranscribeEngineLocal" onchange="LocalAsr.onEngineChange()">
-            <span data-i18n="settings.transcribe.engine.local">Nesta máquina, na placa de vídeo</span>
-          </label>
-          <label class="settings-check-row">
-            <input type="radio" name="transcribeEngine" value="server"
-                   id="settingsTranscribeEngineServer" onchange="LocalAsr.onEngineChange()">
-            <span data-i18n="settings.transcribe.engine.server">Num servidor (Docker ou outro computador)</span>
-          </label>
+        <label data-i18n="settings.transcribe.local.label">Motor de transcrição</label>
+        <div class="settings-hint" data-i18n="settings.transcribe.local.hint">
+          Roda nesta máquina, na placa de vídeo, sem internet. Não separa quem
+          falou: gravando com faixas isoladas, o falante vem do nome do
+          dispositivo de cada faixa.
         </div>
-        <div class="settings-hint" data-i18n="settings.transcribe.engine.hint">
-          Nesta máquina é mais rápido e marca cada palavra com mais precisão,
-          mas não separa quem falou — gravando com faixas isoladas, o falante
-          continua vindo do nome do dispositivo. O servidor (Transcritor API)
-          separa os falantes.
-        </div>
-        <div class="local-asr" id="localAsrBox" hidden>
+        <div class="local-asr" id="localAsrBox">
           <div class="local-asr-status" id="localAsrStatus"></div>
           <div class="transcribe-bar" id="localAsrBar" hidden><div class="transcribe-fill" id="localAsrFill"></div></div>
           <div class="local-asr-detail" id="localAsrDetail"></div>
-          <div class="ts-actions" id="localAsrActions"></div>
+          <div class="local-asr-actions" id="localAsrActions"></div>
         </div>
-      </div>
-
-      <hr class="settings-divider" data-panel="transcribe">
-      <div class="settings-field" data-panel="transcribe">
-       <div id="transcribeServerBox">
-        <label data-i18n="settings.transcribe.host">Servidor de transcrição</label>
-        <div class="settings-input-row">
-          <input type="text" class="settings-input" id="settingsTranscribeHost"
-                 placeholder="http://localhost:8000" spellcheck="false">
-          <button class="settings-btn" id="settingsTranscribeTestBtn"
-                  onclick="Transcribe.test()"
-                  data-i18n="settings.transcribe.test">Testar</button>
-        </div>
-        <div class="settings-hint" id="settingsTranscribeStatus"
-             data-i18n="settings.transcribe.hostHint">
-          Endereço e porta do container da Transcritor API. As rotas são
-          fixas (<code>/jobs</code> e <code>/health</code>) — só o host é
-          configurável.
-        </div>
-        <!-- Diagnóstico em ETAPAS (servidor → WSL → Docker → container).
-             Mostra só o primeiro degrau que falta, com a instrução dele e o
-             comando pronto pra copiar. Montado em JS (TranscribeSetup), a
-             partir do que o backend descobriu rodando wsl/docker. Fica fora
-             do #settingsTranscribeStatus, que o botão Testar reescreve.
-             Nasce ESCONDIDO e só aparece quando algo falta: com o servidor
-             no ar não há o que orientar. -->
-        <div class="transcribe-setup" id="transcribeSetup" hidden>
-          <div class="transcribe-setup-head">
-            <span class="transcribe-setup-title"
-                  data-i18n="settings.transcribe.setup.title">Situação do servidor</span>
-            <button class="settings-btn" id="transcribeSetupCheckBtn"
-                    onclick="TranscribeSetup.check()"
-                    data-i18n="settings.transcribe.setup.verify">Verificar</button>
-          </div>
-          <div class="transcribe-setup-body" id="transcribeSetupBody"></div>
-        </div>
-       </div>
       </div>
 
       <hr class="settings-divider" data-panel="transcribe">
@@ -1324,9 +1287,9 @@
           <span data-i18n="settings.transcribe.onStop.label">Transcrever automaticamente ao terminar uma gravação</span>
         </label>
         <div class="settings-hint" data-i18n="settings.transcribe.onStop.hint">
-          A gravação entra na fila assim que termina. Se o servidor estiver
-          fora do ar, ela espera — a fila é guardada e continua depois de
-          reiniciar o computador.
+          A gravação entra na fila assim que termina. Com o motor ainda não
+          instalado ela espera, e a fila é guardada — continua depois de
+          fechar o app ou reiniciar o computador.
         </div>
       </div>
 
@@ -1341,9 +1304,8 @@
                   onclick="Transcribe.cancel()" disabled
                   data-i18n="common.cancel">Cancelar</button>
         </div>
-        <!-- Barra de progresso REAL: a API tem jobs (GET /jobs/{id} dá
-             estágio, percentual e ETA) e o percentual mede o trecho de
-             áudio já coberto pelos segmentos. Nada é estimado aqui. -->
+        <!-- Barra de progresso do motor: a fração dos trechos de fala já
+             transcritos, com a etapa e o tempo que falta. -->
         <div class="transcribe-progress" id="transcribeProgress" hidden>
           <div class="transcribe-bar"><div class="transcribe-fill" id="transcribeFill"></div></div>
           <div class="transcribe-line" id="transcribeLine"></div>
@@ -1362,11 +1324,9 @@
              "Nada pendente" com dezenas de gravações sem transcrição. -->
         <div class="settings-hint" id="transcribeCloudHint" hidden></div>
         <div class="settings-hint" id="transcribeHint" data-i18n="settings.transcribe.queueHint">
-          Uma transcrição por vez — o próprio container serializa as
-          requisições, então enfileirar mais não adiantaria. O percentual
-          vem da API e é real: mede o trecho de áudio já transcrito, e
-          avança aos saltos porque o processamento é feito em janelas de
-          30 segundos.
+          Uma transcrição por vez: o motor carrega os modelos na placa de
+          vídeo uma vez só. O percentual avança aos saltos, um trecho de
+          fala por vez.
         </div>
       </div>
 

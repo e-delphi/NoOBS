@@ -44,9 +44,11 @@ pub fn test_reset_browse_dir() {
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Idle de hibernação: 1 min sem janela visível e sem gravação (porte futuro
-/// do `OBSHibernate`); o id já existe porque a gravação o desarma.
+/// Idle de hibernação: 1 min sem janela visível e sem gravação.
 pub const TIMER_HIBERNATE_IDLE: usize = 7008;
+/// Pouco depois de hibernar: devolve a memória solta ao Windows e mede.
+const TIMER_LIGHT_TRIM: usize = 7020;
+const LIGHT_TRIM_DELAY_MS: u32 = 3000;
 /// Dados lidos do fim de um arquivo (`file_meta`) mudam o que o card mostra.
 pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 
@@ -54,8 +56,12 @@ pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 /// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
 /// Delphi buscava com `TInterlocked`.
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-/// O `do_init` completo já rodou (o `Initialized` do Delphi).
+/// A página já mandou `ready` alguma vez (o `Initialized` do Delphi).
 static INIT_DONE: AtomicBool = AtomicBool::new(false);
+/// Backend de pé (`start_backend`).
+static BACKEND_STARTED: AtomicBool = AtomicBool::new(false);
+/// Hibernando: a interface está descarregada (`enter_light`).
+static LIGHT: AtomicBool = AtomicBool::new(false);
 
 pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
@@ -74,6 +80,7 @@ pub fn install_hooks() {
         on_should_hide_on_close: Some(shell::should_hide_on_close),
         on_window_hidden: Some(shell::on_window_hidden),
         on_window_restored: Some(shell::on_window_restored),
+        on_start: Some(start_backend),
         on_shutdown: Some(shutdown),
     });
 }
@@ -103,12 +110,14 @@ pub fn shutdown() {
     log::log("Shutdown: inicio");
     ui::kill_timer(settings::TIMER_UPDATE_CHECK);
     ui::kill_timer(TIMER_HIBERNATE_IDLE);
+    ui::kill_timer(TIMER_LIGHT_TRIM);
     crate::mic_watch::stop();
     crate::proc_watch::stop();
     // Como o Shutdown do Delphi: a exportação pode estar no meio de um arquivo
     // longo e o laço dela olha o PRÓPRIO flag de cancelamento, não o de
     // shutdown — sem isto ela seguia até o processo morrer, sem limpar o .part.
     export::signal_cancel();
+    export::clear_previews();
     video_test::shutdown();
     replay::shutdown();
     countdown::shutdown();
@@ -133,6 +142,14 @@ fn on_timer_other(id: usize) {
     }
     if id == TIMER_HIBERNATE_IDLE {
         shell::on_hibernate_idle();
+        return;
+    }
+    if id == TIMER_LIGHT_TRIM {
+        ui::kill_timer(TIMER_LIGHT_TRIM);
+        if is_light() {
+            ui::trim_memory();
+            replay::log_mem_usage("hibernando");
+        }
         return;
     }
     log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");
@@ -247,13 +264,8 @@ fn dispatch_inner(raw: &str) {
         "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
         "open_url" => handle_open_url(str_field(&msg, "url")),
-        "set_transcribe_host" => transcribe::handle_set_transcribe_host(str_field(&msg, "host")),
-        "test_transcribe_host" => transcribe::handle_test_transcribe_host(str_field(&msg, "host")),
         "set_transcribe_language" => transcribe::handle_set_transcribe_language(str_field(&msg, "language")),
         "set_transcribe_on_stop" => transcribe::handle_set_transcribe_on_stop(bool_field(&msg, "enabled", false)),
-        "check_transcribe_setup" => transcribe::handle_check_transcribe_setup(str_field(&msg, "host"), int_field(&msg, "seq", 0)),
-        "transcribe_setup_action" => transcribe::handle_transcribe_setup_action(str_field(&msg, "action")),
-        "set_transcribe_engine" => transcribe::handle_set_transcribe_engine(str_field(&msg, "engine")),
         "local_asr_install" => crate::local_asr::start_install(),
         "local_asr_cancel" => crate::local_asr::cancel_install(),
         "local_asr_remove" => transcribe::handle_local_asr_remove(),
@@ -269,6 +281,7 @@ fn dispatch_inner(raw: &str) {
         "search_transcripts" => transcribe::handle_search_transcripts(str_field(&msg, "query")),
         "get_root_folders" => transcribe::push_root_folders(),
         "set_folder_hidden" => transcribe::handle_set_folder_hidden(str_field(&msg, "name"), bool_field(&msg, "hidden", false)),
+        "reset_hidden_lists" => transcribe::handle_reset_hidden_lists(),
         "open_folder" => folders::handle_open_folder(str_field(&msg, "id")),
         "create_folder" => folders::handle_create_folder(str_field(&msg, "name")),
         "rename_folder" => folders::handle_rename_folder(str_field(&msg, "id"), str_field(&msg, "newName")),
@@ -360,35 +373,23 @@ fn not_ported(ty: &str) {
 // init / tema / idioma
 // ---------------------------------------------------------------------------
 
-/// `DoInit`: tema + `init` + dispositivos (áudio em worker, prévias, medidores,
-/// hot-plug) + warmup do motor. O servidor do player, a biblioteca e os
-/// watchers de pasta/mic/apps entram com os módulos que os têm.
-fn do_init() {
-    // Segundo `ready` (página recarregada — o WebView2 recria o processo da
-    // página): só reenvia o que uma página nova precisa, sem religar watchers,
-    // timers, fila de transcrição e o resto — como o `if Initialized` do
-    // Delphi, mais as configurações e o ícone (sem elas a página recarregada
-    // abriria as Configurações com tudo desmarcado).
-    if INIT_DONE.swap(true, Ordering::SeqCst) {
-        log::log("DoInit: ja inicializado — re-push para a pagina nova.");
-        push_theme();
-        push_app_icon();
-        devices::do_init();
-        settings::push_settings();
-        recording::push_recording_state();
-        hotkeys::push_state();
+/// Backend: o que roda com ou sem a interface — atalhos, vigias de mic e de
+/// programas, fila de transcrição, escrita de metadados, indicador e bloqueio
+/// de tela, checagem de atualização. Uma vez por processo, logo depois de a
+/// janela existir (`ui::run`, hook `on_start`); `light` = arranque já
+/// hibernando, sem a interface. O `do_init` também chama (testes sobem só a
+/// página).
+pub fn start_backend(light: bool) {
+    if BACKEND_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    push_theme();
-    push_app_icon();
-    // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
-    player::start_player_server();
-    log::log("DoInit: PlayerServer ok");
+    LIGHT.store(light, Ordering::SeqCst);
+    log!("Backend: inicio (hibernando={light}).");
     // Worker que escreve os dados no fim do arquivo (pendentes da sessão anterior
     // voltam). Arquivo importado de outra máquina refaz os cards (pegadinha #65).
     file_meta::set_on_imported(|_| {
         mainthread::queue(|| {
-            if !is_shutting_down() {
+            if !is_shutting_down() && !is_light() {
                 ui::set_timer(TIMER_FILEMETA_REFRESH, 800);
             }
         });
@@ -396,10 +397,44 @@ fn do_init() {
     file_meta::start();
     // Fila de transcrição: só registra os callbacks e restaura a salva.
     transcribe::do_init();
+    // Lista de atalhos (aba Atalhos; falha de registro não é fatal —
+    // pegadinha #33).
+    hotkeys::do_init();
+    // Indicador de tela + parar ao bloquear a tela.
+    recording::init_indicator_and_lock();
+    // Auto-gravação em chamadas (se ligada), buffer ligado por programas
+    // monitorados e checagem diária de atualização.
+    settings::start_mic_watch_if_enabled();
+    replay::do_init();
+    settings::start_update_timer();
+    if light {
+        // Nada da interface subiu: o processo já nasce no tamanho de hibernado.
+        ui::set_timer(TIMER_LIGHT_TRIM, LIGHT_TRIM_DELAY_MS);
+    }
+    log::log("Backend: pronto.");
+}
+
+/// A interface está descarregada (hibernando)?
+pub fn is_light() -> bool {
+    LIGHT.load(Ordering::SeqCst)
+}
+
+/// `DoInit`: a página mandou `ready` — na abertura, depois de um reload ou
+/// voltando da hibernação. Tudo aqui é da INTERFACE: sobe de novo a cada
+/// página nova (o que já está de pé é idempotente).
+fn do_init() {
+    let first = !INIT_DONE.swap(true, Ordering::SeqCst);
+    start_backend(false);
+    LIGHT.store(false, Ordering::SeqCst);
+    ui::kill_timer(TIMER_LIGHT_TRIM);
+    log!("DoInit: pagina pronta ({}).", if first { "primeira" } else { "de novo" });
+    push_theme();
+    push_app_icon();
+    // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
+    player::start_player_server();
     // Lista e metadados (duração/miniatura) da pasta de gravação.
     library::push_recordings();
     library::scan_recordings_meta();
-    log::log("DoInit: recordings ok");
     devices::do_init();
     // Configurações JÁ no arranque, como o PushSettings do DoInit do Delphi.
     // Sem isso a tela de Configurações abria com tudo desmarcado: com ela
@@ -409,22 +444,19 @@ fn do_init() {
     // início os valores que a UI usa fora da tela (som ao gravar etc.).
     settings::push_settings();
     recording::push_recording_state();
+    hotkeys::push_state();
     // Refresh automático quando o usuário mexe na pasta pelo Explorer.
     library::start_record_watch();
     // Warmup do motor com delay: a UI renderiza primeiro e a 1ª gravação fica
     // instantânea. NUNCA inicializar o motor direto aqui (detectar encoders
     // bloqueia a main). Falha do warmup → a gravação inicializa sob demanda.
-    recording::schedule_warmup();
-    // Lista de atalhos (aba Atalhos; falha de registro não é fatal —
-    // pegadinha #33) + estado pra UI.
-    hotkeys::do_init();
-    // Indicador de tela + parar ao bloquear a tela.
-    recording::init_indicator_and_lock();
-    // Auto-gravação em chamadas (se ligada), buffer ligado por programas
-    // monitorados e checagem diária de atualização.
-    settings::start_mic_watch_if_enabled();
-    replay::do_init();
-    settings::start_update_timer();
+    // Com o motor já de pé (gravando, buffer), as caps vão na hora.
+    recording::on_page_ready();
+    // Atalho de janela que achou várias janelas enquanto a página subia.
+    window_record::on_page_ready();
+    if !first {
+        return;
+    }
     log::log("DoInit: pronto (o motor sobe no warmup ou na hora da gravacao).");
     // Com "minimizar pra bandeja ao fechar" ligado, o ícone fica na bandeja
     // mesmo com a janela aberta (avisa que o [X] vai pra bandeja) — como o
@@ -439,6 +471,37 @@ fn do_init() {
         log::log("DoInit: primeira execucao detectada — abrindo Configuracoes.");
         post_json(json!({ "type": "open_settings" }));
     }
+}
+
+/// Hibernar SEM sair do processo: solta o que só a interface usa — o
+/// WebView2 (o grosso: ~400 MB nos processos do navegador), as prévias e os
+/// medidores (que mantinham os microfones abertos), o servidor do player, o
+/// vigia da pasta — e o motor de captura. Ficam a janela (escondida), a
+/// bandeja, os atalhos, os vigias de mic e de programas e as filas de
+/// trabalho (transcrição, metadados). O clique na bandeja recria a interface
+/// e o `ready` da página nova religa tudo (`do_init`).
+///
+/// Roda de novo mesmo já hibernando: uma gravação feita com a interface
+/// descarregada (atalho, mic, bandeja) religa o motor e os dispositivos, e o
+/// ócio seguinte tem que soltá-los outra vez. Cada passo é no-op se não há o
+/// que soltar.
+pub fn enter_light() {
+    let was_light = LIGHT.swap(true, Ordering::SeqCst);
+    log::log(if was_light {
+        "Hibernacao: soltando de novo o que a captura religou."
+    } else {
+        "Hibernacao: descarregando a interface (mesmo processo)."
+    });
+    replay::log_mem_usage("antes de hibernar");
+    ui::destroy_webview();
+    devices::suspend();
+    record_watch::stop();
+    player::stop_player_server();
+    ui::kill_timer(TIMER_FILEMETA_REFRESH);
+    recording::on_light();
+    ui::set_tray_hibernating(true);
+    // O processo do navegador e o heap levam um instante pra soltar a memória.
+    ui::set_timer(TIMER_LIGHT_TRIM, LIGHT_TRIM_DELAY_MS);
 }
 
 /// `HKCU\Software\NoOBS\FirstRun` = 1 (escrito pelo instalador na instalação):

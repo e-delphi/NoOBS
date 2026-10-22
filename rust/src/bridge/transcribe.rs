@@ -1,5 +1,5 @@
 //! Transcrição no Bridge (porte do bloco "Transcricao" do `OBSBridge.pas`): estado da fila
-//! para a aba, fila editável, motor local, diagnóstico do servidor, falantes, busca e a
+//! para a aba, fila editável, motor local, falantes, busca e a
 //! lista de pastas ocultas (que divide a aba Arquivos com o "transcrever pendentes").
 //!
 //! O estado vive em [`crate::transcribe`] / [`crate::local_asr`]; aqui só se empurra o que
@@ -44,8 +44,8 @@ thread_local! {
 // Estado da fila
 // ---------------------------------------------------------------------------
 
-/// Estado da fila para a aba de Transcrição. O progresso é REAL: a API tem jobs e reporta o
-/// trecho de áudio já coberto. Nada de barra estimada aqui.
+/// Estado da fila para a aba de Transcrição. O progresso é o do motor: a fração dos blocos
+/// de fala já transcritos.
 pub fn push_transcribe_state() {
     let stage = transcribe::current_stage();
     post_json(json!({
@@ -60,20 +60,20 @@ pub fn push_transcribe_state() {
         "failed": transcribe::failed_count(),
         "current": transcribe::current_name(),
         "elapsed": transcribe::current_elapsed_sec(),
-        // Progresso REAL da API (0..1). -1 = ainda sem número.
+        // Progresso (0..1). -1 = ainda sem número.
         "progress": transcribe::current_progress(),
-        // Segundos restantes segundo a API; -1 enquanto ela não arrisca.
+        // Segundos restantes; -1 enquanto não dá para estimar.
         "eta": transcribe::current_eta_sec(),
         "stage": stage,
-        // Com faixas isoladas a gravação vira N jobs, e o `progress` acima já é o do CONJUNTO
+        // Com faixas isoladas a gravação vira N transcrições, e o `progress` acima já é o do CONJUNTO
         // — estes dois existem para a UI dizer QUAL faixa está rodando.
         "track": transcribe::current_track(),
         "trackCount": transcribe::current_track_count(),
         "lastError": transcribe::last_error(),
         // Sem o NOME, "1 com falha" num lote de 7 não diz QUAL gravação foi.
         "lastErrorName": transcribe::last_error_name(),
-        // Fila parada esperando o servidor voltar (não é falha).
-        "waiting": transcribe::waiting_for_server(),
+        // Fila parada esperando a instalação do motor (não é falha).
+        "waiting": transcribe::waiting_for_install(),
     }));
 }
 
@@ -151,6 +151,21 @@ pub fn handle_set_folder_hidden(name: &str, hidden: bool) {
     }
     config::set_config_json("hiddenFolders", Some(Value::Array(arr)));
     log!("Biblioteca: pasta \"{name}\" {}.", if hidden { "oculta" } else { "visivel" });
+    push_recordings();
+    push_transcribe_pending();
+    push_root_folders();
+}
+
+/// `reset_hidden_lists` ("Restaurar padrões"): nenhuma pasta oculta, nenhum
+/// dispositivo oculto e todos no perfil da gravação automática — inclusive os
+/// que não estão conectados agora (a tela só alcança os da lista).
+pub fn handle_reset_hidden_lists() {
+    config::set_config_json("hiddenFolders", None);
+    for cat in ["monitors", "mics", "speakers", "webcams"] {
+        config::set_config_json(&format!("hidden_{cat}"), None);
+        config::set_config_json(&format!("auto_{cat}"), None);
+    }
+    log::log("Restaurar padroes: pastas e dispositivos ocultos limpos, perfil automatico com todos.");
     push_recordings();
     push_transcribe_pending();
     push_root_folders();
@@ -298,12 +313,6 @@ pub fn handle_remove_transcribe_item(path: &str) {
 // Configuração
 // ---------------------------------------------------------------------------
 
-pub fn handle_set_transcribe_host(host: &str) {
-    let h = host.trim().trim_end_matches('/');
-    config::set_config_str("transcribeHost", h);
-    log!("TranscribeHost: \"{h}\"");
-}
-
 /// `app`, `auto` ou um código ISO de 2-3 letras. Qualquer outra coisa é ignorada — o valor
 /// vai direto para o campo `language` da API.
 pub fn handle_set_transcribe_language(language: &str) {
@@ -320,18 +329,6 @@ pub fn handle_set_transcribe_language(language: &str) {
 pub fn handle_set_transcribe_on_stop(enable: bool) {
     config::set_config_bool("transcribeOnStop", enable);
     log!("TranscribeOnStop: {enable}");
-}
-
-pub fn handle_set_transcribe_engine(engine: &str) {
-    if engine != "server" && engine != "local" {
-        log!("TranscribeEngine: valor recusado \"{engine}\"");
-        return;
-    }
-    config::set_config_str("transcribeEngine", engine);
-    log!("TranscribeEngine: {engine}");
-    // Fila parada esperando o motor anterior: tenta já com o novo.
-    transcribe::nudge_queue();
-    push_local_asr_state(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +351,6 @@ pub fn push_local_asr_state(remove_refused: bool) {
         "total": s.bytes_total,
         "error": s.error,
         "device": s.device,
-        "engine": if transcribe::use_local_engine() { "local" } else { "server" },
         "removeRefused": remove_refused,
     }));
 }
@@ -366,7 +362,7 @@ fn on_local_asr_changed() {
     }
     push_local_asr_state(false);
     // Acabou de instalar: a fila que esperava pelo motor anda agora, sem aguardar o próximo
-    // ciclo de 10 s. (A instalação já trocou o motor para 'local' — quem instala quer usar.)
+    // ciclo de 10 s.
     let ready = local_asr::get_state().status == local_asr::Status::Ready;
     if ready && !LAST_LOCAL_READY.with(Cell::get) {
         transcribe::nudge_queue();
@@ -384,89 +380,6 @@ pub fn handle_local_asr_remove() {
                 }
             });
         }
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Servidor: teste e diagnóstico
-// ---------------------------------------------------------------------------
-
-/// Diagnóstico em worker: roda wsl.exe/docker.exe e pode levar segundos. O `seq` volta junto
-/// para a UI descartar a resposta de uma verificação já superada.
-pub fn handle_check_transcribe_setup(host: &str, seq: i32) {
-    let host = if host.trim().is_empty() { transcribe::host_base() } else { host.trim().to_owned() };
-    std::thread::spawn(move || {
-        let r = transcribe::diagnose_setup(&host);
-        if r.server_ok {
-            transcribe::nudge_queue();
-        }
-        mainthread::queue(move || {
-            if is_shutting_down() {
-                return;
-            }
-            post_json(json!({
-                "type": "transcribe_setup",
-                "seq": seq,
-                "serverOk": r.server_ok,
-                "serverError": r.server_error,
-                "isLocal": r.is_local,
-                "port": r.port,
-                "wslOk": r.wsl_ok,
-                "dockerInstalled": r.docker_installed,
-                "dockerRunning": r.docker_running,
-                // Só o booleano: o caminho do executável não sai do Rust (o "abrir" é
-                // resolvido de novo aqui, nunca vindo da UI).
-                "canStartDocker": !r.docker_desktop_path.is_empty(),
-                "containerId": r.container_id,
-                "containerImage": r.container_image,
-                "containerState": r.container_state,
-                "containerStatus": r.container_status,
-                "restartPolicy": r.restart_policy,
-            }));
-        });
-    });
-}
-
-/// Alvos FIXOS. A UI escolhe a ação, nunca o caminho ou a URL — mandar ShellExecute num alvo
-/// vindo da página abriria qualquer coisa.
-pub fn handle_transcribe_setup_action(action: &str) {
-    const DOCKER_SITE: &str = "https://www.docker.com/products/docker-desktop/";
-    match action {
-        "openDockerSite" => shell_open(DOCKER_SITE),
-        "startDockerDesktop" => {
-            let exe = Path::new(&std::env::var("ProgramFiles").unwrap_or_default()).join("Docker\\Docker\\Docker Desktop.exe");
-            if exe.is_file() {
-                shell_open(&exe.to_string_lossy());
-            } else {
-                log!("TranscribeSetup: Docker Desktop nao encontrado em \"{}\"", exe.display());
-            }
-        }
-        _ => {}
-    }
-}
-
-fn shell_open(target: &str) {
-    crate::ui::shell_open(target);
-}
-
-/// `GET /health` em worker: o servidor pode estar carregando os modelos e travar a UI pelo
-/// tempo do timeout.
-pub fn handle_test_transcribe_host(host: &str) {
-    let host = if host.trim().is_empty() { transcribe::host_base() } else { host.trim().to_owned() };
-    std::thread::spawn(move || {
-        let r = transcribe::check_health(&host);
-        // Servidor de pé: se a fila estava esperando por ele, não tem por que aguardar o
-        // próximo ciclo.
-        if r.is_ok() {
-            transcribe::nudge_queue();
-        }
-        mainthread::queue(move || {
-            if is_shutting_down() {
-                return;
-            }
-            let err = r.err().unwrap_or_default();
-            post_json(json!({ "type": "transcribe_health", "ok": err.is_empty(), "error": err }));
-        });
     });
 }
 
@@ -605,6 +518,12 @@ fn restore_transcribe_queue() {
 /// `DoInit`: só registra os callbacks (a thread sobe sozinha no primeiro `enqueue` — sem
 /// transcrição pedida, nada roda) e restaura a fila salva.
 pub fn do_init() {
+    // Chaves do servidor da Transcritor API, que saiu: não voltam a ser lidas.
+    for k in ["transcribeHost", "transcribeEngine"] {
+        if config::get_config_str(k, "\u{0}") != "\u{0}" {
+            config::set_config_json(k, None);
+        }
+    }
     transcribe::set_on_changed(on_transcribe_changed);
     // Motor local: só o callback. Nada sobe nem baixa sem o usuário pedir.
     local_asr::set_on_changed(on_local_asr_changed);
@@ -612,7 +531,7 @@ pub fn do_init() {
 }
 
 /// Transcrever lê a gravação INTEIRA do disco (extrair o áudio de um arquivo de vários GB) e
-/// sobe dezenas de MB para o servidor. Fazer isso enquanto se grava — ou enquanto o buffer
+/// ocupa a placa de vídeo. Fazer isso enquanto se grava — ou enquanto o buffer
 /// guarda, que é quando tem jogo rodando — tira da máquina justamente o que a captura
 /// precisa. Então a transcrição AUTOMÁTICA fica segura nos dois casos e anda quando a captura
 /// termina. O que o usuário pediu à mão roda mesmo assim. Os itens NÃO se perdem: a fila é
@@ -621,9 +540,8 @@ pub fn sync_pause(capturing: bool) {
     transcribe::set_paused(capturing);
 }
 
-/// Transcrição automática ao fim de uma gravação (`transcribeOnStop`, padrão ligado). Com o
-/// servidor fora do ar o item espera na fila persistida — nada se perde por o Docker ainda
-/// estar subindo.
+/// Transcrição automática ao fim de uma gravação (`transcribeOnStop`, padrão ligado). Sem o
+/// motor instalado o item espera na fila persistida.
 pub fn enqueue_after_capture(path: &str) {
     if config::get_config_bool("transcribeOnStop", true) {
         transcribe::enqueue(path, false);
@@ -641,13 +559,6 @@ pub fn forget_recording(path: &str) {
 pub fn shutdown() {
     transcribe::shutdown();
     local_asr::shutdown();
-}
-
-/// Há transcrição andando? (a hibernação re-arma em vez de desistir). Esperando o servidor
-/// NÃO conta: o item não está andando, e segurar o app acordado por um Docker que talvez
-/// nunca suba mataria a hibernação de quem grava sem usar a transcrição.
-pub fn busy_for_hibernation() -> bool {
-    (transcribe::queue_length() > 0 && !transcribe::waiting_for_server()) || local_asr::get_state().status == local_asr::Status::Installing
 }
 
 #[allow(dead_code)]

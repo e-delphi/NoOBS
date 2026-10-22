@@ -171,7 +171,7 @@ pub fn detect_system_theme() -> &'static str {
 
 /// Funções NÃO documentadas do `uxtheme.dll` (ordinais 133/135/136) que põem
 /// os menus do sistema (inclusive o `TrackPopupMenu` da bandeja) no tema
-/// escuro sem owner-draw. Mesma estratégia do OBSUI/OBSHibernate.
+/// escuro sem owner-draw. Mesma estratégia do OBSUI.
 struct UxDark {
     allow_dark_for_window: Option<unsafe extern "system" fn(HWND, i32) -> i32>,
     set_preferred_app_mode: Option<unsafe extern "system" fn(i32) -> i32>,
@@ -212,12 +212,7 @@ pub fn apply_menu_theme(hwnd: Option<HWND>, dark: bool) {
     }
 }
 
-/// Caminho do próprio exe (vazio se o Windows não disser).
-pub fn exe_path() -> String {
-    std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-/// Linha de comando em minúsculas, para os flags `/autostart`, `/hibernate`…
+/// Linha de comando em minúsculas, para os flags `/autostart`, `/tray`…
 pub fn cmdline_lower() -> String {
     std::env::args().collect::<Vec<_>>().join(" ").to_lowercase()
 }

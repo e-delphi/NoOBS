@@ -12,7 +12,7 @@ use windows::Win32::UI::Shell::{
     FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 
-use crate::{autostart, config, elevate, encoder, lang, log, mic_watch, record_watch, transcribe, ui, update, version, win_preview};
+use crate::{autostart, config, elevate, encoder, lang, log, mic_watch, record_watch, ui, update, version, win_preview};
 
 use super::{devices, library, post_error, post_json, recording};
 
@@ -49,8 +49,6 @@ pub fn push_settings() {
         "type": "settings",
         "recordDir": record_dir,
         "windowTitle": config::get_config_str("windowTitle", "NoOBS"),
-        "transcribeHost": transcribe::host_base(),
-        "transcribeEngine": if transcribe::use_local_engine() { "local" } else { "server" },
         "transcribeLanguage": tr_lang,
         "transcribeOnStop": config::get_config_bool("transcribeOnStop", true),
         "muteWhenDeviceMuted": config::get_config_bool("muteWhenDeviceMuted", true),

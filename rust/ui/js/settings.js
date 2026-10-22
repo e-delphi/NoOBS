@@ -184,7 +184,6 @@ const Settings = {
   // Default TRUE, igual ao backend: microfone mudo no Windows nao
   // deveria entrar na gravacao.
   currentMuteWhenDeviceMuted: true,
-  currentTranscribeHost: 'http://localhost:8000',
   currentTranscribeLanguage: 'app',
   currentTranscribeOnStop: true,
   // Idiomas oferecidos pra transcrição. Os NOMES não vivem no lang\*.json:
@@ -242,8 +241,6 @@ const Settings = {
     this._syncRecIndicatorOpacityLabel();
     document.getElementById('settingsPlaySoundOnRecord').checked = !!this.currentPlaySoundOnRecord;
     document.getElementById('settingsMuteWhenDeviceMuted').checked = !!this.currentMuteWhenDeviceMuted;
-    document.getElementById('settingsTranscribeHost').value = this.currentTranscribeHost || '';
-    LocalAsr.setEngine(this.currentTranscribeEngine || 'local');
     this._fillTranscribeLangs(this.currentTranscribeLanguage);
     document.getElementById('settingsTranscribeOnStop').checked = !!this.currentTranscribeOnStop;
     document.getElementById('settingsStopOnLock').checked = !!this.currentStopOnLock;
@@ -387,8 +384,6 @@ const Settings = {
       const playSoundOnRecord = document.getElementById('settingsPlaySoundOnRecord').checked;
       const stopOnLock = document.getElementById('settingsStopOnLock').checked;
       const muteWhenDeviceMuted = document.getElementById('settingsMuteWhenDeviceMuted').checked;
-      const transcribeHost = document.getElementById('settingsTranscribeHost').value.trim();
-      const transcribeEngine = LocalAsr.selectedEngine();
       const transcribeLanguage = document.getElementById('settingsTranscribeLang').value || 'app';
       const transcribeOnStop = document.getElementById('settingsTranscribeOnStop').checked;
       const hibernate = document.getElementById('settingsHibernate').checked;
@@ -428,6 +423,8 @@ const Settings = {
         Bridge.send('set_minimize_on_record', { enabled: minimizeOnRecord });
       if (recIndicator !== this.currentRecIndicator)
         Bridge.send('set_rec_indicator', { enabled: recIndicator });
+      if (checkUpdates !== this.currentCheckUpdates)
+        Bridge.send('set_check_updates', { enabled: checkUpdates });
       if (recIndicatorCorner !== this.currentRecIndicatorCorner)
         Bridge.send('set_rec_indicator_corner', { corner: recIndicatorCorner });
       if (recIndicatorOpacity !== this.currentRecIndicatorOpacity)
@@ -440,10 +437,6 @@ const Settings = {
         Bridge.send('set_stop_on_lock', { enabled: stopOnLock });
       if (muteWhenDeviceMuted !== this.currentMuteWhenDeviceMuted)
         Bridge.send('set_mute_when_device_muted', { enabled: muteWhenDeviceMuted });
-      if (transcribeHost !== this.currentTranscribeHost)
-        Bridge.send('set_transcribe_host', { host: transcribeHost });
-      if (transcribeEngine !== this.currentTranscribeEngine)
-        Bridge.send('set_transcribe_engine', { engine: transcribeEngine });
       if (transcribeLanguage !== this.currentTranscribeLanguage)
         Bridge.send('set_transcribe_language', { language: transcribeLanguage });
       if (transcribeOnStop !== this.currentTranscribeOnStop)
@@ -487,8 +480,6 @@ const Settings = {
       this.currentPlaySoundOnRecord = playSoundOnRecord;
       this.currentStopOnLock = stopOnLock;
       this.currentMuteWhenDeviceMuted = muteWhenDeviceMuted;
-      this.currentTranscribeHost = transcribeHost;
-      this.currentTranscribeEngine = transcribeEngine;
       this.currentTranscribeLanguage = transcribeLanguage;
       this.currentTranscribeOnStop = transcribeOnStop;
       this.currentHibernate = hibernate;
@@ -563,9 +554,6 @@ const Settings = {
     // Default TRUE — o `!== false` preserva esse default se a chave
     // faltar, ao contrario do `!!` usado nos que sao default false.
     this.currentMuteWhenDeviceMuted = (data.muteWhenDeviceMuted !== false);
-    this.currentTranscribeHost = data.transcribeHost || 'http://localhost:8000';
-    // 'server' (Transcritor API) | 'local' (motor na placa de vídeo, o padrão).
-    this.currentTranscribeEngine = data.transcribeEngine === 'server' ? 'server' : 'local';
     this.currentTranscribeLanguage = data.transcribeLanguage || 'app';
     // Default TRUE, mesmo esquema do muteWhenDeviceMuted.
     this.currentTranscribeOnStop = (data.transcribeOnStop !== false);
@@ -1068,14 +1056,8 @@ const Settings = {
     // quase nunca esta olhando.
     if (name === 'transcribe') {
       Bridge.send('get_transcribe_state', {});
-      // Diagnóstico a cada entrada na aba: é aqui que o usuário vem quando
-      // a transcrição não anda, e a situação muda fora do app (Docker
-      // aberto, container iniciado) sem nenhum evento que nos avise.
       // Motor local: estado da instalação (e da GPU) direto do backend.
       Bridge.send('get_local_asr_state', {});
-      // O diagnóstico é do SERVIDOR (Docker, container): com o motor
-      // local escolhido ele não tem o que dizer.
-      if (LocalAsr.selectedEngine() !== 'local') TranscribeSetup.check();
     }
   },
   // Taxa do áudio: um degrau por opção, o padrão marcado no rótulo. A dica
@@ -1243,10 +1225,7 @@ const Settings = {
         document.getElementById('settingsStopOnLock').checked = true;
         document.getElementById('settingsHibernate').checked = true;
         document.getElementById('settingsMuteWhenDeviceMuted').checked = true;
-        // Transcricao: motor local, idioma do app, servidor padrao (vazio =
-        // http://localhost:8000 no backend) e automatica ao terminar.
-        if (typeof LocalAsr !== 'undefined') LocalAsr.setEngine('local');
-        document.getElementById('settingsTranscribeHost').value = '';
+        // Transcricao: idioma do app e automatica ao terminar.
         document.getElementById('settingsTranscribeLang').value = 'app';
         document.getElementById('settingsTranscribeOnStop').checked = true;
         document.getElementById('settingsAutoRecordOnMic').checked = false;
@@ -1284,6 +1263,11 @@ const Settings = {
         // Perfil da gravacao automatica: todos marcados de novo (idem, sem
         // campo fixo no DOM).
         if (typeof AutoDevices !== 'undefined') AutoDevices.checkAll();
+        // As duas linhas acima so alcancam os dispositivos CONECTADOS (os da
+        // lista). O backend limpa o resto — dispositivo oculto ou fora do
+        // perfil que nao esta ligado agora — e as pastas ocultas da aba
+        // Arquivos.
+        Bridge.send('reset_hidden_lists');
         // FPS é o único campo em que o reset precisa escrever currentX ANTES
         // (o slider guarda um ÍNDICE de preset, então _applyFpsPresetsToSlider
         // depende de currentRecordingFps pra saber onde sentar). Só que isso

@@ -31,7 +31,7 @@ fn instalacao_nova_tem_gravar_e_salvar_trecho() {
         st["items"],
         json!([
             { "mode": "record", "hotkey": "Pause/Break", "delaySec": 0 },
-            { "mode": "replay", "hotkey": "Ctrl+Shift+F10" }
+            { "mode": "replay", "hotkey": "Ctrl+Shift+Pause/Break" }
         ])
     );
     assert_eq!(st["delayMax"], 60);

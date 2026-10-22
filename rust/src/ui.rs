@@ -12,7 +12,7 @@
 //!   `CoUninitialize`.
 
 use std::cell::{Cell, RefCell};
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
@@ -22,7 +22,7 @@ use webview2_com::{
     WebResourceRequestedEventHandler,
 };
 use windows::core::{w, Interface, BOOL, HSTRING, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, COLORREF, E_FAIL, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{CloseHandle, COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateFontW, CreateSolidBrush, DeleteObject, DrawTextW, EndPaint, FillRect, GetMonitorInfoW,
@@ -39,7 +39,7 @@ use windows::Win32::UI::Shell::{ITaskbarList3, ShellExecuteW, TaskbarList};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 use crate::single_instance::{CLASS_NAME, MUTEX_NAME, SHOW_MSG_NAME};
-use crate::{bridge, config, elevate, hibernate, log, mainthread, record_icon, startup_check, tray, win};
+use crate::{bridge, config, elevate, lang, log, mainthread, record_icon, startup_check, tray, win};
 
 /// Virtual host da UI. `https://` dá contexto seguro (localStorage etc.) e
 /// faz as URLs relativas (`css/`, `js/`, logos) resolverem como num site.
@@ -56,19 +56,10 @@ const SPLASH_TEXT_LIGHT: u32 = 0x001B1818; // #18181b
 
 static MAIN_HWND: AtomicIsize = AtomicIsize::new(0);
 static WM_SHOW_INSTANCE: AtomicU32 = AtomicU32::new(0);
-/// Mutex de instância única: liberado ANTES de lançar a hibernação.
+/// Mutex de instância única: o handle fica aberto até o processo sair.
 static MUTEX: AtomicIsize = AtomicIsize::new(0);
-/// "Fechar" de verdade (menu da bandeja, hibernação): o `WM_CLOSE` não esconde.
+/// "Fechar" de verdade (menu da bandeja): o `WM_CLOSE` não esconde.
 static REAL_QUIT: AtomicBool = AtomicBool::new(false);
-/// Flags de linha de comando vindos da hibernação (`OBSUI.StartRecordRequested`…).
-static START_RECORD: AtomicBool = AtomicBool::new(false);
-static START_RECORD_MIC: AtomicBool = AtomicBool::new(false);
-static START_REPLAY: AtomicBool = AtomicBool::new(false);
-/// `/hotkey=N`: o atalho N da lista foi apertado na hibernação (-1 = nenhum).
-static START_HOTKEY: AtomicI32 = AtomicI32::new(-1);
-/// Ids registrados com `register_global_hotkey` — a troca pra hibernação
-/// solta todos antes de lançar o outro processo.
-static REGISTERED_HOTKEYS: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
 
 /// Estado de janela que só a main thread toca.
 #[derive(Default)]
@@ -98,7 +89,20 @@ struct WinState {
 thread_local! {
     static WSTATE: RefCell<WinState> = RefCell::new(WinState::default());
     static WEB_READY: Cell<bool> = const { Cell::new(false) };
+    /// O WebView2 está sendo criado (ambiente/controller ainda não voltaram).
+    static WEB_CREATING: Cell<bool> = const { Cell::new(false) };
+    /// Arranque já hibernando: o `WM_CREATE` não cria o WebView2.
+    static START_LIGHT: Cell<bool> = const { Cell::new(false) };
+    /// Tentativas seguidas de recriar o WebView2 que falharam.
+    static WEB_RETRIES: Cell<u32> = const { Cell::new(0) };
 }
+
+/// Timer interno do `ui` (não passa pelo bridge): nova tentativa de criar o
+/// WebView2 depois de uma falha (o processo do navegador anterior ainda
+/// saindo, por exemplo).
+const TIMER_WEBVIEW_RETRY: usize = 9100;
+const WEBVIEW_RETRY_MS: u32 = 700;
+const WEBVIEW_MAX_RETRIES: u32 = 5;
 
 fn wstate<R>(f: impl FnOnce(&mut WinState) -> R) -> R {
     WSTATE.with(|s| f(&mut s.borrow_mut()))
@@ -126,6 +130,9 @@ pub struct Hooks {
     /// timer de hibernação por ócio.
     pub on_window_hidden: Option<fn()>,
     pub on_window_restored: Option<fn()>,
+    /// Janela criada, antes do loop: o backend sobe (atalhos, vigias, fila).
+    /// `true` = arranque já hibernando, sem a interface.
+    pub on_start: Option<fn(bool)>,
     pub on_shutdown: Option<fn()>,
 }
 
@@ -137,6 +144,7 @@ static HOOKS: std::sync::Mutex<Hooks> = std::sync::Mutex::new(Hooks {
     on_should_hide_on_close: None,
     on_window_hidden: None,
     on_window_restored: None,
+    on_start: None,
     on_shutdown: None,
 });
 
@@ -219,7 +227,6 @@ pub fn register_global_hotkey(id: i32, modifiers: u32, vk: u32) -> bool {
     }
     let ok = unsafe { RegisterHotKey(Some(hwnd), id, HOT_KEY_MODIFIERS(modifiers), vk) }.is_ok();
     if ok {
-        REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).push(id);
         log!("OBSUI: hotkey registrado (id={id} mod=${modifiers:x} vk=${vk:x}).");
     } else {
         log!("OBSUI: falha ao registrar hotkey (id={id} mod=${modifiers:x} vk=${vk:x}) — já em uso?");
@@ -228,7 +235,6 @@ pub fn register_global_hotkey(id: i32, modifiers: u32, vk: u32) -> bool {
 }
 
 pub fn unregister_global_hotkey(id: i32) {
-    REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).retain(|&r| r != id);
     let hwnd = main_window();
     if !hwnd.0.is_null() {
         unsafe {
@@ -295,27 +301,6 @@ pub fn apply_window_title() {
     tray::update_tooltip(&title);
 }
 
-pub fn start_record_requested() -> bool {
-    START_RECORD.load(Ordering::SeqCst)
-}
-/// O `/start-record` veio do watcher de microfone (gravação "automática").
-pub fn start_record_requested_by_mic() -> bool {
-    START_RECORD_MIC.load(Ordering::SeqCst)
-}
-pub fn start_replay_requested() -> bool {
-    START_REPLAY.load(Ordering::SeqCst)
-}
-pub fn start_hotkey_requested() -> Option<usize> {
-    let i = START_HOTKEY.load(Ordering::SeqCst);
-    (i >= 0).then_some(i as usize)
-}
-
-/// `"/hotkey=3"` → 3.
-fn parse_hotkey_arg(cmd: &str) -> Option<usize> {
-    let rest = &cmd[cmd.find("/hotkey=")? + "/hotkey=".len()..];
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    digits.parse().ok()
-}
 
 /// Janela visível e não minimizada.
 /// `IsWindowVisible` puro: MINIMIZADA conta como visível (o botão está na
@@ -395,6 +380,9 @@ pub fn restore_from_tray() {
                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_HIDEWINDOW);
         }
         let _ = ShowWindow(hwnd, if wstate(|s| s.was_maximized) { SW_SHOWMAXIMIZED } else { SW_RESTORE });
+        // Saindo da hibernação: a interface volta (com a janela já visível —
+        // o WebView2 não inicializa direito num pai nunca mostrado).
+        ensure_webview();
 
         // Anti-roubo de foco: clicando numa notificação, o processo em primeiro
         // plano é o shell e o Windows recusa o SetForegroundWindow (a janela
@@ -525,43 +513,6 @@ pub fn toggle_fullscreen() {
             if maximized {
                 let _ = ShowWindow(hwnd, SW_MAXIMIZE);
             }
-        }
-    }
-}
-
-/// Sai do modo completo e relança o exe em `/hibernate` (1 min escondido e
-/// ocioso). Ordem crítica:
-/// 1. solta o mutex — senão a hibernação vê `ERROR_ALREADY_EXISTS` e desiste;
-/// 2. solta os atalhos — senão ela sobe SEM atalho, calada (falhar o registro
-///    não é fatal); antes isso só saía no Shutdown, depois do spawn: corrida;
-/// 3. lança (fire-and-forget) e destrói a janela → loop sai → shutdown limpo.
-pub fn spawn_hibernate_and_exit() {
-    let exe = win::exe_path();
-    log!("SpawnHibernate: respawning como /hibernate (exe=\"{exe}\").");
-    let m = MUTEX.swap(0, Ordering::SeqCst);
-    if m != 0 {
-        unsafe {
-            let _ = CloseHandle(HANDLE(m as *mut _));
-        }
-        log::log("SpawnHibernate: mutex liberado.");
-    }
-    // A hibernação registra os mesmos atalhos.
-    let ids: Vec<i32> = REGISTERED_HOTKEYS.lock().unwrap_or_else(|p| p.into_inner()).clone();
-    for id in ids {
-        unregister_global_hotkey(id);
-    }
-    log::log("SpawnHibernate: hotkey liberada (antes do spawn).");
-    let rc = unsafe { ShellExecuteW(None, PCWSTR::null(), &HSTRING::from(exe), w!("/hibernate"), PCWSTR::null(), SW_SHOWNORMAL) };
-    if rc.0 as usize <= 32 {
-        log!("SpawnHibernate: ShellExecuteW FALHOU (codigo={}).", rc.0 as usize);
-    } else {
-        log::log("SpawnHibernate: ShellExecuteW OK.");
-    }
-    REAL_QUIT.store(true, Ordering::SeqCst);
-    let hwnd = main_window();
-    if !hwnd.0.is_null() {
-        unsafe {
-            let _ = DestroyWindow(hwnd);
         }
     }
 }
@@ -861,23 +812,101 @@ fn on_controller_ready(hwnd: HWND, controller: ICoreWebView2Controller, env: &IC
     Ok(())
 }
 
+/// Solta a interface: fecha o controller e o processo do navegador (os
+/// `msedgewebview2.exe`, ~400 MB) sai quando o último objeto do ambiente é
+/// liberado. A janela principal continua (escondida): bandeja, atalhos e
+/// timers dependem dela.
+pub fn destroy_webview() {
+    let ws = WEB.with(|w| w.borrow_mut().take());
+    WEB_READY.with(|r| r.set(false));
+    kill_timer(TIMER_WEBVIEW_RETRY);
+    if let Some(ws) = ws {
+        unsafe {
+            let _ = ws.controller.Close();
+        }
+        drop(ws);
+        log::log("WebView2: interface descarregada.");
+    }
+}
+
+/// A interface existe ou está subindo? Senão, cria.
+pub fn ensure_webview() {
+    if WEB.with(|w| w.borrow().is_some()) || WEB_CREATING.with(Cell::get) {
+        return;
+    }
+    let hwnd = main_window();
+    if hwnd.0.is_null() {
+        return;
+    }
+    set_tray_hibernating(false);
+    log::log("WebView2: recriando a interface.");
+    create_webview(hwnd);
+}
+
+/// Ícone da bandeja diz se o app está hibernando.
+pub fn set_tray_hibernating(on: bool) {
+    let title = window_title();
+    let tip = if on { lang::t_with("tray.hibernating", &[("title", &title)]) } else { title };
+    tray::update_tooltip(&tip);
+}
+
+/// Devolve ao Windows o que o processo não usa mais (depois de soltar a
+/// interface e o motor): apara o working set.
+pub fn trim_memory() {
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+fn webview_failed(why: &str) {
+    WEB_CREATING.with(|c| c.set(false));
+    let n = WEB_RETRIES.with(|r| {
+        r.set(r.get() + 1);
+        r.get()
+    });
+    if n <= WEBVIEW_MAX_RETRIES {
+        log!("WebView2: falhou ({why}) — tentativa {n} de {WEBVIEW_MAX_RETRIES} em {WEBVIEW_RETRY_MS} ms.");
+        set_timer(TIMER_WEBVIEW_RETRY, WEBVIEW_RETRY_MS);
+    } else {
+        log!("WebView2: falhou ({why}) — desistindo; o próximo clique na bandeja tenta de novo.");
+        WEB_RETRIES.with(|r| r.set(0));
+    }
+}
+
 fn create_webview(hwnd: HWND) {
+    WEB_CREATING.with(|c| c.set(true));
     enable_webview_blink_features();
     let user_data = secure_user_data_folder();
 
     let options: ICoreWebView2EnvironmentOptions = CoreWebView2EnvironmentOptions::default().into();
     let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |err, env| {
         log!("TEnvironmentHandler: err={err:?} env={}", env.is_some());
-        err?;
-        let env = env.ok_or_else(|| windows::core::Error::from(E_FAIL))?;
+        let env = match (err, env) {
+            (Ok(()), Some(env)) => env,
+            (e, _) => {
+                webview_failed(&format!("ambiente: {e:?}"));
+                return Ok(());
+            }
+        };
         let env_ui = env.clone();
         let ctrl_handler = CreateCoreWebView2ControllerCompletedHandler::create(Box::new(move |err, controller| {
             log!("TControllerHandler: err={err:?} controller={}", controller.is_some());
-            err?;
-            let controller = controller.ok_or_else(|| windows::core::Error::from(E_FAIL))?;
+            let controller = match (err, controller) {
+                (Ok(()), Some(c)) => c,
+                (e, _) => {
+                    webview_failed(&format!("controller: {e:?}"));
+                    return Ok(());
+                }
+            };
+            WEB_CREATING.with(|c| c.set(false));
+            WEB_RETRIES.with(|r| r.set(0));
             on_controller_ready(hwnd, controller, &env_ui)
         }));
-        unsafe { env.CreateCoreWebView2Controller(hwnd, &ctrl_handler) }
+        let r = unsafe { env.CreateCoreWebView2Controller(hwnd, &ctrl_handler) };
+        if let Err(e) = &r {
+            webview_failed(&format!("CreateCoreWebView2Controller: {e}"));
+        }
+        Ok(())
     }));
 
     let udf = user_data
@@ -888,7 +917,7 @@ fn create_webview(hwnd: HWND) {
         CreateCoreWebView2EnvironmentWithOptions(PCWSTR::null(), PCWSTR(udf.as_ptr()), &options, &handler)
     };
     if let Err(e) = rc {
-        log!("CreateCoreWebView2EnvironmentWithOptions falhou: {e}");
+        webview_failed(&format!("CreateCoreWebView2EnvironmentWithOptions: {e}"));
     }
 }
 
@@ -928,13 +957,6 @@ fn draw_splash(hwnd: HWND) {
     }
 }
 
-fn restore_window(hwnd: HWND) {
-    unsafe {
-        let _ = ShowWindow(hwnd, if IsIconic(hwnd).as_bool() { SW_RESTORE } else { SW_SHOW });
-        let _ = SetForegroundWindow(hwnd);
-    }
-}
-
 fn webview_ready() -> bool {
     WEB_READY.with(|r| r.get())
 }
@@ -943,7 +965,7 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
     // 2ª instância pedindo para trazer esta à frente (single-instance).
     let show = WM_SHOW_INSTANCE.load(Ordering::SeqCst);
     if show != 0 && msg == show {
-        restore_window(hwnd);
+        restore_from_tray();
         return LRESULT(0);
     }
 
@@ -953,7 +975,10 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             mainthread::set_wake_window(hwnd);
             let light = config::get_config_str("theme", "dark").eq_ignore_ascii_case("light");
             set_dark_mode(!light && WM_HOTKEY_DEFAULT_DARK);
-            create_webview(hwnd);
+            // Arranque hibernando: a interface só sobe no clique da bandeja.
+            if !START_LIGHT.with(Cell::get) {
+                create_webview(hwnd);
+            }
             LRESULT(0)
         }
         mainthread::WM_APP_WAKE => {
@@ -973,6 +998,11 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
         }
         WM_SIZE => {
             resize_webview(hwnd);
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == TIMER_WEBVIEW_RETRY => {
+            kill_timer(TIMER_WEBVIEW_RETRY);
+            ensure_webview();
             LRESULT(0)
         }
         WM_TIMER => {
@@ -1031,48 +1061,26 @@ pub fn run() {
     let close_to_tray = config::get_config_bool("closeToTray", true);
     let replay_auto_start = config::get_config_bool("replayAutoStart", false);
 
-    // /autostart + closeToTray + hibernate: o Delphi respawna no modo
-    // hibernate (leve, sem motor/WebView). EXCEÇÃO: replayAutoStart precisa
-    // do motor vivo no boot (pegadinha #62) — a preferência é consultada
-    // ANTES do desvio.
-    if autostart && close_to_tray && config::get_config_bool("hibernate", true) && !replay_auto_start {
-        log::log("OBSUI.Run: /autostart + closeToTray=ON + hibernate=ON — redirecionando pra hibernate::run.");
-        hibernate::run();
-        log::log("OBSUI.Run: hibernate::run retornou — saindo.");
-        return;
+    // Arranque HIBERNANDO (mesmo processo, sem a interface): /autostart com
+    // bandeja e hibernação ligadas, ou o `/hibernate` de versões antigas.
+    // EXCEÇÃO: replayAutoStart precisa do motor vivo no boot (pegadinha #62).
+    let light_start = cmd.contains("/hibernate")
+        || (autostart && close_to_tray && config::get_config_bool("hibernate", true) && !replay_auto_start);
+    if light_start {
+        log::log("OBSUI.Run: arranque hibernando — so bandeja, atalhos e vigias; a interface sobe no clique da bandeja.");
+    } else if autostart && replay_auto_start {
+        log::log("OBSUI.Run: /autostart com buffer automatico ligado — interface escondida na bandeja (o buffer precisa do motor).");
     }
-    if autostart && replay_auto_start {
-        log::log("OBSUI.Run: /autostart com buffer automatico ligado — subindo FULL escondido na bandeja (hibernacao nao tem motor pra guardar).");
-    }
+    START_LIGHT.with(|s| s.set(light_start));
     // /autostart: closeToTray ligado = bandeja; desligado = minimizado na
     // taskbar. Nenhum caso de autostart faz a janela "pular" no logon.
-    let start_in_tray = autostart && close_to_tray;
-    let start_minimized = autostart && !close_to_tray;
-    // /start-record-mic CONTÉM /start-record; o sufixo só diz a origem.
-    let start_record = cmd.contains("/start-record");
-    let start_replay = cmd.contains("/start-replay");
-    let start_hotkey = parse_hotkey_arg(&cmd);
-    START_HOTKEY.store(start_hotkey.map_or(-1, |i| i as i32), Ordering::SeqCst);
-    START_RECORD.store(start_record, Ordering::SeqCst);
-    START_RECORD_MIC.store(cmd.contains("/start-record-mic"), Ordering::SeqCst);
-    START_REPLAY.store(start_replay, Ordering::SeqCst);
-    if start_record {
-        log!("OBSUI.Run: /start-record detectado (mic={}) — gravacao iniciara apos warmup.", start_record_requested_by_mic());
-    }
-    if start_replay {
-        log::log("OBSUI.Run: /start-replay detectado — buffer ligara apos o warmup.");
-    }
-    if let Some(i) = start_hotkey {
-        log!("OBSUI.Run: /hotkey={i} detectado — o atalho roda apos o warmup.");
-    }
-    let start_hotkey = start_hotkey.is_some();
-    // Todo flag de promoção entra aqui E na instalação da bandeja (pegadinha
-    // #62): abrir um jogo não pode fazer a janela pular na frente.
-    let hidden_start = start_in_tray || start_minimized || start_record || start_replay || start_hotkey;
+    let start_in_tray = !light_start && autostart && close_to_tray;
+    let start_minimized = !light_start && autostart && !close_to_tray;
+    let hidden_start = start_in_tray || start_minimized;
 
     unsafe {
-        // Single-instance: a 2ª instância acorda a 1ª e sai. Mesmos literais
-        // do hibernate (pegadinha #36) — vêm de `single_instance`.
+        // Single-instance: a 2ª instância acorda a 1ª e sai. Os literais vêm
+        // de `single_instance` (pegadinha #36).
         let show_msg = RegisterWindowMessageW(&HSTRING::from(SHOW_MSG_NAME));
         WM_SHOW_INSTANCE.store(show_msg, Ordering::SeqCst);
         let mutex = windows::Win32::System::Threading::CreateMutexW(None, false, &HSTRING::from(MUTEX_NAME));
@@ -1080,9 +1088,7 @@ pub fn run() {
         if already {
             // Autostart duplicado é silencioso por design.
             if !autostart {
-                let existing = FindWindowW(&HSTRING::from(CLASS_NAME), PCWSTR::null())
-                    .or_else(|_| FindWindowW(w!("TNoOBSHibernate"), PCWSTR::null()));
-                if let Ok(existing) = existing {
+                if let Ok(existing) = FindWindowW(&HSTRING::from(CLASS_NAME), PCWSTR::null()) {
                     let _ = PostMessageW(Some(existing), show_msg, WPARAM(0), LPARAM(0));
                 }
             }
@@ -1091,7 +1097,7 @@ pub fn run() {
             }
             return;
         }
-        // Vive até o fim do processo, salvo o spawn da hibernação (que o solta).
+        // Vive até o fim do processo.
         if let Ok(m) = mutex {
             MUTEX.store(m.0 as isize, Ordering::SeqCst);
         }
@@ -1133,6 +1139,11 @@ pub fn run() {
         } else {
             (win_x, win_y, WINDOW_EX_STYLE(0))
         };
+        if light_start {
+            // Nasce escondida (sem ShowWindow); o clique na bandeja a mostra,
+            // maximizada como depois de qualquer início escondido.
+            wstate(|s| s.was_maximized = true);
+        }
         if hidden_start {
             wstate(|s| {
                 // Convenção: depois de um início escondido, restaura maximizada.
@@ -1168,12 +1179,21 @@ pub fn run() {
         // clique na bandeja (vem do Explorer) e o aviso de uma 2ª instância.
         elevate::allow_from_lower_il(hwnd, &[show_msg, tray::WM_TRAYICON, RegisterWindowMessageW(w!("TaskbarCreated"))]);
         tray::set_callbacks(tray::Callbacks { on_command: Some(on_tray_command), ..Default::default() });
-        let _ = ShowWindow(hwnd, if hidden_start { SW_SHOWNOACTIVATE } else { SW_SHOW });
-        let _ = UpdateWindow(hwnd);
-        // Bandeja só faz sentido com closeToTray ou promoção da hibernação; o
-        // minimizado (closeToTray desligado) fica acessível pela taskbar.
-        if start_in_tray || start_record || start_replay || start_hotkey {
+        if !light_start {
+            let _ = ShowWindow(hwnd, if hidden_start { SW_SHOWNOACTIVATE } else { SW_SHOW });
+            let _ = UpdateWindow(hwnd);
+        }
+        // Bandeja só faz sentido com closeToTray (ou hibernando); o minimizado
+        // (closeToTray desligado) fica acessível pela taskbar.
+        if light_start {
+            tray::install(hwnd, &lang::t_with("tray.hibernating", &[("title", &window_title())]));
+        } else if start_in_tray {
             tray::install(hwnd, &window_title());
+        }
+        // Backend (atalhos, vigias, fila de transcrição) sobe agora, com ou
+        // sem a interface.
+        if let Some(f) = hooks(|h| h.on_start) {
+            f(light_start);
         }
 
         // Loop puro; o trabalho das workers volta por WM_APP_WAKE.

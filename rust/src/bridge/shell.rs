@@ -1,5 +1,5 @@
 //! Integração do Bridge com o shell do Windows (partes do `OBSBridge.pas`):
-//! bandeja, hibernação por ócio, notificações, atalho global configurável e as
+//! bandeja, hibernação por ócio, validação de atalho e as
 //! preferências de janela (título, fechar pra bandeja, autostart, elevação…).
 //!
 //! Tudo na main thread.
@@ -8,9 +8,9 @@ use serde_json::json;
 
 use crate::{autostart, config, engine, hotkey, lang, log, tray, ui};
 
-use super::{export, post_json, recording, transcribe};
+use super::{post_json, recording};
 
-/// 1 min sem janela visível e sem trabalho: relança como `/hibernate`.
+/// 1 min sem janela visível e sem trabalho: hiberna (descarrega a interface).
 const HIBERNATE_IDLE_DELAY_MS: u32 = 60_000;
 
 /// Liga a bandeja e a janela ao Bridge (parte do `initialization` do Delphi).
@@ -69,9 +69,9 @@ pub fn on_window_restored() {
     recording::push_recording_state();
 }
 
-/// `TIMER_HIBERNATE_IDLE`. One-shot; trabalho longo em worker deste processo
-/// RE-ARMA em vez de desistir (hibernar é sair do processo — a worker morreria
-/// junto), para hibernar assim que terminar.
+/// `TIMER_HIBERNATE_IDLE`. One-shot. Hibernar é descarregar a interface no
+/// MESMO processo, então transcrição e exportação seguem nas workers; só o
+/// teste de vídeo (que usa o motor) re-arma o timer.
 pub fn on_hibernate_idle() {
     ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
     if recording::recording_active() {
@@ -83,13 +83,10 @@ pub fn on_hibernate_idle() {
         log::log("TIMER_HIBERNATE_IDLE: buffer em memoria ligado, hibernacao adiada.");
         return;
     }
-    if transcribe::busy_for_hibernation() || export::export_busy() || super::video_test::busy() {
-        log!(
-            "TIMER_HIBERNATE_IDLE: trabalho em andamento (transcricao/instalacao={}, exportacao={}, teste de video={}), hibernacao adiada.",
-            transcribe::busy_for_hibernation(),
-            export::export_busy(),
-            super::video_test::busy()
-        );
+    // Transcrição e exportação seguem hibernando (o processo é o mesmo); o
+    // teste de vídeo usa o motor, que a hibernação solta.
+    if super::video_test::busy() {
+        log::log("TIMER_HIBERNATE_IDLE: teste de qualidade de video em andamento, hibernacao adiada.");
         ui::set_timer(super::TIMER_HIBERNATE_IDLE, HIBERNATE_IDLE_DELAY_MS);
         return;
     }
@@ -97,8 +94,7 @@ pub fn on_hibernate_idle() {
         log::log("TIMER_HIBERNATE_IDLE: janela visivel, ignorando.");
         return;
     }
-    log::log("TIMER_HIBERNATE_IDLE: respawning como /hibernate.");
-    ui::spawn_hibernate_and_exit();
+    super::enter_light();
 }
 
 // ---------------------------------------------------------------------------

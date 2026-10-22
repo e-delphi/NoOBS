@@ -25,9 +25,7 @@ fn settings_de_instalacao_nova() {
     assert_eq!(st["recordingKeyframeSec"], 2);
     assert_eq!(st["audioBitrate"], 192);
     assert_eq!(st["libraryThumbs"], "auto");
-    assert_eq!(st["transcribeEngine"], "local");
     assert_eq!(st["transcribeLanguage"], "app");
-    assert_eq!(st["transcribeHost"], "http://localhost:8000");
     for (k, v) in [
         ("closeToTray", true),
         ("minimizeOnRecord", true),
@@ -140,4 +138,20 @@ fn atualizacoes() {
     assert!(!config::get_config_bool("checkUpdates", true));
     send(json!({ "type": "set_check_updates", "enabled": true }));
     assert!(config::get_config_bool("checkUpdates", false));
+}
+
+#[test]
+fn restaurar_limpa_ocultos_e_perfil_automatico_ate_de_desconectados() {
+    let _s = begin();
+    config::set_config_json("hiddenFolders", Some(json!(["captures"])));
+    config::set_source_hidden("mics", "Microfone que nao esta ligado", true);
+    config::set_source_hidden("monitors", "2", true);
+    config::set_source_auto_record("speakers", "Caixa desligada", false);
+    send(json!({ "type": "reset_hidden_lists" }));
+    assert!(config::get_config_json("hiddenFolders").is_none());
+    assert!(!config::get_source_hidden("mics", "Microfone que nao esta ligado"));
+    assert!(!config::get_source_hidden("monitors", "2"));
+    assert!(config::get_source_auto_record("speakers", "Caixa desligada"));
+    // A galeria e a lista de pastas da aba Arquivos são refeitas.
+    assert!(testkit::last_of("root_folders").is_some());
 }

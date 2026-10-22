@@ -5,7 +5,7 @@
 //! ```json
 //! "hotkeys": [
 //!   { "mode": "record", "hotkey": "Pause/Break" },
-//!   { "mode": "replay", "hotkey": "Ctrl+Shift+F10" },
+//!   { "mode": "replay", "hotkey": "Ctrl+Shift+Pause/Break" },
 //!   { "mode": "window", "hotkey": "Ctrl+Shift+F7", "title": "nova guia", "appAudio": true, "delaySec": 0 },
 //!   { "mode": "area",   "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "delaySec": 3 },
 //!   { "mode": "area",   "hotkey": "Ctrl+Alt+Pause/Break", "area": null }
@@ -22,7 +22,7 @@
 //! Antes desta lista eram chaves soltas (`hotkey`, `replayHotkey`,
 //! `areaHotkey`, `areaSaved`, `areaDelaySec`); [`migrate_legacy`] as converte
 //! UMA vez e elas deixam de ser lidas. Quem registra e executa é o
-//! `bridge::hotkeys` (modo completo) e o `hibernate` (modo leve).
+//! `bridge::hotkeys`, com ou sem a interface carregada.
 
 use serde_json::{json, Map, Value};
 
@@ -35,7 +35,10 @@ pub const DELAY_MAX: u32 = 60;
 pub const AREA_MIN: i32 = 32;
 
 pub const DEFAULT_RECORD: &str = "Pause/Break";
-pub const DEFAULT_REPLAY: &str = "Ctrl+Shift+F10";
+pub const DEFAULT_REPLAY: &str = "Ctrl+Shift+Pause/Break";
+/// Padrões das chaves ANTIGAS (antes da lista): o salvar trecho era
+/// Ctrl+Shift+F10, e o Ctrl+Shift+Pause/Break era da área salva.
+const LEGACY_REPLAY: &str = "Ctrl+Shift+F10";
 const DEFAULT_LEGACY_AREA: &str = "Ctrl+Shift+Pause/Break";
 
 /// Chaves antigas, apagadas depois da migração.
@@ -162,9 +165,11 @@ pub fn defaults() -> Vec<Item> {
 }
 
 /// Converte as chaves antigas. `get` lê do config (chave ausente = `None`).
-/// Chave de atalho AUSENTE vale o padrão de antes; presente e vazia = o
-/// usuário tinha desligado, e o item não nasce. O atalho da área só existia
-/// com uma área salva.
+/// Chave de atalho AUSENTE vale o padrão; presente e vazia = o usuário
+/// tinha desligado, e o item não nasce. O atalho da área só existia com uma
+/// área salva. O salvar trecho nunca configurado ganha o padrão novo, salvo
+/// se ele já for o da área: aí fica o Ctrl+Shift+F10 que essa pessoa usava,
+/// em vez de nascer repetido.
 pub fn migrate_legacy(get: impl Fn(&str) -> Option<Value>) -> Vec<Item> {
     let spec = |key: &str, default: &str| match get(key) {
         Some(Value::String(s)) => s,
@@ -183,6 +188,11 @@ pub fn migrate_legacy(get: impl Fn(&str) -> Option<Value>) -> Vec<Item> {
         let mut it = Item::new(Mode::Area, &spec("areaHotkey", DEFAULT_LEGACY_AREA));
         it.area = Some(area);
         it.delay_sec = get("areaDelaySec").and_then(|v| v.as_i64()).unwrap_or(0).clamp(0, DELAY_MAX as i64) as u32;
+        if get("replayHotkey").is_none() {
+            if let Some(r) = out.iter_mut().find(|i| i.mode == Mode::Replay && i.hotkey.eq_ignore_ascii_case(&it.hotkey)) {
+                r.hotkey = normalize(LEGACY_REPLAY);
+            }
+        }
         out.push(it);
     }
     out
@@ -243,13 +253,13 @@ pub fn save(list: &[Item]) {
     config::set_config_json("hotkeys", Some(list_to_json(list)));
 }
 
-/// Primeira combinação do modo (texto de dica: "Salvar trecho (Ctrl+Shift+F10)").
+/// Primeira combinação do modo (texto de dica: "Salvar trecho (Ctrl+Shift+Pause/Break)").
 pub fn first_spec(list: &[Item], mode: Mode) -> String {
     list.iter().find(|i| i.mode == mode && !i.hotkey.is_empty()).map(|i| i.hotkey.clone()).unwrap_or_default()
 }
 
 /// Ids do `RegisterHotKey`: dois por item (o segundo é o Ctrl+Break do
-/// Ctrl+Pause). O mesmo esquema no modo completo e na hibernação.
+/// Ctrl+Pause).
 pub const ID_BASE: i32 = 200;
 
 pub fn ids_of(index: usize) -> (i32, i32) {
@@ -335,6 +345,22 @@ mod tests {
         assert_eq!(l[1].hotkey, "Ctrl+Pause/Break");
         assert_eq!(l[1].area, Some(AreaRect { x: 10, y: 20, w: 640, h: 480 }));
         assert_eq!(l[1].delay_sec, 3);
+    }
+
+    #[test]
+    fn migracao_nao_repete_o_atalho_da_area_no_salvar_trecho() {
+        // Área salva com o atalho padrão de antes e o salvar trecho nunca
+        // configurado: cada um fica com o que essa pessoa já usava.
+        let l = migrate_legacy(cfg(&[("areaSaved", json!({ "x": 0, "y": 0, "w": 640, "h": 480 }))]));
+        assert_eq!(l[1].hotkey, LEGACY_REPLAY);
+        assert_eq!(l[2].hotkey, DEFAULT_LEGACY_AREA);
+        assert!(duplicates(&l).is_empty());
+        // Salvar trecho configurado à mão não é tocado (a tela avisa a repetição).
+        let l = migrate_legacy(cfg(&[
+            ("replayHotkey", json!("Ctrl+Shift+Pause/Break")),
+            ("areaSaved", json!({ "x": 0, "y": 0, "w": 640, "h": 480 })),
+        ]));
+        assert_eq!(l[1].hotkey, "Ctrl+Shift+Pause/Break");
     }
 
     #[test]

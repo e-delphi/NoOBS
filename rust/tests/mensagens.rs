@@ -1045,7 +1045,7 @@ fn prepare_sandbox() -> PathBuf {
     let _ = std::fs::create_dir_all(rec_dir());
     std::env::set_var("LOCALAPPDATA", &root);
     std::env::set_var("APPDATA", &root);
-    log::init_log(false);
+    log::init_log();
     root
 }
 

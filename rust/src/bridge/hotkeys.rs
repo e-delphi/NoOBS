@@ -13,8 +13,8 @@
 //! {items, status, delayMax}`; `define_hotkey_area {index}` escolhe o
 //! retângulo de um item de área; `trigger_hotkey {index}` executa um item
 //! (o seletor "Capturar... → Área" usa pros atalhos com área salva).
-//! Na hibernação o mesmo esquema de ids vale (`hibernate.rs`), e o modo
-//! completo nasce com `/hotkey=N`.
+//! Os atalhos ficam registrados também hibernando (é a mesma janela, no mesmo
+//! processo): o de gravar grava sem subir a interface.
 
 use std::cell::{Cell, RefCell};
 
@@ -176,7 +176,7 @@ pub fn on_hotkey(id: i32) -> bool {
     true
 }
 
-/// Executa o item `index` (atalho, `/hotkey=N` da hibernação ou o seletor).
+/// Executa o item `index` (atalho ou o seletor).
 pub fn trigger(index: usize) {
     let Some(it) = list().get(index).cloned() else {
         log!("Atalhos: item {index} nao existe.");

@@ -102,16 +102,16 @@ A feature `app-tests` só torna os módulos públicos pros executáveis de
 | `FFmpegOps`           | `ffmpeg_ops.rs` (+ testes)| remux, união, extração de faixas, miniatura JPEG (#42) / PNG exato, picos de waveform, PCM mono em blocos, grade de keyframes (#61) |
 | `OBSPlayer`           | `player.rs` (+ testes)    | portado inteiro: servidor HTTP (`TcpListener`, Range, CORS restrito), cache por hash do path (#55), `<hash>.json` sob lock, GC, rename |
 | `OBSRecordWatch`      | `record_watch.rs`         | portado (`FindFirstChangeNotification`, debounce, `update_dir` com snapshot do callback — #54) |
-| `FFmpegExport`, `ExportCaptions` (+ `TimeStretch`, `bridge/export.rs`) | `ffmpeg_export.rs`, `export_captions.rs`, `time_stretch.rs` | portado (com a transcrição herdada) |
+| `FFmpegExport`, `ExportCaptions` (+ `TimeStretch`, `bridge/export.rs`) | `ffmpeg_export.rs`, `export_captions.rs`, `time_stretch.rs` | portado (com a transcrição herdada). **Prévia**: o mesmo pedido com `preview {fromMs, sec}` exporta 5/10/30 s do arquivo final a partir do cursor (`preview_segments`, atravessando os cortes) para `%LOCALAPPDATA%\NoOBS\export-preview\` — fora da biblioteca, sem card, sem transcrição, apagada a cada prévia nova e no fechamento — e a tela a abre no player da galeria (`checked_recording` aceita a prévia só nos pedidos de leitura) |
 | `OBSFileMeta` | `file_meta.rs` | portado (bloco no fim do MKV/MP4, worker com pendentes persistidos, importação no `ensure_recording_meta`) |
 | `OBSNumbersPt` | `numbers_pt.rs` | portado |
 | `OBSLocalAsr` | `local_asr.rs` (+ `win_http.rs` WinHTTP com cancelamento, `win_proc.rs` `RunHidden`) | portado (instalação com retomada/SHA-256/espelho, servidor sob Job Object, reamostrador, pipeline de 2 passadas) |
-| `OBSTranscribe` | `transcribe.rs` (+ `transcribe/merge.rs`, `bridge/transcribe.rs`) | portado: fila persistida/reordenável/manual×automática/pausa, espera do servidor, 2 motores, dedup de eco por palavra, transcrição herdada pela exportação, diagnóstico WSL→Docker→container, falantes e busca. Handlers de `transcribe_*`, `local_asr_*`, `root_folders` ligados ao dispatch |
+| `OBSTranscribe` | `transcribe.rs` (+ `transcribe/merge.rs`, `bridge/transcribe.rs`) | portado: fila persistida/reordenável/manual×automática/pausa, espera da instalação do motor, dedup de eco por palavra, transcrição herdada pela exportação, falantes e busca. **Só o motor local**: a Transcritor API (servidor/Docker, com o diagnóstico WSL→Docker→container) saiu. Handlers de `transcribe_*`, `local_asr_*`, `root_folders` ligados ao dispatch |
 | `OBSTray`, `OBSRecordIcon` | `tray.rs`, `record_icon.rs` | portado (ícone, menu, balão, ícone de gravando por DIB 32-bit) |
-| `OBSHibernate` | `hibernate.rs` | portado (bandeja + atalhos de gravação da lista + watchers; promove a completo com `/hotkey=N`, `/start-record`, `/start-record-mic`, `/start-replay`) |
+| `OBSHibernate` | — (`bridge::enter_light` + `ui::destroy_webview`) | **trocado**: hibernar é descarregar a interface no MESMO processo, não relançar o exe (ver "Hibernação" abaixo) |
 | `OBSHotkey` | `hotkey.rs` (+ testes) | portado (parse/format, pontuação OEM — #43, reservados) |
 | `OBSAutostart`, `OBSElevate` | `autostart.rs`, `elevate.rs` | portado |
-| `WinMicWatch`, `WinProcWatch` | `mic_watch.rs`, `proc_watch.rs` (+ testes) | portado (usados pela hibernação; o bridge os liga junto com o buffer e a auto-gravação) |
+| `WinMicWatch`, `WinProcWatch` | `mic_watch.rs`, `proc_watch.rs` (+ testes) | portado (o bridge os liga no backend, com ou sem a interface: auto-gravação e buffer por programa) |
 | `OBSVersion`, `OBSUpdate` | `version.rs` (+ testes), `update.rs` | portado (versão do `git describe` pelo `build.rs`; checagem diária ancorada às 6 h pelo WinHTTP) |
 | `WinRecIndicator` | `rec_indicator.rs` (+ testes) | portado (overlay excluído da captura — #49 —, modos gravação/buffer, pausa, sai da frente de tela cheia, clique opcional, bolinha por GDI+) |
 | `NoOBSLockDetector` | `lock_detector.rs` | portado (janela só-mensagens + `WTSRegisterSessionNotification`) |
@@ -172,13 +172,58 @@ abas: **Janela** (o de sempre) e **Área**.
     lista e a linha mostra o motivo (`hotkeys_state.status`: repetida,
     reservada pelo Windows, em uso por outro programa, inativa).
   - Ids do `RegisterHotKey`: `200 + 2·índice` (+1 pro Ctrl+Break do
-    Ctrl+Pause), iguais no modo completo e na hibernação. Na hibernação os de
-    gravação valem e promovem com `/hotkey=N`, que entra no `hidden_start` e
-    na bandeja como os outros flags de promoção (#62).
+    Ctrl+Pause). Ficam registrados hibernando (mesma janela, mesmo
+    processo); gravar pelo atalho não sobe a interface.
   - As chaves antigas (`hotkey`, `replayHotkey`, `areaHotkey`, `areaSaved`,
     `areaDelaySec`) viram itens na primeira leitura e são apagadas.
   - O seletor "Capturar... → Área" mostra um botão por atalho de área com
     retângulo salvo.
+
+## Hibernação no mesmo processo
+
+O Delphi hibernava relançando o exe em `/hibernate` (outro processo, sem
+motor nem WebView2) e voltava relançando o modo completo — com corridas de
+mutex e de atalho na troca, flags de promoção (`/start-record`,
+`/start-replay`, `/hotkey=N`) e um segundo log. No Rust é um processo só:
+
+- **Backend** (`bridge::start_backend`, hook `on_start` do `ui::run`): sobe
+  uma vez, com ou sem página — atalhos, vigias de mic e de programas, fila de
+  transcrição, escrita de metadados, indicador, bloqueio de tela, checagem de
+  atualização.
+- **Interface** (`bridge::do_init`, a cada `ready`): servidor do player,
+  biblioteca, dispositivos (prévias, medidores, hot-plug), vigia da pasta,
+  warmup do motor e as caps de encoder.
+- **Hibernar** (`bridge::enter_light`, 1 min escondido e ocioso): fecha o
+  WebView2 (`ui::destroy_webview` → o navegador e os renderers saem), suspende
+  os dispositivos (os medidores mantinham sessão de captura em cada mic), para
+  o servidor do player e o vigia da pasta, solta o motor e apara o working set.
+  Roda de novo se uma captura feita hibernando religou motor e dispositivos.
+- **Voltar** (clique na bandeja ou 2ª instância → `ui::restore_from_tray` →
+  `ensure_webview`): a página nova manda `ready` e o `do_init` religa a
+  interface. ~0,5 s do clique à página pronta.
+- **Arranque hibernando** (`/autostart` com bandeja e hibernação, ou o
+  `/hibernate` de versões antigas): a janela nasce escondida e o WebView2 nem é
+  criado.
+- Gravar hibernando (atalho, mic, bandeja, programa da lista) não sobe a
+  interface: os dispositivos voltam (o timer dos medidores acompanha o mudo do
+  mic) e o motor sobe sob demanda. Um atalho de janela com várias janelas
+  casando mostra a janela e guarda o seletor até o `ready`.
+- Transcrição e exportação não seguram mais a hibernação: as workers são do
+  mesmo processo. Só o teste de vídeo (usa o motor) adia.
+
+Medido nesta máquina (AMD, 1 monitor 4K):
+
+| Estado | Processos | Working set | Privado |
+|---|---|---|---|
+| Interface aberta | 7 (NoOBS + 6 WebView2) | ~470 MB | ~330 MB |
+| Hibernando (antes: outro processo) | 1 | 14 MB | 3 MB |
+| Hibernando, arranque `/autostart` | 1 | 1 MB | 3 MB |
+| Hibernando depois de usar a interface | 1 | 1 MB | 36–43 MB |
+
+Os 36–43 MB privados depois de usar a interface são memória reservada que o
+processo não devolve (driver de vídeo e heap depois do motor); o working set
+fica em ~1 MB. Em 3 ciclos seguidos hibernar → voltar, o privado ficou em
+36–41 MB, sem crescer.
 
 ## Como o Rust mudou o desenho
 

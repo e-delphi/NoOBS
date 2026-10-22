@@ -7,11 +7,11 @@
 //! NA THREAD do watcher e só na TRANSIÇÃO.
 //!
 //! * A PRIMEIRA leitura é linha de base e não dispara: um mic já em uso quando
-//!   o watcher sobe é uma chamada EM CURSO, não uma nova (sem isso, hibernar
-//!   no meio de uma chamada cuja gravação o usuário parou a re-disparava).
+//!   o watcher sobe é uma chamada EM CURSO, não uma nova (sem isso, abrir o
+//!   NoOBS no meio de uma chamada a gravaria sem ninguém pedir).
 //! * Exclui o próprio PID (o NoOBS abre o mic pros medidores — pegadinha #12)
-//!   E o próprio NOME de exe: a sessão do processo full que acabou de sair
-//!   fica `Active` por ~1-2 s, e a hibernação tem outro PID.
+//!   E o próprio NOME de exe: outra instância do NoOBS (um processo que acabou
+//!   de sair deixa a sessão `Active` por ~1-2 s) não é chamada.
 //! * Filtro de monitorados vazio = qualquer app; as EXCEÇÕES só valem com ele
 //!   vazio ("tudo, menos estes"). Exceções vazias = nada ignorado.
 
@@ -91,7 +91,7 @@ fn poll_mic_in_use(wanted: &[String], except: &[String], own_pid: u32, own_name:
                     continue;
                 }
                 let name = process_name(pid);
-                // Outra instância do NoOBS (o full saindo para hibernar).
+                // Outra instância do NoOBS (ou uma que acabou de sair).
                 if name.is_empty() || name == own_name {
                     continue;
                 }

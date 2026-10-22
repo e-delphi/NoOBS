@@ -418,6 +418,11 @@ pub fn handle_record_start() {
     }
     // Gravação em curso = não hibernar.
     ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
+    // Começando hibernado (atalho, mic, bandeja): os dispositivos voltam — é o
+    // timer dos medidores que acompanha o mudo do microfone na gravação.
+    if super::is_light() {
+        devices::do_init();
+    }
 
     // Finalização anterior em curso: RECUSA o start. (O ForceCompleteStop síncrono
     // travava a MAIN por segundos; a UI desabilita o botão e este guard cobre
@@ -847,8 +852,31 @@ pub fn on_hotkey(id: i32) {
 /// Agenda o warmup do motor: com delay para a UI renderizar primeiro; a 1ª
 /// gravação fica instantânea (os encoders já detectados e aquecidos — o AMF
 /// só se inicializa no 1º quadro).
-pub fn schedule_warmup() {
+fn schedule_warmup() {
     ui::set_timer(TIMER_WARMUP, WARMUP_DELAY_MS);
+}
+
+/// Página nova (abertura, reload, volta da hibernação): ela não tem as caps
+/// de encoder. Motor de pé = manda já; senão o warmup sobe o motor e manda.
+pub fn on_page_ready() {
+    with_state(|s| s.encoder_caps_pushed = false);
+    if engine::with_engine(|e| e.is_initialized()).unwrap_or(false) {
+        push_encoder_caps_once();
+    } else {
+        schedule_warmup();
+    }
+}
+
+/// Hibernando: o motor (dispositivo D3D11, encoders aquecidos) é solto se não
+/// estiver capturando nada; a próxima gravação o cria de novo, sob demanda.
+pub fn on_light() {
+    ui::kill_timer(TIMER_WARMUP);
+    with_state(|s| s.encoder_caps_pushed = false);
+    let busy = engine::with_engine(|e| e.is_recording() || e.is_stopping() || e.is_replay_active()).unwrap_or(false);
+    if engine::exists() && !busy && !recording_active() {
+        engine::destroy();
+        log::log("Motor: solto pra hibernar.");
+    }
 }
 
 fn on_warmup() {
@@ -867,23 +895,7 @@ fn on_warmup() {
     // FORA do if acima de propósito: o engine pode ter sido criado ANTES deste
     // timer (watcher de apps ligando o buffer) e as caps têm que sair igual.
     push_encoder_caps_once();
-    // /start-record: a hibernação lançou este processo porque o usuário
-    // apertou o atalho (ou o mic entrou em uso). Com o motor aquecido, grava
-    // agora; se o warmup falhou, o start inicializa sob demanda.
-    if ui::start_record_requested() && !recording_active() {
-        log!("TIMER_WARMUP: /start-record — disparando gravacao.");
-        // Veio do watcher de mic: gravação "automática", que para sozinha.
-        if ui::start_record_requested_by_mic() {
-            set_started_by_mic_watch(true);
-        }
-        handle_record_start();
-    }
-    // /hotkey=N: um atalho da lista foi apertado na hibernação.
-    if let Some(i) = ui::start_hotkey_requested() {
-        log!("TIMER_WARMUP: /hotkey={i} — executando o atalho.");
-        super::hotkeys::trigger(i);
-    }
-    // "Ligar o buffer ao abrir" e o /start-replay viram vontade da sessão.
+    // "Ligar o buffer ao abrir" vira vontade da sessão.
     replay::on_warmup();
 }
 

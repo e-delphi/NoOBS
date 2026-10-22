@@ -4,8 +4,7 @@
 //! Varre os processos (ToolHelp32) a cada 2 s e compara o nome do executável
 //! com o filtro do usuário por "contém", sem caixa: `valorant` casa com
 //! `VALORANT-Win64-Shipping.exe`. O callback roda NA THREAD do watcher e só na
-//! mudança de estado — o consumidor marshala para a main (modo full) ou posta
-//! mensagem para a janela (hibernação).
+//! mudança de estado — o consumidor marshala para a main.
 //!
 //! Diferença deliberada para o watcher de mic: aqui a PRIMEIRA leitura também
 //! dispara. "O jogo está aberto" é um ESTADO: abrir o NoOBS com o jogo já

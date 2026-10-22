@@ -314,6 +314,10 @@ pub fn start_replay_buffer() {
     if engine::with_engine(|e| e.is_stopping()).unwrap_or(false) {
         return;
     }
+    // Hibernado (um jogo da lista abriu): os dispositivos voltam, como ao gravar.
+    if super::is_light() {
+        super::devices::do_init();
+    }
     let r = (|| -> Result<(), String> {
         engine::ensure_created();
         recording::with_engine_result(|e| e.ensure_initialized())?;
@@ -604,16 +608,10 @@ pub fn do_init() {
     proc_watch::start(&config::get_config_str("replayAutoApps", ""), on_app_running_thread);
 }
 
-/// Fim do warmup: `/start-replay` (a hibernação promoveu por um jogo) ou
-/// `replayAutoStart` viram vontade da sessão. Se um `/start-record` acabou de
-/// gravar, o buffer espera ele terminar.
+/// Fim do warmup: `replayAutoStart` vira vontade da sessão. Gravando, o
+/// buffer espera a gravação terminar.
 pub fn on_warmup() {
-    if ui::start_replay_requested() {
-        with(|s| {
-            s.wanted = true;
-            s.started_by_app_watch = true;
-        });
-    } else if config::get_config_bool("replayAutoStart", false) {
+    if config::get_config_bool("replayAutoStart", false) {
         with(|s| s.wanted = true);
     }
     if replay_wanted() && !recording::recording_active() {

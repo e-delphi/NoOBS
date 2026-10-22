@@ -159,6 +159,12 @@ const Export = {
   },
 
   close() {
+    // A prévia é desta tela: fechar a cancela (a exportação de verdade não).
+    if (this.previewing) {
+      Bridge.send('cancel_export', {});
+      this.previewing = false;
+      this._syncPreviewButton(0);
+    }
     // Fechar NAO cancela: a exportacao roda numa thread do backend, sem
     // depender da tela. O progresso segue visivel na barra do card da
     // gravacao (ver attachCardProgress). Reabrir a tela durante a
@@ -2226,18 +2232,20 @@ const Export = {
     return isolated > 0 && picked === isolated;
   },
 
-  run() {
-    if (this.running || !this.currentId) return;
+  // O pedido da exportação, do jeito que a tela está agora. `null` = não há
+  // o que exportar (o motivo já foi avisado). A prévia usa o MESMO pedido.
+  _buildMsg() {
+    if (!this.currentId) return null;
     const segs = this.keptSegments();
-    if (segs.length === 0 || this.keptDuration() <= 0) return;
+    if (segs.length === 0 || this.keptDuration() <= 0) return null;
     // Sem tela e sem faixa nenhuma o arquivo sairia vazio.
     if (this.noVideo && this._audioSelection().length === 0) {
       Toast.show(T('toast.errorTitle'), T('error.exportNothing'), { warn: true, ttl: 5000 });
-      return;
+      return null;
     }
     const burn = document.getElementById('exportBurnCaptions');
 
-    const msg = {
+    return {
       id: this.currentId,
       name: document.getElementById('exportName').value,
       segments: segs.map(s => ({ startMs: Math.round(s.start * 1000),
@@ -2274,6 +2282,12 @@ const Export = {
                 document.getElementById('exportMixAudio').checked,
       container: document.getElementById('exportContainer').value || 'mp4'
     };
+  },
+
+  run() {
+    if (this.running || this.previewing) return;
+    const msg = this._buildMsg();
+    if (!msg) return;
 
     // Tocando a previa durante a exportacao seria disputa boba de CPU
     // (e o som atrapalha quem esta esperando).
@@ -2408,6 +2422,63 @@ const Export = {
     document.getElementById('exportProgressFill').style.width = p + '%';
     document.getElementById('exportProgressText').textContent =
       T('export.progress', { pct: p.toFixed(0) });
+  },
+
+  // ---- prévia ---------------------------------------------------------
+  // As mesmas opções, só 5/10/30 s do arquivo final a partir do cursor,
+  // numa pasta temporária. Pronta, abre no player da galeria (por cima
+  // desta tela, que continua como estava). Clicar de novo cancela.
+
+  previewing: false,
+
+  previewAction() {
+    if (this.previewing) {
+      Bridge.send('cancel_export', {});
+      const btn = document.getElementById('exportPreviewBtn');
+      if (btn) { btn.disabled = true; btn.textContent = T('export.canceling'); }
+      return;
+    }
+    if (this.running) return;
+    const msg = this._buildMsg();
+    if (!msg) return;
+    const sec = +(document.getElementById('exportPreviewSec') || {}).value || 10;
+    msg.preview = { fromMs: Math.round(this.playSec * 1000), sec };
+    const v = document.getElementById('exportVideo');
+    if (v) { try { v.pause(); } catch (e) {} }
+    this.previewing = true;
+    this._syncPreviewButton(0);
+    Bridge.send('export_recording', msg);
+  },
+
+  _syncPreviewButton(pct) {
+    const btn = document.getElementById('exportPreviewBtn');
+    const run = document.getElementById('exportRunBtn');
+    const sec = document.getElementById('exportPreviewSec');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = this.previewing
+        ? T('export.preview.generating', { pct: Math.round(pct || 0) })
+        : T('export.preview.button');
+    }
+    // Uma exportação por vez no backend: a de verdade espera a prévia.
+    if (run && !this.running) run.disabled = this.previewing;
+    if (sec) sec.disabled = this.previewing;
+  },
+
+  onPreviewProgress(pct) {
+    if (this.previewing) this._syncPreviewButton(pct);
+  },
+
+  onPreviewDone(data) {
+    this.previewing = false;
+    this._syncPreviewButton(0);
+    if (data && data.ok && data.path) {
+      // Mesmo caminho do card da galeria: o player pede a URL ao backend.
+      Bridge.send('play_recording', { id: data.path });
+    } else if (data && data.canceled) {
+      Toast.show(T('export.preview.canceled'), '', { ttl: 3000 });
+    }
+    // Falha de verdade já veio como toast de erro pelo handler `error`.
   },
 
   onDone(data) {

@@ -137,8 +137,8 @@ pub fn update_tooltip(tooltip: &str) {
     }
 }
 
-/// Balão (`NIF_INFO`): fallback de notificação quando a UI HTML ainda não
-/// subiu (gravação vinda da hibernação). No-op sem ícone.
+/// Balão (`NIF_INFO`): aviso com a janela escondida (ex.: atalho de janela
+/// que não achou nenhuma). No-op sem ícone.
 pub fn show_balloon(title: &str, message: &str) {
     let Some(hwnd) = with(|s| s.hwnd.filter(|_| s.added)) else { return };
     let mut d = base_data(hwnd);

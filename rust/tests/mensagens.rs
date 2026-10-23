@@ -441,12 +441,13 @@ fn m_idioma() -> Result<String, String> {
     send(json!({ "type": "set_language", "language": "en" }));
     let l = wait_msg("language_changed", 3_000, any)?;
     check(l["language"] == "en", format!("idioma: {}", l["language"]))?;
-    let en = l["i18n"]["settings"]["title"].as_str().unwrap_or("").to_owned();
+    // A interface lê os textos do `lang` em vigor (o pacote não viaja mais).
+    let en = noobs::lang::t("settings.title");
     clear_sent();
     send(json!({ "type": "set_language", "language": "pt-BR" }));
-    let l = wait_msg("language_changed", 3_000, any)?;
-    let pt = l["i18n"]["settings"]["title"].as_str().unwrap_or("").to_owned();
-    check(!en.is_empty() && en != pt, format!("o bundle nao mudou de idioma: {en:?} / {pt:?}"))?;
+    let _ = wait_msg("language_changed", 3_000, any)?;
+    let pt = noobs::lang::t("settings.title");
+    check(!en.is_empty() && en != pt, format!("os textos nao mudaram de idioma: {en:?} / {pt:?}"))?;
     no_errors()?;
     Ok(format!("{en} → {pt}"))
 }
@@ -870,13 +871,12 @@ fn run_messages(filtro: &str) -> i32 {
     noobs::lang::init_language();
     config::set_config_str("recordDir", &rec_dir().to_string_lossy());
     // Nada que saia do processo de teste: atalhos globais, bandeja, som, janela
-    // de aviso, indicadores, atualização, transcrição, hibernação.
+    // de aviso, indicadores, atualização, transcrição.
     for (k, v) in [
         ("transcribeOnStop", false),
         ("minimizeOnRecord", false),
         ("playSoundOnRecord", false),
         ("closeToTray", false),
-        ("hibernate", false),
         ("recIndicator", false),
         ("replayIndicator", false),
         ("checkUpdates", false),

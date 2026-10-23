@@ -1,6 +1,6 @@
 //! Integração do Bridge com o shell do Windows (partes do `OBSBridge.pas`):
-//! bandeja, hibernação por ócio, validação de atalho e as
-//! preferências de janela (título, fechar pra bandeja, autostart, elevação…).
+//! bandeja, validação de atalho e as preferências de janela (título, fechar
+//! pra bandeja, autostart, elevação…).
 //!
 //! Tudo na main thread.
 
@@ -9,9 +9,6 @@ use serde_json::json;
 use crate::{autostart, config, engine, hotkey, lang, log, tray, ui};
 
 use super::{post_json, recording};
-
-/// 1 min sem janela visível e sem trabalho: hiberna (descarrega a interface).
-const HIBERNATE_IDLE_DELAY_MS: u32 = 60_000;
 
 /// Liga a bandeja e a janela ao Bridge (parte do `initialization` do Delphi).
 pub fn install() {
@@ -31,7 +28,7 @@ fn toggle_record_from_tray() {
     }
 }
 
-/// Buffer em memória ligado conta como gravando para fechar e hibernar.
+/// Buffer em memória ligado conta como gravando para fechar.
 fn replay_active() -> bool {
     engine::with_engine(|e| e.is_replay_active()).unwrap_or(false)
 }
@@ -43,58 +40,10 @@ pub fn should_hide_on_close() -> bool {
     config::get_config_bool("closeToTray", true) || recording::recording_active() || replay_active()
 }
 
-// ---------------------------------------------------------------------------
-// Hibernação por ócio
-// ---------------------------------------------------------------------------
-
-/// Janela foi pra bandeja/taskbar: arma o timer de ócio. Não arma gravando,
-/// com o buffer ligado ou com `hibernate` desligado.
-pub fn on_window_hidden() {
-    if recording::recording_active() || replay_active() {
-        return;
-    }
-    if !config::get_config_bool("hibernate", true) {
-        log::log("OnWindowHidden: hibernate desativada no config — skip.");
-        return;
-    }
-    log!("OnWindowHidden: armando timer de idle hibernate ({HIBERNATE_IDLE_DELAY_MS}ms).");
-    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
-    ui::set_timer(super::TIMER_HIBERNATE_IDLE, HIBERNATE_IDLE_DELAY_MS);
-}
-
-/// Janela voltou: desarma o ócio e reempurra o estado de gravação — com a
-/// janela escondida o WebView2 às vezes perde mensagens (pegadinha #38).
+/// Janela voltou da bandeja/taskbar: reempurra o estado de gravação (o que
+/// mudou com ela escondida, pelo atalho ou pela bandeja).
 pub fn on_window_restored() {
-    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
     recording::push_recording_state();
-}
-
-/// `TIMER_HIBERNATE_IDLE`. One-shot. Hibernar é descarregar a interface no
-/// MESMO processo, então transcrição e exportação seguem nas workers; só o
-/// teste de vídeo (que usa o motor) re-arma o timer.
-pub fn on_hibernate_idle() {
-    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
-    if recording::recording_active() {
-        log::log("TIMER_HIBERNATE_IDLE: gravando, hibernacao adiada.");
-        return;
-    }
-    // Sem re-armar: desligar o buffer com a janela escondida arma de novo.
-    if replay_active() {
-        log::log("TIMER_HIBERNATE_IDLE: buffer em memoria ligado, hibernacao adiada.");
-        return;
-    }
-    // Transcrição e exportação seguem hibernando (o processo é o mesmo); o
-    // teste de vídeo usa o motor, que a hibernação solta.
-    if super::video_test::busy() {
-        log::log("TIMER_HIBERNATE_IDLE: teste de qualidade de video em andamento, hibernacao adiada.");
-        ui::set_timer(super::TIMER_HIBERNATE_IDLE, HIBERNATE_IDLE_DELAY_MS);
-        return;
-    }
-    if ui::is_window_shown() {
-        log::log("TIMER_HIBERNATE_IDLE: janela visivel, ignorando.");
-        return;
-    }
-    super::enter_light();
 }
 
 // ---------------------------------------------------------------------------
@@ -147,17 +96,6 @@ pub fn handle_set_close_to_tray(enable: bool) {
     } else if ui::is_window_visible() {
         // Minimizada conta: ela continua acessível pela taskbar.
         ui::remove_tray_icon();
-    }
-}
-
-pub fn handle_set_hibernate(enable: bool) {
-    config::set_config_bool("hibernate", enable);
-    log!("Hibernate: {enable}");
-    if !enable {
-        ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
-    } else if !ui::is_window_shown() {
-        // Já escondida e sem gravar: arma agora, sem exigir reabrir/esconder.
-        on_window_hidden();
     }
 }
 

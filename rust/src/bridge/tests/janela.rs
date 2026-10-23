@@ -92,7 +92,6 @@ fn preferencias_booleanas_vao_pro_config() {
     for (tipo, chave) in [
         ("set_run_as_admin", "runAsAdmin"),
         ("set_close_to_tray", "closeToTray"),
-        ("set_hibernate", "hibernate"),
         ("set_minimize_on_record", "minimizeOnRecord"),
         ("set_play_sound_on_record", "playSoundOnRecord"),
         ("set_stop_on_lock", "stopOnLock"),

@@ -13,8 +13,8 @@
 //! {items, status, delayMax}`; `define_hotkey_area {index}` escolhe o
 //! retângulo de um item de área; `trigger_hotkey {index}` executa um item
 //! (o seletor "Capturar... → Área" usa pros atalhos com área salva).
-//! Os atalhos ficam registrados também hibernando (é a mesma janela, no mesmo
-//! processo): o de gravar grava sem subir a interface.
+//! Os atalhos ficam na janela oculta (`ui`): valem com a janela do app na
+//! bandeja, e o de gravar grava sem mostrá-la.
 
 use std::cell::{Cell, RefCell};
 

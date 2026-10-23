@@ -18,7 +18,7 @@ use crate::engine::{self, AreaRect, CaptureInputs, RecordRequest, WindowCapture}
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
 use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, win_audio_meter, win_preview, win_webcam};
 
-use super::{devices, library, post_error, post_json, replay, shell};
+use super::{devices, library, post_error, post_json, replay};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -416,14 +416,6 @@ pub fn handle_record_start() {
         });
         return;
     }
-    // Gravação em curso = não hibernar.
-    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
-    // Começando hibernado (atalho, mic, bandeja): os dispositivos voltam — é o
-    // timer dos medidores que acompanha o mudo do microfone na gravação.
-    if super::is_light() {
-        devices::do_init();
-    }
-
     // Finalização anterior em curso: RECUSA o start. (O ForceCompleteStop síncrono
     // travava a MAIN por segundos; a UI desabilita o botão e este guard cobre
     // o atalho global e a auto-gravação.) O TIMER_STOP_TIMEOUT garante que isso
@@ -453,7 +445,7 @@ pub fn handle_record_start() {
         && !has_window;
     if replay::replay_active() && !continue_replay {
         log!("HandleRecordStart: parando o buffer em memoria pra gravar.");
-        replay::stop_replay_buffer(false);
+        replay::stop_replay_buffer();
     }
 
     let t0 = Instant::now();
@@ -508,7 +500,7 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     if continue_replay && !replay::continue_into_recording(&req.output_path) {
         continue_replay = false;
         log!("HandleRecordStart: nao deu pra continuar o buffer — descartando-o.");
-        replay::stop_replay_buffer(false);
+        replay::stop_replay_buffer();
     }
     if !continue_replay {
         let inputs = gather_capture_inputs();
@@ -618,11 +610,9 @@ pub fn handle_record_stop() {
     }
 
     // O auto-minimizar escondeu a janela no start: ela volta. Senão continua
-    // escondida, e o ócio de hibernação é armado.
+    // escondida.
     if with_state(|s| std::mem::take(&mut s.window_was_visible_before_record)) {
         ui::restore_from_tray();
-    } else {
-        shell::on_window_hidden();
     }
 
     // O que mudou de dispositivo durante a gravação é aplicado agora.
@@ -856,26 +846,14 @@ fn schedule_warmup() {
     ui::set_timer(TIMER_WARMUP, WARMUP_DELAY_MS);
 }
 
-/// Página nova (abertura, reload, volta da hibernação): ela não tem as caps
-/// de encoder. Motor de pé = manda já; senão o warmup sobe o motor e manda.
+/// Interface subiu: ela não tem as caps de encoder. Motor de pé = manda já;
+/// senão o warmup sobe o motor e manda.
 pub fn on_page_ready() {
     with_state(|s| s.encoder_caps_pushed = false);
     if engine::with_engine(|e| e.is_initialized()).unwrap_or(false) {
         push_encoder_caps_once();
     } else {
         schedule_warmup();
-    }
-}
-
-/// Hibernando: o motor (dispositivo D3D11, encoders aquecidos) é solto se não
-/// estiver capturando nada; a próxima gravação o cria de novo, sob demanda.
-pub fn on_light() {
-    ui::kill_timer(TIMER_WARMUP);
-    with_state(|s| s.encoder_caps_pushed = false);
-    let busy = engine::with_engine(|e| e.is_recording() || e.is_stopping() || e.is_replay_active()).unwrap_or(false);
-    if engine::exists() && !busy && !recording_active() {
-        engine::destroy();
-        log::log("Motor: solto pra hibernar.");
     }
 }
 

@@ -33,7 +33,6 @@ fn settings_de_instalacao_nova() {
         ("recIndicatorClickable", true),
         ("playSoundOnRecord", true),
         ("stopOnLock", true),
-        ("hibernate", true),
         ("autoRecordOnMic", false),
         ("checkUpdates", true),
         ("runAsAdmin", false),

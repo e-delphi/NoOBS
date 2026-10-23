@@ -3,9 +3,13 @@ name = "noobs"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
-description = "NoOBS: gravador de tela com libobs embarcado e UI em WebView2 (porte do Delphi para Rust, sem Tauri)"
+description = "NoOBS: gravador de tela com motor de captura próprio e UI nativa em Slint"
 
 [dependencies]
+# UI nativa (docs/ui-slint.md). Skia: o mesmo rasterizador do Chromium, pra o
+# texto e as bordas saírem como na versão web. winit-030: o HWND da janela
+# (selo da taskbar, barra de título escura).
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-skia-opengl", "unstable-winit-030"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libloading = "0.8"
@@ -15,7 +19,6 @@ sha1 = "0.10"
 windows-core = "0.61"
 jpeg-encoder = "0.6"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-webview2-com = "0.38"
 windows = { version = "0.61", features = [
   "Win32_Devices_FunctionDiscovery",
   "Win32_Foundation",
@@ -94,6 +97,7 @@ required-features = ["app-tests"]
 [build-dependencies]
 # Embute o MAINICON (icon.ico) no exe — bandeja, janela e taskbar usam.
 embed-resource = "3"
+slint-build = "1.18"
 
 [profile.release]
 opt-level = 3

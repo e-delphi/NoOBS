@@ -41,8 +41,6 @@ const WEBCAM_REFRESH_DEBOUNCE_MS: u32 = 800;
 const AUDIO_METER_MS: u32 = 100;
 /// 2 FPS: boa sensação de "ao vivo" sem custo proibitivo de BitBlt.
 const THUMB_TICK_MS: u64 = 500;
-/// Geração da thread de prévias: a hibernação incrementa e a thread em curso sai.
-static THUMB_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[derive(Default)]
 struct DevState {
@@ -699,20 +697,14 @@ static THUMB_BUSY: AtomicBool = AtomicBool::new(false);
 /// minimizado, e a visibilidade sozinha não pegaria (mesma regra e mesma chave
 /// `fullscreenDetect` do indicador).
 fn thumb_pause_reason() -> &'static str {
-    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindowVisible};
     if player_open_atomic() {
         return "player aberto";
     }
-    let hwnd = ui::main_window();
-    if !hwnd.0.is_null() {
-        unsafe {
-            if !IsWindowVisible(hwnd).as_bool() {
-                return "janela escondida";
-            }
-            if IsIconic(hwnd).as_bool() {
-                return "janela minimizada";
-            }
-        }
+    if !ui::is_window_visible() {
+        return "janela escondida";
+    }
+    if !ui::is_window_shown() {
+        return "janela minimizada";
     }
     if crate::rec_indicator::fullscreen_app_active() {
         return "app em tela cheia";
@@ -738,12 +730,9 @@ fn start_thumb_thread() {
     if with_dev(|d| std::mem::replace(&mut d.thumb_thread_started, true)) {
         return;
     }
-    // A hibernação para a thread trocando a geração; uma thread velha ainda
-    // dormindo vê que não é mais a dela e sai.
-    let generation = THUMB_GEN.load(Ordering::SeqCst);
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         let mut last_reason = String::new();
-        while !is_shutting_down() && THUMB_GEN.load(Ordering::SeqCst) == generation {
+        while !is_shutting_down() {
             // Captura PRIMEIRO, dorme DEPOIS: a 1ª prévia aparece quase na hora.
             let reason = thumb_pause_reason();
             if reason != last_reason {
@@ -759,7 +748,7 @@ fn start_thumb_thread() {
             }
             // Dorme em pedaços de 100 ms para terminar rápido no shutdown.
             let mut slept = 0;
-            while slept < THUMB_TICK_MS && !is_shutting_down() && THUMB_GEN.load(Ordering::SeqCst) == generation {
+            while slept < THUMB_TICK_MS && !is_shutting_down() {
                 let step = (THUMB_TICK_MS - slept).min(100);
                 std::thread::sleep(Duration::from_millis(step));
                 slept += step;
@@ -1034,27 +1023,6 @@ pub fn on_timer(id: usize) -> bool {
         _ => return false,
     }
     true
-}
-
-/// Hibernação: para prévias, medidores (que mantinham uma sessão de captura
-/// aberta em cada microfone — pegadinha #12) e o vigia de hot-plug. O próximo
-/// `do_init` (página nova, ou uma gravação que começa hibernando) religa.
-pub fn suspend() {
-    if !with_dev(|d| d.init_started) {
-        return;
-    }
-    for id in [TIMER_AUDIO_REFRESH, TIMER_MONITOR_REFRESH, TIMER_AUDIO_METER, TIMER_WEBCAM_REFRESH] {
-        ui::kill_timer(id);
-    }
-    THUMB_GEN.fetch_add(1, Ordering::SeqCst);
-    audio_watch::stop();
-    wam::done_audio();
-    with_dev(|d| {
-        d.thumb_thread_started = false;
-        d.initialized = false;
-        d.init_started = false;
-    });
-    log::log("Dispositivos: suspensos (previas, medidores e hot-plug parados).");
 }
 
 /// Encerra o que este módulo mantém vivo.

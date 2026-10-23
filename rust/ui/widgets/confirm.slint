@@ -1,0 +1,203 @@
+// Diálogo de confirmação genérico (o objeto `Confirm` da versão web).
+// Abre por `Confirm.open(...)` de qualquer tela; o "ok" devolve a `action` e o
+// `arg` que a tela passou — é o que substitui o callback em JS. Esc cancela,
+// Enter confirma, clique no fundo (apertar E soltar fora do cartão) cancela.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+
+export global Confirm {
+    in-out property <bool> visible;
+    in-out property <string> title;
+    in-out property <string> message;
+    in-out property <string> ok-label;
+    in-out property <string> cancel-label;
+    in-out property <bool> danger: true;
+    // "delete" (vermelho) ou "merge" (azul).
+    in-out property <string> icon: "delete";
+    in-out property <string> action;
+    in-out property <string> arg;
+    callback accepted(string /* action */, string /* arg */);
+
+    public function open(title: string, message: string, ok-label: string, danger: bool, icon: string, action: string, arg: string) {
+        self.title = title;
+        self.message = message;
+        self.ok-label = ok-label;
+        self.cancel-label = "";
+        self.danger = danger;
+        self.icon = icon;
+        self.action = action;
+        self.arg = arg;
+        self.visible = true;
+    }
+    public function close() {
+        self.visible = false;
+    }
+    public function confirm() {
+        self.visible = false;
+        self.accepted(self.action, self.arg);
+    }
+}
+
+component ConfirmButton {
+    in property <string> text;
+    in property <bool> danger;
+    callback clicked();
+    height: 34px;
+    width: label.preferred-width + 32px;
+
+    bg := Rectangle {
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: root.danger ? Theme.danger : ta.has-hover ? Theme.border-2 : Theme.border;
+        background: root.danger ? (ta.has-hover ? Theme.danger.brighter(10%) : Theme.danger) : ta.has-hover ? Theme.panel-3 : Theme.panel-2;
+        animate background, border-color { duration: 150ms; easing: ease; }
+    }
+    label := Text {
+        text: root.text;
+        font-family: Theme.font;
+        font-size: 13px;
+        font-weight: 500;
+        color: root.danger ? #ffffff : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component ConfirmDialog {
+    width: 100%;
+    height: 100%;
+    property <bool> down-on-backdrop;
+    visible: self.opacity > 0;
+    opacity: Confirm.visible ? 1 : 0;
+    animate opacity { duration: 160ms; easing: ease; }
+
+    // O vidro escuro. `backdrop-filter: blur(4px)` não existe no Slint: fica
+    // só a cor, que é o que domina o efeito sobre o fundo escuro do app.
+    backdrop := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                root.down-on-backdrop = true;
+            }
+        }
+        clicked => {
+            if root.down-on-backdrop {
+                Confirm.close();
+            }
+            root.down-on-backdrop = false;
+        }
+        Rectangle { background: rgba(0, 0, 0, 0.55); }
+    }
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                Confirm.close();
+                return accept;
+            }
+            if e.text == Key.Return {
+                Confirm.confirm();
+                return accept;
+            }
+            reject
+        }
+    }
+    changed opacity => {
+        if Confirm.visible {
+            keys.focus();
+        }
+    }
+
+    modal := Rectangle {
+        width: min(420px, root.width - 40px);
+        height: layout.preferred-height;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        border-radius: 12px;
+        drop-shadow-offset-y: 20px;
+        drop-shadow-blur: 60px;
+        drop-shadow-color: rgba(0, 0, 0, 0.5);
+        clip: true;
+        transform-scale-x: Confirm.visible ? 100% : 96%;
+        transform-scale-y: Confirm.visible ? 100% : 96%;
+        animate transform-scale-x, transform-scale-y { duration: 160ms; easing: ease; }
+
+        // O cartão engole o clique (senão cairia no fundo e fecharia).
+        TouchArea { }
+
+        layout := VerticalLayout {
+            HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 22px;
+                padding-bottom: 8px;
+                spacing: 14px;
+                alignment: stretch;
+                Rectangle {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 24px;
+                    background: Confirm.icon == "merge" ? Theme.accent-bg : rgba(220, 38, 38, 0.12);
+                    if Confirm.icon == "merge": Path {
+                        width: 24px;
+                        height: 24px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        fill: Theme.accent-2;
+                        commands: "M7.586 8.00366L4 8.00366C3.44772 8.00366 3 7.55595 3 7.00366C3 6.45138 3.44772 6.00366 4 6.00366L8 6.00366C8.26509 6.00366 8.51933 6.10892 8.70685 6.2963L13.414 11H18.5845L15.2931 7.71103C14.9025 7.32065 14.9023 6.68748 15.2926 6.29681C15.683 5.90615 16.3162 5.90592 16.7068 6.2963L21.7068 11.2926C21.8945 11.4802 22 11.7346 22 11.9998C22 12.2651 21.8947 12.5195 21.7071 12.7071L16.7071 17.7071C16.3166 18.0976 15.6834 18.0976 15.2929 17.7071C14.9024 17.3166 14.9024 16.6834 15.2929 16.2929L18.5858 13H13.4142L8.70711 17.7071C8.51957 17.8947 8.26522 18 8 18H4C3.44772 18 3 17.5523 3 17C3 16.4477 3.44772 16 4 16H7.58579L11.5855 12.0003L7.586 8.00366Z";
+                    }
+                    if Confirm.icon != "merge": Path {
+                        width: 24px;
+                        height: 24px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        fill: Theme.danger-2;
+                        commands: "M3 6h18v2H3V6zm3 3h12l-1 12H7L6 9zm5-7h2v2h-2V2zm-3 1h8v1H8V3z";
+                    }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: Confirm.title != "" ? Confirm.title : T.s("common.confirm");
+                        font-family: Theme.font;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: Confirm.message;
+                        font-family: Theme.font;
+                        font-size: 13px;
+                        color: Theme.text-2;
+                        wrap: word-wrap;
+                        line-height-factor: 1.5 / 1.33;
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 14px;
+                padding-bottom: 18px;
+                spacing: 8px;
+                alignment: end;
+                ConfirmButton {
+                    text: Confirm.cancel-label != "" ? Confirm.cancel-label : T.s("common.cancel");
+                    clicked => { Confirm.close(); }
+                }
+                ConfirmButton {
+                    text: Confirm.ok-label != "" ? Confirm.ok-label : T.s("common.delete");
+                    danger: Confirm.danger;
+                    clicked => { Confirm.confirm(); }
+                }
+            }
+        }
+    }
+}

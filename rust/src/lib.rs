@@ -1,18 +1,24 @@
 //! NoOBS — gravador de tela com motor de captura próprio (D3D11 + WGC +
-//! WASAPI + libavcodec) e UI em WebView2. Porte do projeto Delphi para Rust,
-//! sem Tauri: janela e WebView2 criados à mão via Win32 (`windows` +
-//! `webview2-com`), como o `OBSUI.pas` faz. Sem libobs: o runtime é o exe e as
+//! WASAPI + libavcodec) e UI nativa em Slint (docs/ui-slint.md). Porte do
+//! projeto Delphi para Rust. Sem libobs: o runtime é o exe e as
 //! DLLs do FFmpeg.
 //!
 //! Camadas:
 //! 1. bindings raw — [`ffi::ffmpeg`]
 //! 2. captura e mídia — [`capture`], `ffmpeg_ops`, `ffmpeg_export`
 //! 3. domínio — `native_engine`, `encoder`, `probe`, `config`, `lang`, `types`
-//! 4. orquestração — `ui`, `bridge`
+//! 4. orquestração — `bridge` (handlers), `view` (core → interface),
+//!    `app_view` (a janela Slint), `ui` (host: janela oculta, bandeja, laço)
 //!
 //! Biblioteca + binário: o `main.rs` só chama [`run_app`]. Os testes rodam
 //! sempre FORA do app: `#[cfg(test)]` (só no `cargo test`) e os executáveis
 //! de `tests/` (feature `app-tests`, ver `modulos!`).
+
+// MIGRAÇÃO PRA SLINT (docs/ui-slint.md): os handlers de telas ainda não
+// portadas só são alcançados pelo `bridge::dispatch`, que no app não tem mais
+// quem chame — no build do app eles aparecem como código morto. Os testes os
+// exercitam (lá o aviso continua ligado). SAI NA FASE 6.
+#![cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
 
 /// Os módulos são PRIVADOS no build normal: o exe não expõe nada. Só com a
 /// feature `app-tests` eles viram públicos, pros executáveis de teste de
@@ -50,6 +56,8 @@ pub mod ffi;
 pub mod capture;
 
 modulos! {
+    app_view,
+    view,
     assets,
     native_engine,
     audio_tracks,
@@ -135,7 +143,6 @@ pub fn run_app() {
 
     lang::init_language();
 
-    // Um processo só: hibernar é descarregar a interface, não trocar de exe.
     bridge::install_hooks();
     ui::run();
     log::log("Dispatcher: ui::run retornou — processo encerrando.");

@@ -66,7 +66,6 @@ pub fn push_settings() {
         "recIndicatorClickable": config::get_config_bool("recIndicatorClickable", true),
         "playSoundOnRecord": config::get_config_bool("playSoundOnRecord", true),
         "stopOnLock": config::get_config_bool("stopOnLock", true),
-        "hibernate": config::get_config_bool("hibernate", true),
         "autoRecordOnMic": config::get_config_bool("autoRecordOnMic", false),
         "autoRecordMicApps": config::get_config_str("autoRecordMicApps", ""),
         "autoRecordMicExcept": config::get_config_str("autoRecordMicExcept", ""),

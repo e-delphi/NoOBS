@@ -1,0 +1,95 @@
+// Avisos não-bloqueantes (o objeto `Toast` da versão web): pilha no canto
+// superior direito, por cima de tudo. O Rust cuida do tempo de vida e de não
+// repetir um aviso com o mesmo título (`app_view::Toasts`); aqui é só o
+// desenho e a animação de entrada/saída. Clicar fecha na hora.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "hint.slint";
+
+export struct ToastItem {
+    id: int,
+    title: string,
+    msg: string,
+    warn: bool,
+    // Falso ao nascer e ao sair: é o que anima a opacidade e o deslize.
+    shown: bool,
+}
+
+component ToastCard {
+    in property <ToastItem> item;
+    callback clicked(int);
+    property <length> content-w: max(title.preferred-width, msg.preferred-width);
+    width: min(380px, content-w + 28px);
+    opacity: !item.shown ? 0 : ta.has-hover ? 0.92 : 1;
+    animate opacity { duration: 200ms; easing: ease; }
+
+    Rectangle {
+        background: item.warn ? Theme.warn-bg : Theme.panel;
+        border-width: 1px;
+        border-color: item.warn ? Theme.warn-border : Theme.border-2;
+        border-radius: 8px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: rgba(0, 0, 0, 0.35);
+    }
+    VerticalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 2px;
+        title := Text {
+            visible: item.title != "";
+            text: item.title;
+            font-family: Theme.font;
+            font-size: 13px;
+            font-weight: 600;
+            color: item.warn ? Theme.warn-text : Theme.text;
+            wrap: word-wrap;
+        }
+        msg := Text {
+            visible: item.msg != "";
+            text: item.msg;
+            font-family: Theme.font;
+            font-size: 12px;
+            color: item.warn ? Theme.warn-text-2 : Theme.text-2;
+            wrap: word-wrap;
+            line-height-factor: Theme.lh-body;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(root.item.id); }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        pressed: ta.pressed;
+        hint: T.s("toast.clickToClose");
+    }
+}
+
+export component ToastStack {
+    in property <[ToastItem]> items;
+    callback clicked(int);
+    VerticalLayout {
+        spacing: 8px;
+        alignment: start;
+        for item in root.items: HorizontalLayout {
+            alignment: end;
+            // O cartão anda DENTRO desta caixa: num item de layout o `y` é do layout.
+            Rectangle {
+                width: card.width;
+                height: card.preferred-height;
+                card := ToastCard {
+                    item: item;
+                    height: self.preferred-height;
+                    // translateY(-12px) → 0 na entrada.
+                    y: item.shown ? 0 : -12px;
+                    animate y { duration: 200ms; easing: ease; }
+                    clicked(id) => { root.clicked(id); }
+                }
+            }
+        }
+    }
+}

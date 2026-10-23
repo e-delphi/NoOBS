@@ -32,7 +32,7 @@ const VIDEO_TEST_LEVELS: i32 = 11;
 thread_local! {
     /// A amostra está ocupando a captura (como uma gravação).
     static CAPTURING: Cell<bool> = const { Cell::new(false) };
-    /// Captura OU codificações em curso: segura a hibernação.
+    /// Captura OU codificações em curso.
     static BUSY: Cell<bool> = const { Cell::new(false) };
     static REF_PATH: RefCell<String> = const { RefCell::new(String::new()) };
 }

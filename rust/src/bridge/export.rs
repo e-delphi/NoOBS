@@ -59,8 +59,8 @@ thread_local! {
     /// Gravação de ORIGEM da exportação em curso. A UI desenha a barra no card
     /// certo, e os caminhos que mexem no arquivo recusam enquanto ele é lido.
     static SOURCE: RefCell<String> = const { RefCell::new(String::new()) };
-    /// Último percentual empurrado: a página recriada (volta da hibernação)
-    /// recebe ele no `on_page_ready`, sem esperar o próximo tique.
+    /// Último percentual empurrado: a interface que sobe com uma exportação
+    /// em curso recebe ele no `on_page_ready`, sem esperar o próximo tique.
     static LAST_PCT: Cell<f64> = const { Cell::new(0.0) };
 }
 

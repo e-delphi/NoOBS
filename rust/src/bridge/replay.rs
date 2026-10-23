@@ -26,7 +26,7 @@ use crate::types::RecordingMeta;
 use crate::{config, encoder, engine, file_meta, gpu_usage, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
 
 use super::recording;
-use super::{library, post_error, post_json, shell, transcribe};
+use super::{library, post_error, post_json, transcribe};
 
 pub const TIMER_REPLAY_SAVE_TIMEOUT: usize = 7012;
 pub const TIMER_REPLAY_MEM: usize = 7014;
@@ -314,10 +314,6 @@ pub fn start_replay_buffer() {
     if engine::with_engine(|e| e.is_stopping()).unwrap_or(false) {
         return;
     }
-    // Hibernado (um jogo da lista abriu): os dispositivos voltam, como ao gravar.
-    if super::is_light() {
-        super::devices::do_init();
-    }
     let r = (|| -> Result<(), String> {
         engine::ensure_created();
         recording::with_engine_result(|e| e.ensure_initialized())?;
@@ -339,8 +335,6 @@ pub fn start_replay_buffer() {
             ui::set_timer(TIMER_REPLAY_MEM, REPLAY_MEM_LOG_MS);
             // Sessão nova = fontes novas (mesma regra do start da gravação).
             super::devices::clear_mic_mute_applied();
-            // Buffer ligado = o app tem que ficar acordado.
-            ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
             apply_hotkey();
         }
         Err(e) => {
@@ -352,7 +346,7 @@ pub fn start_replay_buffer() {
     push_replay_state();
 }
 
-pub fn stop_replay_buffer(arm_hibernate: bool) {
+pub fn stop_replay_buffer() {
     ui::kill_timer(TIMER_REPLAY_SAVE_TIMEOUT);
     hide_indicator();
     let was = replay_active();
@@ -367,10 +361,6 @@ pub fn stop_replay_buffer(arm_hibernate: bool) {
     apply_hotkey();
     sync_transcribe_pause();
     push_replay_state();
-    // Desligado com a janela escondida: volta a poder hibernar.
-    if arm_hibernate && !ui::is_window_shown() {
-        shell::on_window_hidden();
-    }
 }
 
 /// A gravação que começa agora herda o que o buffer guardou, NUM ARQUIVO SÓ:
@@ -434,7 +424,7 @@ pub fn restart_for_source_change() {
         return;
     }
     log::log("Buffer: fonte de video mudou — recomecando o buffer.");
-    stop_replay_buffer(false);
+    stop_replay_buffer();
     start_replay_buffer();
 }
 
@@ -450,7 +440,7 @@ pub fn restart_for_encoder_change(what: &str) {
         return;
     }
     log!("Buffer: {what} mudou — recomecando o buffer (o guardado e descartado).");
-    stop_replay_buffer(false);
+    stop_replay_buffer();
     start_replay_buffer();
     post_json(json!({ "type": "replay_restarted" }));
 }
@@ -588,7 +578,7 @@ fn on_app_running_thread(running: bool) {
             });
             if stop {
                 log::log("Buffer: nenhum app monitorado rodando — desligando o buffer.");
-                stop_replay_buffer(true);
+                stop_replay_buffer();
             }
         }
     });
@@ -667,7 +657,7 @@ pub fn handle_set_replay_enabled(enabled: bool) {
             start_replay_buffer();
         }
     } else {
-        stop_replay_buffer(true);
+        stop_replay_buffer();
     }
 }
 
@@ -683,7 +673,7 @@ pub fn handle_set_replay_apps(apps: &str) {
             s.started_by_app_watch = false;
             s.wanted = false;
         });
-        stop_replay_buffer(true);
+        stop_replay_buffer();
     }
     with(|s| s.app_suppressed = false);
     push_replay_state();

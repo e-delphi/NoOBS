@@ -41,6 +41,8 @@ pub fn main_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
 /// Os pixels saem do `hbmColor` do `GetIconInfo` por `GetDIBits`, com o alfa
 /// do `.ico` intacto. `DrawIconEx` não serve: escreve RGB pré-multiplicado e a
 /// imagem sai com as bordas escurecidas.
+// Volta a ter uso com a tela "Sobre" (fase 4, docs/ui-slint.md).
+#[allow(dead_code)]
 pub fn main_icon_png(size: i32) -> Option<Vec<u8>> {
     use windows::core::w;
     use windows::Win32::Foundation::HINSTANCE;

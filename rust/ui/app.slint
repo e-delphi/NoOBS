@@ -1,0 +1,79 @@
+// Janela do NoOBS. Casca da versão web (`index.html` + `layout.css`): à
+// esquerda a coluna de fontes (`.sources`: cartão de gravar + dispositivos),
+// à direita telas e gravações (`.recordings`). Por cima de tudo, na ordem do
+// `z-index` da web: diálogo de confirmação, avisos e a dica.
+//
+// As telas entram por fase (docs/ui-slint.md): a coluna de fontes na fase 1,
+// as gravações na 2.
+
+import { Theme } from "theme.slint";
+import { T } from "i18n.slint";
+import { Hints, HintBubble } from "widgets/hint.slint";
+import { ToastItem, ToastStack } from "widgets/toast.slint";
+import { Confirm, ConfirmDialog } from "widgets/confirm.slint";
+
+export { Theme, T, Hints, Confirm, ToastItem }
+
+export component AppWindow inherits Window {
+    // `windowTitle` do config (barra de título e taskbar).
+    in property <string> window-title: "NoOBS";
+    title: root.window-title;
+    background: Theme.bg;
+    animate background { duration: 250ms; }
+    default-font-family: Theme.font;
+    default-font-size: Theme.font-size;
+    min-width: 360px;
+    min-height: 400px;
+
+    in property <[ToastItem]> toasts;
+    callback toast-clicked(int);
+
+    // `@media (max-width: 760px)`: só a coluna de fontes.
+    property <bool> narrow: root.width <= 760px;
+
+    // Colunas posicionadas à mão, não num layout: a largura delas depende da
+    // largura da janela, e num layout isso vira laço (a janela tira o mínimo
+    // dela das colunas).
+    // `.sources`: `grid-template-columns: minmax(360px, 400px) 1fr` — com
+    // espaço sobrando o 1fr fica com o resto e a coluna fica nos 400.
+    sources := Rectangle {
+        x: 0;
+        y: 0;
+        width: root.narrow ? root.width : 400px;
+        height: root.height;
+        background: Theme.panel;
+        animate background { duration: 250ms; }
+        // `border-right: 1px solid var(--border)` (some na janela estreita).
+        Rectangle {
+            visible: !root.narrow;
+            x: parent.width - 1px;
+            width: 1px;
+            background: Theme.border;
+        }
+    }
+    // `.recordings`
+    recordings := Rectangle {
+        visible: !root.narrow;
+        x: sources.width;
+        y: 0;
+        width: root.width - sources.width;
+        height: root.height;
+    }
+
+    ConfirmDialog { }
+
+    // `.toast-stack`: top/right 16px, acima de tudo menos a dica.
+    ToastStack {
+        x: root.width - self.width - 16px;
+        y: 16px;
+        width: min(380px, root.width - 32px);
+        height: self.preferred-height;
+        items: root.toasts;
+        clicked(id) => { root.toast-clicked(id); }
+    }
+
+    HintBubble {
+        win-w: root.width;
+        win-h: root.height;
+    }
+}

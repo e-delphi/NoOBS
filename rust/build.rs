@@ -5,9 +5,10 @@
 //    É o ato de lançar, então a versão nunca fica dessincronizada. Build fora
 //    de uma tag limpa carrega o sufixo do describe — e o app trata como
 //    desenvolvimento (não checa atualização).
-// 3. Embute a UI (`ui\`) e as traduções (`lang\`) no exe: o runtime é só o
-//    NoOBS.exe e as DLLs do FFmpeg. Gera `assets.rs` no OUT_DIR com a lista
-//    (caminho relativo, bytes); o app serve tudo da memória (`assets.rs`).
+// 3. Embute as traduções (`lang\`) no exe: o runtime é só o NoOBS.exe e as
+//    DLLs do FFmpeg. Gera `assets.rs` no OUT_DIR com a lista (caminho
+//    relativo, bytes); o app lê da memória (`assets.rs`).
+// 4. Compila a interface Slint (`ui\app.slint` e o que ela importa).
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -27,7 +28,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) {
 fn embed_assets() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let mut code = String::new();
-    for (name, var) in [("ui", "UI_FILES"), ("lang", "LANG_FILES")] {
+    for (name, var) in [("lang", "LANG_FILES")] {
         let root = manifest.join(name);
         println!("cargo:rerun-if-changed={}", root.display());
         let mut files = Vec::new();
@@ -45,6 +46,10 @@ fn embed_assets() {
 
 fn main() {
     embed_assets();
+    // Os controles são desenhados à mão (iguais aos da versão web); o estilo
+    // só vale pro que sobrar dos widgets padrão do Slint.
+    let cfg = slint_build::CompilerConfiguration::new().with_style("fluent".into());
+    slint_build::compile_with_config("ui/app.slint", cfg).expect("falha ao compilar ui/app.slint");
     println!("cargo:rerun-if-changed=noobs.rc");
     println!("cargo:rerun-if-changed=icon.ico");
     embed_resource::compile("noobs.rc", embed_resource::NONE)

@@ -85,13 +85,14 @@ fn tema_invalido_nao_muda_nada() {
 // ---- idioma -----------------------------------------------------------------
 
 #[test]
-fn idioma_troca_e_manda_o_bundle() {
+fn idioma_troca_e_avisa_a_interface() {
     let _s = begin();
     send(json!({ "type": "set_language", "language": "en" }));
     let msg = testkit::last_of("language_changed").expect("language_changed");
     assert_eq!(msg["language"], "en");
     assert_eq!(msg["languagePref"], "en");
-    assert_eq!(msg["i18n"]["meta"]["code"], "en");
+    // A interface lê os textos do `lang` em vigor (não recebe o pacote).
+    assert_eq!(crate::lang::t("common.cancel"), "Cancel");
     assert_eq!(config::get_config_str("language", "?"), "en");
 
     send(json!({ "type": "set_language", "language": "es" }));
@@ -117,7 +118,7 @@ fn idioma_inexistente_fica_no_padrao() {
     // A preferência é guardada como veio, mas o idioma ativo é um que existe.
     assert_eq!(msg["languagePref"], "xx");
     assert_ne!(msg["language"], "xx");
-    assert!(msg["i18n"].is_object());
+    assert!(!crate::lang::t("common.cancel").starts_with('['));
 }
 
 // ---- link externo -----------------------------------------------------------

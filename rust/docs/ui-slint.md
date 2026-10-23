@@ -140,6 +140,44 @@ Depois:
 Cada fase é um ou mais commits na `rust-slint`, compilando e com os testes
 passando.
 
+### Estado
+
+- **Fase 0 — feita.** Sem WebView2 (`webview2-com`, `rust/ui` web, servidor
+  de arquivos da página) e sem hibernação. Janela Slint (`ui/app.slint`,
+  `src/app_view.rs`) + janela Win32 oculta (`src/ui.rs`). Trait `View`
+  (`src/view.rs`) com tema, idioma, aviso, erro, abrir Configurações e
+  janela escondida. Globais `Theme` (tokens do `base.css`) e `T` (textos).
+  Toast, dica e diálogo de confirmação prontos (`ui/widgets/`), ainda sem
+  conferência visual lado a lado — nenhuma tela os dispara até a fase 1.
+  Colunas da casca vazias.
+
+### O que a fase 0 ensinou
+
+- **O HWND do winit só existe dentro do laço.** `show()` antes do
+  `run_event_loop` não cria a janela; posição, tamanho, maximizar, ícone e
+  barra escura vão em `ui::finish_show`, que tenta de 16 em 16 ms até o HWND
+  aparecer. Antes disso o Slint também trocaria o tamanho pelo preferido do
+  layout.
+- **Perguntas de qualquer thread vão pelo HWND, não pelo Slint.** O estado
+  do Slint é da main; a thread de prévias perguntava "janela visível?" e
+  ouvia sempre "não". `ui::is_window_visible`/`is_window_shown`/
+  `main_window` leem o HWND guardado num atômico.
+- **`Cargo.lock`: `gpu-allocator` preso no `windows` 0.62.** O renderer
+  Skia puxa o `wgpu` 30, que precisa do `gpu-allocator` com `windows` 0.62;
+  o cargo o resolvia pra 0.61 (a do app, dentro da faixa `>=0.53, <=0.62`
+  dele) e o `wgpu-hal` não compilava. A entrada foi editada à mão no lock;
+  um `cargo update` que a desfaça traz o erro de volta (tipos
+  `ID3D12Device` "diferentes").
+- **Layout que depende da largura da janela vira laço.** A janela tira o
+  mínimo dela dos filhos; colunas cuja largura depende de `root.width`
+  ficam posicionadas à mão, fora de layout.
+- **Medir janela pelo PowerShell mente em DPI alto**: o processo dele não é
+  DPI-aware e recebe coordenadas virtualizadas (1133×800 a 150% = 1700×1200).
+- **Código morto durante a migração.** Handlers só alcançados pelo
+  `bridge::dispatch` ficam sem quem chame no app (231 avisos). `lib.rs` tem
+  um `allow(dead_code)` SÓ no build do app (os testes continuam avisando) —
+  sai na fase 6.
+
 | # | Fase | Substitui | Risco |
 |---|---|---|---|
 | 0 | **Fundação**: tira WebView2 e hibernação; janela Slint + janela Win32 oculta; trait `View` + `View` falso dos testes; globais `Theme` e `T`; casca da janela (cabeçalho, navegação), toast, diálogo de confirmação, dica | `index.html` (casca), `bridge.js`, `i18n.js`, `widgets.js`, `base/layout/widgets.css` | médio (laço de mensagens) |
@@ -148,7 +186,7 @@ passando.
 | 3 | **Player**: o da prova de conceito + áudio e faixas, velocidade, saltos, forma de onda, zoom/região, painel de informações, transcrição ao lado e legenda | `player` | **alto** (áudio) |
 | 4 | **Configurações**: todas as abas, editor genérico dos filtros de áudio, teste de qualidade, transcrição (fila, diagnóstico, motor local), atalhos | `settings`, `audiofilters`, `videotest`, `transcribe`, `hotkeys` | médio (volume) |
 | 5 | **Exportação**: prévia com composição, recorte com alças e zoom, linha do tempo com cortes e forma de onda, faixas, CC | `export` | alto (volume e interação) |
-| 6 | **Fechamento**: instalador sem WebView2, `startup_check`, README e CLAUDE.md (protocolo, hibernação, pegadinhas que mudaram), conferência visual final de todas as telas | — | baixo |
+| 6 | **Fechamento**: instalador sem WebView2, `startup_check`, README e CLAUDE.md (protocolo, hibernação, pegadinhas que mudaram), sai o `bridge::dispatch`/`post_json` e o `allow(dead_code)` do `lib.rs`, conferência visual final de todas as telas | — | baixo |
 
 A ordem põe primeiro o que destrava o resto (0), depois o que se usa todo
 dia (1, 2). O player vem antes das Configurações porque é o risco técnico

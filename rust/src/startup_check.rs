@@ -1,8 +1,7 @@
 //! Validação do runtime antes de criar a janela (porte de `OBSStartupCheck.pas`).
 //!
-//! O runtime é o NoOBS.exe e as DLLs do FFmpeg ao lado dele — a UI e as
-//! traduções vão dentro do exe (`assets`), e o loader do WebView2 também (o
-//! `webview2-com-sys` liga o `WebView2LoaderStatic.lib` no alvo MSVC). As
+//! O runtime é o NoOBS.exe e as DLLs do FFmpeg ao lado dele — a interface
+//! (Slint) e as traduções vão compiladas dentro do exe. As
 //! dependências das DLLs do FFmpeg entram na lista: sem elas o `LoadLibrary`
 //! do avcodec/avformat falha do mesmo jeito, só que com um erro obscuro.
 

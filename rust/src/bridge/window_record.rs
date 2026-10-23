@@ -203,8 +203,8 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
                 "delaySec": delay_sec,
                 "items": items,
             });
-            // Hibernando, a página ainda vai subir: a mensagem espera o `ready`.
-            if super::is_light() {
+            // Atalho antes de a interface subir: a lista espera o `init_ui`.
+            if !super::ui_ready() {
                 PENDING_PICKER.with(|p| *p.borrow_mut() = Some(msg));
             } else {
                 post_json(msg);
@@ -214,7 +214,7 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
     }
 }
 
-/// Página nova pronta: o seletor que um atalho pediu enquanto ela subia.
+/// Interface pronta: o seletor que um atalho pediu enquanto ela subia.
 pub fn on_page_ready() {
     if let Some(msg) = PENDING_PICKER.with(|p| p.borrow_mut().take()) {
         post_json(msg);

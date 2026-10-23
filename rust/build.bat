@@ -7,9 +7,8 @@ REM      build.bat           cargo build --release
 REM      build.bat debug     cargo build (mais rapido, sem otimizacao)
 REM
 REM  Saida: exe\NoOBS.exe (desta pasta rust\), ao lado das DLLs do FFmpeg -
-REM  e de la que o app roda. O runtime e SO isso: a UI (ui\) e as traducoes
-REM  (lang\) vao dentro do exe, e o loader do WebView2 tambem (no alvo MSVC o
-REM  webview2-com-sys liga o WebView2LoaderStatic.lib).
+REM  e de la que o app roda. O runtime e SO isso: a interface (ui\, Slint) e
+REM  as traducoes (lang\) vao compiladas dentro do exe.
 REM ---------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"

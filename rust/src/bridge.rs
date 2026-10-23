@@ -1,22 +1,20 @@
-//! Despachante central UI ↔ Rust (porte do esqueleto de `OBSBridge.pas`).
+//! Orquestração entre a interface e o core (porte do esqueleto de
+//! `OBSBridge.pas`): os handlers de cada área ficam nos submódulos (gravação,
+//! dispositivos, biblioteca, pastas, exportação, transcrição, buffer, janela,
+//! área, teste de vídeo, shell, settings).
 //!
-//! JS → Rust: `window.chrome.webview.postMessage(jsonString)` →
-//! `ui::on_web_message` → [`dispatch`]. Rust → JS: [`post_json`] →
-//! `PostWebMessageAsJson` → `Bridge.handlers[type]` no `bridge.js`.
-//!
-//! O `if MsgType = '...' then ... else if ...` de ~150 ramos do Delphi vira um
-//! `match` sobre o campo `type`. O protocolo (nomes de mensagem e campos) NÃO
-//! muda: a UI (`rust\ui\`, embutida no exe) é a mesma.
-//!
-//! ## Estado do porte
-//! Todos os tipos do `Dispatch` do Delphi têm handler, espalhados pelos
-//! submódulos (gravação, dispositivos, biblioteca, pastas, exportação,
-//! transcrição, buffer, janela, área, teste de vídeo, shell, settings). Um
-//! tipo desconhecido cai em [`not_ported`], que só registra no log.
+//! ## Migração pra Slint (docs/ui-slint.md)
+//! A interface chama os handlers DIRETO e recebe os eventos pelo
+//! [`crate::view::View`], sem JSON. Enquanto as telas são portadas, sobram do
+//! protocolo antigo:
+//! * [`dispatch`] — a entrada por JSON que os testes usam (some quando a última
+//!   tela deixar de precisar dela);
+//! * [`post_json`] — eventos de telas ainda não portadas: nos testes viram o
+//!   registro de sempre; no app não têm destino.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui};
+use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui, view};
 
 mod area;
 mod countdown;
@@ -44,11 +42,6 @@ pub fn test_reset_browse_dir() {
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Idle de hibernação: 1 min sem janela visível e sem gravação.
-pub const TIMER_HIBERNATE_IDLE: usize = 7008;
-/// Pouco depois de hibernar: devolve a memória solta ao Windows e mede.
-const TIMER_LIGHT_TRIM: usize = 7020;
-const LIGHT_TRIM_DELAY_MS: u32 = 3000;
 /// Dados lidos do fim de um arquivo (`file_meta`) mudam o que o card mostra.
 pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 
@@ -56,15 +49,18 @@ pub const TIMER_FILEMETA_REFRESH: usize = 7017;
 /// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
 /// Delphi buscava com `TInterlocked`.
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
-/// A página já mandou `ready` alguma vez (o `Initialized` do Delphi).
+/// A interface já subiu (o `Initialized` do Delphi).
 static INIT_DONE: AtomicBool = AtomicBool::new(false);
 /// Backend de pé (`start_backend`).
 static BACKEND_STARTED: AtomicBool = AtomicBool::new(false);
-/// Hibernando: a interface está descarregada (`enter_light`).
-static LIGHT: AtomicBool = AtomicBool::new(false);
 
 pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
+}
+
+/// A interface já subiu (`init_ui`)?
+pub fn ui_ready() -> bool {
+    INIT_DONE.load(Ordering::SeqCst)
 }
 
 /// Liga a UI a este bridge sem dependência direta de `ui` → `bridge` (o
@@ -78,9 +74,8 @@ pub fn install_hooks() {
         on_display_change: Some(devices::on_display_change),
         on_device_change: Some(devices::on_device_node_change),
         on_should_hide_on_close: Some(shell::should_hide_on_close),
-        on_window_hidden: Some(shell::on_window_hidden),
         on_window_restored: Some(shell::on_window_restored),
-        on_start: Some(start_backend),
+        on_start: Some(start),
         on_shutdown: Some(shutdown),
     });
 }
@@ -109,8 +104,6 @@ pub fn shutdown() {
     }
     log::log("Shutdown: inicio");
     ui::kill_timer(settings::TIMER_UPDATE_CHECK);
-    ui::kill_timer(TIMER_HIBERNATE_IDLE);
-    ui::kill_timer(TIMER_LIGHT_TRIM);
     crate::mic_watch::stop();
     crate::proc_watch::stop();
     // Como o Shutdown do Delphi: a exportação pode estar no meio de um arquivo
@@ -140,35 +133,24 @@ fn on_timer_other(id: usize) {
         library::push_recordings();
         return;
     }
-    if id == TIMER_HIBERNATE_IDLE {
-        shell::on_hibernate_idle();
-        return;
-    }
-    if id == TIMER_LIGHT_TRIM {
-        ui::kill_timer(TIMER_LIGHT_TRIM);
-        if is_light() {
-            ui::trim_memory();
-            replay::log_mem_usage("hibernando");
-        }
-        return;
-    }
     log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");
 }
 
-/// Envia um objeto JSON à UI (qualquer thread: vai pela fila da main).
+/// Evento no formato da página antiga. Só os testes recebem; no app, é de uma
+/// tela ainda não portada pra Slint e não tem destino (some com a fase dela).
 pub fn post_json(value: Value) {
-    // Teste: a mensagem fica pra conferir, em vez de ir pro WebView.
     #[cfg(test)]
     {
         crate::testkit::record_sent(value);
         return;
     }
-    // Executável de teste das mensagens (feature `app-tests`, fora do app): guarda
-    // uma cópia pro teste conferir; o resto do caminho segue igual.
     #[cfg(all(feature = "app-tests", not(test)))]
-    test_sent().lock().unwrap_or_else(|p| p.into_inner()).push(value.clone());
+    {
+        test_sent().lock().unwrap_or_else(|p| p.into_inner()).push(value);
+        return;
+    }
     #[allow(unreachable_code)]
-    mainthread::queue(move || ui::post_json_now(&value.to_string()));
+    let _ = value;
 }
 
 #[cfg(feature = "app-tests")]
@@ -183,9 +165,10 @@ pub fn take_sent_for_tests() -> Vec<Value> {
     std::mem::take(&mut *test_sent().lock().unwrap_or_else(|p| p.into_inner()))
 }
 
-/// Mostra erro na UI (`type: "error"`), já traduzido.
+/// Mostra erro na interface, já traduzido.
 pub fn post_error(message: impl Into<String>) {
-    post_json(json!({ "type": "error", "message": message.into() }));
+    let message = message.into();
+    view::call(move |v| v.error(&message));
 }
 
 fn str_field<'a>(obj: &'a Value, key: &str) -> &'a str {
@@ -226,7 +209,8 @@ fn dispatch_inner(raw: &str) {
 
     match ty {
         "ui_log" => log!("UI: {}", str_field(&msg, "message")),
-        "ready" => do_init(),
+        // A página antiga avisava que tinha carregado; os testes ainda mandam.
+        "ready" => init_ui(),
         // Na contagem do atraso da área, o botão de gravar CANCELA.
         "record_start" => {
             if !countdown::cancel() {
@@ -330,7 +314,6 @@ fn dispatch_inner(raw: &str) {
         "set_autostart" => shell::handle_set_autostart(bool_field(&msg, "enabled", false)),
         "set_run_as_admin" => shell::handle_set_run_as_admin(bool_field(&msg, "enabled", false)),
         "set_close_to_tray" => shell::handle_set_close_to_tray(bool_field(&msg, "enabled", false)),
-        "set_hibernate" => shell::handle_set_hibernate(bool_field(&msg, "enabled", false)),
         "set_minimize_on_record" => shell::handle_set_config_bool("minimizeOnRecord", bool_field(&msg, "enabled", false)),
         "set_play_sound_on_record" => shell::handle_set_config_bool("playSoundOnRecord", bool_field(&msg, "enabled", false)),
         "set_stop_on_lock" => shell::handle_set_config_bool("stopOnLock", bool_field(&msg, "enabled", false)),
@@ -373,23 +356,26 @@ fn not_ported(ty: &str) {
 // init / tema / idioma
 // ---------------------------------------------------------------------------
 
-/// Backend: o que roda com ou sem a interface — atalhos, vigias de mic e de
-/// programas, fila de transcrição, escrita de metadados, indicador e bloqueio
-/// de tela, checagem de atualização. Uma vez por processo, logo depois de a
-/// janela existir (`ui::run`, hook `on_start`); `light` = arranque já
-/// hibernando, sem a interface. O `do_init` também chama (testes sobem só a
-/// página).
-pub fn start_backend(light: bool) {
+/// Arranque (hook `on_start` do `ui::run`, com a janela já criada): backend e
+/// interface, nessa ordem.
+fn start() {
+    start_backend();
+    init_ui();
+}
+
+/// Backend: atalhos, vigias de mic e de programas, fila de transcrição,
+/// escrita de metadados, indicador e bloqueio de tela, checagem de
+/// atualização. Uma vez por processo.
+pub fn start_backend() {
     if BACKEND_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
-    LIGHT.store(light, Ordering::SeqCst);
-    log!("Backend: inicio (hibernando={light}).");
+    log::log("Backend: inicio.");
     // Worker que escreve os dados no fim do arquivo (pendentes da sessão anterior
     // voltam). Arquivo importado de outra máquina refaz os cards (pegadinha #65).
     file_meta::set_on_imported(|_| {
         mainthread::queue(|| {
-            if !is_shutting_down() && !is_light() {
+            if !is_shutting_down() {
                 ui::set_timer(TIMER_FILEMETA_REFRESH, 800);
             }
         });
@@ -407,29 +393,17 @@ pub fn start_backend(light: bool) {
     settings::start_mic_watch_if_enabled();
     replay::do_init();
     settings::start_update_timer();
-    if light {
-        // Nada da interface subiu: o processo já nasce no tamanho de hibernado.
-        ui::set_timer(TIMER_LIGHT_TRIM, LIGHT_TRIM_DELAY_MS);
-    }
     log::log("Backend: pronto.");
 }
 
-/// A interface está descarregada (hibernando)?
-pub fn is_light() -> bool {
-    LIGHT.load(Ordering::SeqCst)
-}
-
-/// `DoInit`: a página mandou `ready` — na abertura, depois de um reload ou
-/// voltando da hibernação. Tudo aqui é da INTERFACE: sobe de novo a cada
-/// página nova (o que já está de pé é idempotente).
-fn do_init() {
+/// `DoInit`: o que a interface precisa logo que existe — tema, lista de
+/// gravações, dispositivos, configurações, estado da gravação. Uma vez por
+/// processo (os testes chamam pelo `ready`; o que já está de pé é idempotente).
+fn init_ui() {
     let first = !INIT_DONE.swap(true, Ordering::SeqCst);
-    start_backend(false);
-    LIGHT.store(false, Ordering::SeqCst);
-    ui::kill_timer(TIMER_LIGHT_TRIM);
-    log!("DoInit: pagina pronta ({}).", if first { "primeira" } else { "de novo" });
+    start_backend();
+    log!("DoInit: interface pronta ({}).", if first { "primeira" } else { "de novo" });
     push_theme();
-    push_app_icon();
     // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
     player::start_player_server();
     // Lista e metadados (duração/miniatura) da pasta de gravação.
@@ -452,9 +426,9 @@ fn do_init() {
     // bloqueia a main). Falha do warmup → a gravação inicializa sob demanda.
     // Com o motor já de pé (gravando, buffer), as caps vão na hora.
     recording::on_page_ready();
-    // Exportação que atravessou a hibernação: a barra volta no card.
+    // Exportação em curso: a barra volta no card.
     export::on_page_ready();
-    // Atalho de janela que achou várias janelas enquanto a página subia.
+    // Atalho de janela que achou várias janelas antes de a interface subir.
     window_record::on_page_ready();
     if !first {
         return;
@@ -471,39 +445,8 @@ fn do_init() {
     // antes de começar a usar.
     if consume_first_run_flag() {
         log::log("DoInit: primeira execucao detectada — abrindo Configuracoes.");
-        post_json(json!({ "type": "open_settings" }));
+        view::call(|v| v.open_settings());
     }
-}
-
-/// Hibernar SEM sair do processo: solta o que só a interface usa — o
-/// WebView2 (o grosso: ~400 MB nos processos do navegador), as prévias e os
-/// medidores (que mantinham os microfones abertos), o servidor do player, o
-/// vigia da pasta — e o motor de captura. Ficam a janela (escondida), a
-/// bandeja, os atalhos, os vigias de mic e de programas e as filas de
-/// trabalho (transcrição, metadados). O clique na bandeja recria a interface
-/// e o `ready` da página nova religa tudo (`do_init`).
-///
-/// Roda de novo mesmo já hibernando: uma gravação feita com a interface
-/// descarregada (atalho, mic, bandeja) religa o motor e os dispositivos, e o
-/// ócio seguinte tem que soltá-los outra vez. Cada passo é no-op se não há o
-/// que soltar.
-pub fn enter_light() {
-    let was_light = LIGHT.swap(true, Ordering::SeqCst);
-    log::log(if was_light {
-        "Hibernacao: soltando de novo o que a captura religou."
-    } else {
-        "Hibernacao: descarregando a interface (mesmo processo)."
-    });
-    replay::log_mem_usage("antes de hibernar");
-    ui::destroy_webview();
-    devices::suspend();
-    record_watch::stop();
-    player::stop_player_server();
-    ui::kill_timer(TIMER_FILEMETA_REFRESH);
-    recording::on_light();
-    ui::set_tray_hibernating(true);
-    // O processo do navegador e o heap levam um instante pra soltar a memória.
-    ui::set_timer(TIMER_LIGHT_TRIM, LIGHT_TRIM_DELAY_MS);
 }
 
 /// `HKCU\Software\NoOBS\FirstRun` = 1 (escrito pelo instalador na instalação):
@@ -555,23 +498,11 @@ pub fn push_theme() {
     ui::set_dark_mode(resolved == "dark");
     // Popup do menu da bandeja no mesmo tema.
     ui::apply_tray_menu_theme(resolved == "dark");
-    post_json(json!({ "type": "theme", "theme": resolved, "pref": pref }));
+    let dark = resolved == "dark";
+    view::call(move |v| v.theme(dark, &pref));
 }
 
-/// `PushAppIcon`: o ícone do exe (`MAINICON`) vai pra UI como PNG. É o logo do
-/// "Sobre" — sem ele a tela mostra o desenho reserva (círculo vermelho) — e o
-/// ícone das notificações do Windows.
-fn push_app_icon() {
-    let Some(png) = crate::win::main_icon_png(256) else {
-        log::log("PushAppIcon: MAINICON nao encontrado.");
-        return;
-    };
-    use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
-    post_json(json!({ "type": "app_icon", "dataUrl": format!("data:image/png;base64,{b64}") }));
-}
-
-fn handle_set_theme(theme: &str) {
+pub fn handle_set_theme(theme: &str) {
     if !matches!(theme, "dark" | "light" | "system") {
         return;
     }
@@ -579,17 +510,13 @@ fn handle_set_theme(theme: &str) {
     push_theme();
 }
 
-fn handle_set_language(code: &str) {
-    let pref = code.trim();
-    config::set_config_str("language", pref);
+pub fn handle_set_language(code: &str) {
+    let pref = code.trim().to_owned();
+    config::set_config_str("language", &pref);
     log!("Language: pref=\"{pref}\"");
     lang::init_language();
-    post_json(json!({
-        "type": "language_changed",
-        "language": lang::current_language(),
-        "languagePref": pref,
-        "i18n": lang::current_bundle(),
-    }));
+    let language = lang::current_language();
+    view::call(move |v| v.language_changed(&language, &pref));
 }
 
 // ---------------------------------------------------------------------------

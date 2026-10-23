@@ -125,6 +125,9 @@ const OUT_KEYINT_SEC: i32 = 2;
 // Âncoras densas no meio (17..28), onde o olho discrimina.
 const CRF_ANCHOR: [i32; 16] = [0, 4, 8, 12, 15, 17, 19, 21, 23, 26, 28, 31, 34, 38, 44, 51];
 /// SVT-AV1 (crf 1..63). Piso 1: o `crf 0` do wrapper significa "não setado".
+/// Satura em 63 — o quantizador MÁXIMO dele — a partir do CRF 31: abaixo
+/// disso não existe qualidade menor para pedir (medido: prévia de 10 s 1080p
+/// com o mesmo 1015 KB no CRF 34 e no 45). A tela avisa (`SVT_FLOOR_CRF`).
 const Q_EXP_SVTAV1: [i32; 16] = [1, 5, 17, 29, 37, 42, 46, 51, 55, 60, 61, 63, 63, 63, 63, 63];
 /// AMF AV1 (qp 0..255 pelo libavcodec).
 const Q_EXP_AV1AMF: [i32; 16] = [0, 0, 12, 30, 46, 57, 73, 93, 109, 131, 145, 165, 186, 212, 244, 255];
@@ -2564,6 +2567,10 @@ mod tests {
     fn calibracao_interpola_e_respeita_extremos() {
         assert_eq!(calibrated_quality(&Q_EXP_SVTAV1, 0, 1, 63), 1);
         assert_eq!(calibrated_quality(&Q_EXP_SVTAV1, 23, 1, 63), 55); // CRF 23 → crf 55 (medido)
+        // Piso do SVT-AV1: o primeiro CRF que já cai no quantizador máximo. A tela
+        // de exportação avisa a partir dele (`SVT_FLOOR_CRF` no export.js = 31).
+        assert_eq!(calibrated_quality(&Q_EXP_SVTAV1, 30, 1, 63), 62);
+        assert_eq!(calibrated_quality(&Q_EXP_SVTAV1, 31, 1, 63), 63);
         assert_eq!(calibrated_quality(&Q_EXP_SVTAV1, 51, 1, 63), 63);
         assert_eq!(calibrated_quality(&Q_EXP_H264AMF, 23, 0, 51), 27);
     }

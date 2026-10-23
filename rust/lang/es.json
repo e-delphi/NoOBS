@@ -193,6 +193,7 @@
     "quality": "Calidad (CRF)",
     "qualityValue": "CRF {{crf}}",
     "qualityHint": "{{band}} La escala va de 0 (sin pérdidas) a 51 (peor). El bitrate es variable (VBR): el codificador gasta los bits que el contenido pida, así que el tamaño final depende del vídeo.",
+    "qualitySvtFloor": "Con AV1 (CPU), a partir de {{crf}} la calidad ya no baja: el codificador ya está en su mínimo y el archivo sale del mismo tamaño.",
     "crfBandLossless": "Prácticamente sin pérdidas — archivo muy grande.",
     "crfBandHigh": "Alta calidad — recomendado.",
     "crfBandBalanced": "Equilibrio entre calidad y tamaño.",
@@ -394,7 +395,8 @@
         "8": "Calidad muy alta — archivos bastante más grandes, pérdida difícil de notar.",
         "9": "Calidad altísima — archivos grandes, prácticamente sin pérdida visible.",
         "10": "Calidad máxima — archivos enormes, más allá de lo que el ojo distingue."
-      }
+      },
+      "svtFloor": "Con AV1 (CPU), los niveles 0 a 3 graban igual: el codificador ya está en su calidad mínima, y el archivo no se hace más pequeño."
     },
     "fps": {
       "label": "Cuadros por segundo de la grabación",

@@ -744,6 +744,8 @@ const Settings = {
   },
   onCodecChange() {
     this._syncCodecMaxRes();
+    // O aviso do piso do AV1 (CPU) depende do codec.
+    this._syncQualityHint();
   },
   // Titulo da janela: sem preview/commit ao vivo — o valor e lido no save().
   // Handler existe so pra o oninput do input nao referenciar algo indefinido.
@@ -843,8 +845,15 @@ const Settings = {
     // em qualidade constante, entao quem manda no tamanho e o conteudo —
     // nao existe taxa fixa pra anunciar (era o que a legenda antiga fazia).
     hint.textContent = (v >= 0 && v <= 10) ? T('settings.quality.hint.' + v) : '';
+    // AV1 (CPU): os níveis até SVT_FLOOR_LEVEL caem todos no quantizador
+    // máximo do SVT-AV1 (`crf 63`) — gravam igual. Mesmo piso da exportação
+    // (Export.SVT_FLOOR_CRF): nível 3 = CRF 33, nível 4 = CRF 28.
+    const warn = document.getElementById('settingsQualitySvtWarn');
+    const codec = document.getElementById('settingsCodec');
+    if (warn) warn.hidden = !(codec && codec.value === 'av1-sw' && v <= this.SVT_FLOOR_LEVEL);
     this._syncSliderFill(el);
   },
+  SVT_FLOOR_LEVEL: 3,
   // Atualiza a CSS var --val (0..1) usada pelo linear-gradient da track
   // pra colorir a parte preenchida em verde. Chamado pelos _sync*Hint
   // que ja sao invocados em todo lugar que o slider muda — drag, open,

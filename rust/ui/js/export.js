@@ -2154,6 +2154,11 @@ const Export = {
 
   FPS_MAX: 1000,
   FPS_MAX_SVT: 240,
+  // A partir deste CRF o AV1 por CPU (SVT-AV1) já está no quantizador máximo
+  // dele (`crf 63`, ver Q_EXP_SVTAV1 no ffmpeg_export.rs): o arquivo sai
+  // IGUAL. Medido: prévia de 10 s 1080p com 1015 KB no CRF 34 e no 45. Não
+  // há qualidade mais baixa pra pedir, então a tela avisa.
+  SVT_FLOOR_CRF: 31,
 
   _maxFps() {
     const src = Math.round(this.srcFps || 0);
@@ -2200,9 +2205,15 @@ const Export = {
     if (!val) return;
     const crf = this._crf();
     val.textContent = T('export.qualityValue', { crf: crf });
-    if (hint)
-      hint.textContent = T('export.qualityHint',
-                           { band: T(this._crfBandKey(crf)) });
+    if (!hint) return;
+    hint.textContent = T('export.qualityHint',
+                         { band: T(this._crfBandKey(crf)) });
+    const enc = document.getElementById('exportEncoder');
+    const svtFloor = !!enc && enc.value === 'av1-sw' && crf >= this.SVT_FLOOR_CRF;
+    hint.classList.toggle('warn', svtFloor);
+    if (svtFloor)
+      hint.textContent = T('export.qualitySvtFloor', { crf: this.SVT_FLOOR_CRF }) +
+                         ' ' + hint.textContent;
   },
 
   // ---- execucao ------------------------------------------------------
@@ -2560,7 +2571,8 @@ const Export = {
     // O SVT-AV1 tem teto proprio de fps (240): trocar de encoder pode
     // baixar o teto do seletor.
     const enc = document.getElementById('exportEncoder');
-    if (enc) enc.addEventListener('change', () => this._renderFps(true));
+    // E o aviso do piso do AV1 por CPU depende do encoder.
+    if (enc) enc.addEventListener('change', () => { this._renderFps(true); this._syncQualityValue(); });
     // Sem clique-fora-fecha: e uma TELA, nao um dialogo — nao existe
     // "fora". Sai pelo botao de voltar ou por Esc.
     document.addEventListener('keydown', (ev) => {

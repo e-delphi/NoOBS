@@ -104,6 +104,10 @@ mod tests {
     #[test]
     fn nivel_invalido_cai_no_padrao() {
         assert_eq!(quality_level_to_crf(99), 23);
+        // Piso do AV1 por CPU: os níveis até 3 caem no CRF >= 31, onde o SVT-AV1
+        // já está no quantizador máximo (`SVT_FLOOR_LEVEL` no settings.js = 3).
+        assert!(quality_level_to_crf(3) >= 31);
+        assert!(quality_level_to_crf(4) < 31);
     }
 
     #[test]

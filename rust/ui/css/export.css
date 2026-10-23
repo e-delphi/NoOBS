@@ -799,3 +799,6 @@ select.export-input {
   border-color: var(--border-2);
   color: var(--text);
 }
+
+/* Aviso do AV1 por CPU: abaixo do piso de qualidade dele o arquivo não muda. */
+.export-hint.warn { color: var(--warning, #f59e0b); }

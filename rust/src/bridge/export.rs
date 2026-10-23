@@ -59,6 +59,9 @@ thread_local! {
     /// Gravação de ORIGEM da exportação em curso. A UI desenha a barra no card
     /// certo, e os caminhos que mexem no arquivo recusam enquanto ele é lido.
     static SOURCE: RefCell<String> = const { RefCell::new(String::new()) };
+    /// Último percentual empurrado: a página recriada (volta da hibernação)
+    /// recebe ele no `on_page_ready`, sem esperar o próximo tique.
+    static LAST_PCT: Cell<f64> = const { Cell::new(0.0) };
 }
 
 pub fn export_busy() -> bool {
@@ -91,12 +94,23 @@ fn source() -> String {
 }
 
 fn push_export_progress(pct: f64) {
+    LAST_PCT.with(|p| p.set(pct));
     if PREVIEW.with(Cell::get) {
         post_json(json!({ "type": "export_preview_progress", "pct": pct }));
         return;
     }
     // Id da ORIGEM: com a tela fechada, a barra vive no card dela.
     post_json(json!({ "type": "export_progress", "pct": pct, "id": source() }));
+}
+
+/// Página (re)carregada. Hibernar descarrega a interface mas a exportação
+/// segue rodando no mesmo processo; a página nova nasce sem saber dela, e
+/// sem este push a barra do card (e o cancelar) só voltaria no próximo
+/// progresso — que a UI ainda ignorava por não estar "exportando".
+pub fn on_page_ready() {
+    if export_busy() {
+        push_export_progress(LAST_PCT.with(Cell::get));
+    }
 }
 
 fn push_export_done(ok: bool, canceled: bool, path: &str) {

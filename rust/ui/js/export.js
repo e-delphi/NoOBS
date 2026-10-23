@@ -2331,6 +2331,10 @@ const Export = {
   },
 
   onProgress(pct, id) {
+    // Página recarregada (volta da hibernação) com a exportação rodando no
+    // backend: adota o estado, senão o card ficaria sem barra e sem cancelar
+    // e a exportação pareceria perdida.
+    if (!this.running && id) this.running = true;
     if (!this.running) return;
     if (id) this.runningId = id;
     this.pct = Math.max(0, Math.min(100, pct || 0));

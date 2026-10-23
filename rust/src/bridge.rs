@@ -452,6 +452,8 @@ fn do_init() {
     // bloqueia a main). Falha do warmup → a gravação inicializa sob demanda.
     // Com o motor já de pé (gravando, buffer), as caps vão na hora.
     recording::on_page_ready();
+    // Exportação que atravessou a hibernação: a barra volta no card.
+    export::on_page_ready();
     // Atalho de janela que achou várias janelas enquanto a página subia.
     window_record::on_page_ready();
     if !first {

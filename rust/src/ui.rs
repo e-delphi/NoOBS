@@ -539,19 +539,24 @@ fn on_tray_command(id: i32) {
 // ---------------------------------------------------------------------------
 
 /// Liga o `AudioVideoTracks` do Chromium (`HTMLMediaElement.audioTracks`),
-/// que o player usa para desligar o áudio acima de 2× (pegadinha #61). Vai
-/// pela variável de ambiente lida na criação do ambiente, preservando o que
-/// já estiver lá (ex.: porta de depuração remota).
-fn enable_webview_blink_features() {
+/// que o player usa para desligar o áudio acima de 2× (pegadinha #61),
+/// preservando o que já estiver na variável de ambiente (ex.: porta de
+/// depuração remota). Devolve os argumentos pras OPÇÕES do ambiente: o
+/// `AdditionalBrowserArguments` delas, mesmo vazio, VENCE a variável — só
+/// pôr na variável fazia os dois argumentos sumirem em silêncio.
+fn webview_browser_args() -> String {
     const VAR: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
     const ARG: &str = "--enable-blink-features=AudioVideoTracks";
     let cur = std::env::var(VAR).unwrap_or_default();
-    if cur.contains("AudioVideoTracks") {
-        return;
-    }
-    let new = if cur.is_empty() { ARG.to_owned() } else { format!("{cur} {ARG}") };
-    std::env::set_var(VAR, &new);
+    let new = if cur.contains("AudioVideoTracks") {
+        cur
+    } else if cur.is_empty() {
+        ARG.to_owned()
+    } else {
+        format!("{cur} {ARG}")
+    };
     log!("WebView2: argumentos extras = \"{new}\"");
+    new
 }
 
 /// `%LOCALAPPDATA%\TNoOBS`, restrito ao usuário e ao SYSTEM por DACL
@@ -875,10 +880,13 @@ fn webview_failed(why: &str) {
 
 fn create_webview(hwnd: HWND) {
     WEB_CREATING.with(|c| c.set(true));
-    enable_webview_blink_features();
+    let args = webview_browser_args();
     let user_data = secure_user_data_folder();
 
-    let options: ICoreWebView2EnvironmentOptions = CoreWebView2EnvironmentOptions::default().into();
+    let opts = CoreWebView2EnvironmentOptions::default();
+    // SAFETY: o objeto acabou de ser criado e ainda não foi entregue ao WebView2.
+    unsafe { opts.set_additional_browser_arguments(args) };
+    let options: ICoreWebView2EnvironmentOptions = opts.into();
     let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(move |err, env| {
         log!("TEnvironmentHandler: err={err:?} env={}", env.is_some());
         let env = match (err, env) {

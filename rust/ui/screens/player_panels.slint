@@ -1,0 +1,763 @@
+// Painéis à direita do player (`.player-info-panel` / `.player-tr-panel` do
+// player.css) e o botão CC com o menu. Só um painel fica aberto por vez; os
+// dois deixam 56 px em cima e 60 embaixo pros controles flutuantes.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { ScrollArea } from "../widgets/scroll.slint";
+import { Pl, InfoRow, InfoSection, ViewOpt, TrackRow, TurnRow } from "player_state.slint";
+
+global PanelColors {
+    out property <color> bg: Theme.dark ? rgba(15, 15, 15, 0.96) : rgba(255, 255, 255, 0.97);
+    out property <color> border: Theme.dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.08);
+    out property <color> head: Theme.dark ? rgba(255, 255, 255, 0.75) : rgba(0, 0, 0, 0.7);
+    out property <color> key: Theme.dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.55);
+    out property <color> val: Theme.dark ? rgba(255, 255, 255, 0.92) : rgba(0, 0, 0, 0.88);
+    out property <color> sect: Theme.dark ? rgba(255, 255, 255, 0.45) : rgba(0, 0, 0, 0.45);
+    out property <color> sect-line: Theme.dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.08);
+    out property <color> card: Theme.dark ? rgba(255, 255, 255, 0.04) : rgba(0, 0, 0, 0.03);
+    out property <color> card-line: Theme.dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.08);
+    out property <color> muted-text: Theme.dark ? rgba(255, 255, 255, 0.45) : rgba(0, 0, 0, 0.55);
+    out property <color> hover: Theme.dark ? rgba(255, 255, 255, 0.07) : rgba(0, 0, 0, 0.06);
+    out property <color> faint: Theme.dark ? rgba(255, 255, 255, 0.03) : rgba(0, 0, 0, 0.03);
+    out property <color> hover-line: Theme.dark ? rgba(255, 255, 255, 0.12) : rgba(0, 0, 0, 0.12);
+}
+
+// `.player-info-header`: 10 14, 12 px 600 maiúsculo; × de 24.
+component PanelHeader {
+    in property <string> title;
+    callback close();
+    height: 45px;
+    Text {
+        x: 14px;
+        text: root.title;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.36px;
+        color: PanelColors.head;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        x: parent.width - 14px - 24px;
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        background: cta.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.06)) : transparent;
+        Text {
+            y: (parent.height - self.height) / 2 - 2px;
+            text: "×";
+            font-size: 18px;
+            color: cta.has-hover ? (Theme.dark ? white : black) : (Theme.dark ? rgba(255, 255, 255, 0.6) : rgba(0, 0, 0, 0.55));
+        }
+        cta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.close(); }
+        }
+        HintTrigger {
+            hovered: cta.has-hover;
+            hint: T.s("player.close");
+            layer: 2;
+        }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: PanelColors.border;
+    }
+}
+
+component InfoRowView {
+    in property <InfoRow> item;
+    HorizontalLayout {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 10px;
+        // line-height: 1.4 sobre 12 px: 16,8 px por linha.
+        Text {
+            height: 16.8px;
+            text: root.item.key;
+            font-size: 11px;
+            color: PanelColors.key;
+            vertical-alignment: center;
+        }
+        Text {
+            height: 16.8px;
+            horizontal-stretch: 1;
+            text: root.item.val;
+            font-size: 12px;
+            color: PanelColors.val;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// `.player-info-section-title`: 10 px 700, maiúsculo, linha embaixo, 8 de margem.
+component SectionTitle {
+    in property <string> text;
+    height: 14px + 4px + 1px + 8px;
+    Text {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 14px;
+        text: root.text.to-uppercase();
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        color: PanelColors.sect;
+        vertical-alignment: center;
+    }
+    Rectangle {
+        y: 18px;
+        height: 1px;
+        background: PanelColors.sect-line;
+    }
+}
+
+// Opção da "Visualização" (`.player-view-option`).
+component ViewOption {
+    in property <ViewOpt> opt;
+    height: 34.8px;
+    Rectangle {
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: root.opt.selected ? rgba(16, 185, 129, 0.45) : ta.has-hover ? PanelColors.hover-line : PanelColors.card-line;
+        background: root.opt.selected ? rgba(16, 185, 129, Theme.dark ? 0.12 : 0.10) : ta.has-hover ? PanelColors.hover : PanelColors.faint;
+        animate background, border-color { duration: 120ms; }
+    }
+    // Rádio (tela cheia) ou caixa (região).
+    Rectangle {
+        x: 11px;
+        width: 16px;
+        height: 16px;
+        border-radius: root.opt.kind == "full" ? 8px : 4px;
+        border-width: 1.5px;
+        border-color: root.opt.selected ? Theme.success : (Theme.dark ? rgba(255, 255, 255, 0.35) : rgba(0, 0, 0, 0.35));
+        background: root.opt.selected ? Theme.success : transparent;
+        if root.opt.selected && root.opt.kind == "full": Rectangle {
+            width: 7px;
+            height: 7px;
+            border-radius: 3.5px;
+            background: white;
+        }
+        if root.opt.selected && root.opt.kind != "full": Path {
+            width: 10.4px;
+            height: 10.4px;
+            viewbox-width: 24;
+            viewbox-height: 24;
+            stroke: white;
+            stroke-width: 1.5px;
+            stroke-line-cap: round;
+            stroke-line-join: round;
+            fill: transparent;
+            commands: "M20 6L9 17L4 12";
+        }
+    }
+    Path {
+        x: 11px + 16px + 10px;
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        stroke: root.opt.selected ? Theme.success : (Theme.dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.45));
+        stroke-width: 1.2px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        fill: transparent;
+        commands: root.opt.kind == "webcam" ? "M15.5 12A3.5 3.5 0 1 1 8.5 12A3.5 3.5 0 1 1 15.5 12Z M21 12A9 9 0 1 1 3 12A9 9 0 1 1 21 12Z"
+            : root.opt.kind == "monitor" ? "M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M8 22h8 M12 18v4"
+            : "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7";
+    }
+    Text {
+        x: 11px + 16px + 10px + 18px + 10px;
+        width: parent.width - self.x - 10px;
+        text: root.opt.label;
+        font-size: 12px;
+        color: Theme.text;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Pl.view-clicked(root.opt.idx); }
+    }
+}
+
+// Volume de uma faixa (`.player-info-vol`): 0..200, verde até 100,
+// vermelho acima, marca fina no meio; duplo clique volta a 100.
+component TrackSlider {
+    in property <int> v;
+    callback changed-to(int);
+    height: 22px;
+    property <float> f: self.v / 200;
+    Rectangle {
+        y: (parent.height - 3px) / 2;
+        height: 3px;
+        border-radius: 2px;
+        background: Theme.dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.12);
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - 3px) / 2;
+        width: parent.width * min(root.f, 0.5);
+        height: 3px;
+        border-radius: 2px;
+        background: Theme.success;
+    }
+    if root.f > 0.5: Rectangle {
+        x: root.width * 0.5;
+        y: (root.height - 3px) / 2;
+        width: root.width * (root.f - 0.5);
+        height: 3px;
+        background: Theme.danger-2;
+    }
+    Rectangle {
+        x: parent.width / 2 - 0.5px;
+        y: (parent.height - 3px) / 2;
+        width: 1px;
+        height: 3px;
+        background: Theme.dark ? rgba(255, 255, 255, 0.35) : rgba(0, 0, 0, 0.35);
+    }
+    Rectangle {
+        x: (parent.width - 10px) * root.f;
+        y: (parent.height - 10px) / 2;
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: root.v > 100 ? Theme.danger-2 : (Theme.dark ? white : Theme.success);
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                root.changed-to(round(max(0, min(1, (self.mouse-x - 5px) / (root.width - 10px))) * 200));
+            }
+        }
+        moved => {
+            if self.pressed {
+                root.changed-to(round(max(0, min(1, (self.mouse-x - 5px) / (root.width - 10px))) * 200));
+            }
+        }
+        double-clicked => { root.changed-to(100); }
+    }
+}
+
+// Uma faixa de áudio (`.player-info-track`).
+component TrackCard {
+    in property <TrackRow> track;
+    property <bool> muted: self.track.vol == 0;
+    VerticalLayout {
+        Rectangle {
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: PanelColors.card-line;
+            background: PanelColors.card;
+            opacity: root.muted ? 0.55 : 1;
+            VerticalLayout {
+                padding-top: 8px;
+                padding-bottom: 8px;
+                padding-left: 10px;
+                padding-right: 10px;
+                Rectangle {
+                    height: 15.4px + 4px;
+                    t := Text {
+                        x: 0;
+                        y: 0;
+                        text: root.track.title;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.success;
+                    }
+                    // `text-decoration: line-through` da faixa muda.
+                    if root.muted: Rectangle {
+                        x: 0;
+                        y: t.preferred-height / 2;
+                        width: t.preferred-width;
+                        height: 1px;
+                        background: Theme.success;
+                    }
+                }
+                for r in root.track.rows: InfoRowView {
+                    item: r;
+                }
+                Rectangle {
+                    height: 6px + 1px + 6px + 22px;
+                    Rectangle {
+                        y: 6px;
+                        height: 1px;
+                        background: Theme.dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.06);
+                    }
+                    HorizontalLayout {
+                        y: 13px;
+                        height: 22px;
+                        spacing: 8px;
+                        Rectangle {
+                            width: 22px;
+                            border-radius: 4px;
+                            background: mta.has-hover ? (root.muted ? rgba(239, 68, 68, 0.12) : (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.06))) : transparent;
+                            Path {
+                                width: 14px;
+                                height: 14px;
+                                viewbox-width: 24;
+                                viewbox-height: 24;
+                                stroke: root.muted ? Theme.danger-2 : mta.has-hover ? (Theme.dark ? white : rgba(0, 0, 0, 0.85)) : (Theme.dark ? rgba(255, 255, 255, 0.7) : rgba(0, 0, 0, 0.55));
+                                fill: transparent;
+                                stroke-width: 1.2px;
+                                stroke-line-cap: round;
+                                stroke-line-join: round;
+                                commands: root.muted ? "M11 5L6 9H2v6h4l5 4V5z M23 9l-6 6 M17 9l6 6" : "M11 5L6 9H2v6h4l5 4V5z M15.54 8.46a5 5 0 0 1 0 7.07 M19.07 4.93a10 10 0 0 1 0 14.14";
+                            }
+                            mta := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { Pl.track-mute(root.track.idx); }
+                            }
+                            HintTrigger {
+                                hovered: mta.has-hover;
+                                hint: root.muted ? T.s("player.unmute") : T.s("player.muteShort");
+                                layer: 2;
+                            }
+                        }
+                        TrackSlider {
+                            horizontal-stretch: 1;
+                            v: root.track.vol;
+                            changed-to(v) => { Pl.track-volume(root.track.idx, v); }
+                        }
+                        Text {
+                            width: 38px;
+                            text: root.track.vol + "%";
+                            font-size: 10px;
+                            color: Theme.dark ? rgba(255, 255, 255, 0.65) : rgba(0, 0, 0, 0.6);
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            height: 6px;
+        }
+    }
+}
+
+component Spinner {
+    in property <length> size: 28px;
+    in property <length> thickness: 2.5px;
+    width: root.size;
+    height: root.size;
+    Rectangle {
+        border-radius: root.size / 2;
+        border-width: root.thickness;
+        border-color: Theme.dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.12);
+    }
+    Path {
+        width: root.size;
+        height: root.size;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: Theme.success;
+        stroke-width: root.thickness;
+        fill: transparent;
+        commands: "M19.4 19.4A43.3 43.3 0 0 1 80.6 19.4";
+        transform-rotation: 360deg * mod(animation-tick() / 1ms, 900) / 900;
+    }
+}
+
+export component InfoPanel {
+    width: 320px;
+    Rectangle {
+        background: PanelColors.bg;
+    }
+    Rectangle {
+        x: 0;
+        width: 1px;
+        background: PanelColors.border;
+    }
+    PanelHeader {
+        y: 56px;
+        width: parent.width;
+        title: T.s("player.videoInfo").to-uppercase();
+        close => { Pl.toggle-info(); }
+    }
+    if Pl.info-loading: VerticalLayout {
+        y: 56px + 45px;
+        height: 120px;
+        alignment: center;
+        spacing: 10px;
+        HorizontalLayout {
+            alignment: center;
+            Spinner { }
+        }
+        Text {
+            text: T.s("player.analyzing");
+            font-size: 12px;
+            color: Theme.dark ? rgba(255, 255, 255, 0.6) : rgba(0, 0, 0, 0.55);
+            horizontal-alignment: center;
+        }
+    }
+    if !Pl.info-loading: ScrollArea {
+        y: 56px + 45px;
+        width: parent.width;
+        height: parent.height - 56px - 45px - 60px;
+        content-h: body.preferred-height;
+        body := VerticalLayout {
+            width: 320px;
+            padding: 14px;
+            for s in Pl.info-sections: VerticalLayout {
+                SectionTitle {
+                    text: s.title;
+                }
+                for r in s.rows: InfoRowView {
+                    item: r;
+                }
+                Rectangle {
+                    height: 18px;
+                }
+            }
+            if Pl.has-view: VerticalLayout {
+                SectionTitle {
+                    text: T.s("player.info.visualization");
+                }
+                for o in Pl.view-opts: VerticalLayout {
+                    ViewOption {
+                        opt: o;
+                    }
+                    Rectangle {
+                        height: 4px;
+                    }
+                }
+                Rectangle {
+                    height: 14px;
+                }
+            }
+            if Pl.tracks.length > 0: VerticalLayout {
+                SectionTitle {
+                    text: Pl.tracks-title;
+                }
+                for tr in Pl.tracks: TrackCard {
+                    track: tr;
+                }
+            }
+        }
+    }
+}
+
+// Cores dos falantes: pastéis no escuro (brilham sobre preto), as mesmas
+// matizes escurecidas no claro.
+global SpeakerColors {
+    out property <[color]> dark: [#6ee7a8, #7cc4fa, #f8b57c, #d8a5f5, #f59db1, #e8dd7a];
+    out property <[color]> light: [#0f7a45, #1668b8, #a1580f, #7a3fa8, #b03a5b, #7d6c0a];
+}
+
+// Um turno (`.player-tr-turn`): falante (clicável: renomeia) + hora + texto.
+component TurnView {
+    in property <TurnRow> turn;
+    in property <bool> editing;
+    property <color> spk-color: Theme.dark ? SpeakerColors.dark[self.turn.color] : SpeakerColors.light[self.turn.color];
+    VerticalLayout {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        // 14 + os 2 px da order-left do turno (onde fica a marca do ativo).
+        padding-left: 16px;
+        padding-right: 14px;
+        spacing: 3px;
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 15.4px;
+                if !root.editing: Rectangle {
+                    x: -3px;
+                    width: name.preferred-width + 6px;
+                    border-radius: 3px;
+                    background: sta.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.1) : rgba(0, 0, 0, 0.06)) : transparent;
+                    name := Text {
+                        text: root.turn.speaker;
+                        font-size: 11px;
+                        font-weight: 600;
+                        letter-spacing: 0.2px;
+                        color: root.spk-color;
+                    }
+                    sta := TouchArea {
+                        mouse-cursor: text;
+                        clicked => { Pl.speaker-clicked(root.turn.idx); }
+                    }
+                    HintTrigger {
+                        hovered: sta.has-hover;
+                        hint: T.s("player.renameSpeaker");
+                        layer: 2;
+                    }
+                }
+                if root.editing: Rectangle {
+                    x: -3px;
+                    width: min(parent.width + 3px, 200px);
+                    border-radius: 3px;
+                    background: Theme.dark ? rgba(255, 255, 255, 0.12) : rgba(0, 0, 0, 0.05);
+                    border-width: 1.5px;
+                    border-color: Theme.success;
+                    TextInput {
+                        x: 3px;
+                        width: parent.width - 6px;
+                        text: Pl.editing-speaker-text;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: root.spk-color;
+                        single-line: true;
+                        vertical-alignment: center;
+                        init => {
+                            self.focus();
+                            self.select-all();
+                        }
+                        accepted => { Pl.speaker-commit(self.text); }
+                        key-pressed(e) => {
+                            if e.text == Key.Escape {
+                                Pl.speaker-cancel();
+                                return accept;
+                            }
+                            reject
+                        }
+                        changed has-focus => {
+                            if !self.has-focus && root.editing {
+                                Pl.speaker-commit(self.text);
+                            }
+                        }
+                    }
+                }
+            }
+            Text {
+                text: root.turn.time;
+                font-size: 10px;
+                color: Theme.dark ? rgba(255, 255, 255, 0.4) : rgba(0, 0, 0, 0.55);
+                vertical-alignment: center;
+            }
+        }
+        // O StyledText não tem `line-height`: a altura cresce na proporção do
+        // 1,45 da web sobre o ~1,33 natural, pra o turno ocupar o mesmo espaço.
+        StyledText {
+            height: self.preferred-height * 1.45 / 1.33;
+            vertical-alignment: center;
+            text: root.turn.text;
+            default-font-size: 12px;
+            default-color: Theme.dark ? rgba(255, 255, 255, 0.82) : rgba(0, 0, 0, 0.82);
+        }
+    }
+}
+
+export component TranscriptPanel {
+    width: 360px;
+    Rectangle {
+        background: PanelColors.bg;
+    }
+    Rectangle {
+        x: 0;
+        width: 1px;
+        background: PanelColors.border;
+    }
+    PanelHeader {
+        y: 56px;
+        width: parent.width;
+        title: T.s("player.transcript").to-uppercase();
+        close => { Pl.toggle-transcript(); }
+    }
+    // Busca (`.player-tr-search`).
+    Rectangle {
+        y: 56px + 45px;
+        height: 8px + 30px + 8px + 1px;
+        Rectangle {
+            x: 12px;
+            y: 8px;
+            width: parent.width - 24px;
+            height: 30px;
+            border-radius: 7px;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.success : (Theme.dark ? rgba(255, 255, 255, 0.12) : rgba(0, 0, 0, 0.12));
+            background: Theme.dark ? rgba(255, 255, 255, 0.06) : rgba(0, 0, 0, 0.03);
+            Text {
+                x: 10px;
+                visible: input.text == "";
+                text: T.s("player.transcriptSearch");
+                font-size: 12px;
+                color: Theme.text-3;
+                vertical-alignment: center;
+            }
+            input := TextInput {
+                x: 10px;
+                width: parent.width - 20px;
+                text <=> Pl.tr-search;
+                font-size: 12px;
+                color: Theme.dark ? white : #1f2937;
+                single-line: true;
+                vertical-alignment: center;
+                edited => { Pl.tr-search-edited(self.text); }
+            }
+        }
+        Rectangle {
+            y: parent.height - 1px;
+            height: 1px;
+            background: PanelColors.border;
+        }
+    }
+    property <length> body-y: 56px + 45px + 47px;
+    if Pl.tr-empty != "": Text {
+        x: 14px;
+        y: root.body-y + 6px + 18px;
+        width: parent.width - 28px;
+        text: Pl.tr-empty;
+        font-size: 12px;
+        color: PanelColors.muted-text;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    area := ScrollArea {
+        y: root.body-y;
+        width: parent.width;
+        height: parent.height - root.body-y - 60px;
+        content-h: list.preferred-height;
+        list := VerticalLayout {
+            // Menos a barra de rolagem: na web ela ocupa espaço (8 px) ao lado da lista.
+            width: 360px - 8px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            for tr in Pl.turns: Rectangle {
+                height: tv.preferred-height;
+                property <bool> active: tr.active;
+                // Acompanha o turno em reprodução (`scrollIntoView` "nearest").
+                changed active => {
+                    if self.active {
+                        if self.y + area.content-y < 0 {
+                            area.set-scroll(-self.y);
+                        } else if self.y + self.height + area.content-y > area.height {
+                            area.set-scroll(area.height - self.y - self.height);
+                        }
+                    }
+                }
+                background: tr.active ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.06)) : tta.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.04)) : transparent;
+                animate background { duration: 120ms; }
+                tta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { Pl.turn-clicked(tr.idx); }
+                }
+                // Largura explícita: sem ela o turno fica com a largura do texto
+                // numa linha só (sem quebra) e centralizado.
+                tv := TurnView {
+                    x: 0;
+                    width: parent.width;
+                    turn: tr;
+                    editing: Pl.editing-turn == tr.idx;
+                }
+                Rectangle {
+                    x: 0;
+                    width: 2px;
+                    background: tr.active ? Theme.success : transparent;
+                }
+            }
+        }
+    }
+    // O Rust pede pra centralizar um turno (ao abrir o painel).
+    property <int> scroll-seq: Pl.tr-scroll-seq;
+    changed scroll-seq => {
+        // Altura média de um turno: a posição exata só existe depois do layout.
+        if Pl.turns.length > 0 && Pl.tr-scroll-to >= 0 {
+            area.set-scroll(-(list.preferred-height * Pl.tr-scroll-to / Pl.turns.length) + area.height / 2);
+        }
+    }
+}
+
+// Botão CC + o menu que abre ao passar o mouse (`.player-cc-wrap`). Clique =
+// legenda (como a tecla C); o menu tem as duas vistas.
+export component CcControl {
+    // Itens com o mouse em cima: o TouchArea do item fica com o hover e o
+    // mta do menu o perde — sem contar os itens, o menu fecharia.
+    property <int> item-hover;
+    property <bool> open: bta.has-hover || mta.has-hover || root.item-hover > 0;
+    property <bool> lit: Pl.captions-on || Pl.tr-open;
+    width: 32px;
+    height: 32px;
+    Rectangle {
+        border-radius: 6px;
+        background: root.lit ? rgba(16, 185, 129, 0.18) : bta.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    }
+    Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        fill: root.lit ? Theme.success : rgba(255, 255, 255, 0.85);
+        commands: "M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z";
+    }
+    bta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { Pl.toggle-captions(); }
+    }
+    menu := Rectangle {
+        visible: root.open;
+        width: 190px;
+        height: 4px + 29.5px + 2px + 29.5px + 4px;
+        x: (root.width - self.width) / 2;
+        y: -8px - self.height;
+        background: Theme.dark ? rgba(20, 20, 22, 0.96) : rgba(255, 255, 255, 0.98);
+        border-width: 1px;
+        border-color: Theme.dark ? rgba(255, 255, 255, 0.10) : rgba(0, 0, 0, 0.10);
+        border-radius: 8px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: Theme.dark ? rgba(0, 0, 0, 0.4) : rgba(0, 0, 0, 0.18);
+        // Cobre também o vão até o botão (o `::after` do CSS).
+        mta := TouchArea {
+            height: parent.height + 10px;
+            y: 0;
+        }
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+            for opt[i] in [{ on: Pl.captions-on, label: T.s("player.captionsOverlay"), key: "C" }, { on: Pl.tr-open, label: T.s("player.transcriptPanel"), key: "" }]: optr := Rectangle {
+                height: 29.5px;
+                border-radius: 5px;
+                background: ota.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.05)) : transparent;
+                property <color> fg: opt.on ? (Theme.dark ? Theme.success : #047857) : (Theme.dark ? Theme.text : #1f2937);
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 8px;
+                    Text {
+                        width: 14px;
+                        text: opt.on ? "✓" : "";
+                        font-size: 12.5px;
+                        color: optr.fg;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: opt.label;
+                        font-size: 12.5px;
+                        font-weight: opt.on ? 600 : 400;
+                        color: optr.fg;
+                        vertical-alignment: center;
+                    }
+                    if opt.key != "": Text {
+                        text: opt.key;
+                        font-size: 11px;
+                        color: optr.fg;
+                        opacity: 0.55;
+                        vertical-alignment: center;
+                    }
+                }
+                ota := TouchArea {
+                    mouse-cursor: pointer;
+                    changed has-hover => { root.item-hover += self.has-hover ? 1 : -1; }
+                    clicked => {
+                        if i == 0 {
+                            Pl.toggle-captions();
+                        } else {
+                            Pl.toggle-transcript();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -174,6 +174,19 @@ passando.
   card abre no player do Windows até a fase 3; "Exportar" fica apagado e o
   progresso de exportação no card entra com a fase 5.
 
+- **Fase 3 — feita.** Player próprio (`src/playback/`: vídeo decodificado e
+  convertido na placa, áudio de todas as faixas misturado por tempo com o
+  volume de cada uma, WSOLA acima de 1×, relógio pelo consumo do WASAPI,
+  saltos por keyframe de 8× pra cima), presenter `src/app_player.rs`, telas
+  `ui/screens/player*.slint`: barra com forma de onda, volume vertical,
+  velocidade, zoom por roda e arrasto, tela cheia, selo "PAUSADO", painel de
+  informações (seções, "Visualização" por região, volume por faixa) e de
+  transcrição (busca com destaque, turno ativo seguindo o vídeo, renomear
+  falante), legenda em blocos de duas linhas e o menu do CC. Os dados chegam
+  tipados (`View::video_info`, `waveform`, `transcript`). Conferido por
+  captura contra a web com as duas janelas no tamanho de maximizada (3840×2088
+  a 150%): cabeçalho, controles e os dois painéis.
+
 ### Como comparar sem tocar na área de trabalho
 
 Scripts em PowerShell, todos só sobre a janela do app: captura por
@@ -182,9 +195,19 @@ clique por `PostMessage(WM_LBUTTONDOWN/UP)` em coordenadas da captura
 (menos a borda e a barra de título; também botão direito, duplo clique, roda e
 arrasto com WM_MOUSEMOVE + MK_LBUTTON) e, pra não pular na frente do usuário,
 `ShowWindow(SW_SHOWNOACTIVATE)` + `SetWindowPos` pra x = −4000. A janela do
-WebView2 não aceita o clique por mensagem: a web só dá pra capturar no
-estado em que estiver. Teclado: o winit ignora WM_CHAR solto — vai
-WM_KEYDOWN por tecla (VK_A… sai minúsculo).
+WebView2 não aceita o clique por mensagem: a web se dirige pelo CDP
+(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` e
+`Runtime.evaluate`; reabrir sem a variável no fim). Teclado: o winit ignora
+WM_CHAR solto — vai WM_KEYDOWN por tecla (VK_A… sai minúsculo).
+
+**Compare as duas maximizadas**: `SetWindowPos` fora da tela com o tamanho da
+área de trabalho (3840×2088 aqui) — a responsividade tem que ser a mesma.
+
+**Hover por mensagem não se sustenta**: o winit liga o `TrackMouseEvent`, e
+como o cursor de verdade está fora da janela o Windows manda `WM_MOUSELEAVE`
+logo depois — o hover cai. Pra clicar num item de menu que só existe com
+hover, mande MOVE + DOWN + UP sem pausa entre eles (chegam antes do LEAVE).
+E o DOWN sem MOVE antes usa a ÚLTIMA posição do mouse, não a do lParam.
 
 ### O que a fase 1 ensinou
 
@@ -277,6 +300,32 @@ WM_KEYDOWN por tecla (VK_A… sai minúsculo).
 - **Miniatura é arquivo, não URL**: `player::ensure_recording_meta` /
   `get_cached_meta` devolvem o caminho do `<hash>.jpg` (o servidor HTTP sai
   com o player).
+
+### O que a fase 3 ensinou
+
+- **Renderizador: Skia por Direct3D 12, não OpenGL.** Com o
+  `renderer-skia-opengl` a janela parou de desenhar de um dia pro outro (e o
+  commit da fase 2, que funcionava, também): a thread principal ficava presa
+  no `wglSwapBuffers` dentro do driver OpenGL da AMD (`atio6axx.dll`, pilha
+  pelo `cdb -pv`). A janela respondia (`IsHungAppWindow` = falso) e não havia
+  erro nenhum. O `renderer-skia` (wgpu → D3D12, com OpenGL e software de
+  reserva) desenha na mesma máquina, no mesmo estado do driver.
+- **O cache tem que continuar legível pela versão web.** O `videoInfo` do
+  `<hash>.json` é a mensagem pronta que a web manda direto pra tela; sem o
+  `"type": "video_info"` ela ficava em "Analisando arquivo..." pra sempre.
+  O Slint grava com o campo.
+- **Hover passa pro TouchArea de cima.** Um menu que abre com
+  `botão.has-hover || menu.has-hover` FECHA quando o mouse chega num item: o
+  item fica com o hover e a área do menu o perde. Some-se o hover dos itens
+  (`changed has-hover` contando) — no menu do CC e na trilha do volume.
+- **`StyledText` sempre quebra linha**, mas sem largura explícita fica com
+  a largura do texto numa linha e centralizado. E não tem `line-height`: a
+  altura é escalada (1,45 / 1,33) pra o turno ocupar o espaço da web.
+- **Filho mais baixo num `HorizontalLayout` vai pro topo**, o `y` é
+  ignorado: o "PAUSADO" (24 px) ficava acima do centro do × (32 px). Ele
+  ganha a altura da linha e se posiciona dentro dela.
+- **O × do Chromium com `line-height: 1` fica ~1,5–2 px acima** do centro
+  que o Slint calcula; deslocado à mão.
 
 | # | Fase | Substitui | Risco |
 |---|---|---|---|

@@ -428,38 +428,32 @@ pub fn handle_request_transcript(path: &str) {
         // Nomes de falante escolhidos pelo usuário. Vão junto para o painel não precisar de um
         // segundo round-trip só para rotular.
         let names = load_speaker_names(&path);
-        let mut turns: Vec<Value> = Vec::new();
+        let mut turns = Vec::new();
         if let Ok(root) = serde_json::from_str::<Value>(&body) {
             for t in root.get("turns").and_then(Value::as_array).into_iter().flatten().filter(|t| t.is_object()) {
                 let text = t.get("text").and_then(Value::as_str).unwrap_or("").trim().to_owned();
                 if text.is_empty() {
                     continue;
                 }
-                turns.push(json!({
-                    "speaker": t.get("speaker").and_then(Value::as_str).unwrap_or(""),
-                    "start": t.get("start").and_then(Value::as_f64).unwrap_or(0.0),
-                    "end": t.get("end").and_then(Value::as_f64).unwrap_or(0.0),
-                    "text": text,
-                }));
+                turns.push(crate::view::Turn {
+                    speaker: t.get("speaker").and_then(Value::as_str).unwrap_or("").to_owned(),
+                    start: t.get("start").and_then(Value::as_f64).unwrap_or(0.0),
+                    end: t.get("end").and_then(Value::as_f64).unwrap_or(0.0),
+                    text,
+                });
             }
         }
-        mainthread::queue(move || {
-            if is_shutting_down() {
-                return;
-            }
-            post_json(json!({
-                "type": "transcript",
-                "id": path,
-                // `transcribed` = o arquivo existe. `has` = tem turnos. Os dois são
-                // independentes: uma gravação sem NINGUÉM falando volta transcribed=true e
-                // has=false, e o painel precisa dizer "nenhuma fala", não "ainda não foi
-                // transcrita".
-                "transcribed": transcribe::has_transcript(&path),
-                "has": !turns.is_empty(),
-                "turns": turns,
-                "speakers": names,
-            }));
-        });
+        // `transcribed` = o arquivo existe; uma gravação sem ninguém falando volta
+        // transcrita e sem turnos ("nenhuma fala", não "ainda não foi transcrita").
+        let tr = crate::view::Transcript {
+            transcribed: transcribe::has_transcript(&path),
+            turns,
+            speakers: names.into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect(),
+            id: path,
+        };
+        if !is_shutting_down() {
+            crate::view::call(move |v| v.transcript(&tr));
+        }
     });
 }
 

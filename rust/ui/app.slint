@@ -15,11 +15,14 @@ import { Main, SourceItem, LegendItem, DisplayItem } from "screens/main_state.sl
 import { SourcesColumn } from "screens/sources.slint";
 import { LibraryPane, ContextMenu, DragGhost } from "screens/library.slint";
 import { Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem } from "screens/library_state.slint";
+import { Pl, InfoRow, InfoSection, ViewOpt, TrackRow, TurnRow } from "screens/player_state.slint";
+import { PlayerOverlay } from "screens/player.slint";
 import { WindowPicker } from "screens/window_picker.slint";
 import { WindowCard, SavedArea } from "screens/main_state.slint";
 
 export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea,
-    Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem }
+    Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem, Pl, InfoRow, InfoSection,
+    ViewOpt, TrackRow, TurnRow }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -110,6 +113,15 @@ export component AppWindow inherits Window {
     }
 
     DragGhost {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // Player: por cima da tela toda (o `z-index: 9000` da web), abaixo do
+    // diálogo de confirmação e dos avisos.
+    PlayerOverlay {
         x: 0;
         y: 0;
         width: root.width;

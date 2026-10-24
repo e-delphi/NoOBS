@@ -1,0 +1,134 @@
+// Estado do player (`player.js` da versão web). Quem preenche é o
+// `src/app_player.rs`; o vídeo chega como imagem pronta, já no tamanho e na
+// posição do palco (o zoom e a vista de regiões são feitos na conversão).
+
+// Uma linha chave/valor do painel de informações (`.player-info-row`).
+export struct InfoRow {
+    key: string,
+    val: string,
+}
+
+// Uma seção (Arquivo, Vídeo): título e linhas.
+export struct InfoSection {
+    title: string,
+    rows: [InfoRow],
+}
+
+// Opção da "Visualização": tela cheia (rádio) ou uma região (caixa).
+export struct ViewOpt {
+    idx: int,
+    label: string,
+    // full / monitor / webcam
+    kind: string,
+    selected: bool,
+}
+
+// Uma faixa de áudio com o volume dela (0..200 %).
+export struct TrackRow {
+    idx: int,
+    title: string,
+    rows: [InfoRow],
+    vol: int,
+}
+
+// Um turno da transcrição.
+export struct TurnRow {
+    idx: int,
+    speaker: string,
+    // Cor estável por falante (0..5).
+    color: int,
+    time: string,
+    text: styled-text,
+    active: bool,
+}
+
+export global Pl {
+    in property <bool> open;
+    in property <string> title;
+    in property <bool> playing;
+    in property <bool> loading;
+    in property <string> loading-text;
+
+    // Quadro atual e onde ele fica no palco (px lógicos).
+    in property <image> frame;
+    in property <length> frame-x;
+    in property <length> frame-y;
+    in property <length> frame-w;
+    in property <length> frame-h;
+
+    // Barra de progresso: posição 0..1 e os textos.
+    in property <float> progress;
+    in property <string> time-text: "00:00 / 00:00";
+    in property <string> clock-text;
+    // Forma de onda já desenhada na largura da barra.
+    in property <image> waveform;
+    in property <bool> has-waveform;
+
+    // Volume geral 0..200 (%).
+    in property <int> volume: 100;
+    in property <bool> muted;
+
+    in property <string> speed-label: "1×";
+    in property <float> speed: 1;
+    // Andando por saltos (8× pra cima): o botão fica âmbar com o ponto.
+    in property <bool> trick;
+
+    in property <float> zoom: 1;
+    // Controles escondidos (2 s sem mexer o mouse, tocando).
+    in property <bool> idle;
+    // Pulso do indicador central (sobe a cada pausa).
+    in property <int> pause-flash;
+    in property <bool> fullscreen;
+
+    // ---- painéis à direita (um por vez) ----
+    in property <bool> info-open;
+    in property <bool> tr-open;
+    in property <bool> info-loading;
+    in property <[InfoSection]> info-sections;
+    in property <bool> has-view;
+    in property <[ViewOpt]> view-opts;
+    in property <string> tracks-title;
+    in property <[TrackRow]> tracks;
+    in property <[TurnRow]> turns;
+    // Texto no lugar dos turnos (carregando, sem transcrição, sem fala, sem resultado).
+    in property <string> tr-empty;
+    in-out property <string> tr-search;
+    // Turno pra rolar até (sobe quando o ativo muda com o painel aberto).
+    in property <int> tr-scroll-to: -1;
+    in property <int> tr-scroll-seq;
+    // Turno com o nome do falante em edição (-1 = nenhum).
+    in property <int> editing-turn: -1;
+    in property <string> editing-speaker-text;
+    // Legenda sobre o vídeo.
+    in property <bool> captions-on;
+    in property <string> caption;
+
+    callback toggle-info();
+    callback toggle-transcript();
+    callback toggle-captions();
+    callback view-clicked(int);
+    callback track-volume(int, int);
+    callback track-mute(int);
+    callback turn-clicked(int);
+    callback tr-search-edited(string);
+    callback speaker-clicked(int);
+    callback speaker-commit(string);
+    callback speaker-cancel();
+
+    // O palco mudou de tamanho (px lógicos).
+    callback stage-resized(length, length);
+    callback close();
+    callback toggle-play();
+    callback seek(float);
+    callback seek-end();
+    callback set-volume(int);
+    callback toggle-mute();
+    callback set-speed(float);
+    callback toggle-fullscreen();
+    callback wheel-zoom(length, length, length);
+    callback pan-start();
+    callback pan-move(length, length);
+    callback reset-zoom();
+    callback activity(length, length);
+    callback key(string, bool, bool, bool);
+}

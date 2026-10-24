@@ -1,0 +1,750 @@
+// Player (`.player-overlay` do player.css): ocupa a janela inteira; cabeçalho
+// e controles flutuam sobre o vídeo com degradê (estilo YouTube) e somem
+// depois de 2 s sem mexer o mouse, tocando.
+//
+// O vídeo é UMA imagem já convertida no tamanho do palco pelo motor
+// (`src/playback`): zoom e deslocamento viram recorte da origem, não escala da
+// imagem — por isso aproximar continua nítido.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { Pl } from "player_state.slint";
+import { InfoPanel, TranscriptPanel, CcControl } from "player_panels.slint";
+
+// Ícones cheios do player (viewBox 24, `fill: currentColor`).
+global PlIcons {
+    out property <string> play: "M8 5v14l11-7z";
+    out property <string> pause: "M6 5h4v14H6zM14 5h4v14h-4z";
+    out property <string> vol-high: "M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77S18.01 4.14 14 3.23z";
+    out property <string> vol-low: "M7 9v6h4l5 5V4l-5 5H7zm9.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12z";
+    out property <string> vol-off: "M16.5 12A4.5 4.5 0 0 0 14 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.92 8.92 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z";
+    out property <string> cc: "M19 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z";
+    out property <string> info: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 15h-2v-6h2zm0-8h-2V7h2z";
+    out property <string> fs-enter: "M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z";
+    out property <string> fs-exit: "M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z";
+    out property <string> clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.2 3.1.8-1.3-4.5-2.6z";
+}
+
+// `.player-btn`: 32×32, raio 6, hover branco 12%, ícone 18 px.
+component PlBtn {
+    in property <string> icon;
+    in property <string> hint;
+    in property <bool> active;
+    in property <color> fg: white;
+    callback clicked();
+    out property <bool> hovered: ta.has-hover;
+    width: 32px;
+    height: 32px;
+    Rectangle {
+        border-radius: 6px;
+        background: root.active ? rgba(16, 185, 129, 0.18) : ta.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+        animate background { duration: 150ms; }
+    }
+    if root.icon != "": Path {
+        width: 18px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        fill: root.active ? Theme.success : root.fg;
+        commands: root.icon;
+    }
+    @children
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        pressed: ta.pressed;
+        hint: root.hint;
+        layer: 2;
+    }
+}
+
+// Barra de progresso (`.player-seek`) com a forma de onda embaixo.
+component SeekBar {
+    property <float> p: ta.pressed ? max(0, min(1, ta.mouse-x / self.width)) : Pl.progress;
+    property <bool> paused: !Pl.playing;
+    property <color> bar-fill: self.paused ? (Theme.dark ? rgba(255, 255, 255, 0.55) : rgba(0, 0, 0, 0.45)) : Theme.success;
+    property <color> rest: Theme.dark ? rgba(255, 255, 255, 0.15) : rgba(0, 0, 0, 0.12);
+    height: 32px;
+    // Forma de onda: encostada embaixo da trilha, crescendo pra baixo.
+    if Pl.has-waveform: Image {
+        y: root.height / 2 + 2px;
+        width: root.width;
+        height: 14px;
+        source: Pl.waveform;
+        image-fit: fill;
+        opacity: 0.55;
+    }
+    Rectangle {
+        y: (root.height - 4px) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: root.rest;
+        Rectangle {
+            x: 0;
+            width: parent.width * root.p;
+            border-radius: 2px;
+            background: root.bar-fill;
+        }
+    }
+    // Brilho em volta do polegar no hover (`box-shadow: 0 0 0 6px`).
+    if ta.has-hover || ta.pressed: Rectangle {
+        x: root.width * root.p - 13px;
+        y: (root.height - 26px) / 2;
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        background: root.paused ? (Theme.dark ? rgba(255, 255, 255, 0.18) : rgba(0, 0, 0, 0.18)) : rgba(16, 185, 129, 0.2);
+    }
+    Rectangle {
+        x: root.width * root.p - 7px;
+        y: (root.height - 14px) / 2;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.paused ? (Theme.dark ? rgba(255, 255, 255, 0.85) : rgba(0, 0, 0, 0.65)) : Theme.success;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                Pl.seek(max(0, min(1, self.mouse-x / root.width)));
+            }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left {
+                Pl.seek-end();
+            }
+        }
+        moved => {
+            if self.pressed {
+                Pl.seek(max(0, min(1, self.mouse-x / root.width)));
+            }
+        }
+    }
+}
+
+// Alto-falante + popup com o volume VERTICAL (0..200 %), aberto no hover.
+component VolumeControl {
+    property <bool> dragging: vta.pressed;
+    // O TouchArea da trilha fica com o hover quando o mouse está nela, e o
+    // `pta` o perde: sem o `vta` aqui o popup fecharia ao chegar na barra.
+    property <bool> open: btn.hovered || pta.has-hover || vta.has-hover || self.dragging;
+    property <int> v: Pl.muted ? 0 : Pl.volume;
+    width: 32px;
+    height: 32px;
+    function vol-at(y: length) -> int {
+        return round(max(0, min(1, 1 - (y - 5.5px) / track.inner)) * 200);
+    }
+    btn := PlBtn {
+        icon: root.v == 0 ? PlIcons.vol-off : root.v < 50 ? PlIcons.vol-low : PlIcons.vol-high;
+        hint: root.open ? "" : T.s("player.mute");
+        clicked => { Pl.toggle-mute(); }
+    }
+    // `visible` em vez de `if`: o hover do popup é lido aqui fora.
+    pop := Rectangle {
+        visible: root.open;
+        x: (root.width - self.width) / 2;
+        y: -8px - self.height;
+        width: 52px;
+        height: 156px;
+        background: rgba(20, 20, 22, 0.96);
+        border-width: 1px;
+        border-color: rgba(255, 255, 255, 0.10);
+        border-radius: 8px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: rgba(0, 0, 0, 0.4);
+        // A área de hover desce até o botão (o `::after` do CSS cobre o vão).
+        pta := TouchArea {
+            height: parent.height + 10px;
+            y: 0;
+        }
+        Text {
+            y: 10px;
+            height: 16.1px;
+            width: parent.width;
+            text: root.v + "%";
+            font-size: 11.5px;
+            font-weight: 600;
+            color: root.v > 100 ? Theme.danger-2 : white;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        // Trilha vertical: 0 embaixo, 200 em cima; marca fina nos 100 %.
+        track := Rectangle {
+            x: (parent.width - 20px) / 2;
+            y: 10px + 16.1px + 8px;
+            width: 20px;
+            height: 110px;
+            property <float> f: root.v / 200;
+            property <length> inner: self.height - 11px;
+            Rectangle {
+                x: 8px;
+                width: 4px;
+                border-radius: 2px;
+                background: rgba(255, 255, 255, 0.15);
+            }
+            // Até 100 %: branco; acima, vermelho (amplificando).
+            Rectangle {
+                x: 8px;
+                y: parent.height - self.height;
+                width: 4px;
+                height: parent.height * min(parent.f, 0.5);
+                border-radius: 2px;
+                background: rgba(255, 255, 255, 0.85);
+            }
+            if track.f > 0.5: Rectangle {
+                x: 8px;
+                y: track.height * (1 - track.f);
+                width: 4px;
+                height: track.height * (track.f - 0.5);
+                background: Theme.danger-2;
+            }
+            Rectangle {
+                x: 6px;
+                y: parent.height / 2;
+                width: 8px;
+                height: 1px;
+                background: rgba(255, 255, 255, 0.45);
+            }
+            Rectangle {
+                x: (parent.width - 11px) / 2;
+                y: parent.inner * (1 - parent.f);
+                width: 11px;
+                height: 11px;
+                border-radius: 5.5px;
+                background: root.v > 100 ? Theme.danger-2 : white;
+            }
+            vta := TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        Pl.set-volume(root.vol-at(self.mouse-y));
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        Pl.set-volume(root.vol-at(self.mouse-y));
+                    }
+                }
+                double-clicked => { Pl.set-volume(100); }
+            }
+        }
+    }
+}
+
+// Menu de velocidade (`.player-speed-menu`), abre pra cima no clique.
+component SpeedControl {
+    in-out property <bool> open;
+    property <[float]> speeds: [0.25, 0.5, 1, 1.5, 2, 3, 8, 16, 32];
+    property <[string]> labels: ["0,25×", "0,5×", "1×", "1,5×", "2×", "3×", "8×", "16×", "32×"];
+    width: max(42px, lbl.preferred-width + 16px + (Pl.trick ? 9px : 0));
+    height: 32px;
+    Rectangle {
+        border-radius: 6px;
+        background: root.open ? rgba(16, 185, 129, 0.18) : ta.has-hover ? rgba(255, 255, 255, 0.12) : transparent;
+    }
+    HorizontalLayout {
+        alignment: center;
+        spacing: 4px;
+        lbl := Text {
+            text: Pl.speed-label;
+            font-size: 13px;
+            font-weight: 600;
+            color: Pl.trick ? #fbbf24 : root.open ? Theme.success : ta.has-hover ? white : rgba(255, 255, 255, 0.85);
+            vertical-alignment: center;
+        }
+        if Pl.trick: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 5px;
+                height: 5px;
+                border-radius: 2.5px;
+                background: #fbbf24;
+            }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.open = !root.open; }
+    }
+    HintTrigger {
+        hovered: ta.has-hover && !root.open;
+        hint: Pl.trick ? T.s("player.trickHint") : T.s("player.speed");
+        layer: 2;
+    }
+    if root.open: Rectangle {
+        property <length> opt-h: 29.5px;
+        width: max(76px, 84px);
+        height: root.speeds.length * (self.opt-h + 2px) - 2px + 8px;
+        x: (root.width - self.width) / 2;
+        y: -8px - self.height;
+        background: Theme.dark ? rgba(20, 20, 22, 0.96) : rgba(255, 255, 255, 0.98);
+        border-width: 1px;
+        border-color: Theme.dark ? rgba(255, 255, 255, 0.10) : rgba(0, 0, 0, 0.10);
+        border-radius: 8px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: Theme.dark ? rgba(0, 0, 0, 0.4) : rgba(0, 0, 0, 0.18);
+        TouchArea { }
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+            for s[i] in root.speeds: Rectangle {
+                height: 29.5px;
+                property <bool> sel: abs(Pl.speed - s) < 0.001;
+                border-radius: 5px;
+                background: self.sel ? (Theme.dark ? rgba(16, 185, 129, 0.18) : rgba(16, 185, 129, 0.14))
+                    : ota.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.05)) : transparent;
+                Text {
+                    text: root.labels[i];
+                    font-size: 12.5px;
+                    font-weight: parent.sel ? 600 : 400;
+                    color: parent.sel ? (Theme.dark ? Theme.success : #047857) : (Theme.dark ? Theme.text : #1f2937);
+                }
+                ota := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        Pl.set-speed(s);
+                        root.open = false;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component PlayerOverlay {
+    visible: self.opacity > 0;
+    opacity: Pl.open ? 1 : 0;
+    animate opacity { duration: 200ms; easing: ease; }
+    property <color> stage-bg: Theme.dark ? #000 : #fff;
+    // Painel aberto à direita: o palco encolhe (`transition: width 220ms`).
+    property <length> panel-w: Pl.info-open ? 320px : Pl.tr-open ? 360px : 0;
+    animate panel-w { duration: 220ms; easing: ease; }
+    property <bool> speed-open: speed.open;
+
+    // Pulso do indicador central: só anima enquanto dura (sem `animation-tick`
+    // sempre ligado).
+    property <duration> flash-at;
+    property <bool> flashing;
+    changed pause-flash => {
+        self.flash-at = animation-tick();
+        self.flashing = true;
+    }
+    property <int> pause-flash: Pl.pause-flash;
+
+    // O foco do teclado fica no player enquanto ele está aberto.
+    changed opacity => {
+        if Pl.open && self.opacity == 1 {
+            keys.focus();
+        }
+    }
+
+    keys := FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        key-pressed(e) => {
+            if !Pl.open {
+                return reject;
+            }
+            Pl.key(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift);
+            accept
+        }
+
+        Rectangle {
+            background: root.stage-bg;
+        }
+
+        // ---- palco ----
+        stage := Rectangle {
+            x: 0;
+            y: 0;
+            width: root.width - root.panel-w;
+            height: root.height;
+            clip: true;
+            init => { Pl.stage-resized(self.width, self.height); }
+            changed width => { Pl.stage-resized(self.width, self.height); }
+            changed height => { Pl.stage-resized(self.width, self.height); }
+
+            Image {
+                x: Pl.frame-x;
+                y: Pl.frame-y;
+                width: Pl.frame-w;
+                height: Pl.frame-h;
+                source: Pl.frame;
+                image-fit: fill;
+            }
+
+            sta := TouchArea {
+                mouse-cursor: Pl.idle ? none : Pl.zoom > 1.001 ? (self.pressed ? grabbing : grab) : default;
+                property <length> down-x;
+                property <length> down-y;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                        self.down-x = self.mouse-x;
+                        self.down-y = self.mouse-y;
+                        Pl.pan-start();
+                    }
+                }
+                // `moved` só vem com o botão apertado: o hover chega pelas
+                // coordenadas (o `mousemove` da web).
+                changed mouse-x => { Pl.activity(self.mouse-x, self.mouse-y); }
+                changed mouse-y => { Pl.activity(self.mouse-x, self.mouse-y); }
+                moved => {
+                    if self.pressed && Pl.zoom > 1.001 {
+                        Pl.pan-move(self.mouse-x - self.down-x, self.mouse-y - self.down-y);
+                    }
+                }
+                clicked => {
+                    // Arrastou (deslocando o zoom): não é clique.
+                    if abs(self.mouse-x - self.down-x) > 5px || abs(self.mouse-y - self.down-y) > 5px {
+                        return;
+                    }
+                    Pl.toggle-play();
+                }
+                double-clicked => { Pl.toggle-fullscreen(); }
+                scroll-event(e) => {
+                    if e.delta-y != 0 {
+                        Pl.wheel-zoom(self.mouse-x, self.mouse-y, e.delta-y);
+                    }
+                    accept
+                }
+            }
+
+            // Legenda sobre o vídeo (`.player-caption`): branca, contorno escuro,
+            // até duas linhas; desce quando os controles somem.
+            if Pl.captions-on && Pl.caption != "": Rectangle {
+                property <length> fs: max(16px, min(30px, root.width * 0.022));
+                width: min(parent.width * 0.86, 960px);
+                height: cap.preferred-height;
+                x: (parent.width - self.width) / 2;
+                y: parent.height - (Pl.idle ? 36px : 92px) - self.height;
+                animate y { duration: 220ms; easing: ease; }
+                cap := Text {
+                    width: parent.width;
+                    text: Pl.caption;
+                    font-size: parent.fs;
+                    font-weight: 600;
+                    color: white;
+                    stroke: rgba(0, 0, 0, 0.9);
+                    stroke-width: 3px;
+                    stroke-style: outside;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                    line-height-factor: 1.3 / 1.33;
+                }
+            }
+
+            // Zoom (`.player-zoom-badge`): logo abaixo do botão de fechar.
+            if Pl.zoom > 1.001: Rectangle {
+                x: parent.width - 12px - self.width;
+                y: 56px;
+                width: zt.preferred-width + 16px;
+                height: zt.preferred-height + 8px;
+                border-radius: 4px;
+                background: rgba(0, 0, 0, 0.6);
+                zt := Text {
+                    text: round(Pl.zoom * 100) + "%";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: white;
+                }
+            }
+
+            // Indicador central de pausa: pulso de 1,2 s (entra rápido, segura,
+            // sai crescendo).
+            if root.flashing: Rectangle {
+                property <float> k: min(1, (animation-tick() - root.flash-at) / 1200ms);
+                property <float> op: self.k < 0.15 ? self.k / 0.15 * 0.95 : self.k < 0.58 ? 0.95 : (1 - self.k) / 0.42 * 0.95;
+                property <float> sc: self.k < 0.15 ? 0.7 + self.k / 0.15 * 0.3 : self.k < 0.58 ? 1 : 1 + (self.k - 0.58) / 0.42 * 0.15;
+                changed k => {
+                    if self.k >= 1 {
+                        root.flashing = false;
+                    }
+                }
+                width: 180px;
+                height: 180px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                opacity: self.op;
+                transform-scale-x: self.sc * 100%;
+                transform-scale-y: self.sc * 100%;
+                border-radius: 90px;
+                background: @radial-gradient(circle, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.30) 35%, rgba(0, 0, 0, 0) 75%);
+                Rectangle {
+                    width: 90px;
+                    height: 90px;
+                    border-radius: 45px;
+                    background: rgba(0, 0, 0, 0.55);
+                    border-width: 4px;
+                    border-color: rgba(255, 255, 255, 0.95);
+                }
+                Rectangle {
+                    x: 36px + 40px;
+                    y: 30px + 40px;
+                    width: 9px;
+                    height: 40px;
+                    border-radius: 2px;
+                    background: rgba(255, 255, 255, 0.95);
+                }
+                Rectangle {
+                    x: 55px + 40px;
+                    y: 30px + 40px;
+                    width: 9px;
+                    height: 40px;
+                    border-radius: 2px;
+                    background: rgba(255, 255, 255, 0.95);
+                }
+            }
+
+            // Carregando (`.player-loading`).
+            if Pl.loading: Rectangle {
+                background: rgba(0, 0, 0, 0.5);
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 14px;
+                    HorizontalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 36px;
+                            height: 36px;
+                            Rectangle {
+                                border-radius: 18px;
+                                border-width: 3px;
+                                border-color: rgba(255, 255, 255, 0.15);
+                            }
+                            Path {
+                                width: 36px;
+                                height: 36px;
+                                viewbox-width: 36;
+                                viewbox-height: 36;
+                                stroke: Theme.success;
+                                stroke-width: 3px;
+                                fill: transparent;
+                                commands: "M7.4 7.4A15 15 0 0 1 28.6 7.4";
+                                transform-rotation: 360deg * mod(animation-tick() / 1ms, 900) / 900;
+                            }
+                        }
+                    }
+                    Text {
+                        text: Pl.loading-text;
+                        font-size: 13px;
+                        color: white;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // ---- painéis à direita ----
+        Rectangle {
+            x: root.width - root.panel-w;
+            y: 0;
+            width: root.panel-w;
+            height: root.height;
+            clip: true;
+            if Pl.info-open: InfoPanel {
+                x: 0;
+                height: parent.height;
+            }
+            if Pl.tr-open: TranscriptPanel {
+                x: 0;
+                height: parent.height;
+            }
+        }
+
+        // Clique fora do menu de velocidade fecha (por baixo dos controles,
+        // pra não engolir o clique nas opções).
+        if speed.open: TouchArea {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            clicked => { speed.open = false; }
+        }
+
+        // ---- cabeçalho ----
+        header := Rectangle {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: 62px;
+            opacity: Pl.idle ? 0 : 1;
+            // Escondido não recebe clique (`pointer-events: none`): vai pro palco.
+            visible: self.opacity > 0;
+            animate opacity { duration: 220ms; easing: ease; }
+            background: @linear-gradient(180deg, rgba(0, 0, 0, 0.7) 0%, rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0) 100%);
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 12px;
+                padding-bottom: 18px;
+                spacing: 12px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: Pl.title;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: white;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                // "PAUSADO": ocupa sempre o lugar (o X não pula), só aparece.
+                badge := Rectangle {
+                    width: btxt.preferred-width + 16px + 6px + 10px;
+                    // Altura do botão de fechar: o layout não centra filho mais baixo.
+                    height: 32px;
+                    opacity: Pl.playing ? 0 : 1;
+                    animate opacity { duration: 180ms; easing: ease; }
+                    Rectangle {
+                        x: Pl.playing ? 6px : 0;
+                        y: 4px;
+                        height: 24px;
+                        animate x { duration: 180ms; easing: ease; }
+                        border-radius: 4px;
+                        background: rgba(0, 0, 0, 0.65);
+                        Rectangle {
+                            x: 7px;
+                            y: (parent.height - 10px) / 2;
+                            width: 10px;
+                            height: 10px;
+                            Rectangle {
+                                x: 1px;
+                                y: 1px;
+                                width: 2.5px;
+                                height: 8px;
+                                border-radius: 0.5px;
+                                background: rgba(255, 255, 255, 0.95);
+                            }
+                            Rectangle {
+                                x: 6.5px;
+                                y: 1px;
+                                width: 2.5px;
+                                height: 8px;
+                                border-radius: 0.5px;
+                                background: rgba(255, 255, 255, 0.95);
+                            }
+                        }
+                        btxt := Text {
+                            x: 7px + 10px + 6px;
+                            text: T.s("player.paused");
+                            font-size: 11px;
+                            font-weight: 600;
+                            letter-spacing: 0.44px;
+                            color: rgba(255, 255, 255, 0.95);
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                close := Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    border-radius: 16px;
+                    background: cta.has-hover ? rgba(0, 0, 0, 0.7) : rgba(0, 0, 0, 0.4);
+                    animate background { duration: 150ms; }
+                    // O × do Chromium (`line-height: 1`) fica ~1,5 px acima do centro do Slint.
+                    Text {
+                        y: (parent.height - self.height) / 2 - 1.5px;
+                        text: "×";
+                        font-size: 20px;
+                        color: white;
+                    }
+                    cta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Pl.close(); }
+                    }
+                    HintTrigger {
+                        hovered: cta.has-hover;
+                        hint: T.s("player.close");
+                        layer: 2;
+                    }
+                }
+            }
+        }
+
+        // ---- controles ----
+        controls := Rectangle {
+            x: 0;
+            y: root.height - self.height;
+            width: root.width;
+            height: 64px;
+            opacity: Pl.idle && !root.speed-open ? 0 : 1;
+            visible: self.opacity > 0;
+            animate opacity { duration: 220ms; easing: ease; }
+            background: @linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0) 100%);
+            TouchArea {
+                changed mouse-x => { Pl.activity(self.mouse-x, root.height - 64px + self.mouse-y); }
+                changed mouse-y => { Pl.activity(self.mouse-x, root.height - 64px + self.mouse-y); }
+            }
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 18px;
+                padding-bottom: 14px;
+                spacing: 12px;
+                PlBtn {
+                    icon: Pl.playing ? PlIcons.pause : PlIcons.play;
+                    hint: T.s("player.playPause");
+                    clicked => { Pl.toggle-play(); }
+                }
+                Text {
+                    min-width: 90px;
+                    text: Pl.time-text;
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.85);
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                if Pl.clock-text != "": Rectangle {
+                    width: ck.preferred-width + 17px;
+                    Path {
+                        x: 0;
+                        width: 13px;
+                        height: 13px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        fill: rgba(255, 255, 255, 0.7);
+                        opacity: 0.85;
+                        commands: PlIcons.clock;
+                    }
+                    ck := Text {
+                        x: 17px;
+                        text: Pl.clock-text;
+                        font-size: 12px;
+                        color: rgba(255, 255, 255, 0.7);
+                        vertical-alignment: center;
+                    }
+                    ckta := TouchArea { }
+                    HintTrigger {
+                        hovered: ckta.has-hover;
+                        hint: T.s("player.clockTitle");
+                        layer: 2;
+                    }
+                }
+                SeekBar {
+                    horizontal-stretch: 1;
+                }
+                VolumeControl { }
+                speed := SpeedControl { }
+                CcControl { }
+                PlBtn {
+                    icon: PlIcons.info;
+                    fg: rgba(255, 255, 255, 0.85);
+                    active: Pl.info-open;
+                    hint: T.s("player.videoInfo");
+                    clicked => { Pl.toggle-info(); }
+                }
+                PlBtn {
+                    icon: Pl.fullscreen ? PlIcons.fs-exit : PlIcons.fs-enter;
+                    hint: T.s("player.fullscreen");
+                    clicked => { Pl.toggle-fullscreen(); }
+                }
+            }
+        }
+    }
+}

@@ -760,9 +760,7 @@ fn group_toggle(key: &str) {
 
 fn card_clicked(id: &str) {
     focus_library();
-    // O player entra na fase 3 (docs/ui-slint.md); até lá o clique abre no
-    // player do Windows.
-    bridge::handle_open_recording(id);
+    crate::app_player::open(id);
 }
 
 fn focus_library() {

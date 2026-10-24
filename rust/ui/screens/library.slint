@@ -311,8 +311,11 @@ component RecCardView {
                     width: parent.width - 20px;
                     height: 15.4px;
                     spacing: 6px;
+                    // Não encolhe: com três selos o "25 MB" virava "25 ..." (na web os
+                    // selos é que ficam à direita do espaço que sobra).
                     Text {
                         horizontal-stretch: 1;
+                        min-width: self.preferred-width;
                         text: root.item.size-text;
                         font-size: 11px;
                         color: Theme.text-3;

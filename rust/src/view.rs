@@ -15,7 +15,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Um dispositivo de captura (monitor, webcam, microfone, saída). Os campos e
 /// nomes são os do JSON da versão web — o `Recorder` dos testes serializa
@@ -194,6 +194,88 @@ pub struct Library {
     pub free_bytes: i64,
 }
 
+/// Uma faixa do arquivo (o Probe), no painel de informações do player.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StreamInfo {
+    pub index: i64,
+    /// `video`, `audio`, …
+    pub kind: String,
+    pub codec: String,
+    pub title: String,
+    pub bitrate: i64,
+    pub duration: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<i64>,
+    /// 0 = desconhecido (a linha some).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channels: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<i64>,
+}
+
+/// Um monitor/webcam no canvas da gravação (a "Visualização" do painel).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LayoutRegion {
+    pub name: String,
+    /// `monitor` ou `webcam`.
+    pub kind: String,
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoLayout {
+    pub canvas_w: i64,
+    pub canvas_h: i64,
+    pub regions: Vec<LayoutRegion>,
+}
+
+/// O que o painel de informações mostra (é também o formato do cache
+/// `videoInfo` do `<hash>.json`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VideoInfo {
+    pub id: String,
+    pub file_name: String,
+    pub format: String,
+    pub duration: f64,
+    pub bitrate: i64,
+    pub size: i64,
+    pub streams: Vec<StreamInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout: Option<VideoLayout>,
+}
+
+/// Um turno da transcrição (quem falou, quando, o quê).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Turn {
+    pub speaker: String,
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+}
+
+/// A transcrição de uma gravação pro painel e a legenda. `transcribed` = o
+/// arquivo existe; uma gravação sem ninguém falando vem transcrita e sem turnos.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Transcript {
+    pub id: String,
+    pub transcribed: bool,
+    pub turns: Vec<Turn>,
+    /// Nomes dados pelo usuário (`SPEAKER_00` → "Eduardo").
+    pub speakers: std::collections::BTreeMap<String, String>,
+}
+
 /// Qual lista mudou durante a gravação (o banner de "atualiza ao parar").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingKind {
@@ -276,6 +358,14 @@ pub trait View {
     /// União em curso / terminou.
     fn merge_pending(&self);
     fn merge_done(&self, ok: bool);
+
+    // ---- player ----
+    /// Picos da faixa de áudio (0..1) pra forma de onda. `hi` = a de alta
+    /// resolução da exportação.
+    fn waveform(&self, id: &str, peaks: &[f32], hi: bool);
+    /// Resposta do Probe (painel de informações).
+    fn video_info(&self, info: &VideoInfo);
+    fn transcript(&self, t: &Transcript);
 }
 
 /// O formato antigo de um card (`recordings_loaded`/`recording_added`).
@@ -466,5 +556,20 @@ impl View for Recorder {
     }
     fn merge_done(&self, ok: bool) {
         crate::bridge::post_json(serde_json::json!({ "type": "merge_done", "ok": ok }));
+    }
+    fn waveform(&self, id: &str, peaks: &[f32], hi: bool) {
+        let p: Vec<f64> = peaks.iter().map(|v| (*v as f64 * 1000.0).round() / 1000.0).collect();
+        crate::bridge::post_json(serde_json::json!({ "type": "waveform_ready", "id": id, "buckets": p.len(), "hi": hi, "peaks": p }));
+    }
+    fn video_info(&self, info: &VideoInfo) {
+        let mut v = serde_json::to_value(info).unwrap_or_default();
+        v["type"] = "video_info".into();
+        crate::bridge::post_json(v);
+    }
+    fn transcript(&self, t: &Transcript) {
+        crate::bridge::post_json(serde_json::json!({
+            "type": "transcript", "id": t.id, "transcribed": t.transcribed, "has": !t.turns.is_empty(),
+            "turns": t.turns, "speakers": t.speakers,
+        }));
     }
 }

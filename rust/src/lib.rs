@@ -58,6 +58,7 @@ pub mod capture;
 modulos! {
     app_library,
     app_main,
+    app_player,
     app_view,
     sounds,
     view,
@@ -84,6 +85,7 @@ modulos! {
     lock_detector,
     mainthread,
     mic_watch,
+    playback,
     player,
     probe,
     proc_watch,

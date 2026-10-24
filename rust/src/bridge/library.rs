@@ -22,7 +22,7 @@ use std::time::SystemTime;
 use chrono::{DateTime, Local, Timelike};
 use serde_json::{json, Value};
 
-use crate::view::{self, Crumb, FolderItem, Library, RecItem};
+use crate::view::{self, Crumb, FolderItem, LayoutRegion, Library, RecItem, StreamInfo, VideoInfo, VideoLayout};
 use crate::{config, ffmpeg_ops, lang, log, mainthread, player, probe, record_watch, ui};
 
 use super::recording::{last_recording_path, record_dir, recording_active};
@@ -521,7 +521,7 @@ pub fn start_record_watch() {
 /// o player exibir a hora-do-relógio da posição atual. -1 = indeterminado.
 /// 1. Nome `NoOBS_yyyy-mm-dd_hh-nn-ss` (instante exato; sobrevive à cópia, não ao
 ///    rename). 2. Data de CRIAÇÃO do arquivo (o muxer o cria no início).
-fn resolve_recording_start_clock_sec(path: &str) -> i32 {
+pub fn resolve_recording_start_clock_sec(path: &str) -> i32 {
     let name = file_stem(path);
     if name.chars().count() >= 25 && name.to_lowercase().starts_with("noobs_") {
         let n: Vec<char> = name.chars().collect();
@@ -556,7 +556,7 @@ fn push_play_url(path: &str, url: &str, mode: &str) {
 
 /// Valida o path da UI: dentro da pasta de gravação (ou uma prévia de
 /// exportação — só LEITURA passa por aqui) e existente (senão avisa).
-fn checked_recording(path: &str, warn_missing: bool) -> bool {
+pub fn checked_recording(path: &str, warn_missing: bool) -> bool {
     if path.is_empty() || !(is_path_in_record_dir(path) || super::export::is_preview_path(path)) {
         return false;
     }
@@ -641,18 +641,18 @@ pub fn handle_request_video_info(path: &str) {
         // taxa de quem não a declara (MKV de uma união): reprobe uma vez.
         let cached = player::load_meta_sub_object_json(&path, "videoInfo");
         if !cached.is_empty() {
-            if let Ok(mut c @ Value::Object(_)) = serde_json::from_str::<Value>(&cached) {
+            if let Ok(c) = serde_json::from_str::<Value>(&cached) {
                 let cur = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(-1);
                 let sz = c.get("size").and_then(Value::as_i64);
                 if sz == Some(cur) && cur > 0 && !video_info_has_rateless_video(&c) {
-                    // O cache guarda id/fileName de quando foi criado. Após um rename o
-                    // conteúdo (hash) é o mesmo mas o caminho mudou: sem sobrescrever, a
-                    // UI vê data.id != currentId e re-pede em LAÇO (cache hit = resposta
-                    // instantânea, disco a 8 MB/s).
-                    c["id"] = json!(path);
-                    c["fileName"] = json!(file_name(&path));
-                    mainthread::queue(move || post_json(c));
-                    return;
+                    if let Ok(mut info) = serde_json::from_value::<VideoInfo>(c) {
+                        // O cache guarda id/nome de quando foi criado; depois de um
+                        // rename o conteúdo é o mesmo, o caminho não.
+                        info.id = path.clone();
+                        info.file_name = file_name(&path);
+                        view::call(move |v| v.video_info(&info));
+                        return;
+                    }
                 }
             }
         }
@@ -666,52 +666,57 @@ pub fn handle_request_video_info(path: &str) {
             return;
         };
 
-        let streams: Vec<Value> = report
+        let streams = report
             .streams
             .iter()
             .map(|s| {
-                let mut o = json!({
-                    "index": s.index, "kind": s.kind, "codec": s.codec, "title": s.title,
-                    "bitrate": s.bit_rate, "duration": s.duration,
-                });
-                if s.kind == "video" {
-                    o["width"] = json!(s.width);
-                    o["height"] = json!(s.height);
-                    // FPS: 0 quando desconhecido (a UI esconde a linha).
-                    o["frameRate"] = json!(s.frame_rate);
-                } else if s.kind == "audio" {
-                    o["channels"] = json!(s.channels);
-                    o["sampleRate"] = json!(s.sample_rate);
+                let video = s.kind == "video";
+                let audio = s.kind == "audio";
+                StreamInfo {
+                    index: s.index as i64,
+                    kind: s.kind.to_owned(),
+                    codec: s.codec.clone(),
+                    title: s.title.clone(),
+                    bitrate: s.bit_rate,
+                    duration: s.duration,
+                    width: video.then_some(s.width as i64),
+                    height: video.then_some(s.height as i64),
+                    // FPS: 0 quando desconhecido (a interface esconde a linha).
+                    frame_rate: video.then_some(s.frame_rate),
+                    channels: audio.then_some(s.channels as i64),
+                    sample_rate: audio.then_some(s.sample_rate as i64),
                 }
-                o
             })
             .collect();
-        let mut obj = json!({
-            "type": "video_info",
-            "id": path,
-            "fileName": file_name(&path),
-            "format": report.format,
-            "duration": report.duration,
-            "bitrate": report.bit_rate,
-            "size": report.size,
-            "streams": streams,
+        // Layout (canvas + regiões) do <hash>.json: a "Visualização" do painel.
+        // Gravação antiga sem .json cai em "Tela cheia".
+        let layout = player::load_recording_meta(&path).filter(|m| !m.layout.regions.is_empty()).map(|m| VideoLayout {
+            canvas_w: m.layout.canvas_w as i64,
+            canvas_h: m.layout.canvas_h as i64,
+            regions: m
+                .layout
+                .regions
+                .iter()
+                .map(|r| LayoutRegion { name: r.name.clone(), kind: r.kind.clone(), x: r.x as i64, y: r.y as i64, w: r.w as i64, h: r.h as i64 })
+                .collect(),
         });
-        // Layout (canvas + regiões) do <hash>.json: o seletor "Visualização" do
-        // painel de info. Gravação antiga sem .json cai em "Tela cheia".
-        if let Some(meta) = player::load_recording_meta(&path) {
-            if !meta.layout.regions.is_empty() {
-                let regions: Vec<Value> = meta
-                    .layout
-                    .regions
-                    .iter()
-                    .map(|r| json!({ "name": r.name, "kind": r.kind, "x": r.x, "y": r.y, "w": r.w, "h": r.h }))
-                    .collect();
-                obj["layout"] = json!({ "canvasW": meta.layout.canvas_w, "canvasH": meta.layout.canvas_h, "regions": regions });
-            }
+        let info = VideoInfo {
+            id: path.clone(),
+            file_name: file_name(&path),
+            format: report.format.clone(),
+            duration: report.duration,
+            bitrate: report.bit_rate,
+            size: report.size as i64,
+            streams,
+            layout,
+        };
+        // Cacheado pra acelerar reaberturas. Com o `type` da mensagem antiga: a
+        // versão web, que divide o cache, manda o que está lá direto pra tela.
+        if let Ok(mut js) = serde_json::to_value(&info) {
+            js["type"] = json!("video_info");
+            player::save_meta_sub_object_json(&path, "videoInfo", &js.to_string());
         }
-        // Cacheia a mensagem montada para acelerar reaberturas.
-        player::save_meta_sub_object_json(&path, "videoInfo", &obj.to_string());
-        mainthread::queue(move || post_json(obj));
+        view::call(move |v| v.video_info(&info));
     });
 }
 
@@ -743,12 +748,12 @@ pub fn handle_request_waveform(path: &str, buckets: i64, hi: bool) {
         // Cache hit só se o número de buckets bate com o pedido.
         let cached = player::load_meta_sub_object_json(&path, key);
         if !cached.is_empty() {
-            if let Ok(mut c @ Value::Object(_)) = serde_json::from_str::<Value>(&cached) {
+            if let Ok(c @ Value::Object(_)) = serde_json::from_str::<Value>(&cached) {
                 if c.get("buckets").and_then(Value::as_u64) == Some(buckets as u64) {
-                    // Sobrescreve o id (após rename o cache guarda o antigo e o JS
-                    // ignoraria a resposta). Os picos são do conteúdo: válidos.
-                    c["id"] = json!(path);
-                    mainthread::queue(move || post_json(c));
+                    // Os picos são do conteúdo: valem mesmo depois de um rename (o id
+                    // que vai é o caminho de agora).
+                    let peaks: Vec<f32> = c["peaks"].as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as f32).collect()).unwrap_or_default();
+                    view::call(move |v| v.waveform(&path, &peaks, hi));
                     return;
                 }
             }
@@ -765,7 +770,7 @@ pub fn handle_request_waveform(path: &str, buckets: i64, hi: bool) {
         let arr: Vec<Value> = peaks.iter().map(|p| json!((*p as f64 * 1000.0).round() / 1000.0)).collect();
         let obj = json!({ "type": "waveform_ready", "id": path, "buckets": buckets, "hi": hi, "peaks": arr });
         player::save_meta_sub_object_json(&path, key, &obj.to_string());
-        mainthread::queue(move || post_json(obj));
+        view::call(move |v| v.waveform(&path, &peaks, hi));
     });
 }
 

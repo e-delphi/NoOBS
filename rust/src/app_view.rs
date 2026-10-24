@@ -12,9 +12,10 @@ use std::time::Duration;
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::view::{
-    AudioMeter, Device, Library, MonitorThumb, PendingKind, RecItem, RecState, ReplayState, View, WindowItem, WindowMatches,
+    AudioMeter, Device, Library, MonitorThumb, PendingKind, RecItem, RecState, ReplayState, Transcript, VideoInfo, View, WindowItem,
+    WindowMatches,
 };
-use crate::{app_library, app_main, lang, log};
+use crate::{app_library, app_main, app_player, lang, log};
 
 slint::include_modules!();
 
@@ -150,7 +151,10 @@ impl View for SlintView {
         log::log("View: open_settings (tela ainda nao portada).");
     }
     fn window_hidden(&self) {
-        // Fecha o player quando ele existir (fase 3).
+        // Reabrir o app começa limpo, sem um player fantasma.
+        if app_player::is_open() {
+            app_player::close();
+        }
     }
 
     fn monitors(&self, list: &[Device], changes: &[String]) {
@@ -253,6 +257,15 @@ impl View for SlintView {
     fn merge_done(&self, ok: bool) {
         app_library::on_merge_done(ok);
     }
+    fn waveform(&self, id: &str, peaks: &[f32], hi: bool) {
+        app_player::on_waveform(id, peaks, hi);
+    }
+    fn video_info(&self, info: &VideoInfo) {
+        app_player::on_video_info(info);
+    }
+    fn transcript(&self, t: &Transcript) {
+        app_player::on_transcript(t);
+    }
 }
 
 /// Cria a janela (escondida), registra o [`View`] e liga os callbacks.
@@ -281,6 +294,7 @@ pub fn create() -> Option<AppWindow> {
     });
     app_main::setup(&w);
     app_library::setup(&w);
+    app_player::setup(&w);
 
     crate::view::set(Rc::new(SlintView));
     Some(w)

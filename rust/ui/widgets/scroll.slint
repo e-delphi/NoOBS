@@ -7,7 +7,12 @@ import { Theme } from "../theme.slint";
 export component ScrollArea {
     // Altura do conteúdo (quem usa passa o `preferred-height` do layout de dentro).
     in property <length> content-h;
+    // Posição da rolagem (negativa ou zero); quem usa pode ler e mover.
     out property <length> content-y: flick.content-y;
+    // Rola até y (negativo ou zero), preso aos limites.
+    public function set-scroll(y: length) {
+        flick.content-y = max(-root.max-scroll, min(0px, y));
+    }
     property <length> max-scroll: max(0px, root.content-h - root.height);
 
     flick := Flickable {

@@ -323,6 +323,41 @@ export component RecordCard {
                         overflow: elide;
                     }
                 }
+                // `.transcribe-chip`: pílula de 24 px com o ícone e o número.
+                if Main.chip-show: VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 24px;
+                        width: chip-txt.preferred-width + 14px + 5px + 18px;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Main.chip-running ? Theme.success : chip-ta.has-hover ? Theme.text-3 : Theme.border-2;
+                        property <color> fg: Main.chip-running ? Theme.success : chip-ta.has-hover ? Theme.text : Theme.text-2;
+                        StrokeIcon {
+                            x: 8px;
+                            size: 14px;
+                            commands: "M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M7 15h4 M13 15h4 M7 11h10";
+                            stroke: parent.fg;
+                            // Pulso do ícone transcrevendo (1,6 s).
+                            opacity: Main.chip-running ? 0.675 + 0.325 * cos(360deg * mod(animation-tick() / 1ms, 1600) / 1600) : 1;
+                        }
+                        chip-txt := Text {
+                            x: 8px + 14px + 5px;
+                            text: Main.chip-count;
+                            font-size: 11px;
+                            color: parent.fg;
+                            vertical-alignment: center;
+                        }
+                        chip-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { Main.open-transcribe(); }
+                        }
+                        HintTrigger {
+                            hovered: chip-ta.has-hover;
+                            hint: Main.chip-hint;
+                        }
+                    }
+                }
                 IconButton {
                     width: 28px;
                     height: 28px;

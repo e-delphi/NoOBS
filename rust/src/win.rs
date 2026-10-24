@@ -41,9 +41,13 @@ pub fn main_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
 /// Os pixels saem do `hbmColor` do `GetIconInfo` por `GetDIBits`, com o alfa
 /// do `.ico` intacto. `DrawIconEx` não serve: escreve RGB pré-multiplicado e a
 /// imagem sai com as bordas escurecidas.
-// Volta a ter uso com a tela "Sobre" (fase 4, docs/ui-slint.md).
 #[allow(dead_code)]
 pub fn main_icon_png(size: i32) -> Option<Vec<u8>> {
+    main_icon_rgba(size).map(|(w, h, rgba)| encode_png_rgba(w, h, &rgba))
+}
+
+/// O ícone do app em RGBA (largura, altura, pixels): a logo do "Sobre".
+pub fn main_icon_rgba(size: i32) -> Option<(u32, u32, Vec<u8>)> {
     use windows::core::w;
     use windows::Win32::Foundation::HINSTANCE;
     use windows::Win32::Graphics::Gdi::{
@@ -99,7 +103,7 @@ pub fn main_icon_png(size: i32) -> Option<Vec<u8>> {
                 .chunks_exact(4)
                 .flat_map(|p| [p[2], p[1], p[0], if has_alpha { p[3] } else { 255 }])
                 .collect();
-            Some(encode_png_rgba(wd as u32, ht as u32, &rgba))
+            Some((wd as u32, ht as u32, rgba))
         })();
         if !info.hbmColor.is_invalid() {
             let _ = DeleteObject(HGDIOBJ(info.hbmColor.0));

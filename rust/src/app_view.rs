@@ -12,10 +12,10 @@ use std::time::Duration;
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
 use crate::view::{
-    AudioMeter, Device, Library, MonitorThumb, PendingKind, RecItem, RecState, ReplayState, Transcript, VideoInfo, View, WindowItem,
-    WindowMatches,
+    AudioMeter, Device, ExportEncoderInfo, Library, LocalAsrInfo, MonitorThumb, PendingKind, QueueItem, RecItem, RecState, ReplayState,
+    RootFolder, TranscribeState, Transcript, UpdateInfo, VideoInfo, VideoTestState, View, WindowItem, WindowMatches,
 };
-use crate::{app_library, app_main, app_player, lang, log};
+use crate::{app_library, app_main, app_player, app_settings, lang, log};
 
 slint::include_modules!();
 
@@ -125,10 +125,11 @@ pub fn window() -> Option<AppWindow> {
 pub struct SlintView;
 
 impl View for SlintView {
-    fn theme(&self, dark: bool, _pref: &str) {
+    fn theme(&self, dark: bool, pref: &str) {
         if let Some(w) = window() {
             w.global::<Theme>().set_dark(dark);
         }
+        app_settings::on_theme_changed(pref);
     }
     fn language_changed(&self, _language: &str, _pref: &str) {
         if let Some(w) = window() {
@@ -137,6 +138,7 @@ impl View for SlintView {
             crate::app_main::on_language_changed(&w);
             // Rótulos dos períodos, meses e contagens são montados no Rust.
             app_library::render();
+            app_settings::on_language_changed();
         }
     }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
@@ -147,8 +149,7 @@ impl View for SlintView {
         show_toast(&lang::t("toast.errorTitle"), &msg, true, 8000);
     }
     fn open_settings(&self) {
-        // As Configurações entram na fase 4 (docs/ui-slint.md).
-        log::log("View: open_settings (tela ainda nao portada).");
+        app_settings::open(None);
     }
     fn window_hidden(&self) {
         // Reabrir o app começa limpo, sem um player fantasma.
@@ -158,16 +159,20 @@ impl View for SlintView {
     }
 
     fn monitors(&self, list: &[Device], changes: &[String]) {
+        app_settings::on_devices("monitors", list);
         if let Some(w) = window() {
             app_main::on_monitors(&w, list, changes);
         }
     }
     fn webcams(&self, list: &[Device], changes: &[String]) {
+        app_settings::on_devices("webcams", list);
         if let Some(w) = window() {
             app_main::on_webcams(&w, list, changes);
         }
     }
     fn audio_sources(&self, mics: &[Device], speakers: &[Device], silent: bool, changes: &[String]) {
+        app_settings::on_devices("mics", mics);
+        app_settings::on_devices("speakers", speakers);
         if let Some(w) = window() {
             app_main::on_audio_sources(&w, mics, speakers, silent, changes);
         }
@@ -205,6 +210,7 @@ impl View for SlintView {
         app_main::play_stop_sound();
     }
     fn replay_state(&self, st: &ReplayState) {
+        app_settings::on_replay_state(st);
         if let Some(w) = window() {
             app_main::on_replay_state(&w, st);
         }
@@ -266,6 +272,54 @@ impl View for SlintView {
     fn transcript(&self, t: &Transcript) {
         app_player::on_transcript(t);
     }
+
+    fn settings_changed(&self) {
+        app_settings::on_settings_changed();
+    }
+    fn record_dir_picked(&self, path: &str) {
+        app_settings::on_record_dir_picked(path);
+    }
+    fn update_result(&self, r: &UpdateInfo) {
+        app_settings::on_update_result(r);
+    }
+    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, _export: &[ExportEncoderInfo]) {
+        app_settings::on_encoder_caps();
+    }
+    fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>) {
+        let status: Vec<&'static str> = status.iter().map(|s| static_status(s)).collect();
+        app_settings::on_hotkeys_state(items, &status, delay_max, defining);
+    }
+    fn video_test(&self, st: &VideoTestState) {
+        app_settings::on_video_test(st);
+    }
+    fn transcribe_state(&self, st: &TranscribeState) {
+        app_settings::on_transcribe_state(st);
+    }
+    fn transcribe_pending(&self, count: usize, cloud: usize) {
+        app_settings::on_transcribe_pending(count, cloud);
+    }
+    fn transcribe_queue(&self, items: &[QueueItem]) {
+        app_settings::on_transcribe_queue(items);
+    }
+    fn local_asr_state(&self, st: &LocalAsrInfo) {
+        app_settings::on_local_asr_state(st);
+    }
+    fn root_folders(&self, folders: &[RootFolder]) {
+        app_settings::on_root_folders(folders);
+    }
+}
+
+/// A situação de um atalho é uma das chaves fixas do core.
+fn static_status(s: &str) -> &'static str {
+    match s {
+        "empty" => "empty",
+        "duplicate" => "duplicate",
+        "invalid" => "invalid",
+        "reserved" => "reserved",
+        "inactive" => "inactive",
+        "busy" => "busy",
+        _ => "",
+    }
 }
 
 /// Cria a janela (escondida), registra o [`View`] e liga os callbacks.
@@ -288,13 +342,14 @@ pub fn create() -> Option<AppWindow> {
     w.on_toast_clicked(dismiss_toast);
 
     w.global::<Confirm>().on_accepted(|action, arg| {
-        if !app_library::on_confirm(action.as_str()) {
+        if !app_library::on_confirm(action.as_str()) && !app_settings::on_confirm(action.as_str()) {
             log!("Confirm: \"{action}\" ({arg}) — sem tratador.");
         }
     });
     app_main::setup(&w);
     app_library::setup(&w);
     app_player::setup(&w);
+    app_settings::setup(&w);
 
     crate::view::set(Rc::new(SlintView));
     Some(w)

@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::Path;
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 use crate::{config, file_meta, lang, local_asr, log, mainthread, player, transcribe};
 
@@ -18,7 +18,7 @@ use super::library::{
     list_recordings, list_recordings_recursive, list_sub_folders, push_recordings,
 };
 use super::recording::record_dir;
-use super::{is_shutting_down, post_json};
+use super::is_shutting_down;
 
 /// Chave do sub-objeto de nomes de falante no `<hash>.json`.
 pub const SPEAKERS_META_KEY: &str = "speakers";
@@ -47,34 +47,29 @@ thread_local! {
 /// Estado da fila para a aba de Transcrição. O progresso é o do motor: a fração dos blocos
 /// de fala já transcritos.
 pub fn push_transcribe_state() {
-    let stage = transcribe::current_stage();
-    post_json(json!({
-        "type": "transcribe_state",
-        "running": transcribe::is_running(),
-        // Cancelar já pedido, item em curso ainda parando: a UI trava o botão e mostra
-        // "Cancelando…".
-        "canceling": transcribe::is_canceling(),
-        "queue": transcribe::queue_length(),
-        "total": transcribe::batch_total(),
-        "done": transcribe::done_count(),
-        "failed": transcribe::failed_count(),
-        "current": transcribe::current_name(),
-        "elapsed": transcribe::current_elapsed_sec(),
-        // Progresso (0..1). -1 = ainda sem número.
-        "progress": transcribe::current_progress(),
-        // Segundos restantes; -1 enquanto não dá para estimar.
-        "eta": transcribe::current_eta_sec(),
-        "stage": stage,
-        // Com faixas isoladas a gravação vira N transcrições, e o `progress` acima já é o do CONJUNTO
-        // — estes dois existem para a UI dizer QUAL faixa está rodando.
-        "track": transcribe::current_track(),
-        "trackCount": transcribe::current_track_count(),
-        "lastError": transcribe::last_error(),
-        // Sem o NOME, "1 com falha" num lote de 7 não diz QUAL gravação foi.
-        "lastErrorName": transcribe::last_error_name(),
-        // Fila parada esperando a instalação do motor (não é falha).
-        "waiting": transcribe::waiting_for_install(),
-    }));
+    let st = transcribe_state();
+    crate::view::call(move |v| v.transcribe_state(&st));
+}
+
+pub fn transcribe_state() -> crate::view::TranscribeState {
+    crate::view::TranscribeState {
+        running: transcribe::is_running(),
+        canceling: transcribe::is_canceling(),
+        queue: transcribe::queue_length() as i64,
+        total: transcribe::batch_total() as i64,
+        done: transcribe::done_count() as i64,
+        failed: transcribe::failed_count() as i64,
+        current: transcribe::current_name(),
+        elapsed: transcribe::current_elapsed_sec() as i64,
+        progress: transcribe::current_progress(),
+        eta: transcribe::current_eta_sec() as i64,
+        stage: transcribe::current_stage(),
+        track: transcribe::current_track() as i64,
+        track_count: transcribe::current_track_count() as i64,
+        last_error: transcribe::last_error(),
+        last_error_name: transcribe::last_error_name(),
+        waiting: transcribe::waiting_for_install(),
+    }
 }
 
 /// Gravações da árvore INTEIRA que ainda não têm transcrição, e quantas ficaram de fora por
@@ -112,32 +107,39 @@ pub fn push_transcribe_pending() {
     let (paths, cloud) = transcribable_paths();
     // `cloud`: pendentes que ficaram DE FORA. Sem este número, uma biblioteca inteira no
     // OneDrive mostraria "Nada pendente" com dezenas de gravações sem transcrição.
-    post_json(json!({ "type": "transcribe_pending", "count": paths.len(), "cloud": cloud }));
+    let count = paths.len();
+    crate::view::call(move |v| v.transcribe_pending(count, cloud));
 }
 
 /// Subpastas diretas da pasta de gravação, para a lista "Pastas ocultas" da aba Arquivos:
 /// nome, se está oculta e quantas gravações tem. Oculta que não existe mais também vai
 /// (`missing`), senão não haveria como desmarcar.
 pub fn push_root_folders() {
+    let folders = root_folders();
+    crate::view::call(move |v| v.root_folders(&folders));
+}
+
+pub fn root_folders() -> Vec<crate::view::RootFolder> {
     let hidden = hidden_folder_names();
     let dirs = list_sub_folders(&record_dir().to_string_lossy());
     let mut seen: Vec<String> = Vec::new();
-    let mut arr: Vec<Value> = Vec::new();
+    let mut out = Vec::new();
     for d in &dirs {
         let name = Path::new(d).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         seen.push(name.to_lowercase());
-        arr.push(json!({
-            "name": name,
-            "hidden": is_hidden_folder_name(&name, &hidden),
-            "count": list_recordings_recursive(d).len(),
-        }));
+        out.push(crate::view::RootFolder {
+            hidden: is_hidden_folder_name(&name, &hidden),
+            count: list_recordings_recursive(d).len(),
+            name,
+            missing: false,
+        });
     }
     for h in &hidden {
         if !seen.contains(h) {
-            arr.push(json!({ "name": h, "hidden": true, "missing": true }));
+            out.push(crate::view::RootFolder { name: h.clone(), hidden: true, count: 0, missing: true });
         }
     }
-    post_json(json!({ "type": "root_folders", "folders": arr }));
+    out
 }
 
 pub fn handle_set_folder_hidden(name: &str, hidden: bool) {
@@ -184,15 +186,15 @@ pub fn push_transcribe_queue() {
     let cur = transcribe::current_path();
     let waiting = transcribe::queued_paths();
     let mut missing: Vec<String> = Vec::new();
-    let mut arr: Vec<Value> = Vec::new();
+    let mut arr: Vec<crate::view::QueueItem> = Vec::new();
     let mut add = |path: &str, current: bool| {
         let (dur, _, _) = player::get_cached_meta(path);
-        arr.push(json!({
-            "id": path,
-            "name": Path::new(path).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-            "duration": dur,
-            "current": current,
-        }));
+        arr.push(crate::view::QueueItem {
+            id: path.to_owned(),
+            name: Path::new(path).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            duration: dur,
+            current,
+        });
         if dur <= 0 && !current && !QUEUE_DUR_TRIED.with(|t| t.borrow().contains(&path.to_lowercase())) {
             missing.push(path.to_owned());
         }
@@ -203,7 +205,7 @@ pub fn push_transcribe_queue() {
     for w in &waiting {
         add(w, false);
     }
-    post_json(json!({ "type": "transcribe_queue", "items": arr }));
+    crate::view::call(move |v| v.transcribe_queue(&arr));
     if !missing.is_empty() {
         fill_queue_durations(missing);
     }
@@ -336,6 +338,11 @@ pub fn handle_set_transcribe_on_stop(enable: bool) {
 // ---------------------------------------------------------------------------
 
 pub fn push_local_asr_state(remove_refused: bool) {
+    let st = local_asr_info(remove_refused);
+    crate::view::call(move |v| v.local_asr_state(&st));
+}
+
+pub fn local_asr_info(remove_refused: bool) -> crate::view::LocalAsrInfo {
     let s = local_asr::get_state();
     let status = match s.status {
         local_asr::Status::Installing => "installing",
@@ -343,16 +350,15 @@ pub fn push_local_asr_state(remove_refused: bool) {
         local_asr::Status::Error => "error",
         local_asr::Status::Missing => "missing",
     };
-    post_json(json!({
-        "type": "local_asr_state",
-        "status": status,
-        "stage": s.stage,
-        "done": s.bytes_done,
-        "total": s.bytes_total,
-        "error": s.error,
-        "device": s.device,
-        "removeRefused": remove_refused,
-    }));
+    crate::view::LocalAsrInfo {
+        status: status.to_owned(),
+        stage: s.stage,
+        done: s.bytes_done,
+        total: s.bytes_total,
+        error: s.error,
+        device: s.device,
+        remove_refused,
+    }
 }
 
 /// Callback do motor local — já chega na main thread.

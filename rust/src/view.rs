@@ -276,6 +276,119 @@ pub struct Transcript {
     pub speakers: std::collections::BTreeMap<String, String>,
 }
 
+/// Estado da fila de transcrição (aba Transcrição e o selo da tela inicial).
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscribeState {
+    pub running: bool,
+    /// Cancelar já pedido, item em curso ainda parando.
+    pub canceling: bool,
+    /// Na fila, contando o item em curso.
+    pub queue: i64,
+    pub total: i64,
+    pub done: i64,
+    pub failed: i64,
+    pub current: String,
+    pub elapsed: i64,
+    /// 0..1; -1 = ainda sem número.
+    pub progress: f64,
+    /// Segundos restantes; -1 = ainda sem estimativa.
+    pub eta: i64,
+    pub stage: String,
+    pub track: i64,
+    pub track_count: i64,
+    pub last_error: String,
+    pub last_error_name: String,
+    /// Fila parada esperando a instalação do motor (não é falha).
+    pub waiting: bool,
+}
+
+/// Uma linha da fila de transcrição.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct QueueItem {
+    pub id: String,
+    pub name: String,
+    pub duration: i32,
+    /// O item em curso (fixo no topo).
+    pub current: bool,
+}
+
+/// Subpasta direta da pasta de gravação (lista "Pastas ocultas").
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct RootFolder {
+    pub name: String,
+    pub hidden: bool,
+    pub count: usize,
+    /// Oculta que não existe mais no disco.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub missing: bool,
+}
+
+/// Motor de transcrição local.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAsrInfo {
+    /// `installing` | `ready` | `error` | `missing`.
+    pub status: String,
+    pub stage: String,
+    pub done: i64,
+    pub total: i64,
+    pub error: String,
+    pub device: String,
+    /// Remover foi recusado (motor em uso).
+    pub remove_refused: bool,
+}
+
+/// Resultado da checagem de atualização.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub ok: bool,
+    pub has_update: bool,
+    pub latest: String,
+    pub url: String,
+    pub error: String,
+}
+
+/// Um encoder da exportação (libavcodec), já conferido que existe.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ExportEncoderInfo {
+    pub id: String,
+    pub name: String,
+    pub hardware: bool,
+}
+
+/// Teste de qualidade da aba Vídeo (pegadinha #64).
+#[derive(Clone, Debug, Default)]
+pub struct VideoTestState {
+    /// `recording` | `encoding` | `done` | `error` | `canceled`.
+    pub state: String,
+    pub error: String,
+    /// Nível sendo codificado (-1 = nenhum).
+    pub level: i32,
+    pub pct: i64,
+    pub seconds: u32,
+    pub total: i32,
+    // Só no `done`:
+    pub duration: f64,
+    pub width: i32,
+    pub height: i32,
+    pub fps: f64,
+    pub encoder: String,
+    pub current_level: i32,
+    pub levels: Vec<VideoTestLevel>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct VideoTestLevel {
+    pub level: i32,
+    pub crf: i32,
+    pub bytes: i64,
+    /// Quadro do meio do clipe (PNG) e o MP4 do nível, caminhos no disco.
+    pub image: String,
+    pub video: String,
+}
+
 /// Qual lista mudou durante a gravação (o banner de "atualiza ao parar").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingKind {
@@ -366,6 +479,26 @@ pub trait View {
     /// Resposta do Probe (painel de informações).
     fn video_info(&self, info: &VideoInfo);
     fn transcript(&self, t: &Transcript);
+
+    // ---- Configurações ----
+    /// Algo das Configurações mudou no core (pasta resolvida, restaurar): a
+    /// tela relê o que mostra.
+    fn settings_changed(&self);
+    /// Pasta escolhida no diálogo nativo.
+    fn record_dir_picked(&self, path: &str);
+    fn update_result(&self, r: &UpdateInfo);
+    /// Encoders detectados (warmup): rótulos do codec e encoders da exportação.
+    fn encoder_caps(&self, caps: &crate::types::EncoderCaps, export: &[ExportEncoderInfo]);
+    fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>);
+    fn video_test(&self, st: &VideoTestState);
+
+    // ---- transcrição ----
+    fn transcribe_state(&self, st: &TranscribeState);
+    /// Gravações sem transcrição; `cloud` = as que ficaram de fora (só na nuvem).
+    fn transcribe_pending(&self, count: usize, cloud: usize);
+    fn transcribe_queue(&self, items: &[QueueItem]);
+    fn local_asr_state(&self, st: &LocalAsrInfo);
+    fn root_folders(&self, folders: &[RootFolder]);
 }
 
 /// O formato antigo de um card (`recordings_loaded`/`recording_added`).
@@ -571,5 +704,102 @@ impl View for Recorder {
             "type": "transcript", "id": t.id, "transcribed": t.transcribed, "has": !t.turns.is_empty(),
             "turns": t.turns, "speakers": t.speakers,
         }));
+    }
+    fn settings_changed(&self) {
+        crate::bridge::post_json(crate::bridge::settings_json());
+    }
+    fn record_dir_picked(&self, path: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "record_dir_picked", "path": path }));
+    }
+    fn update_result(&self, r: &UpdateInfo) {
+        let mut v = serde_json::to_value(r).unwrap_or_default();
+        v["type"] = "update_result".into();
+        crate::bridge::post_json(v);
+    }
+    fn encoder_caps(&self, caps: &crate::types::EncoderCaps, export: &[ExportEncoderInfo]) {
+        use crate::types::GpuVendor;
+        let (vendor, logo) = match caps.vendor {
+            GpuVendor::Nvidia => ("nvidia", "nvidia.png"),
+            GpuVendor::Amd => ("amd", "amd.png"),
+            GpuVendor::Intel => ("intel", "intel.png"),
+            GpuVendor::Unknown => ("", ""),
+        };
+        crate::bridge::post_json(serde_json::json!({
+            "type": "encoder_caps", "av1Hw": caps.av1_hw, "hevcHw": caps.hevc_hw, "h264Hw": caps.h264_hw,
+            "h264Sw": caps.h264_sw, "av1Sw": caps.av1_sw, "vendor": vendor, "vendorLogo": logo,
+            "exportEncoders": export,
+        }));
+    }
+    fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>) {
+        crate::bridge::post_json(serde_json::json!({
+            "type": "hotkeys_state", "items": crate::hotkeys::list_to_json(items), "status": status,
+            "delayMax": delay_max, "defining": defining,
+        }));
+    }
+    fn video_test(&self, st: &VideoTestState) {
+        let mut o = serde_json::json!({ "type": "video_test", "state": st.state });
+        if st.state == "done" {
+            let levels: Vec<_> = st
+                .levels
+                .iter()
+                .map(|l| {
+                    let mut lv = serde_json::json!({ "level": l.level, "crf": l.crf, "bytes": l.bytes });
+                    if !l.image.is_empty() {
+                        lv["image"] = l.image.clone().into();
+                    }
+                    if !l.video.is_empty() {
+                        lv["video"] = l.video.clone().into();
+                    }
+                    lv
+                })
+                .collect();
+            o["duration"] = st.duration.into();
+            o["width"] = st.width.into();
+            o["height"] = st.height.into();
+            o["fps"] = st.fps.into();
+            o["encoder"] = st.encoder.clone().into();
+            o["currentLevel"] = st.current_level.into();
+            o["levels"] = levels.into();
+        } else {
+            o["seconds"] = st.seconds.into();
+            o["total"] = st.total.into();
+            o["pct"] = st.pct.into();
+            if st.level >= 0 {
+                o["level"] = st.level.into();
+            }
+            if !st.error.is_empty() {
+                o["error"] = st.error.clone().into();
+            }
+        }
+        crate::bridge::post_json(o);
+    }
+    fn transcribe_state(&self, st: &TranscribeState) {
+        let mut v = serde_json::to_value(st).unwrap_or_default();
+        v["type"] = "transcribe_state".into();
+        crate::bridge::post_json(v);
+    }
+    fn transcribe_pending(&self, count: usize, cloud: usize) {
+        crate::bridge::post_json(serde_json::json!({ "type": "transcribe_pending", "count": count, "cloud": cloud }));
+    }
+    fn transcribe_queue(&self, items: &[QueueItem]) {
+        crate::bridge::post_json(serde_json::json!({ "type": "transcribe_queue", "items": items }));
+    }
+    fn local_asr_state(&self, st: &LocalAsrInfo) {
+        let mut v = serde_json::to_value(st).unwrap_or_default();
+        v["type"] = "local_asr_state".into();
+        crate::bridge::post_json(v);
+    }
+    fn root_folders(&self, folders: &[RootFolder]) {
+        let arr: Vec<_> = folders
+            .iter()
+            .map(|f| {
+                if f.missing {
+                    serde_json::json!({ "name": f.name, "hidden": f.hidden, "missing": true })
+                } else {
+                    serde_json::json!({ "name": f.name, "hidden": f.hidden, "count": f.count })
+                }
+            })
+            .collect();
+        crate::bridge::post_json(serde_json::json!({ "type": "root_folders", "folders": arr }));
     }
 }

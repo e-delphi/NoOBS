@@ -804,7 +804,11 @@ fn m_teste_video() -> Result<String, String> {
         return skip(&format!("tela parada (monitor apagado?): {} KB nos niveis 0 e 10", bytes[0] / 1024));
     }
     check(bytes[10] > bytes[0], format!("nivel 10 ({}) devia ser maior que o 0 ({})", bytes[10], bytes[0]))?;
-    check(levels.iter().all(|l| l["image"].as_str().is_some_and(|u| u.starts_with("http://127.0.0.1:"))), "nivel sem quadro PNG")?;
+    // O quadro de cada nível é um PNG no disco (a tela Slint lê o arquivo).
+    check(
+        levels.iter().all(|l| l["image"].as_str().is_some_and(|p| p.to_lowercase().ends_with(".png") && std::path::Path::new(p).is_file())),
+        "nivel sem quadro PNG",
+    )?;
 
     // Cancelar no meio da captura.
     clear_sent();

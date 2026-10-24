@@ -12,13 +12,12 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::{DateTime, Local};
-use serde_json::json;
 
 use crate::engine::{self, AreaRect, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
 use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, view, win_audio_meter, win_preview, win_webcam};
 
-use super::{devices, library, post_error, post_json, replay};
+use super::{devices, library, post_error, replay};
 
 // ---- timers (ids únicos: dois SetTimer com o mesmo id não coexistem) ----------
 pub const TIMER_RECORDING_TICK: usize = 7001;
@@ -324,31 +323,21 @@ pub fn push_recording_state() {
 /// libavcodec (o AMF só se inicializa no 1º quadro).
 fn push_encoder_caps() {
     let caps = engine::with_engine(|e| e.encoder_caps()).unwrap_or_default();
-    let (vendor, logo) = match caps.vendor {
-        GpuVendor::Nvidia => ("nvidia", "nvidia.png"),
-        GpuVendor::Amd => ("amd", "amd.png"),
-        GpuVendor::Intel => ("intel", "intel.png"),
-        GpuVendor::Unknown => ("", ""),
+    let vendor = match caps.vendor {
+        GpuVendor::Nvidia => "nvidia",
+        GpuVendor::Amd => "amd",
+        GpuVendor::Intel => "intel",
+        GpuVendor::Unknown => "",
     };
     // Guarda para a exportação, que roda muito depois do warmup e não precisa
     // detectar de novo.
     with_state(|s| s.last_encoder_caps = Some(caps));
     // Encoders do libavcodec, já filtrados por existência (pegadinha #51).
-    let export_encoders: Vec<serde_json::Value> = crate::ffmpeg_export::list_export_encoders(&caps)
+    let export_encoders: Vec<crate::view::ExportEncoderInfo> = crate::ffmpeg_export::list_export_encoders(&caps)
         .into_iter()
-        .map(|e| json!({ "id": e.id, "name": e.libav_name, "hardware": e.hardware }))
+        .map(|e| crate::view::ExportEncoderInfo { id: e.id, name: e.libav_name, hardware: e.hardware })
         .collect();
-    post_json(json!({
-        "type": "encoder_caps",
-        "av1Hw": caps.av1_hw,
-        "hevcHw": caps.hevc_hw,
-        "h264Hw": caps.h264_hw,
-        "h264Sw": caps.h264_sw,
-        "av1Sw": caps.av1_sw,
-        "vendor": vendor,
-        "vendorLogo": logo,
-        "exportEncoders": export_encoders,
-    }));
+    crate::view::call(move |v| v.encoder_caps(&caps, &export_encoders));
     log!(
         "Encoder caps: av1-hw={} hevc-hw={} h264-hw={} h264-sw={} av1-sw={} vendor={vendor}",
         caps.av1_hw,

@@ -125,29 +125,29 @@ pub fn push_state() {
     if STATUS.with(|s| s.borrow().len()) != list().len() {
         apply();
     }
-    let items = hotkeys::list_to_json(&list());
-    let status: Vec<&str> = STATUS.with(|s| s.borrow().clone());
-    post_json(json!({
-        "type": "hotkeys_state",
-        "items": items,
-        "status": status,
-        "delayMax": hotkeys::DELAY_MAX,
-        "defining": DEFINING.with(Cell::get),
-    }));
+    let items = list();
+    let status: Vec<&'static str> = STATUS.with(|s| s.borrow().clone());
+    let defining = DEFINING.with(Cell::get);
+    crate::view::call(move |v| v.hotkeys_state(&items, &status, hotkeys::DELAY_MAX, defining));
 }
 
-/// `set_hotkeys`: a tela manda a lista inteira a cada mudança.
-pub fn handle_set_hotkeys(items: &Value) {
-    set_list(hotkeys::list_from_json(items));
+/// A tela das Configurações manda a lista inteira a cada mudança.
+pub fn handle_set_items(items: Vec<Item>) {
+    set_list(items);
     apply();
     push_state();
     // A dica do botão "Salvar trecho" mostra o atalho.
     replay::push_replay_state();
 }
 
+/// `set_hotkeys`: a tela manda a lista inteira a cada mudança.
+pub fn handle_set_hotkeys(items: &Value) {
+    handle_set_items(hotkeys::list_from_json(items));
+}
+
 /// `reset_hotkeys` ("Restaurar padrões"): gravar e salvar trecho.
 pub fn handle_reset() {
-    handle_set_hotkeys(&hotkeys::list_to_json(&hotkeys::defaults()));
+    handle_set_items(hotkeys::defaults());
 }
 
 /// `define_hotkey_area`: a seleção de sempre, mas só GUARDA o retângulo no item.

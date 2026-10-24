@@ -305,6 +305,76 @@ export component SourcesColumn {
         padding-top: 14px;
         spacing: 0;
 
+        // Versão nova: verde (novidade boa), com o X à direita.
+        if Main.update-banner: VerticalLayout {
+            padding-bottom: 12px;
+            Rectangle {
+                height: ub.preferred-height;
+                background: #16a34a;
+                border-width: 1px;
+                border-color: #15803d;
+                border-radius: 7px;
+                ub := VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 28px;
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    spacing: 2px;
+                    Text {
+                        text: T.s("banner.updateTitle");
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #f0fdf4;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        Text {
+                            text: Main.update-body;
+                            font-size: 12px;
+                            color: #f0fdf4;
+                            wrap: word-wrap;
+                            line-height-factor: Theme.lh-body;
+                        }
+                        if Main.update-has-url: Text {
+                            text: T.s("settings.updates.openPage");
+                            font-size: 12px;
+                            color: #f0fdf4;
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { Main.update-open(); }
+                            }
+                            Rectangle {
+                                y: parent.height - 2px;
+                                height: 1px;
+                                background: #f0fdf4;
+                            }
+                        }
+                    }
+                }
+                Rectangle {
+                    x: parent.width - 6px - self.width;
+                    y: 4px;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: xta.has-hover ? rgba(0, 0, 0, 0.15) : transparent;
+                    Text {
+                        text: "×";
+                        font-size: 16px;
+                        color: #f0fdf4;
+                        opacity: xta.has-hover ? 1 : 0.75;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    xta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { Main.update-banner = false; }
+                    }
+                }
+            }
+        }
         if Main.monitor-pending: VerticalLayout {
             padding-bottom: 12px;
             Banner {

@@ -95,6 +95,17 @@ export global Main {
     in property <bool> busy;
     in property <string> busy-text;
     in property <bool> audio-pending;
+    // Versão nova (`#updateBanner`, verde): some no X, só nesta sessão.
+    in-out property <bool> update-banner;
+    in property <string> update-body;
+    in property <bool> update-has-url;
+    callback update-open();
+    // Selo da transcrição no cabeçalho do cartão (`#transcribeChip`).
+    in property <bool> chip-show;
+    in property <bool> chip-running;
+    in property <int> chip-count;
+    in property <string> chip-hint;
+    callback open-transcribe();
     in property <bool> monitor-pending;
 
     // ---- buffer em memória ----

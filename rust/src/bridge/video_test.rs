@@ -16,13 +16,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Instant;
 
-use serde_json::json;
+
 
 use crate::engine::{self, RecordRequest};
 use crate::ffmpeg_export::{export_video, resolve_export_encoder, ExportOptions, ExportResult, ExportSegment};
-use crate::{encoder, ffmpeg_ops, lang, log, mainthread, player, probe, ui};
+use crate::{encoder, ffmpeg_ops, lang, log, mainthread, probe, ui};
 
-use super::{is_shutting_down, post_json, recording, replay};
+use super::{is_shutting_down, recording, replay};
 
 pub const TIMER_VIDEO_TEST: usize = 7016;
 /// Duração da amostra.
@@ -72,20 +72,16 @@ fn app_codec_from_encoder(id: &str) -> &'static str {
 }
 
 fn push_state(state: &str, error: &str, level: i32, pct: f64) {
-    let mut o = json!({
-        "type": "video_test",
-        "state": state,
-        "seconds": VIDEO_TEST_SEC,
-        "total": VIDEO_TEST_LEVELS,
-        "pct": pct.round() as i64,
-    });
-    if level >= 0 {
-        o["level"] = json!(level);
-    }
-    if !error.is_empty() {
-        o["error"] = json!(error);
-    }
-    post_json(o);
+    let st = crate::view::VideoTestState {
+        state: state.to_owned(),
+        error: error.to_owned(),
+        level,
+        pct: pct.round() as i64,
+        seconds: VIDEO_TEST_SEC,
+        total: VIDEO_TEST_LEVELS,
+        ..Default::default()
+    };
+    crate::view::call(move |v| v.video_test(&st));
 }
 
 fn queue_progress(level: i32, pct: f64) {
@@ -303,28 +299,27 @@ pub fn on_recorded(output_path: &str) {
             let levels: Vec<_> = outs
                 .iter()
                 .enumerate()
-                .map(|(k, o)| {
-                    let mut lv = json!({ "level": k, "crf": encoder::quality_level_to_crf(k as i32), "bytes": o.bytes });
-                    if !o.png.is_empty() {
-                        lv["image"] = json!(player::get_file_url(&o.png));
-                    }
-                    if !o.video.is_empty() {
-                        lv["video"] = json!(player::get_file_url(&o.video));
-                    }
-                    lv
+                .map(|(k, o)| crate::view::VideoTestLevel {
+                    level: k as i32,
+                    crf: encoder::quality_level_to_crf(k as i32),
+                    bytes: o.bytes,
+                    image: o.png.clone(),
+                    video: o.video.clone(),
                 })
                 .collect();
-            post_json(json!({
-                "type": "video_test",
-                "state": "done",
-                "duration": (dur * 100.0).round() / 100.0,
-                "width": w,
-                "height": h,
-                "fps": (fps * 100.0).round() / 100.0,
-                "encoder": enc_name,
-                "currentLevel": cur_level,
-                "levels": levels,
-            }));
+            let st = crate::view::VideoTestState {
+                state: "done".to_owned(),
+                level: -1,
+                duration: (dur * 100.0).round() / 100.0,
+                width: w as i32,
+                height: h as i32,
+                fps: (fps * 100.0).round() / 100.0,
+                encoder: enc_name.to_string(),
+                current_level: cur_level,
+                levels,
+                ..Default::default()
+            };
+            crate::view::call(move |v| v.video_test(&st));
         });
     });
 }

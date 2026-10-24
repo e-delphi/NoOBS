@@ -18,17 +18,17 @@ use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui, 
 
 mod area;
 mod countdown;
-mod devices;
+pub mod devices;
 pub mod export;
 mod folders;
-mod hotkeys;
+pub mod hotkeys;
 mod library;
-mod recording;
-mod replay;
-mod settings;
-mod shell;
+pub mod recording;
+pub mod replay;
+pub mod settings;
+pub mod shell;
 pub mod transcribe;
-mod video_test;
+pub mod video_test;
 mod window_record;
 
 #[cfg(test)]
@@ -544,6 +544,8 @@ pub use library::{handle_delete_recording, handle_open_record_dir, handle_rename
 pub use transcribe::{handle_search_transcripts, handle_transcribe_recording};
 pub use library::{handle_request_video_info, handle_request_waveform, resolve_recording_start_clock_sec as recording_start_clock_sec};
 pub use transcribe::{handle_request_transcript, handle_set_speaker_name};
+#[cfg(any(test, feature = "app-tests"))]
+pub use settings::settings_json;
 
 /// O player só abre gravação de dentro da pasta (avisa se o arquivo sumiu).
 pub fn check_recording_for_player(path: &str) -> bool {
@@ -569,7 +571,7 @@ pub fn handle_record_start_button() {
 // ---------------------------------------------------------------------------
 
 /// Só http(s): a UI poderia mandar `file://` etc.
-fn handle_open_url(url: &str) {
+pub fn handle_open_url(url: &str) {
     if url.is_empty() {
         return;
     }

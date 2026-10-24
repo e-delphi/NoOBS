@@ -14,7 +14,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedPixelBuffer, VecModel};
 
 use crate::app_view::{AppWindow, DisplayItem, Hints, LegendItem, Main, SavedArea, SourceItem, WindowCard};
 use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, ReplayState, WindowItem, WindowMatches};
-use crate::{bridge, config, lang, log};
+use crate::{bridge, config, lang};
 
 /// Cor de cada faixa isolada (2, 3, …), em ciclo — a `TRACK_PALETTE` da web.
 /// Sem verde/vermelho (bolinha de padrão, gravar/parar).
@@ -127,7 +127,14 @@ pub fn setup(w: &AppWindow) {
         }
     });
     render_replay(w);
-    m.on_open_settings(|| log::log("UI: Configuracoes (tela ainda nao portada)."));
+    m.on_open_settings(|| crate::app_settings::open(None));
+    m.on_open_transcribe(|| crate::app_settings::open(Some("transcribe")));
+    m.on_update_open(|| {
+        let url = UPDATE_URL.with(|u| u.borrow().clone());
+        if !url.is_empty() {
+            bridge::handle_open_url(&url);
+        }
+    });
     with(|s| m.set_picker_items(ModelRc::from(s.picker.model.clone())));
     m.on_open_window_picker(open_picker);
     m.on_picker_close(close_picker);
@@ -1013,4 +1020,29 @@ pub fn on_replay_saved(name: &str, duration_sec: i32) {
 /// "guardado" voltando a zero pareceria defeito.
 pub fn on_replay_restarted() {
     crate::app_view::show_toast(&lang::t("replay.restarted"), &lang::t("replay.restartedBody"), false, 6000);
+}
+
+thread_local! {
+    /// Página da versão nova (o "Abrir página" do aviso verde).
+    static UPDATE_URL: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Versão nova: o aviso verde no topo da coluna (dispensar vale só pra sessão).
+pub fn show_update_banner(latest: &str, url: &str) {
+    let Some(w) = crate::app_view::window() else { return };
+    UPDATE_URL.with(|u| *u.borrow_mut() = url.to_owned());
+    let m = w.global::<Main>();
+    m.set_update_body(lang::t_with("banner.updateBody", &[("version", latest)]).into());
+    m.set_update_has_url(!url.is_empty());
+    m.set_update_banner(true);
+}
+
+/// Selo da transcrição no cabeçalho do cartão: (mostrar, rodando, número, dica).
+pub fn on_transcribe_chip(chip: (bool, bool, i32, String)) {
+    let Some(w) = crate::app_view::window() else { return };
+    let m = w.global::<Main>();
+    m.set_chip_show(chip.0);
+    m.set_chip_running(chip.1);
+    m.set_chip_count(chip.2);
+    m.set_chip_hint(chip.3.into());
 }

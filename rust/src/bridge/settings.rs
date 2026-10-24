@@ -4,6 +4,7 @@
 //!
 //! Main thread.
 
+#[cfg(any(test, feature = "app-tests"))]
 use serde_json::json;
 use windows::core::HSTRING;
 use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER};
@@ -12,20 +13,20 @@ use windows::Win32::UI::Shell::{
     FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
 };
 
-use crate::{autostart, config, elevate, encoder, lang, log, mic_watch, record_watch, ui, update, version, win_preview};
+use crate::{config, encoder, lang, log, mic_watch, record_watch, ui, update, version};
 
-use super::{devices, library, post_error, post_json, recording};
+use super::{devices, library, post_error, recording};
 
 /// Tique da checagem de atualização (barato: compara dois inteiros e sai).
 pub const TIMER_UPDATE_CHECK: usize = 7011;
 const UPDATE_CHECK_TICK_MS: u32 = 60_000;
 /// Hora local do dia em que a checagem automática acontece.
 const UPDATE_CHECK_HOUR: u32 = 6;
-const DEFAULT_FILENAME_PATTERN: &str = "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}";
+pub const DEFAULT_FILENAME_PATTERN: &str = "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}";
 
 /// Heurística só INFORMATIVA (dica na UI): a pasta está sob o OneDrive? A
 /// decisão real de pular a prévia é por arquivo (`is_file_cloud_only`).
-fn is_path_under_onedrive(path: &str) -> bool {
+pub fn is_path_under_onedrive(path: &str) -> bool {
     let with_sep = |p: &str| {
         let p = p.trim_end_matches('\\').to_lowercase();
         format!("{p}\\")
@@ -36,8 +37,17 @@ fn is_path_under_onedrive(path: &str) -> bool {
     })
 }
 
-/// Tudo o que a tela de Configurações mostra.
+/// A tela relê o que mostra (pasta resolvida, "Restaurar padrões"); o buffer
+/// tem o estado num push próprio, o mesmo da tela principal.
 pub fn push_settings() {
+    crate::view::call(|v| v.settings_changed());
+    super::replay::push_replay_state();
+}
+
+/// O push settings da versão web: tudo o que a tela de Configurações mostra.
+/// Só os testes o leem (o gravador do View).
+#[cfg(any(test, feature = "app-tests"))]
+pub fn settings_json() -> serde_json::Value {
     let record_dir = recording::record_dir().to_string_lossy().into_owned();
     // '' no config (nunca mexido) é o mesmo que 'app': a UI recebe sempre um
     // valor que existe no seletor.
@@ -45,7 +55,7 @@ pub fn push_settings() {
         l if l.is_empty() => "app".to_owned(),
         l => l,
     };
-    post_json(json!({
+    json!({
         "type": "settings",
         "recordDir": record_dir,
         "windowTitle": config::get_config_str("windowTitle", "NoOBS"),
@@ -54,10 +64,10 @@ pub fn push_settings() {
         "muteWhenDeviceMuted": config::get_config_bool("muteWhenDeviceMuted", true),
         "filenamePattern": config::get_config_str("filenamePattern", DEFAULT_FILENAME_PATTERN),
         "codec": config::get_config_str("codec", "auto"),
-        "autostart": autostart::is_autostart_enabled(),
+        "autostart": crate::autostart::is_autostart_enabled(),
         "runAsAdmin": config::get_config_bool("runAsAdmin", false),
         "fullscreenDetect": config::get_config_bool("fullscreenDetect", true),
-        "elevated": elevate::is_process_elevated(),
+        "elevated": crate::elevate::is_process_elevated(),
         "closeToTray": config::get_config_bool("closeToTray", true),
         "minimizeOnRecord": config::get_config_bool("minimizeOnRecord", true),
         "recIndicator": config::get_config_bool("recIndicator", false),
@@ -80,13 +90,11 @@ pub fn push_settings() {
         "libraryThumbs": config::get_config_str("libraryThumbs", "auto"),
         "recordDirCloud": is_path_under_onedrive(&record_dir),
         // Teto do slider de fps: a maior taxa dos monitores agora.
-        "maxMonitorHz": win_preview::max_monitor_refresh_rate(),
+        "maxMonitorHz": crate::win_preview::max_monitor_refresh_rate(),
         "language": lang::current_language(),
         "languagePref": config::get_config_str("language", ""),
         "availableLanguages": lang::available_languages(),
-    }));
-    // Buffer: estado + limites + atalho num push próprio, o mesmo da tela principal.
-    super::replay::push_replay_state();
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +213,7 @@ fn pick_folder(initial: &str) -> Option<String> {
 pub fn handle_pick_record_dir() {
     let current = recording::record_dir().to_string_lossy().into_owned();
     if let Some(picked) = pick_folder(&current) {
-        post_json(json!({ "type": "record_dir_picked", "path": picked }));
+        crate::view::call(move |v| v.record_dir_picked(&picked));
     }
 }
 
@@ -333,14 +341,14 @@ fn on_update_checked(r: update::UpdateResult) {
     } else {
         log::log("Update: sem resposta do servidor — lastUpdateCheck preservado.");
     }
-    post_json(json!({
-        "type": "update_result",
-        "ok": r.ok,
-        "hasUpdate": r.has_update,
-        "latest": r.latest_tag,
-        "url": r.release_url,
-        "error": r.error,
-    }));
+    let info = crate::view::UpdateInfo {
+        ok: r.ok,
+        has_update: r.has_update,
+        latest: r.latest_tag,
+        url: r.release_url,
+        error: r.error,
+    };
+    crate::view::call(move |v| v.update_result(&info));
 }
 
 pub fn handle_check_updates() {

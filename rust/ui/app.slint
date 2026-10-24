@@ -17,12 +17,15 @@ import { LibraryPane, ContextMenu, DragGhost } from "screens/library.slint";
 import { Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem } from "screens/library_state.slint";
 import { Pl, InfoRow, InfoSection, ViewOpt, TrackRow, TurnRow } from "screens/player_state.slint";
 import { PlayerOverlay } from "screens/player.slint";
+import { SettingsScreen } from "screens/settings.slint";
+import { St, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel } from "screens/settings_state.slint";
+import { SelOpt } from "widgets/form.slint";
 import { WindowPicker } from "screens/window_picker.slint";
 import { WindowCard, SavedArea } from "screens/main_state.slint";
 
 export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea,
     Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem, Pl, InfoRow, InfoSection,
-    ViewOpt, TrackRow, TurnRow }
+    ViewOpt, TrackRow, TurnRow, St, SelOpt, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -113,6 +116,14 @@ export component AppWindow inherits Window {
     }
 
     DragGhost {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // Configurações (`z-index: 8500` na web): abaixo do player.
+    SettingsScreen {
         x: 0;
         y: 0;
         width: root.width;

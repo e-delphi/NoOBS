@@ -186,6 +186,20 @@ passando.
   tipados (`View::video_info`, `waveform`, `transcript`). Conferido por
   captura contra a web com as duas janelas no tamanho de maximizada (3840×2088
   a 150%): cabeçalho, controles e os dois painéis.
+- **Fase 4 — feita.** Configurações (`ui/screens/settings*.slint`, controles
+  de formulário em `ui/widgets/form.slint`, presenter `src/app_settings.rs`):
+  as 11 abas, seletor com lista própria (o popup do `<select>`), sliders com
+  marcas, prévia do indicador, atalhos (modo, modificadores, tecla, atraso,
+  área, título), dispositivos e o perfil da gravação automática, pastas
+  ocultas, motor local e fila de transcrição (arrastar pra reordenar),
+  atualizações, "Sobre" e o "Restaurar padrões". O teste de qualidade
+  compara QUADROS parados (os PNG de cada nível) com divisor e zoom; o
+  comparador da web também tocava os MP4 dos níveis — **ainda não portado**.
+  Na tela principal entraram o selo da transcrição e o aviso verde de versão
+  nova. O core avisa por métodos tipados do `View` (`transcribe_state`,
+  `local_asr_state`, `hotkeys_state`, `video_test`, `update_result`…); o
+  JSON antigo só existe no gravador dos testes. Conferido aba por aba contra
+  a web, as duas no tamanho de maximizada. Sem a hibernação (saiu na fase 0).
 
 ### Como comparar sem tocar na área de trabalho
 
@@ -326,6 +340,34 @@ E o DOWN sem MOVE antes usa a ÚLTIMA posição do mouse, não a do lParam.
   ganha a altura da linha e se posiciona dentro dela.
 - **O × do Chromium com `line-height: 1` fica ~1,5–2 px acima** do centro
   que o Slint calcula; deslocado à mão.
+
+### O que a fase 4 ensinou
+
+- **`<input>`, `<select>` e `<button>` não herdam a fonte da página** no
+  Chromium: saem em Arial 13 px. Os controles do formulário usam Arial
+  (`Form.control-font`); rótulos, abas e dicas, Segoe UI. E `font-weight: 500`
+  em Arial é normal (não há semibold): só no Segoe UI o 500 vira 600.
+- **Campo escondido ainda conta margem na web.** O
+  `.settings-field + .settings-field { margin-top: 10px }` vale mesmo com o
+  irmão anterior em `display: none` (de outra aba): toda aba menos a Geral
+  começa 10 px mais baixo.
+- **`<hr>` não tem o `max-width` dos campos**: os divisores atravessam o
+  corpo inteiro (`St.rule-w`).
+- **`?:` trunca a escala.** `zoom == 0 ? ajustado : zoom` deu 0 com o ajustado
+  em 0,3 — mesmo com os dois ramos float. Trocado por `max()`/`min()`. Vale
+  conferir na tela todo `?:` que devolve fração.
+- **Altura que depende da própria largura sai zero no layout**: o layout mede
+  antes de dar largura. O comparador tira a altura da largura da COLUNA
+  (`St.col-w`), que vem de fora.
+- **`Image::load_from_path` não decodifica arquivo** nesta configuração do
+  Slint (sem os formatos padrão): os PNG do teste vão pelo crate `image`. As
+  `@image-url` da `.slint` (os logos de GPU) funcionam.
+- **`PopupWindow` não tem `closed`**; e o `StyledText` desenha o `` `code` ``
+  minúsculo e com fundo — a dica do nome do arquivo usa texto normal.
+- **O cache e as mensagens do core com JSON só nos testes**: os empurrões das
+  Configurações viraram métodos tipados do `View`; o gravador reproduz o JSON
+  antigo (`settings_json`, pastas sumidas sem `count`…) e os testes seguiram
+  iguais, exceto o do teste de qualidade, que agora confere o PNG no disco.
 
 | # | Fase | Substitui | Risco |
 |---|---|---|---|

@@ -22,6 +22,7 @@ import { ExportScreen } from "screens/export.slint";
 import { Ex, ExChk, ExRow, ExTick, ExCut, ExLabel } from "screens/export_state.slint";
 import { St, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel } from "screens/settings_state.slint";
 import { SelOpt } from "widgets/form.slint";
+import { SelectLayer } from "widgets/select_layer.slint";
 import { WindowPicker } from "screens/window_picker.slint";
 import { WindowCard, SavedArea } from "screens/main_state.slint";
 
@@ -152,6 +153,14 @@ export component AppWindow inherits Window {
     }
 
     ConfirmDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // Lista aberta de um seletor: por cima de todas as telas.
+    SelectLayer {
         x: 0;
         y: 0;
         width: root.width;

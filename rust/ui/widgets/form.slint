@@ -7,15 +7,9 @@
 // ser Arial aqui e o resto Segoe UI.
 
 import { Theme } from "../theme.slint";
-import { ScrollArea } from "scroll.slint";
+import { SelOpt, SelPop } from "select_layer.slint";
 
-// Uma opção de seletor. `header` = título de grupo (`<optgroup>`), não
-// escolhível.
-export struct SelOpt {
-    text: string,
-    header: bool,
-    enabled: bool,
-}
+export { SelOpt }
 
 export global Form {
     // Fonte dos controles nativos do formulário.
@@ -246,7 +240,20 @@ export component SSelect {
         border-color: root.pop-open ? Theme.success : Theme.border;
         background: Theme.panel-2;
     }
-    property <bool> pop-open;
+    // A lista é a camada `SelectLayer` (select_layer.slint): cada seletor pega
+    // um `uid` e só reage à escolha feita na lista que ele abriu.
+    property <int> uid;
+    init => {
+        root.uid = SelPop.next-id;
+        SelPop.next-id += 1;
+    }
+    property <bool> pop-open: SelPop.open && SelPop.owner == root.uid;
+    property <int> seq: SelPop.result-seq;
+    changed seq => {
+        if SelPop.owner == root.uid {
+            root.selected(SelPop.result);
+        }
+    }
     Text {
         x: 11px;
         width: parent.width - 11px - 28px;
@@ -273,58 +280,8 @@ export component SSelect {
         mouse-cursor: root.enabled ? pointer : default;
         clicked => {
             if root.enabled {
-                root.pop-open = true;
-                popup.show();
-            }
-        }
-    }
-    popup := PopupWindow {
-        x: 0;
-        y: root.height + 1px;
-        width: root.width;
-        height: min(root.options.length * root.item-h + 6px, 320px);
-        close-policy: close-on-click-outside;
-        Rectangle {
-            border-radius: 4px;
-            border-width: 1px;
-            border-color: Theme.border-2;
-            background: Theme.dark ? #2b2b2f : #ffffff;
-            drop-shadow-offset-y: 4px;
-            drop-shadow-blur: 12px;
-            drop-shadow-color: rgba(0, 0, 0, 0.4);
-        }
-        area := ScrollArea {
-            x: 1px;
-            y: 3px;
-            width: parent.width - 2px;
-            height: parent.height - 6px;
-            content-h: root.options.length * root.item-h;
-            VerticalLayout {
-                for opt[i] in root.options: Rectangle {
-                    height: root.item-h;
-                    background: opt.header ? transparent
-                        : ita.has-hover ? (Theme.dark ? #3f3f46 : #e4e4e7)
-                        : i == root.index ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.05)) : transparent;
-                    Text {
-                        x: opt.header ? 6px : 14px;
-                        width: parent.width - 20px;
-                        text: opt.text;
-                        font-family: Form.control-font;
-                        font-size: root.font-size;
-                        font-weight: opt.header ? 700 : 400;
-                        color: !opt.enabled ? Theme.text-3 : Theme.text;
-                        vertical-alignment: center;
-                        overflow: elide;
-                    }
-                    ita := TouchArea {
-                        enabled: !opt.header && opt.enabled;
-                        clicked => {
-                            popup.close();
-                            root.pop-open = false;
-                            root.selected(i);
-                        }
-                    }
-                }
+                SelPop.show(root.uid, root.options, root.index, self.absolute-position.x, self.absolute-position.y + root.height + 1px,
+                    root.width, root.height, 0);
             }
         }
     }

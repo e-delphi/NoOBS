@@ -2,6 +2,7 @@
 // no nível máximo, refaz cada nível pela exportação e compara dois níveis
 // lado a lado com um divisor arrastável (B embaixo, A por cima cortado).
 
+import { SelPop } from "../widgets/select_layer.slint";
 import { Theme } from "../theme.slint";
 import { T } from "../i18n.slint";
 import { SLabel, SHint, SButton, SSlider } from "../widgets/form.slint";
@@ -105,40 +106,25 @@ component LevelTag {
         fill: white;
         commands: "M0 0L7 0L3.5 4Z";
     }
+    // A lista é a camada `SelectLayer`; a ordem é a das opções (nível 10
+    // primeiro), então a posição i é o nível 10 - i.
+    property <int> uid;
+    init => {
+        root.uid = SelPop.next-id;
+        SelPop.next-id += 1;
+    }
+    property <int> seq: SelPop.result-seq;
+    changed seq => {
+        if SelPop.owner == root.uid {
+            St.vt-tag(10 - SelPop.result, root.b-side);
+        }
+    }
     TouchArea {
         mouse-cursor: pointer;
-        clicked => { pop.show(); }
-    }
-    pop := PopupWindow {
-        x: 0;
-        y: root.height + 2px;
-        width: max(root.width, 120px);
-        height: 11 * 20px + 6px;
-        Rectangle {
-            border-radius: 4px;
-            border-width: 1px;
-            border-color: Theme.border-2;
-            background: Theme.panel;
-        }
-        VerticalLayout {
-            padding: 3px;
-            for n in [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]: Rectangle {
-                height: 20px;
-                background: ita.has-hover ? Theme.panel-3 : (n == root.level ? Theme.panel-2 : transparent);
-                Text {
-                    x: 8px;
-                    text: (root.b-side ? "B · " : "A · ") + St.vt-tag-options[10 - n].text;
-                    font-size: 12px;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-                ita := TouchArea {
-                    clicked => {
-                        pop.close();
-                        St.vt-tag(n, root.b-side);
-                    }
-                }
-            }
+        clicked => {
+            SelPop.show(root.uid, St.vt-tag-options, 10 - root.level, self.absolute-position.x,
+                self.absolute-position.y + root.height + 2px, root.width, root.height, 2);
+            SelPop.prefix = root.b-side ? "B · " : "A · ";
         }
     }
 }

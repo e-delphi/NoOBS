@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
-use crate::view::View;
-use crate::{lang, log};
+use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, View};
+use crate::{app_main, lang, log};
 
 slint::include_modules!();
 
@@ -131,6 +131,7 @@ impl View for SlintView {
         if let Some(w) = window() {
             let t = w.global::<T>();
             t.set_rev(t.get_rev() + 1);
+            crate::app_main::on_language_changed(&w);
         }
     }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
@@ -146,6 +147,54 @@ impl View for SlintView {
     }
     fn window_hidden(&self) {
         // Fecha o player quando ele existir (fase 3).
+    }
+
+    fn monitors(&self, list: &[Device], changes: &[String]) {
+        if let Some(w) = window() {
+            app_main::on_monitors(&w, list, changes);
+        }
+    }
+    fn webcams(&self, list: &[Device], changes: &[String]) {
+        if let Some(w) = window() {
+            app_main::on_webcams(&w, list, changes);
+        }
+    }
+    fn audio_sources(&self, mics: &[Device], speakers: &[Device], silent: bool, changes: &[String]) {
+        if let Some(w) = window() {
+            app_main::on_audio_sources(&w, mics, speakers, silent, changes);
+        }
+    }
+    fn audio_meters(&self, items: &[AudioMeter]) {
+        app_main::on_audio_meters(items);
+    }
+    fn monitor_thumbs(&self, items: &[MonitorThumb]) {
+        if let Some(w) = window() {
+            app_main::on_monitor_thumbs(&w, items);
+        }
+    }
+    fn device_change_pending(&self, kind: PendingKind, pending: bool) {
+        if let Some(w) = window() {
+            app_main::on_device_change_pending(&w, kind, pending);
+        }
+    }
+    fn refresh_busy(&self, busy: bool, what: &str) {
+        if let Some(w) = window() {
+            app_main::on_refresh_busy(&w, busy, what);
+        }
+    }
+    fn recording_state(&self, st: &RecState) {
+        if let Some(w) = window() {
+            app_main::on_recording_state(&w, st);
+        }
+    }
+    fn recording_finalizing(&self, active: bool) {
+        if let Some(w) = window() {
+            app_main::on_recording_finalizing(&w, active);
+        }
+    }
+    fn recording_stopping(&self) {
+        // Atalho/bandeja: o clique na tela já tocou (o debounce evita o 2º).
+        app_main::play_stop_sound();
     }
 }
 
@@ -171,6 +220,7 @@ pub fn create() -> Option<AppWindow> {
     w.global::<Confirm>().on_accepted(|action, arg| {
         log!("Confirm: \"{action}\" ({arg}) — sem tratador ainda.");
     });
+    app_main::setup(&w);
 
     crate::view::set(Rc::new(SlintView));
     Some(w)

@@ -1,0 +1,473 @@
+// Coluna de fontes (`.sources` do layout.css): avisos, o cartão de gravação
+// (fixo) e a parte que rola — microfones, saídas e a legenda das faixas
+// (displays.css). O overlay de carregamento cobre a coluna inteira.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { Toggle } from "../widgets/controls.slint";
+import { Icons, StrokeIcon } from "../widgets/icons.slint";
+import { ScrollArea } from "../widgets/scroll.slint";
+import { Main, SourceItem, LegendItem } from "main_state.slint";
+import { RecordCard } from "record_card.slint";
+
+// `.section-title` (h3 em caixa-alta + contagem).
+component SectionTitle {
+    in property <string> title;
+    in property <string> count;
+    height: 15px;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        Text {
+            text: root.title.to-uppercase();
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            color: Theme.text-3;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text {
+            text: root.count;
+            font-size: 11px;
+            font-weight: 500;
+            color: Theme.text-3;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Uma barra do medidor (`.source-meter-track`): o degradê fixo por posição
+// (verde até 60%, âmbar em 75%, vermelho de 95%) e a "capa" `--panel-3` que
+// desliza pra direita conforme o sinal sobe.
+component MeterTrack inherits Rectangle {
+    in property <float> level;
+    in property <bool> muted;
+    in property <bool> dim;
+    clip: true;
+    border-radius: 1.5px;
+    Rectangle {
+        opacity: root.dim ? 0.25 : 1;
+        background: root.muted ? Theme.danger
+            : @linear-gradient(90deg, Theme.success 0%, Theme.success 60%, #f59e0b 75%, Theme.danger-2 95%, Theme.danger-2 100%);
+    }
+    Rectangle {
+        x: parent.width * (root.muted ? 1 : root.level);
+        width: parent.width - self.x;
+        background: Theme.panel-3;
+        animate x { duration: 90ms; easing: linear; }
+    }
+}
+
+// Um dispositivo de áudio (`.source-item`).
+component SourceRow {
+    in property <SourceItem> item;
+    // "mic" ou "spk": o aviso do Bluetooth muda.
+    in property <bool> is-mic;
+    in property <bool> locked;
+    callback toggled(string, bool);
+    height: 45px;
+
+    // Faixa colorida de 3 px colada na borda da janela (`left: -12px`).
+    Rectangle {
+        x: -12px;
+        width: 3px;
+        background: root.item.enabled && root.item.track > 1 ? root.item.track-color
+            : root.item.enabled ? transparent
+            : Theme.dark ? #52525b : Theme.border;
+        opacity: root.item.enabled ? 1 : 0.7;
+    }
+    Rectangle {
+        border-radius: 7px;
+        background: ta.has-hover && !root.locked ? (Theme.dark ? Theme.panel-2 : Theme.panel-3) : transparent;
+        animate background { duration: 100ms; }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 10px;
+        opacity: root.locked ? 0.5 : 1;
+        animate opacity { duration: 250ms; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            HorizontalLayout {
+                spacing: 0;
+                alignment: start;
+                if root.item.is-default: HorizontalLayout {
+                    padding-right: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 7px;
+                            height: 7px;
+                            border-radius: 3.5px;
+                            background: #22c55e;
+                            border-width: 1px;
+                            border-color: rgba(0, 0, 0, 0.15);
+                            drop-shadow-blur: 4px;
+                            drop-shadow-color: rgba(34, 197, 94, 0.55);
+                            dta := TouchArea { }
+                            HintTrigger {
+                                hovered: dta.has-hover;
+                                hint: T.s("sources.defaultDevice");
+                            }
+                        }
+                    }
+                }
+                if root.item.bluetooth: HorizontalLayout {
+                    padding-right: 6px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 13px;
+                            height: 13px;
+                            StrokeIcon {
+                                size: 13px;
+                                commands: Icons.bluetooth;
+                                stroke: #1da1f2;
+                            }
+                            bta := TouchArea { mouse-cursor: help; }
+                            HintTrigger {
+                                hovered: bta.has-hover;
+                                hint: T.s("sources.btDevice");
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 13px;
+                            height: 13px;
+                            StrokeIcon {
+                                size: 13px;
+                                thickness: 2.2;
+                                commands: Icons.warn;
+                                stroke: #f59e0b;
+                            }
+                            bwa := TouchArea { mouse-cursor: help; }
+                            HintTrigger {
+                                hovered: bwa.has-hover;
+                                hint: root.is-mic ? T.s("sources.btMicWarn") : T.s("sources.btSpeakerWarn");
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: root.item.name;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+            // `.source-meter`: 7 px; estéreo = duas barras de 3 px com 1 px no meio.
+            Rectangle {
+                height: 7px;
+                if root.item.stereo: MeterTrack {
+                    y: 0;
+                    height: 3px;
+                    level: root.item.meter-l;
+                    muted: root.item.muted;
+                    dim: !root.item.enabled;
+                }
+                if root.item.stereo: MeterTrack {
+                    y: 4px;
+                    height: 3px;
+                    level: root.item.meter-r;
+                    muted: root.item.muted;
+                    dim: !root.item.enabled;
+                }
+                if !root.item.stereo: MeterTrack {
+                    level: root.item.meter-l;
+                    muted: root.item.muted;
+                    dim: !root.item.enabled;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Toggle { on: root.item.enabled; }
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: root.locked ? default : pointer;
+        clicked => {
+            if !root.locked {
+                root.toggled(root.item.id, !root.item.enabled);
+            }
+        }
+    }
+}
+
+// Linha da legenda (`.track-legend-item`).
+component LegendRow {
+    in property <LegendItem> item;
+    height: 22px;
+    opacity: root.item.kind == "off" ? 0.7 : 1;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 10px;
+        Rectangle {
+            width: 8px;
+            if root.item.kind == "default": Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: #22c55e;
+                border-width: 1px;
+                border-color: rgba(0, 0, 0, 0.15);
+                drop-shadow-blur: 4px;
+                drop-shadow-color: rgba(34, 197, 94, 0.55);
+            }
+            if root.item.kind != "default": Rectangle {
+                width: 3px;
+                height: 14px;
+                background: root.item.kind == "mix" ? Theme.text-2
+                    : root.item.kind == "off" ? (Theme.dark ? #52525b : Theme.border)
+                    : root.item.color;
+            }
+        }
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 4px;
+            Text {
+                min-width: 52px;
+                text: root.item.track-label;
+                font-size: 11px;
+                font-weight: 600;
+                color: root.item.kind == "off" ? Theme.text-3 : Theme.text-2;
+                vertical-alignment: center;
+            }
+            Text {
+                horizontal-stretch: 1;
+                text: root.item.name;
+                font-size: 11px;
+                color: Theme.text-2;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+    ta := TouchArea { mouse-cursor: help; }
+    HintTrigger {
+        hovered: ta.has-hover;
+        hint: root.item.hint;
+    }
+}
+
+// Aviso âmbar (`.banner`): "a lista atualiza quando parar".
+component Banner {
+    in property <string> title;
+    in property <string> body;
+    height: layout.preferred-height;
+    Rectangle {
+        background: Theme.warn-bg;
+        border-width: 1px;
+        border-color: Theme.warn-border;
+        border-radius: 7px;
+    }
+    layout := VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 2px;
+        Text {
+            text: root.title;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.warn-text;
+            wrap: word-wrap;
+        }
+        Text {
+            text: root.body;
+            font-size: 12px;
+            color: Theme.warn-text;
+            wrap: word-wrap;
+            line-height-factor: Theme.lh-body;
+        }
+    }
+}
+
+export component SourcesColumn {
+    in property <bool> replay-active;
+    in property <bool> replay-on;
+    in property <string> replay-status;
+    callback replay-toggle();
+    callback replay-save();
+
+    // `.sources`: padding 14 12 0, fundo do painel. Coluna: avisos + cartão
+    // (fixos) e a área que rola.
+    VerticalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 14px;
+        spacing: 0;
+
+        if Main.monitor-pending: VerticalLayout {
+            padding-bottom: 12px;
+            Banner {
+                title: T.s("banner.monitorTitle");
+                body: T.s("banner.body");
+            }
+        }
+        if Main.audio-pending: VerticalLayout {
+            padding-bottom: 12px;
+            Banner {
+                title: T.s("banner.audioTitle");
+                body: T.s("banner.body");
+            }
+        }
+
+        // `.record-block`: vaza pros lados (margem -12) com padding 12 e um
+        // fio embaixo; 14 px até a lista.
+        Rectangle {
+            height: card.preferred-height + 14px;
+            card := RecordCard {
+                y: 0;
+                width: parent.width;
+                height: self.preferred-height;
+                replay-active: root.replay-active;
+                replay-on: root.replay-on;
+                replay-status: root.replay-status;
+                replay-toggle => { root.replay-toggle(); }
+                replay-save => { root.replay-save(); }
+            }
+            Rectangle {
+                x: -12px;
+                y: parent.height - 1px;
+                width: parent.width + 24px;
+                height: 1px;
+                background: Theme.border;
+            }
+        }
+        Rectangle { height: 14px; }
+
+        // `.sources-scroll`: vaza até as bordas (margem -12 + padding 12).
+        Rectangle {
+            vertical-stretch: 1;
+            scroll := ScrollArea {
+                x: -12px;
+                width: parent.width + 24px;
+                height: parent.height;
+                content-h: list.preferred-height;
+                list := VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-bottom: 14px;
+                    spacing: 0;
+                    min-height: scroll.height;
+
+                    // Microfones.
+                    SectionTitle {
+                        title: T.s("sources.mics");
+                        count: Main.mic-count;
+                    }
+                    Rectangle { height: 6px; }
+                    for m in Main.mics: SourceRow {
+                        item: m;
+                        is-mic: true;
+                        locked: Main.recording;
+                        toggled(id, on) => { Main.toggle-source(id, on); }
+                    }
+                    Rectangle { height: 18px; }
+
+                    // Alto-falantes.
+                    SectionTitle {
+                        title: T.s("sources.speakers");
+                        count: Main.spk-count;
+                    }
+                    Rectangle { height: 6px; }
+                    for s in Main.speakers: SourceRow {
+                        item: s;
+                        is-mic: false;
+                        locked: Main.recording;
+                        toggled(id, on) => { Main.toggle-source(id, on); }
+                    }
+
+                    // `margin-top: auto`: a legenda desce pro rodapé quando cabe.
+                    Rectangle { vertical-stretch: 1; }
+                    if Main.legend.length > 0: VerticalLayout {
+                        vertical-stretch: 0;
+                        alignment: start;
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.border;
+                        }
+                        VerticalLayout {
+                            padding-top: 14px;
+                            padding-bottom: 4px;
+                            spacing: 0;
+                            alignment: start;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                Text {
+                                    height: 13px;
+                                    text: T.s("tracks.title").to-uppercase();
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    letter-spacing: 1px;
+                                    color: Theme.text-3;
+                                }
+                            }
+                            Rectangle { height: 8px; }
+                            for l in Main.legend: LegendRow { item: l; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Overlay de carregamento (`.loading-overlay`): cobre a coluna inteira.
+    if Main.busy: Rectangle {
+        background: Theme.panel;
+        TouchArea { }
+        VerticalLayout {
+            alignment: center;
+            spacing: 18px;
+            HorizontalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 42px;
+                    height: 42px;
+                    Rectangle {
+                        border-radius: 21px;
+                        border-width: 3px;
+                        border-color: Theme.border;
+                        opacity: 0.4;
+                    }
+                    Path {
+                        width: 42px;
+                        height: 42px;
+                        viewbox-width: 42;
+                        viewbox-height: 42;
+                        stroke: Theme.success;
+                        stroke-width: 3px;
+                        fill: transparent;
+                        // border-top + border-right: um quarto de círculo inclinado.
+                        commands: "M7.4 7.4A19.5 19.5 0 0 1 34.6 34.6";
+                        transform-rotation: 360deg * mod(animation-tick() / 1ms, 900) / 900;
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: center;
+                Text {
+                    property <int> dots: floor(mod(animation-tick() / 1ms, 1400) / 350);
+                    text: Main.busy-text + (self.dots == 0 ? "" : self.dots == 1 ? "." : self.dots == 2 ? ".." : "...");
+                    font-size: 13px;
+                    letter-spacing: 0.3px;
+                    color: Theme.text-2;
+                }
+            }
+        }
+    }
+}

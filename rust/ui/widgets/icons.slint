@@ -1,0 +1,49 @@
+// Ícones da versão web (SVG inline no `index.html` e no JS), em caminho do
+// Slint. Os de traço (`fill="none" stroke="currentColor" stroke-width="2"`,
+// pontas e cantos redondos) usam `StrokeIcon`; os cheios, `FillIcon`.
+// Viewbox 24×24 como no original. A espessura do traço é em px de tela, não
+// do viewbox: `2/24` do tamanho, igual ao SVG escalado.
+//
+// Formas do SVG convertidas a caminho: <circle> → dois arcos, <rect rx> →
+// linhas + arcos nos cantos, <polyline>/<line> → M/L.
+
+export global Icons {
+    out property <string> gear: "M15 12A3 3 0 1 1 9 12A3 3 0 1 1 15 12Z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z";
+    // "Capturar...": janela com barra de título (os dois pontinhos são cheios: `window-dots`).
+    out property <string> window: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z M3 9h18";
+    out property <string> window-dots: "M6.6 6.5A0.6 0.6 0 1 1 5.4 6.5A0.6 0.6 0 1 1 6.6 6.5Z M9.1 6.5A0.6 0.6 0 1 1 7.9 6.5A0.6 0.6 0 1 1 9.1 6.5Z";
+    out property <string> pause: "M6.5 4h2a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5h-2a1.5 1.5 0 0 1-1.5-1.5v-13A1.5 1.5 0 0 1 6.5 4z M15.5 4h2a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1-1.5 1.5h-2a1.5 1.5 0 0 1-1.5-1.5v-13A1.5 1.5 0 0 1 15.5 4z";
+    out property <string> resume: "M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z";
+    out property <string> download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+    out property <string> bluetooth: "M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11";
+    out property <string> warn: "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01";
+    out property <string> camera: "M23 7l-7 5 7 5V7z M3 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z";
+    // Check do canto (viewbox 16×16, polyline do `CHECK_SVG`).
+    out property <string> check16: "M3.5 8.5L6.8 11.8L12.5 5.5";
+}
+
+// Ícone de traço. `size` = lado em px; `thickness` = o `stroke-width` do SVG.
+export component StrokeIcon inherits Path {
+    in property <length> size: 15px;
+    in property <float> thickness: 2;
+    in property <float> box: 24;
+    width: root.size;
+    height: root.size;
+    viewbox-width: root.box;
+    viewbox-height: root.box;
+    fill: transparent;
+    stroke-width: root.size * root.thickness / root.box;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+}
+
+// Ícone cheio (`fill="currentColor"`).
+export component FillIcon inherits Path {
+    in property <length> size: 13px;
+    in property <float> box: 24;
+    width: root.size;
+    height: root.size;
+    viewbox-width: root.box;
+    viewbox-height: root.box;
+    stroke-width: 0;
+}

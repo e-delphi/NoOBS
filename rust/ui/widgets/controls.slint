@@ -1,0 +1,74 @@
+// Controles pequenos reaproveitados pelas telas, copiados do CSS da versão
+// web: `.icon-btn` (base.css) e `.toggle` (displays.css).
+
+import { Theme } from "../theme.slint";
+import { HintTrigger } from "hint.slint";
+
+// `.icon-btn`: 30×30 (as telas trocam o tamanho), borda, fundo do painel,
+// ícone em `--text-2`. Desativado: 40% de opacidade, sem hover.
+export component IconButton {
+    in property <bool> enabled: true;
+    in property <string> hint;
+    // Destaque de hover (`--success` nos botões do rodapé do cartão de
+    // gravar). Transparente = o hover padrão (fundo `--panel-2`, ícone `--text`).
+    in property <color> hover-accent: transparent;
+    // Aceso (ex.: pausa ativa, em âmbar). Transparente = normal.
+    in property <color> lit: transparent;
+    out property <bool> hovered: ta.has-hover && root.enabled;
+    // Cor do ícone (os filhos usam pra pintar o SVG).
+    out property <color> icon-color: root.lit != transparent ? root.lit
+        : !root.enabled ? Theme.text-2
+        : root.hovered && root.hover-accent != transparent ? root.hover-accent
+        : root.hovered ? Theme.text : Theme.text-2;
+    callback clicked();
+    width: 30px;
+    height: 30px;
+    opacity: root.enabled ? 1 : 0.4;
+
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: root.lit != transparent ? root.lit
+            : root.hovered && root.hover-accent != transparent ? root.hover-accent : Theme.border;
+        background: root.hovered && root.hover-accent == transparent ? Theme.panel-2 : Theme.panel;
+        animate background, border-color { duration: 120ms; }
+    }
+    @children
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : not-allowed;
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        pressed: ta.pressed;
+        hint: root.hint;
+    }
+}
+
+// `.toggle`: chave estilo iOS, 32×18. Ligada = verde, bolinha à direita.
+export component Toggle {
+    in property <bool> on;
+    width: 32px;
+    height: 18px;
+    Rectangle {
+        border-radius: 9px;
+        background: root.on ? Theme.success : Theme.border-2;
+        animate background { duration: 200ms; }
+    }
+    Rectangle {
+        x: root.on ? 16px : 2px;
+        y: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: white;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: rgba(0, 0, 0, 0.35);
+        animate x { duration: 200ms; easing: cubic-bezier(0.4, 0.0, 0.2, 1); }
+    }
+}

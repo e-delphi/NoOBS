@@ -1,0 +1,89 @@
+// Estado da tela principal. O Rust (`app_view`) escreve aqui o que o core
+// conta pelo `View`; as telas só leem e chamam os callbacks, que vão direto
+// pros handlers do core (sem JSON).
+
+// Um microfone ou uma saída na coluna de fontes (`.source-item`).
+export struct SourceItem {
+    id: string,
+    name: string,
+    enabled: bool,
+    is-default: bool,
+    bluetooth: bool,
+    // Faixa do arquivo (0 = sem faixa). A cor já vem calculada.
+    track: int,
+    track-color: color,
+    // Medidor: 0..1 já na curva de dB da web (`ampToBar`).
+    meter-l: float,
+    meter-r: float,
+    stereo: bool,
+    muted: bool,
+}
+
+// Uma linha da legenda de faixas (`.track-legend-item`).
+// kind: "default" (bolinha verde), "mix", "track", "off" (sem faixa).
+export struct LegendItem {
+    kind: string,
+    track-label: string,
+    name: string,
+    hint: string,
+    color: color,
+}
+
+// Um monitor ou webcam no bloco "Telas" (`.display-rect`). x/y/w/h em
+// coordenadas da área de trabalho; a tela escala.
+export struct DisplayItem {
+    id: string,
+    is-webcam: bool,
+    name: string,
+    enabled: bool,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    thumb: image,
+    has-thumb: bool,
+}
+
+export global Main {
+    // ---- fontes ----
+    in property <[SourceItem]> mics;
+    in property <[SourceItem]> speakers;
+    in property <[LegendItem]> legend;
+    in property <string> mic-count: "— / —";
+    in property <string> spk-count: "— / —";
+    // ---- telas ----
+    in property <[DisplayItem]> displays;
+    // Caixa que contém tudo (monitores + webcams à direita), na área de trabalho.
+    in property <float> disp-min-x;
+    in property <float> disp-min-y;
+    in property <float> disp-total-w: 1;
+    in property <float> disp-total-h: 1;
+    in property <string> mon-count: "— / —";
+    // "3840×2160" da composição marcada; vazio sem nada marcado.
+    in property <string> mon-meta;
+    // A composição passa do limite do encoder: o aviso ao lado da resolução.
+    in property <bool> mon-meta-warn;
+    in property <string> mon-meta-warn-hint;
+
+    // ---- gravação ----
+    in property <bool> recording;
+    in property <bool> paused;
+    in property <bool> finalizing;
+    // Há algo marcado pra gravar (senão o botão fica desativado).
+    in property <bool> can-record: true;
+    in property <string> status-text;
+    in property <string> timer-main: "00:00:00";
+    in property <string> timer-ms: ".00";
+    in property <string> size-text;
+    // ---- avisos da coluna ----
+    in property <bool> busy;
+    in property <string> busy-text;
+    in property <bool> audio-pending;
+    in property <bool> monitor-pending;
+
+    callback toggle-record();
+    callback toggle-pause();
+    callback toggle-source(string /* id */, bool /* enabled */);
+    callback open-settings();
+    callback open-window-picker();
+}

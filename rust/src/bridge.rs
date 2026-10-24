@@ -520,6 +520,22 @@ pub fn handle_set_language(code: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Entrada direta da interface (sem JSON). Os submódulos são privados do
+// bridge; a interface chama por aqui.
+// ---------------------------------------------------------------------------
+
+pub use devices::handle_toggle_source;
+pub use recording::{handle_record_pause, handle_record_stop, last_encoder_caps};
+
+/// O botão de gravar: na contagem do atraso da área, ele CANCELA (mesma
+/// regra do `record_start` do dispatch).
+pub fn handle_record_start_button() {
+    if !countdown::cancel() {
+        recording::handle_record_start();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // misc
 // ---------------------------------------------------------------------------
 

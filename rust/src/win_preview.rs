@@ -135,7 +135,7 @@ impl Drop for Dib {
 
 /// Captura o monitor escalado para `thumb_w` × `thumb_h` e devolve RGB 8 bits
 /// (3 bytes por pixel, linhas de cima pra baixo). Vazio se algo falhar.
-fn capture_monitor_rgb(m: &MonitorInfo, thumb_w: i32, thumb_h: i32) -> Vec<u8> {
+pub fn capture_monitor_rgb(m: &MonitorInfo, thumb_w: i32, thumb_h: i32) -> Vec<u8> {
     if thumb_w <= 0 || thumb_h <= 0 || m.width <= 0 || m.height <= 0 {
         return Vec::new();
     }
@@ -188,28 +188,3 @@ fn capture_monitor_rgb(m: &MonitorInfo, thumb_w: i32, thumb_h: i32) -> Vec<u8> {
     }
 }
 
-/// JPEG (qualidade 65) do monitor. Roda em worker: BitBlt + encode de um 4K leva
-/// 50–200 ms e travaria a UI na main (pegadinha #22).
-pub fn capture_monitor_as_jpeg(m: &MonitorInfo, thumb_w: i32, thumb_h: i32) -> Vec<u8> {
-    let rgb = capture_monitor_rgb(m, thumb_w, thumb_h);
-    if rgb.is_empty() {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    let enc = jpeg_encoder::Encoder::new(&mut out, 65);
-    if enc.encode(&rgb, thumb_w as u16, thumb_h as u16, jpeg_encoder::ColorType::Rgb).is_err() {
-        return Vec::new();
-    }
-    out
-}
-
-/// `data:image/jpeg;base64,...` — usado uma única vez, no `init`, para o thumb
-/// já vir inline no JSON inicial.
-pub fn capture_monitor_as_data_url(m: &MonitorInfo, thumb_w: i32, thumb_h: i32) -> String {
-    use base64::Engine as _;
-    let jpeg = capture_monitor_as_jpeg(m, thumb_w, thumb_h);
-    if jpeg.is_empty() {
-        return String::new();
-    }
-    format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg))
-}

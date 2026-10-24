@@ -11,8 +11,11 @@ import { T } from "i18n.slint";
 import { Hints, HintBubble } from "widgets/hint.slint";
 import { ToastItem, ToastStack } from "widgets/toast.slint";
 import { Confirm, ConfirmDialog } from "widgets/confirm.slint";
+import { Main, SourceItem, LegendItem, DisplayItem } from "screens/main_state.slint";
+import { SourcesColumn } from "screens/sources.slint";
+import { DisplaysBlock } from "screens/displays.slint";
 
-export { Theme, T, Hints, Confirm, ToastItem }
+export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -27,6 +30,13 @@ export component AppWindow inherits Window {
 
     in property <[ToastItem]> toasts;
     callback toast-clicked(int);
+
+    // Buffer em memória (fase 1b liga ao core).
+    in property <bool> replay-active;
+    in property <bool> replay-on;
+    in property <string> replay-status;
+    callback replay-toggle();
+    callback replay-save();
 
     // `@media (max-width: 760px)`: só a coluna de fontes.
     property <bool> narrow: root.width <= 760px;
@@ -43,6 +53,15 @@ export component AppWindow inherits Window {
         height: root.height;
         background: Theme.panel;
         animate background { duration: 250ms; }
+        SourcesColumn {
+            width: parent.width - (root.narrow ? 0 : 1px);
+            height: parent.height;
+            replay-active: root.replay-active;
+            replay-on: root.replay-on;
+            replay-status: root.replay-status;
+            replay-toggle => { root.replay-toggle(); }
+            replay-save => { root.replay-save(); }
+        }
         // `border-right: 1px solid var(--border)` (some na janela estreita).
         Rectangle {
             visible: !root.narrow;
@@ -51,13 +70,20 @@ export component AppWindow inherits Window {
             background: Theme.border;
         }
     }
-    // `.recordings`
+    // `.recordings`: padding 0 22 18. As gravações entram na fase 2.
     recordings := Rectangle {
         visible: !root.narrow;
         x: sources.width;
         y: 0;
         width: root.width - sources.width;
         height: root.height;
+        VerticalLayout {
+            padding-left: 22px;
+            padding-right: 22px;
+            padding-bottom: 18px;
+            alignment: start;
+            DisplaysBlock { }
+        }
     }
 
     ConfirmDialog { }

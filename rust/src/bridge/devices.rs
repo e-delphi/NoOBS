@@ -13,15 +13,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::audio_tracks::compute_audio_track_assignments;
 use crate::audio_watch::{self, DeviceChangeKind};
 use crate::engine;
 use crate::types::Webcam;
+use crate::view::{self, AudioMeter, Device, MonitorThumb, PendingKind};
 use crate::win_audio_meter::{self as wam, AudioDeviceInfo, DeviceKind};
 use crate::win_preview::{self, MonitorInfo};
-use crate::{config, lang, log, mainthread, player, ui, win_webcam};
+use crate::{config, lang, log, mainthread, ui, win_webcam};
 
 use super::recording::{push_refresh_busy, record_dir, recording_active};
 use super::{is_shutting_down, post_json};
@@ -151,50 +152,49 @@ fn mic_meter_open_policy(name: &str) -> bool {
 // Listas para a UI
 // ---------------------------------------------------------------------------
 
-fn build_monitors_json() -> Value {
-    let mons = win_preview::enumerate_monitors();
-    Value::Array(
-        mons.iter()
-            .map(|m| {
-                let id = monitor_id_from_index(m.index);
-                let thumb = win_preview::capture_monitor_as_data_url(m, 480, 270);
-                let mut item = json!({
-                    "id": id,
-                    "name": format!("Monitor {}", m.index + 1),
-                    "info": format!("{}x{} @ {},{}", m.width, m.height, m.x, m.y),
-                    "enabled": get_source_enabled(&id, true),
-                    "hidden": get_source_hidden_by_id(&id),
-                    "auto": get_source_auto_record_by_id(&id),
-                    // x/y/width/height numéricos pro layout proporcional da UI.
-                    "x": m.x, "y": m.y, "width": m.width, "height": m.height,
-                });
-                if !thumb.is_empty() {
-                    item["thumb"] = json!(thumb);
-                }
-                item
-            })
-            .collect(),
-    )
+/// Monitores pra interface. Sem prévia: ela chega pelo `monitor_thumbs`, que a
+/// thread de prévias manda já no arranque (capturar aqui travaria a main).
+fn build_monitors() -> Vec<Device> {
+    win_preview::enumerate_monitors()
+        .iter()
+        .map(|m| {
+            let id = monitor_id_from_index(m.index);
+            Device {
+                name: format!("Monitor {}", m.index + 1),
+                info: format!("{}x{} @ {},{}", m.width, m.height, m.x, m.y),
+                enabled: get_source_enabled(&id, true),
+                hidden: get_source_hidden_by_id(&id),
+                auto: get_source_auto_record_by_id(&id),
+                // Posição e tamanho pro layout proporcional da interface.
+                x: m.x,
+                y: m.y,
+                width: m.width,
+                height: m.height,
+                id,
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
-fn build_webcams_json_from(cams: &[Webcam]) -> Value {
-    Value::Array(
-        cams.iter()
-            .map(|c| {
-                let id = webcam_id_from_name(&c.name);
-                json!({
-                    "id": id,
-                    "name": c.name,
-                    "info": format!("{}x{}", c.width, c.height),
-                    // Default DESMARCADO para webcams (gravação normalmente não precisa).
-                    "enabled": get_source_enabled(&id, false),
-                    "hidden": get_source_hidden_by_id(&id),
-                    "auto": get_source_auto_record_by_id(&id),
-                    "width": c.width, "height": c.height,
-                })
-            })
-            .collect(),
-    )
+fn build_webcams_from(cams: &[Webcam]) -> Vec<Device> {
+    cams.iter()
+        .map(|c| {
+            let id = webcam_id_from_name(&c.name);
+            Device {
+                name: c.name.clone(),
+                info: format!("{}x{}", c.width, c.height),
+                // Default DESMARCADO para webcams (gravação normalmente não precisa).
+                enabled: get_source_enabled(&id, false),
+                hidden: get_source_hidden_by_id(&id),
+                auto: get_source_auto_record_by_id(&id),
+                width: c.width,
+                height: c.height,
+                id,
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 /// Ordena os 4 vetores paralelos pela faixa ascendente (insertion sort estável;
@@ -219,10 +219,10 @@ fn sort_audio_parallel_by_track(idxs: &mut [usize], tracks: &mut [i32], enabled:
     }
 }
 
-/// `micsJson` + `speakersJson` com a `track` já calculada pela função central de
-/// atribuição — a UI não reimplementa o agrupamento. Pode bloquear na primeira
-/// vez (enumeração WASAPI): chamar com o cache já populado ou em worker.
-fn build_audio_json_with_tracks() -> (Value, Value) {
+/// Microfones e saídas com a `track` já calculada pela função central de
+/// atribuição — a interface não reimplementa o agrupamento. Pode bloquear na
+/// primeira vez (enumeração WASAPI): chamar com o cache já populado ou em worker.
+fn build_audio_with_tracks() -> (Vec<Device>, Vec<Device>) {
     wam::init_audio();
     let devs = wam::enumerate_audio_devices();
 
@@ -257,16 +257,16 @@ fn build_audio_json_with_tracks() -> (Value, Value) {
     sort_audio_parallel_by_track(&mut mic_idxs, &mut mic_tracks, &mut mic_en, &mut mic_def);
     sort_audio_parallel_by_track(&mut spk_idxs, &mut spk_tracks, &mut spk_en, &mut spk_def);
 
-    let item = |d: &AudioDeviceInfo, id: String, enabled: bool, is_default: bool, track: i32| {
-        json!({
-            "id": id, "name": d.name, "info": "",
-            "enabled": enabled,
-            "hidden": get_source_hidden_by_id(&id),
-            "auto": get_source_auto_record_by_id(&id),
-            "isDefault": is_default,
-            "isBluetooth": d.is_bluetooth,
-            "track": track,
-        })
+    let item = |d: &AudioDeviceInfo, id: String, enabled: bool, is_default: bool, track: i32| Device {
+        name: d.name.clone(),
+        enabled,
+        hidden: get_source_hidden_by_id(&id),
+        auto: get_source_auto_record_by_id(&id),
+        is_default,
+        is_bluetooth: d.is_bluetooth,
+        track,
+        id,
+        ..Default::default()
     };
     let mics = mic_idxs
         .iter()
@@ -278,7 +278,7 @@ fn build_audio_json_with_tracks() -> (Value, Value) {
         .enumerate()
         .map(|(k, i)| item(&devs[*i], out_id_from_name(&devs[*i].name), spk_en[k], spk_def[k], spk_tracks[k]))
         .collect();
-    (Value::Array(mics), Value::Array(spks))
+    (mics, spks)
 }
 
 /// Espaço livre no volume da pasta de gravação (-1 se não conseguiu ler).
@@ -308,26 +308,28 @@ pub fn record_dir_free_bytes() -> i64 {
 /// com audio service doente): quem chama dispara a enumeração em worker e manda
 /// `audio_sources_refreshed` depois.
 pub fn push_init(include_audio: bool) {
-    let (mics, spks) = if include_audio {
-        build_audio_json_with_tracks()
-    } else {
-        (json!([]), json!([]))
-    };
+    let mons = build_monitors();
+    let cams = build_webcams_from(&win_webcam::enumerate_webcams());
+    view::call(move |v| {
+        v.monitors(&mons, &[]);
+        v.webcams(&cams, &[]);
+    });
+    if include_audio {
+        let (mics, spks) = build_audio_with_tracks();
+        view::call(move |v| v.audio_sources(&mics, &spks, true, &[]));
+    }
+    // A biblioteca (gravações da pasta navegada + pastas + caminho) e as
+    // preferências ainda vão no formato antigo: telas ainda não portadas
+    // (docs/ui-slint.md, fases 2 e 4).
     let dir = record_dir().to_string_lossy().into_owned();
     let mut init = json!({
         "type": "init",
-        "i18n": lang::current_bundle(),
         "language": lang::current_language(),
-        "monitors": build_monitors_json(),
-        "mics": mics,
-        "speakers": spks,
-        "webcams": build_webcams_json_from(&win_webcam::enumerate_webcams()),
         "recordDir": dir,
         "freeBytes": record_dir_free_bytes(),
         "languagePref": config::get_config_str("language", ""),
         "languages": lang::available_languages(),
     });
-    // A biblioteca: gravações da pasta navegada + pastas + caminho.
     for (k, v) in super::library::init_listing() {
         init[k] = v;
     }
@@ -351,7 +353,7 @@ fn audio_signature(devs: &[AudioDeviceInfo]) -> String {
     tmp.join(";")
 }
 
-fn audio_changes(old: &[AudioDeviceInfo], new: &[AudioDeviceInfo]) -> Value {
+fn audio_changes(old: &[AudioDeviceInfo], new: &[AudioDeviceInfo]) -> Vec<String> {
     let kind_word = |k: DeviceKind| if k == DeviceKind::Input { "Microfone" } else { "Alto-falante" };
     let find = |arr: &[AudioDeviceInfo], id: &str, k: DeviceKind| {
         arr.iter().position(|d| d.kind == k && d.device_id.eq_ignore_ascii_case(id))
@@ -380,24 +382,24 @@ fn audio_changes(old: &[AudioDeviceInfo], new: &[AudioDeviceInfo]) -> Value {
         let name = find(new, &n, k).map(|i| new[i].name.clone()).unwrap_or_default();
         out.push(format!("Padrão de {}: {}", kind_word(k).to_lowercase(), name));
     }
-    json!(out)
+    out
 }
 
-fn monitor_changes(old: &[MonitorInfo], new: &[MonitorInfo]) -> Value {
+fn monitor_changes(old: &[MonitorInfo], new: &[MonitorInfo]) -> Vec<String> {
     let name = |m: &MonitorInfo| if m.friendly_name.is_empty() { m.device_name.clone() } else { m.friendly_name.clone() };
     let has = |arr: &[MonitorInfo], m: &MonitorInfo| arr.iter().any(|x| x.device_name.eq_ignore_ascii_case(&m.device_name));
     let mut out: Vec<String> = Vec::new();
     out.extend(old.iter().filter(|m| !has(new, m)).map(|m| format!("Monitor removido: {}", name(m))));
     out.extend(new.iter().filter(|m| !has(old, m)).map(|m| format!("Monitor adicionado: {}", name(m))));
-    json!(out)
+    out
 }
 
-fn webcam_changes(old: &[Webcam], new: &[Webcam]) -> Value {
+fn webcam_changes(old: &[Webcam], new: &[Webcam]) -> Vec<String> {
     let has = |arr: &[Webcam], c: &Webcam| arr.iter().any(|x| x.device_id.eq_ignore_ascii_case(&c.device_id));
     let mut out: Vec<String> = Vec::new();
     out.extend(old.iter().filter(|c| !has(new, c)).map(|c| format!("Webcam removida: {}", c.name)));
     out.extend(new.iter().filter(|c| !has(old, c)).map(|c| format!("Webcam adicionada: {}", c.name)));
-    json!(out)
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -405,11 +407,11 @@ fn webcam_changes(old: &[Webcam], new: &[Webcam]) -> Value {
 // ---------------------------------------------------------------------------
 
 fn push_monitor_changed(pending: bool) {
-    post_json(json!({ "type": "monitor_changed", "pending": pending }));
+    view::call(move |v| v.device_change_pending(PendingKind::Monitors, pending));
 }
 
 fn push_audio_device_changed(pending: bool) {
-    post_json(json!({ "type": "audio_device_changed", "pending": pending }));
+    view::call(move |v| v.device_change_pending(PendingKind::Audio, pending));
 }
 
 pub fn do_refresh_monitors() {
@@ -421,7 +423,8 @@ pub fn do_refresh_monitors() {
     let mons = win_preview::enumerate_monitors();
     let new_count = mons.len() as i32;
     let changes = with_dev(|d| monitor_changes(&d.last_applied_monitors, &mons));
-    post_json(json!({ "type": "monitors_refreshed", "monitors": build_monitors_json(), "changes": changes }));
+    let list = build_monitors();
+    view::call(move |v| v.monitors(&list, &changes));
     with_dev(|d| d.last_applied_monitors = mons);
 
     // Contagem inalterada logo após o evento: o Windows às vezes ainda não
@@ -447,7 +450,8 @@ pub fn do_refresh_monitors() {
 pub fn do_refresh_webcams() {
     let cams = win_webcam::enumerate_webcams();
     let changes = with_dev(|d| webcam_changes(&d.last_applied_webcams, &cams));
-    post_json(json!({ "type": "webcams_refreshed", "webcams": build_webcams_json_from(&cams), "changes": changes }));
+    let list = build_webcams_from(&cams);
+    view::call(move |v| v.webcams(&list, &changes));
     with_dev(|d| d.last_applied_webcams = cams);
     log!("DoRefreshWebcams: pushed.");
 }
@@ -524,9 +528,9 @@ fn apply_audio_refresh(devs: Vec<AudioDeviceInfo>, sig: String) {
         }
         return;
     }
-    let (mics, spks) = build_audio_json_with_tracks();
+    let (mics, spks) = build_audio_with_tracks();
     let changes = with_dev(|d| audio_changes(&d.last_applied_audio_devs, &devs));
-    post_json(json!({ "type": "audio_sources_refreshed", "mics": mics, "speakers": spks, "changes": changes }));
+    view::call(move |v| v.audio_sources(&mics, &spks, false, &changes));
     with_dev(|d| {
         d.last_applied_audio_sig = sig;
         d.last_applied_audio_devs = devs;
@@ -611,27 +615,21 @@ fn push_audio_meters_from_win() {
     // UI desenha a barra CHEIA de vermelho — não há intensidade pra mostrar.
     let mutes = wam::read_input_mutes();
 
-    let items: Vec<Value> = levels
+    let items: Vec<AudioMeter> = levels
         .iter()
         .filter_map(|l| {
             let d = devs.iter().find(|d| d.device_id.eq_ignore_ascii_case(&l.device_id))?;
             let is_input = d.kind == DeviceKind::Input;
             let id = if is_input { mic_id_from_name(&d.name) } else { out_id_from_name(&d.name) };
-            let mut item = json!({
-                "id": id,
-                // level = pico total (compatibilidade); L/R individuais → duas barras se canais >= 2.
-                "level": l.peak, "left": l.left, "right": l.right, "channels": l.channels,
-            });
             // Só pra entrada: "está mudo?" não faz sentido pra saída.
-            if is_input {
-                let muted = mutes.iter().find(|m| m.device_id.eq_ignore_ascii_case(&l.device_id)).map(|m| m.muted);
-                item["muted"] = json!(muted.unwrap_or(false));
-            }
-            Some(item)
+            let muted = is_input
+                && mutes.iter().find(|m| m.device_id.eq_ignore_ascii_case(&l.device_id)).is_some_and(|m| m.muted);
+            // L/R individuais → duas barras se canais >= 2.
+            Some(AudioMeter { id, left: l.left as f32, right: l.right as f32, channels: l.channels as u32, muted })
         })
         .collect();
     if !items.is_empty() {
-        post_json(json!({ "type": "audio_meters", "items": items }));
+        view::call(move |v| v.audio_meters(&items));
     }
 }
 
@@ -760,7 +758,7 @@ fn start_thumb_thread() {
 /// Captura cada monitor e empurra a prévia. Em gravação itera o SNAPSHOT do
 /// início (slots fixos) e casa cada slot ao monitor atual por `device_name`; se o
 /// monitor sumiu, manda prévia vazia (a UI mostra preto, não a última imagem).
-/// O JPEG fica no servidor HTTP local e só a URL vai pelo IPC (sem base64).
+/// Vão os pixels (RGB 480×270): a interface monta a imagem sem decodificar nada.
 fn push_monitor_thumbs() {
     if is_shutting_down() || THUMB_BUSY.swap(true, Ordering::SeqCst) {
         return;
@@ -777,26 +775,24 @@ fn push_monitor_thumbs() {
             return;
         }
         let id = monitor_id_from_index(slot.index);
-        let thumb = match current.iter().find(|c| c.device_name.eq_ignore_ascii_case(&slot.device_name)) {
-            Some(m) => {
-                // Monitor ainda existe: captura com as coordenadas atuais.
-                let jpeg = win_preview::capture_monitor_as_jpeg(m, 480, 270);
-                if !jpeg.is_empty() {
-                    player::set_monitor_thumb(&id, jpeg);
-                }
-                player::get_monitor_thumb_url(&id)
-            }
-            None => String::new(), // monitor sumiu: a UI limpa a imagem
-        };
-        items.push(json!({ "id": id, "thumb": thumb }));
+        // Monitor ainda existe: captura com as coordenadas atuais. Sumiu: vazio
+        // (a interface limpa a imagem).
+        let rgb = current
+            .iter()
+            .find(|c| c.device_name.eq_ignore_ascii_case(&slot.device_name))
+            .map(|m| win_preview::capture_monitor_rgb(m, THUMB_W as i32, THUMB_H as i32))
+            .unwrap_or_default();
+        items.push(MonitorThumb { id, width: THUMB_W, height: THUMB_H, rgb });
     }
-    mainthread::queue(move || {
-        if !items.is_empty() {
-            post_json(json!({ "type": "monitor_thumbs", "items": items }));
-        }
-        THUMB_BUSY.store(false, Ordering::SeqCst);
-    });
+    if !items.is_empty() {
+        view::call(move |v| v.monitor_thumbs(&items));
+    }
+    mainthread::queue(|| THUMB_BUSY.store(false, Ordering::SeqCst));
 }
+
+/// Tamanho das prévias dos monitores (16:9; a interface preenche o retângulo).
+const THUMB_W: u32 = 480;
+const THUMB_H: u32 = 270;
 
 /// A thread de prévias não enxerga a `thread_local` da main: o snapshot e a flag
 /// de gravação têm espelhos compartilhados.
@@ -834,8 +830,8 @@ fn is_mic(id: &str) -> bool {
 /// Re-empurra as listas de áudio (silencioso, sem toast): ligar/ocultar mexe no
 /// agrupamento de faixas e a UI recalcula cores e legenda. A conta só existe aqui.
 fn push_audio_sources_silent() {
-    let (mics, spks) = build_audio_json_with_tracks();
-    post_json(json!({ "type": "audio_sources_refreshed", "silent": true, "mics": mics, "speakers": spks }));
+    let (mics, spks) = build_audio_with_tracks();
+    view::call(move |v| v.audio_sources(&mics, &spks, true, &[]));
 }
 
 pub fn handle_toggle_source(id: &str, enabled: bool) {
@@ -963,9 +959,9 @@ pub fn do_init() {
             if is_shutting_down() {
                 return;
             }
-            let (mics, spks) = build_audio_json_with_tracks();
-            // silent=true: carga inicial, não um hot-plug do usuário (sem toast).
-            post_json(json!({ "type": "audio_sources_refreshed", "silent": true, "mics": mics, "speakers": spks }));
+            let (mics, spks) = build_audio_with_tracks();
+            // silent: carga inicial, não um hot-plug do usuário (sem aviso).
+            view::call(move |v| v.audio_sources(&mics, &spks, true, &[]));
             // Assinatura + lista iniciais para dedup e diff dos eventos futuros.
             with_dev(|d| {
                 d.last_applied_audio_sig = sig;
@@ -1066,8 +1062,8 @@ mod tests {
     fn mudanca_de_audio() {
         let old = vec![dev("a", DeviceKind::Input, true)];
         let new = vec![dev("a", DeviceKind::Input, true), dev("b", DeviceKind::Output, false)];
-        assert_eq!(audio_changes(&old, &new), json!(["Alto-falante adicionado: b"]));
-        assert_eq!(audio_changes(&new, &old), json!(["Alto-falante removido: b"]));
+        assert_eq!(audio_changes(&old, &new), ["Alto-falante adicionado: b"]);
+        assert_eq!(audio_changes(&new, &old), ["Alto-falante removido: b"]);
     }
 
     #[test]

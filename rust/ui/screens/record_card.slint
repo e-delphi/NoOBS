@@ -1,0 +1,426 @@
+// Cartão de gravação (`.record-block` / `.record-card` do record.css): status,
+// cronômetro com centésimos, tamanho já gravado, o botão redondo e o rodapé
+// (buffer em memória, "Capturar..." e pausar).
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { IconButton, Toggle } from "../widgets/controls.slint";
+import { Icons, StrokeIcon, FillIcon } from "../widgets/icons.slint";
+import { Main } from "main_state.slint";
+
+// Âmbar da pausa (`--warning`, com o fallback do CSS).
+global Amber {
+    out property <color> c: #f59e0b;
+}
+
+// O botão grande (`.record-btn`). Sombras em camadas como o `box-shadow`
+// do CSS: anel de 2px, brilho vermelho e a sombra escura de baixo.
+component RecordButton {
+    in property <bool> recording;
+    in property <bool> paused;
+    in property <bool> enabled;
+    in property <bool> finalizing;
+    in property <string> hint;
+    callback clicked();
+    width: 72px;
+    height: 72px;
+
+    property <bool> hover: ta.has-hover && root.enabled && !root.finalizing;
+    property <bool> disabled: !root.enabled && !root.recording;
+    // Cor do miolo e do anel: parado #b1322f (hover #c43a37), gravando
+    // #ef4444 (hover #f87171), desativado `--border-2`.
+    property <color> base: root.disabled ? Theme.border-2
+        : root.recording ? (root.hover ? #f87171 : #ef4444)
+        : (root.hover ? #c43a37 : #b1322f);
+    property <color> ring: root.disabled ? Theme.border : root.recording ? #ef4444 : root.base;
+    // Pulso do `recBtnPulse` (1,8 s): o brilho vai de 24 a 48 px e volta.
+    property <float> pulse: root.recording && !root.paused
+        ? 0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 1800) / 1800) : 0.5;
+    property <length> glow-blur: root.disabled ? 0px
+        : root.recording ? (Theme.dark ? 24px + 24px * root.pulse : 18px + 14px * root.pulse)
+        : root.hover ? (Theme.dark ? 32px : 22px) : (Theme.dark ? 26px : 18px);
+    property <color> glow: root.disabled ? transparent
+        : root.recording ? (Theme.dark ? rgba(239, 68, 68, 0.4 + 0.25 * root.pulse) : rgba(239, 68, 68, 0.25 + 0.2 * root.pulse))
+        : root.hover ? (Theme.dark ? rgba(196, 58, 55, 0.45) : rgba(196, 58, 55, 0.28))
+        : (Theme.dark ? rgba(177, 50, 47, 0.35) : rgba(177, 50, 47, 0.20));
+    // `:active { transform: scale(0.94) }`.
+    transform-scale-x: ta.pressed && root.enabled ? 94% : 100%;
+    transform-scale-y: ta.pressed && root.enabled ? 94% : 100%;
+    animate transform-scale-x, transform-scale-y { duration: 120ms; }
+    opacity: root.finalizing ? 0.75 : 1;
+
+    // Sombra escura de baixo (0 6px 16px).
+    Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: self.width / 2;
+        background: root.disabled ? transparent : root.ring;
+        drop-shadow-offset-y: root.disabled ? 4px : 6px;
+        drop-shadow-blur: root.disabled ? 10px : root.recording ? 18px : 16px;
+        drop-shadow-color: root.disabled ? rgba(0, 0, 0, 0.25)
+            : Theme.dark ? rgba(0, 0, 0, root.recording ? 0.4 : 0.35) : rgba(0, 0, 0, root.recording ? 0.15 : 0.12);
+    }
+    // Brilho colorido + o anel de 2px (o círculo de 76 px atrás do botão).
+    Rectangle {
+        x: -2px;
+        y: -2px;
+        width: parent.width + 4px;
+        height: parent.height + 4px;
+        border-radius: self.width / 2;
+        background: root.ring;
+        drop-shadow-blur: root.glow-blur;
+        drop-shadow-color: root.glow;
+        animate background { duration: 200ms; }
+    }
+    // Miolo, com a borda de 3px na cor do painel.
+    Rectangle {
+        border-radius: self.width / 2;
+        background: root.base;
+        border-width: 3px;
+        border-color: Theme.panel;
+        animate background { duration: 200ms; }
+    }
+    // Círculo branco → quadrado arredondado gravando.
+    Rectangle {
+        width: root.recording ? 20px : 24px;
+        height: self.width;
+        border-radius: root.recording ? 4px : 12px;
+        background: root.disabled ? Theme.text-3 : rgba(255, 255, 255, 0.95);
+        animate width, border-radius { duration: 200ms; }
+    }
+    // Finalizando: arco verde girando em volta (`record-finalizing-spin`).
+    if root.finalizing: Path {
+        x: -6px;
+        y: -6px;
+        width: parent.width + 12px;
+        height: parent.height + 12px;
+        viewbox-width: 84;
+        viewbox-height: 84;
+        stroke: Theme.success;
+        stroke-width: 3px;
+        fill: transparent;
+        // Quarto de cima + quarto da direita (border-top + border-right).
+        commands: "M12.4 12.4A40.5 40.5 0 0 1 71.6 71.6";
+        transform-rotation: 360deg * mod(animation-tick() / 1ms, 900) / 900;
+    }
+    ta := TouchArea {
+        mouse-cursor: root.finalizing ? progress : root.enabled || root.recording ? pointer : not-allowed;
+        clicked => {
+            if (root.enabled || root.recording) && !root.finalizing {
+                root.clicked();
+            }
+        }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        pressed: ta.pressed;
+        hint: root.hint;
+    }
+}
+
+// Linha do buffer em memória (`.replay-row`): bolinha, nome + estado, salvar
+// (só ligado) e a chave. A linha inteira liga/desliga.
+component ReplayRow {
+    in property <bool> active;
+    in property <bool> on;
+    in property <string> status;
+    callback toggle();
+    callback save();
+    height: 46px;
+
+    Rectangle {
+        border-radius: 0;
+        background: ta.has-hover ? (Theme.dark ? Theme.panel-2 : Theme.panel-3) : transparent;
+        animate background { duration: 100ms; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggle(); }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 8px;
+        padding-bottom: 6px;
+        spacing: 10px;
+        alignment: stretch;
+        // Bolinha: cinza desligado, verde pulsando guardando.
+        Rectangle {
+            width: 7px;
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 3.5px;
+                    background: root.active ? Theme.success : Theme.border-2;
+                    drop-shadow-blur: root.active ? 8px : 0;
+                    drop-shadow-color: rgba(16, 185, 129, 0.5);
+                    opacity: root.active ? 0.4 + 0.6 * (0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 1600) / 1600)) : 1;
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 1px;
+            Text {
+                text: T.s("replay.label");
+                font-size: 12px;
+                font-weight: 500;
+                color: Theme.text;
+                overflow: elide;
+            }
+            Text {
+                text: root.status;
+                font-size: 10.5px;
+                color: root.active ? Theme.text-2 : Theme.text-3;
+                overflow: elide;
+            }
+        }
+        if root.active: IconButton {
+            width: 28px;
+            height: 28px;
+            hint: T.s("replay.save");
+            hover-accent: Theme.success;
+            clicked => { root.save(); }
+            StrokeIcon {
+                commands: Icons.download;
+                stroke: parent.icon-color;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Toggle { on: root.on; }
+        }
+    }
+}
+
+export component RecordCard {
+    in property <bool> replay-active;
+    in property <bool> replay-on;
+    in property <string> replay-status;
+    callback replay-toggle();
+    callback replay-save();
+
+    property <bool> rec: Main.recording;
+    property <bool> paused: Main.recording && Main.paused;
+
+    // `.record-card`: degradê 135°, borda, raio 12, padding 14/14/16.
+    card := Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: root.rec ? Theme.danger-2 : Theme.border;
+        background: root.rec
+            ? @linear-gradient(135deg, (Theme.dark ? #2a1816 : #fee2e2) 0%, Theme.panel 100%)
+            : @linear-gradient(135deg, Theme.panel-2 0%, Theme.panel 100%);
+        clip: true;
+        animate border-color { duration: 200ms; }
+
+        // Halo vermelho vindo do topo (`::before`, radial a partir de 50% 0%).
+        if root.rec: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: -self.height / 2;
+            width: parent.width * 1.4;
+            height: self.width;
+            background: @radial-gradient(circle, rgba(239, 68, 68, Theme.dark ? 0.18 : 0.08) 0%, transparent 50%);
+        }
+
+        VerticalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            padding-top: 14px;
+            // 16 px do CSS menos os 6 px que o rodapé vaza pra baixo.
+            padding-bottom: 10px;
+            spacing: 0;
+
+            // ---- cabeçalho: estado + configurações ----
+            HorizontalLayout {
+                height: 28px;
+                spacing: 8px;
+                alignment: stretch;
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            // `pulse` do recordings.css (vence o do base.css, que vem
+                            // antes): opacidade 0,4↔1 e escala 0,85↔1,1; 1,2 s no cartão.
+                            property <float> p: root.rec && !root.paused ? 0.5 - 0.5 * cos(360deg * mod(animation-tick() / 1ms, 1200) / 1200) : 1;
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: root.paused ? Amber.c : root.rec ? Theme.danger-2 : Theme.success;
+                            drop-shadow-blur: root.paused ? 0 : root.rec ? 10px : 8px;
+                            drop-shadow-color: root.rec ? rgba(239, 68, 68, 0.6) : rgba(16, 185, 129, 0.5);
+                            opacity: root.rec && !root.paused ? 0.4 + 0.6 * self.p : 1;
+                            transform-scale-x: root.rec && !root.paused ? (85% + 25% * self.p) : 100%;
+                            transform-scale-y: self.transform-scale-x;
+                        }
+                    }
+                    status := Text {
+                        text: Main.status-text.to-uppercase();
+                        font-size: 10px;
+                        letter-spacing: 1.8px;
+                        font-weight: root.rec ? 600 : 400;
+                        color: root.paused ? Amber.c : root.rec ? Theme.danger-2 : Theme.text-2;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                IconButton {
+                    width: 28px;
+                    height: 28px;
+                    hint: T.s("header.settings");
+                    clicked => { Main.open-settings(); }
+                    StrokeIcon {
+                        commands: Icons.gear;
+                        stroke: parent.icon-color;
+                    }
+                }
+            }
+
+            // ---- cronômetro ----
+            Rectangle { height: 10px + 4px; }
+            HorizontalLayout {
+                alignment: center;
+                height: 38px;
+                // `margin-left: 1px` dos centésimos.
+                spacing: 1px;
+                Text {
+                    text: Main.timer-main;
+                    font-family: Theme.mono;
+                    font-size: 38px;
+                    font-weight: 300;
+                    letter-spacing: -1.14px;
+                    color: root.paused ? Amber.c : Theme.text;
+                    vertical-alignment: bottom;
+                }
+                Text {
+                    text: Main.timer-ms;
+                    font-family: Theme.mono;
+                    font-size: 22px;
+                    font-weight: 300;
+                    letter-spacing: -0.66px;
+                    color: Theme.text-3;
+                    vertical-alignment: bottom;
+                }
+            }
+            Rectangle { height: 4px; }
+            // ---- tamanho já gravado (altura fixa: o botão não pula) ----
+            HorizontalLayout {
+                alignment: center;
+                height: 13px;
+                Rectangle {
+                    width: size.preferred-width;
+                    size := Text {
+                        text: Main.recording ? Main.size-text : "";
+                        font-family: Theme.mono;
+                        font-size: 12px;
+                        color: Theme.text-3;
+                        vertical-alignment: center;
+                    }
+                    ta-size := TouchArea { }
+                    HintTrigger {
+                        hovered: ta-size.has-hover;
+                        hint: T.s("record.sizeHint");
+                    }
+                }
+            }
+            Rectangle { height: 9px; }
+
+            // ---- botão ----
+            HorizontalLayout {
+                alignment: center;
+                RecordButton {
+                    recording: root.rec;
+                    paused: root.paused;
+                    enabled: Main.can-record;
+                    finalizing: Main.finalizing;
+                    hint: Main.can-record || root.rec ? "" : T.s("record.needDevice");
+                    clicked => { Main.toggle-record(); }
+                }
+            }
+            Rectangle { height: 12px; }
+            Text {
+                text: (root.rec ? T.s("record.stop") : T.s("record.start")).to-uppercase();
+                font-size: 11px;
+                letter-spacing: 2.42px;
+                font-weight: 500;
+                color: root.rec ? Theme.text : Theme.text-2;
+                horizontal-alignment: center;
+            }
+
+            // ---- rodapé: buffer + capturar + pausar ----
+            Rectangle { height: 14px; }
+            Rectangle {
+                // `margin: 14px -6px -6px`: o rodapé vaza 6 px pros lados e pra baixo.
+                height: footer.preferred-height;
+                Rectangle {
+                    x: -6px;
+                    y: 0;
+                    width: parent.width + 12px;
+                    height: 1px;
+                    background: Theme.border;
+                }
+                footer := HorizontalLayout {
+                    x: -6px;
+                    y: 0;
+                    width: parent.width + 12px;
+                    padding-right: 6px;
+                    spacing: 6px;
+                    alignment: stretch;
+                    ReplayRow {
+                        horizontal-stretch: 1;
+                        active: root.replay-active;
+                        on: root.replay-on;
+                        status: root.replay-status;
+                        toggle => { root.replay-toggle(); }
+                        save => { root.replay-save(); }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            width: 28px;
+                            height: 28px;
+                            enabled: !root.rec;
+                            hint: T.s("windowPicker.button");
+                            hover-accent: Theme.success;
+                            clicked => { Main.open-window-picker(); }
+                            StrokeIcon {
+                                commands: Icons.window;
+                                stroke: parent.icon-color;
+                            }
+                            FillIcon {
+                                size: 15px;
+                                commands: Icons.window-dots;
+                                fill: parent.icon-color;
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            width: 28px;
+                            height: 28px;
+                            enabled: root.rec;
+                            hint: root.paused ? T.s("record.resume") : T.s("record.pause");
+                            hover-accent: Theme.success;
+                            lit: root.paused ? Amber.c : transparent;
+                            clicked => { Main.toggle-pause(); }
+                            FillIcon {
+                                commands: root.paused ? Icons.resume : Icons.pause;
+                                fill: parent.icon-color;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

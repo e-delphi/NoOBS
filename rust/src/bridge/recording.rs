@@ -16,7 +16,7 @@ use serde_json::json;
 
 use crate::engine::{self, AreaRect, CaptureInputs, RecordRequest, WindowCapture};
 use crate::types::{EncoderCaps, GpuVendor, RecordingMeta};
-use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, win_audio_meter, win_preview, win_webcam};
+use crate::{config, encoder, lang, lock_detector, log, player, rec_indicator, tray, ui, view, win_audio_meter, win_preview, win_webcam};
 
 use super::{devices, library, post_error, post_json, replay};
 
@@ -275,12 +275,13 @@ pub fn build_recording_path(when: DateTime<Local>, encoder_id: &str) -> PathBuf 
 /// desabilita o botão de gravar enquanto isso (em canvas 2x4K passa de 5 s).
 pub fn push_finalizing(active: bool) {
     with_state(|s| s.finalizing = active);
-    post_json(json!({ "type": "recording_finalizing", "active": active }));
+    view::call(move |v| v.recording_finalizing(active));
 }
 
 /// Overlay de loading na sidebar durante um refresh/start.
 pub fn push_refresh_busy(busy: bool, what: &str) {
-    post_json(json!({ "type": "refresh_busy", "busy": busy, "what": what }));
+    let what = what.to_owned();
+    view::call(move |v| v.refresh_busy(busy, &what));
 }
 
 pub fn push_recording_state() {
@@ -294,30 +295,24 @@ pub fn push_recording_state() {
         };
         (s.recording_active, s.elapsed(), s.recording_active && s.recording_paused, window, s.last_recording_path.clone())
     });
-    let mut obj = json!({ "type": "recording_state", "active": active, "elapsed": elapsed.as_secs() });
-    // O mesmo tempo em ms: o cronômetro da tela mostra centésimos, e com o
-    // segundo inteiro a pausa congelava sempre em ".00" (e cada tique de 1 s
-    // puxava o relógio de volta pro segundo cheio).
-    if active {
-        obj["elapsedMs"] = json!(elapsed.as_millis() as u64);
-    }
-    if paused {
-        obj["paused"] = json!(true);
-    }
-    // Gravando uma janela: a UI diz qual no lugar de "Gravando".
-    if let Some(title) = window {
-        obj["window"] = json!(title);
-    }
     // Tamanho já gravado, junto do tique de 1 s. Zero enquanto o muxer não
-    // escreveu nada — a UI simplesmente não mostra nada nesse caso.
-    if active && !path.is_empty() {
-        let bytes = get_growing_file_size(&path);
-        if bytes > 0 {
-            obj["sizeBytes"] = json!(bytes);
-            obj["sizeText"] = json!(format_bytes_live(bytes));
-        }
-    }
-    post_json(obj);
+    // escreveu nada — a interface mantém o que tinha.
+    let size_text = (active && !path.is_empty())
+        .then(|| get_growing_file_size(&path))
+        .filter(|&b| b > 0)
+        .map(format_bytes_live);
+    let st = view::RecState {
+        active,
+        // Em ms: o cronômetro da tela mostra centésimos, e com o segundo
+        // inteiro a pausa congelava sempre em ".00" (e cada tique de 1 s
+        // puxava o relógio de volta pro segundo cheio).
+        elapsed_ms: Some(if active { elapsed.as_millis() as u64 } else { 0 }),
+        size_text,
+        // Gravando uma janela: a interface diz qual no lugar de "Gravando".
+        window: window.unwrap_or_default(),
+        paused,
+    };
+    view::call(move |v| v.recording_state(&st));
 }
 
 // ---------------------------------------------------------------------------
@@ -577,7 +572,7 @@ pub fn handle_record_stop() {
     // Som de parada AGORA: o flush do MKV pode levar centenas de ms e o usuário
     // não quer ouvir o "ding" só depois (parece travado).
     if config::get_config_bool("playSoundOnRecord", true) {
-        post_json(json!({ "type": "recording_stopping" }));
+        view::call(|v| v.recording_stopping());
     }
 
     ui::kill_timer(TIMER_RECORDING_TICK);

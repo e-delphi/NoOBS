@@ -347,12 +347,15 @@ fn msg_finish(secs: f64) -> Result<(ProbeReport, String), String> {
 fn m_ready() -> Result<String, String> {
     clear_sent();
     send(json!({ "type": "ready" }));
-    let init = wait_msg("init", 10_000, any)?;
-    let mons: Vec<String> = init["monitors"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
-    check(!mons.is_empty(), "init sem monitores")?;
+    // Monitores e webcams chegam pelo `View` (o gravador dos testes os registra
+    // com o nome do evento antigo).
+    let mons_msg = wait_msg("monitors_refreshed", 10_000, any)?;
+    let mons: Vec<String> = mons_msg["monitors"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    check(!mons.is_empty(), "arranque sem monitores")?;
     MONITORS.with(|m| *m.borrow_mut() = mons.clone());
-    MON_INFO.with(|m| *m.borrow_mut() = init["monitors"].as_array().cloned().unwrap_or_default());
-    let cams: Vec<String> = init["webcams"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    MON_INFO.with(|m| *m.borrow_mut() = mons_msg["monitors"].as_array().cloned().unwrap_or_default());
+    let cams_msg = wait_msg("webcams_refreshed", 10_000, any)?;
+    let cams: Vec<String> = cams_msg["webcams"].as_array().map(|a| a.iter().filter_map(|m| m["id"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
     WEBCAMS.with(|w| *w.borrow_mut() = cams);
     // O warmup (1,5 s, no timer da janela) sobe o motor e manda as caps.
     let caps = wait_msg("encoder_caps", 20_000, any)?;

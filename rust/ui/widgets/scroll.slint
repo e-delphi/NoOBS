@@ -1,0 +1,46 @@
+// Área com rolagem e a barra fina da versão web (`::-webkit-scrollbar` do
+// widgets.css: 8 px, polegar `--border-2` com raio 4, `--text-3` no hover,
+// trilho transparente). A barra só aparece quando há o que rolar.
+
+import { Theme } from "../theme.slint";
+
+export component ScrollArea {
+    // Altura do conteúdo (quem usa passa o `preferred-height` do layout de dentro).
+    in property <length> content-h;
+    out property <length> content-y: flick.content-y;
+    property <length> max-scroll: max(0px, root.content-h - root.height);
+
+    flick := Flickable {
+        width: root.width;
+        height: root.height;
+        content-width: root.width;
+        content-height: max(root.height, root.content-h);
+        @children
+    }
+
+    if root.max-scroll > 0: Rectangle {
+        x: root.width - 8px;
+        width: 8px;
+        property <length> thumb-h: max(24px, root.height * root.height / root.content-h);
+        thumb := Rectangle {
+            y: (root.height - self.height) * (-flick.content-y / root.max-scroll);
+            height: parent.thumb-h;
+            border-radius: 4px;
+            background: ta.has-hover || ta.pressed ? Theme.text-3 : Theme.border-2;
+            ta := TouchArea {
+                property <length> start-y;
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down {
+                        self.start-y = flick.content-y;
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        flick.content-y = max(-root.max-scroll, min(0px,
+                            self.start-y - (self.mouse-y - self.pressed-y) * root.max-scroll / (root.height - parent.height)));
+                    }
+                }
+            }
+        }
+    }
+}

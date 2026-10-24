@@ -130,11 +130,6 @@ pub fn t(key: &str) -> String {
     t_with(key, &[])
 }
 
-/// Bundle inteiro do idioma atual, enviado à UI no `init`/`language_changed`.
-pub fn current_bundle() -> Value {
-    state().lock().unwrap_or_else(|p| p.into_inner()).bundle.clone()
-}
-
 /// `[{code, name, nativeName}]` para o dropdown de idiomas.
 pub fn available_languages() -> Value {
     let list: Vec<Value> = available_codes()

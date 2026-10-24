@@ -363,12 +363,14 @@ component HotkeyRow {
                 border-radius: 6px;
                 border-width: 1px;
                 border-color: rta.has-hover ? Theme.border-2 : transparent;
+                // O × do Chromium fica ~2 px acima do centro do Slint (como os
+                // do player): sem a compensação ele aparece baixo.
                 Text {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2 - 2px;
                     text: "×";
                     font-size: 18px;
                     color: rta.has-hover ? Theme.danger-2 : Theme.text-3;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
                 }
                 rta := TouchArea {
                     mouse-cursor: pointer;
@@ -539,11 +541,11 @@ component QueueRow {
             border-radius: 4px;
             background: xta.has-hover ? Theme.danger : transparent;
             Text {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2 - 1.5px;
                 text: "×";
                 font-size: 15px;
                 color: xta.has-hover ? white : Theme.text-3;
-                horizontal-alignment: center;
-                vertical-alignment: center;
             }
             xta := TouchArea {
                 mouse-cursor: pointer;

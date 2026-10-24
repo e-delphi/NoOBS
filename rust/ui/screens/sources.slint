@@ -361,12 +361,12 @@ export component SourcesColumn {
                     border-radius: 4px;
                     background: xta.has-hover ? rgba(0, 0, 0, 0.15) : transparent;
                     Text {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2 - 1.5px;
                         text: "×";
                         font-size: 16px;
                         color: #f0fdf4;
                         opacity: xta.has-hover ? 1 : 0.75;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
                     }
                     xta := TouchArea {
                         mouse-cursor: pointer;

@@ -22,15 +22,19 @@ pub fn lang_codes() -> Vec<String> {
     v
 }
 
-/// Restos de versões anteriores no perfil: a interface extraída em
-/// `%LOCALAPPDATA%\NoOBS\ui\` e os dados do WebView2 em `%LOCALAPPDATA%\TNoOBS\`
-/// (cache, cookies; dezenas de MB). Apagados no arranque.
+/// Resto de versões anteriores no perfil: a interface extraída em
+/// `%LOCALAPPDATA%\NoOBS\ui\`. Apagado no arranque.
+///
+/// Os dados do WebView2 (`%LOCALAPPDATA%\TNoOBS\`) NÃO saem daqui: enquanto a
+/// versão web estiver instalada na mesma máquina ela depende deles, e apagar
+/// a pasta deixou o WebView2 dela sem subir (docs/ui-slint.md). Quem remove é
+/// o instalador da versão Slint (fase 6).
 pub fn remove_old_ui_folders() {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
     if base.is_empty() {
         return;
     }
-    for dir in [Path::new(&base).join("NoOBS").join("ui"), Path::new(&base).join("TNoOBS")] {
+    for dir in [Path::new(&base).join("NoOBS").join("ui")] {
         if dir.is_dir() {
             match std::fs::remove_dir_all(&dir) {
                 Ok(()) => log!("UI: pasta antiga apagada ({}).", dir.display()),

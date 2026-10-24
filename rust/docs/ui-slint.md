@@ -173,6 +173,20 @@ passando.
   ficam posicionadas à mão, fora de layout.
 - **Medir janela pelo PowerShell mente em DPI alto**: o processo dele não é
   DPI-aware e recebe coordenadas virtualizadas (1133×800 a 150% = 1700×1200).
+- **Não apague `%LOCALAPPDATA%\TNoOBS` enquanto a versão web existir.** A
+  1ª versão da fase 0 apagava (dados do WebView2, "resto da versão web") e
+  a versão web instalada na mesma máquina parou de abrir. E não volta
+  sozinha: com a pasta criada DO ZERO com a DACL protegida que o
+  `secure_user_data_folder` da versão web aplica (`D:P(A;OICI;FA;;;OW)
+  (A;OICI;FA;;;SY)`), o navegador do WebView2 trava antes de escrever
+  qualquer arquivo (`0x80080005`, `0x800700AA`, ou o controller nunca
+  volta). Medido: a mesma versão com a pasta padrão do WebView2 sobe na
+  hora. Antes funcionava só porque a pasta já existia, criada por versões
+  antigas. **Isso é um bug da versão publicada (`rust`)**: instalação nova
+  não tem a pasta. Remendo nesta máquina: `%LOCALAPPDATA%\TNoOBS` virou um
+  ARQUIVO marcador, e a versão web cai na pasta padrão
+  (`bin\NoOBS.exe.WebView2`). Apagar o marcador quando a Slint substituir a
+  web; o instalador da fase 6 limpa os dois.
 - **Código morto durante a migração.** Handlers só alcançados pelo
   `bridge::dispatch` ficam sem quem chame no app (231 avisos). `lib.rs` tem
   um `allow(dead_code)` SÓ no build do app (os testes continuam avisando) —

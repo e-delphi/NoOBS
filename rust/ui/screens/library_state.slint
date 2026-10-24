@@ -107,6 +107,15 @@ export global Lib {
     // ---- arrastar ----
     in property <bool> dragging;
     in property <string> drag-label;
+    // O card que vai junto do ponteiro (o "retrato" que o Chromium arrastava):
+    // 1 = gravação, 2 = pasta; onde ele foi agarrado e o tamanho dele.
+    in-out property <int> drag-kind;
+    in-out property <RecCard> drag-card;
+    in-out property <FolderCard> drag-folder;
+    in-out property <length> drag-off-x;
+    in-out property <length> drag-off-y;
+    in-out property <length> drag-w;
+    in-out property <length> drag-h;
     in-out property <length> drag-x;
     in-out property <length> drag-y;
     // Alvo sob o cursor (id da pasta, `::trash` = botão de excluir).

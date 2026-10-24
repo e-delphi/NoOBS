@@ -454,6 +454,14 @@ component RecCardView {
         moved => {
             if self.pressed && !Lib.dragging && !root.editing && !self.was-drag
                 && (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
+                Lib.drag-kind = 1;
+                Lib.drag-card = root.item;
+                Lib.drag-off-x = self.pressed-x;
+                Lib.drag-off-y = self.pressed-y;
+                Lib.drag-w = root.width;
+                Lib.drag-h = root.height;
+                Lib.drag-x = root.absolute-position.x + self.mouse-x;
+                Lib.drag-y = root.absolute-position.y + self.mouse-y;
                 Lib.drag-start(root.item.id);
             }
             if Lib.dragging && self.pressed {
@@ -623,6 +631,14 @@ component FolderCardView {
         moved => {
             if self.pressed && !root.item.up && !Lib.dragging && !root.editing && !self.was-drag
                 && (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
+                Lib.drag-kind = 2;
+                Lib.drag-folder = root.item;
+                Lib.drag-off-x = self.pressed-x;
+                Lib.drag-off-y = self.pressed-y;
+                Lib.drag-w = root.width;
+                Lib.drag-h = root.height;
+                Lib.drag-x = root.absolute-position.x + self.mouse-x;
+                Lib.drag-y = root.absolute-position.y + self.mouse-y;
                 Lib.drag-start(root.item.id);
             }
             if Lib.dragging && self.pressed {
@@ -1204,26 +1220,34 @@ export component ContextMenu {
 
 // O que vai sendo arrastado, colado no ponteiro (a "imagem do arrasto" do
 // navegador).
+
+// O que vai junto do ponteiro no arrasto: o próprio card, translúcido e
+// preso no ponto onde foi agarrado (a imagem de arrasto nativa do Chromium
+// na web). É uma cópia: o card da grade some de vista se a lista rolar.
 export component DragGhost {
     visible: Lib.dragging;
-    Rectangle {
-        x: Lib.drag-x + 14px;
-        y: Lib.drag-y + 10px;
-        width: lbl.preferred-width + 20px;
-        height: 26px;
-        border-radius: 7px;
-        background: Theme.panel;
-        border-width: 1px;
-        border-color: Theme.border-2;
-        opacity: 0.92;
-        drop-shadow-offset-y: 4px;
-        drop-shadow-blur: 12px;
-        drop-shadow-color: Theme.shadow-md;
-        lbl := Text {
-            text: Lib.drag-label;
-            font-size: 12px;
-            font-weight: 600;
-            color: Theme.text;
+    if Lib.dragging && Lib.drag-kind == 1: Rectangle {
+        x: Lib.drag-x - Lib.drag-off-x;
+        y: Lib.drag-y - Lib.drag-off-y;
+        width: Lib.drag-w;
+        height: Lib.drag-h;
+        opacity: 0.6;
+        RecCardView {
+            width: parent.width;
+            height: parent.height;
+            item: Lib.drag-card;
+        }
+    }
+    if Lib.dragging && Lib.drag-kind == 2: Rectangle {
+        x: Lib.drag-x - Lib.drag-off-x;
+        y: Lib.drag-y - Lib.drag-off-y;
+        width: Lib.drag-w;
+        height: Lib.drag-h;
+        opacity: 0.6;
+        FolderCardView {
+            width: parent.width;
+            height: parent.height;
+            item: Lib.drag-folder;
         }
     }
 }

@@ -44,6 +44,22 @@ export struct DisplayItem {
     has-thumb: bool,
 }
 
+// Uma janela na grade do "Capturar..." (`.winpick-item`).
+export struct WindowCard {
+    id: string,
+    title: string,
+    // "exe · 1920×1080"
+    info: string,
+    thumb: image,
+    has-thumb: bool,
+}
+
+// Atalho de área com retângulo salvo (botão na aba Área).
+export struct SavedArea {
+    index: int,
+    label: string,
+}
+
 export global Main {
     // ---- fontes ----
     in property <[SourceItem]> mics;
@@ -80,6 +96,54 @@ export global Main {
     in property <string> busy-text;
     in property <bool> audio-pending;
     in property <bool> monitor-pending;
+
+    // ---- buffer em memória ----
+    // Ligado nesta sessão (chave verde) / guardando agora (bolinha pulsando).
+    in property <bool> replay-on;
+    in property <bool> replay-active;
+    in property <bool> replay-saving;
+    in property <string> replay-status;
+    in property <string> replay-save-hint;
+    callback replay-toggle();
+    callback replay-save();
+
+    // ---- contagem do atraso (atalho com atraso) ----
+    in property <int> countdown-sec;
+    // Fração que falta (1 → 0), anda a cada quadro.
+    in property <float> countdown-frac;
+    // Segundos desde o último número (o "pulo" do número a cada segundo).
+    in property <float> countdown-tick-age: 1;
+    // Centro do botão de gravar, na janela (a onda vermelha sai dele).
+    in-out property <length> rec-btn-cx;
+    in-out property <length> rec-btn-cy;
+    // Onda vermelha ao começar (`.record-ripple`): 0 → 1 ao longo de 1,8 s,
+    // já com a curva; < 0 = parada.
+    in property <float> ripple: -1;
+    // Altura da janela, fora do layout (modais que se limitam a ela, sem laço).
+    in-out property <length> win-h: 800px;
+
+    // ---- "Capturar..." ----
+    in property <bool> picker-open;
+    in property <bool> picker-area-mode;
+    // Aberto por um atalho com várias janelas: sem abas e sem atualizar.
+    in property <bool> picker-matches;
+    in property <string> picker-subtitle;
+    // Texto do filtro (o Rust zera a cada abertura).
+    in property <string> picker-search-text;
+    in property <[WindowCard]> picker-items;
+    in property <bool> picker-loading;
+    in property <string> picker-empty-text;
+    in property <bool> picker-audio-supported;
+    in property <bool> picker-audio;
+    in property <[SavedArea]> picker-saved-areas;
+    callback picker-close();
+    callback picker-refresh();
+    callback picker-set-area-mode(bool);
+    callback picker-search(string);
+    callback picker-pick(string);
+    callback picker-audio-changed(bool);
+    callback picker-select-area();
+    callback picker-saved-area(int);
 
     callback toggle-record();
     callback toggle-pause();

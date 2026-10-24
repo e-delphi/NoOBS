@@ -13,27 +13,25 @@
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use serde_json::json;
+use crate::view::{self, WindowItem, WindowMatches};
 
 use crate::engine::{self, WindowCapture};
 use crate::win_windows::{self, CaptureWindow};
-use crate::{lang, log, mainthread, player};
+use crate::{lang, log, mainthread};
 
-use super::{countdown, is_shutting_down, post_error, post_json, recording};
+use super::{countdown, is_shutting_down, post_error, recording};
 
 thread_local! {
     static LAST_LIST: RefCell<Vec<CaptureWindow>> = const { RefCell::new(Vec::new()) };
-    /// Seletor pedido por um atalho com a interface descarregada: vai quando a
-    /// página nova mandar `ready`.
-    static PENDING_PICKER: RefCell<Option<serde_json::Value>> = const { RefCell::new(None) };
+    /// Seletor pedido por um atalho antes de a interface subir: vai no `init_ui`.
+    static PENDING_PICKER: RefCell<Option<WindowMatches>> = const { RefCell::new(None) };
     static SEQ: Cell<u32> = const { Cell::new(0) };
 }
 
 /// Lido pela worker das prévias: um pedido novo interrompe a anterior.
 static SEQ_SHARED: AtomicU32 = AtomicU32::new(0);
 
-/// Também é a chave da prévia no mapa de miniaturas do `player` (mesmo
-/// servidor das prévias dos monitores).
+/// Identifica a janela na interface (só aponta pra última lista daqui).
 fn item_id(handle: isize) -> String {
     format!("win{}", handle as usize)
 }
@@ -53,17 +51,16 @@ fn push_capture_windows(seq: u32, list: Vec<CaptureWindow>) {
     if seq != SEQ.with(Cell::get) {
         return;
     }
-    let items: Vec<_> = list
-        .iter()
-        .map(|w| json!({ "id": item_id(w.handle), "title": w.title, "exe": w.exe, "w": w.width, "h": w.height }))
-        .collect();
+    let items = window_items(&list);
     LAST_LIST.with(|l| *l.borrow_mut() = list);
-    post_json(json!({
-        "type": "capture_windows",
-        "seq": seq,
-        "appAudio": app_audio_supported(),
-        "items": items,
-    }));
+    let app_audio = app_audio_supported();
+    view::call(move |v| v.capture_windows(seq, &items, app_audio));
+}
+
+fn window_items(list: &[CaptureWindow]) -> Vec<WindowItem> {
+    list.iter()
+        .map(|w| WindowItem { id: item_id(w.handle), title: w.title.clone(), exe: w.exe.clone(), w: w.width, h: w.height })
+        .collect()
 }
 
 fn next_seq() -> u32 {
@@ -92,20 +89,12 @@ fn thumbs_worker(seq: u32, handles: Vec<(isize, String)>) {
         if is_shutting_down() || SEQ_SHARED.load(Ordering::SeqCst) != seq {
             return;
         }
-        let jpeg = win_windows::capture_window_thumb_jpeg(handle, 480, 300);
-        if jpeg.is_empty() {
+        let Some((rgb, w, h)) = win_windows::capture_window_thumb_rgb(handle, 480, 300) else {
             log!("Janelas: sem previa de \"{title}\".");
             continue;
-        }
+        };
         let id = item_id(handle);
-        player::set_monitor_thumb(&id, jpeg);
-        let url = player::get_monitor_thumb_url(&id);
-        mainthread::queue(move || {
-            if seq != SEQ.with(Cell::get) {
-                return;
-            }
-            post_json(json!({ "type": "capture_window_thumb", "seq": seq, "id": id, "thumb": url }));
-        });
+        view::call(move |v| v.capture_window_thumb(seq, &id, w, h, &rgb));
     }
 }
 
@@ -188,26 +177,15 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
         _ => {
             // O seletor precisa da janela do app à vista.
             crate::ui::restore_from_tray();
-            let items: Vec<_> = matches
-                .iter()
-                .map(|w| json!({ "id": item_id(w.handle), "title": w.title, "exe": w.exe, "w": w.width, "h": w.height }))
-                .collect();
+            let items = window_items(&matches);
             let handles: Vec<(isize, String)> = matches.iter().map(|w| (w.handle, w.title.clone())).collect();
             LAST_LIST.with(|l| *l.borrow_mut() = list);
-            let msg = json!({
-                "type": "window_picker_matches",
-                "seq": seq,
-                "pattern": pattern,
-                "appAudio": app_audio_supported(),
-                "wantAppAudio": app_audio,
-                "delaySec": delay_sec,
-                "items": items,
-            });
+            let msg = WindowMatches { seq, pattern, app_audio: app_audio_supported(), want_app_audio: app_audio, delay_sec, items };
             // Atalho antes de a interface subir: a lista espera o `init_ui`.
             if !super::ui_ready() {
                 PENDING_PICKER.with(|p| *p.borrow_mut() = Some(msg));
             } else {
-                post_json(msg);
+                view::call(move |v| v.window_picker_matches(&msg));
             }
             std::thread::spawn(move || thumbs_worker(seq, handles));
         }
@@ -217,6 +195,6 @@ fn on_title_search(seq: u32, list: Vec<CaptureWindow>, pattern: String, app_audi
 /// Interface pronta: o seletor que um atalho pediu enquanto ela subia.
 pub fn on_page_ready() {
     if let Some(msg) = PENDING_PICKER.with(|p| p.borrow_mut().take()) {
-        post_json(msg);
+        view::call(move |v| v.window_picker_matches(&msg));
     }
 }

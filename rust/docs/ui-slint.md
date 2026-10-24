@@ -150,6 +150,54 @@ passando.
   Toast, dica e diálogo de confirmação prontos (`ui/widgets/`), ainda sem
   conferência visual lado a lado — nenhuma tela os dispara até a fase 1.
   Colunas da casca vazias.
+- **Fase 1 — feita.** Tela principal em Slint (`ui/screens/`, presenter
+  `src/app_main.rs`): cartão de gravar (botão com anéis, brilho, pulso,
+  arco de finalizando, contagem, onda vermelha), pausa, linha do buffer,
+  microfones/saídas com medidor e legenda das faixas, bloco de telas com
+  prévia ao vivo (RGB direto, sem JPEG nem data URL), seletor "Capturar..."
+  (abas Janela/Área, busca, som do app, áreas salvas, modo "várias janelas
+  casaram o atalho"). Sons de início/fim gerados em memória
+  (`src/sounds.rs`). Conferido por captura contra a web: cartão, fontes e
+  telas. **Não conferidos lado a lado**: o seletor (o WebView2 ignora clique
+  por mensagem, então não há captura dele aberto na web — conferido contra o
+  `record.css`), a contagem e a onda (pedem gravação de verdade).
+
+### Como comparar sem tocar na área de trabalho
+
+Scripts em PowerShell, todos só sobre a janela do app: captura por
+`PrintWindow(PW_RENDERFULLCONTENT)` (funciona coberta e fora da tela),
+clique por `PostMessage(WM_LBUTTONDOWN/UP)` em coordenadas da captura
+(menos a borda e a barra de título) e, pra não pular na frente do usuário,
+`ShowWindow(SW_SHOWNOACTIVATE)` + `SetWindowPos` pra x = −4000. A janela do
+WebView2 não aceita o clique por mensagem: a web só dá pra capturar no
+estado em que estiver.
+
+### O que a fase 1 ensinou
+
+- **Medidas do CSS no Slint.** `font-weight: 500` sai Semibold no Chromium
+  com Segoe UI (não há peso 500): no Slint é 600. `line-height` vira
+  `line-height-factor` = valor do CSS / 1,33 (a altura de linha natural do
+  Segoe UI). Elemento sem `y` fora de layout é centralizado na vertical, ao
+  contrário do fluxo do HTML.
+- **Camada por cima com tamanho EXPLÍCITO.** Um modal sem `x/y/width/height`
+  manda o tamanho preferido dele pra cima e a janela vira restrita a ele:
+  ao abrir o seletor a janela ENCOLHIA. Vale pro modal, pro `FocusScope`
+  dele e pra área de rolagem de dentro.
+- **Texto que quebra linha dentro de linha horizontal é medido como uma
+  linha só.** O botão de baixo subia por cima do texto. Saída: largura fixa
+  no texto (o `max-width` da web, que ele sempre preenche).
+- **Sombra colorida translúcida debaixo de um fundo preto translúcido vira
+  pontos brancos** no renderizador Skia (medido por eliminação: some sem o
+  fundo do modal ou sem o `drop-shadow` do brilho do botão). Com modal
+  aberto o brilho do botão de gravar sai — debaixo de 55% de preto ele mal
+  aparece na web.
+- **Hover não é reavaliado quando algo cobre o alvo**; só no próximo
+  movimento do mouse. A dica do botão "Capturar..." ficava presa por cima
+  do modal (e a do "Fechar" depois de fechar). `Hints.top-layer`: só dispara
+  a dica da camada aberta, e abrir/fechar um modal esconde a que estiver na
+  tela.
+- **Rótulo atrás da prévia.** Na web a `<img>` posicionada cobre o nome do
+  monitor; no Slint o rótulo só aparece sem prévia.
 
 ### O que a fase 0 ensinou
 

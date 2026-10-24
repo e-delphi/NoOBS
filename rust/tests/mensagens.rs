@@ -665,7 +665,8 @@ fn m_janela(exe: &str) -> Result<String, String> {
         let item = item.ok_or("a janela do helper nao apareceu na lista")?;
         let id = item["id"].as_str().ok_or("item sem id")?.to_owned();
         let thumb = wait_msg("capture_window_thumb", 10_000, |v| v["id"] == id.as_str())?;
-        check(thumb["thumb"].as_str().is_some_and(|u| u.starts_with("http://127.0.0.1:")), "previa sem URL")?;
+        let (tw, th) = (thumb["w"].as_u64().unwrap_or(0), thumb["h"].as_u64().unwrap_or(0));
+        check(tw > 0 && th > 0 && thumb["bytes"].as_u64() == Some(tw * th * 3), format!("previa invalida: {thumb}"))?;
         clear_sent();
         passo("record_window");
         send(json!({ "type": "record_window", "id": id, "appAudio": false }));

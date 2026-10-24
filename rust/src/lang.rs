@@ -105,9 +105,13 @@ pub fn current_language() -> String {
     state().lock().unwrap_or_else(|p| p.into_inner()).code.clone()
 }
 
+/// `a.b.c`; numa lista, a parte é o índice (`windowPicker.areaSteps.0`).
 fn lookup<'a>(bundle: &'a Value, key: &str) -> Option<&'a str> {
     key.split('.')
-        .try_fold(bundle, |v, part| v.get(part))
+        .try_fold(bundle, |v, part| match (v, part.parse::<usize>()) {
+            (Value::Array(a), Ok(i)) => a.get(i),
+            _ => v.get(part),
+        })
         .and_then(Value::as_str)
 }
 

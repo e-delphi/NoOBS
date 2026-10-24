@@ -14,8 +14,10 @@ import { Confirm, ConfirmDialog } from "widgets/confirm.slint";
 import { Main, SourceItem, LegendItem, DisplayItem } from "screens/main_state.slint";
 import { SourcesColumn } from "screens/sources.slint";
 import { DisplaysBlock } from "screens/displays.slint";
+import { WindowPicker } from "screens/window_picker.slint";
+import { WindowCard, SavedArea } from "screens/main_state.slint";
 
-export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem }
+export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -31,12 +33,8 @@ export component AppWindow inherits Window {
     in property <[ToastItem]> toasts;
     callback toast-clicked(int);
 
-    // Buffer em memória (fase 1b liga ao core).
-    in property <bool> replay-active;
-    in property <bool> replay-on;
-    in property <string> replay-status;
-    callback replay-toggle();
-    callback replay-save();
+    init => { Main.win-h = self.height; }
+    changed height => { Main.win-h = self.height; }
 
     // `@media (max-width: 760px)`: só a coluna de fontes.
     property <bool> narrow: root.width <= 760px;
@@ -56,11 +54,6 @@ export component AppWindow inherits Window {
         SourcesColumn {
             width: parent.width - (root.narrow ? 0 : 1px);
             height: parent.height;
-            replay-active: root.replay-active;
-            replay-on: root.replay-on;
-            replay-status: root.replay-status;
-            replay-toggle => { root.replay-toggle(); }
-            replay-save => { root.replay-save(); }
         }
         // `border-right: 1px solid var(--border)` (some na janela estreita).
         Rectangle {
@@ -86,7 +79,40 @@ export component AppWindow inherits Window {
         }
     }
 
-    ConfirmDialog { }
+    // Onda vermelha ao começar a gravar (`.record-ripple`): anel de 200 px
+    // centrado no botão crescendo até cobrir a janela (escala = maior
+    // distância até um canto / 94 + 1) e sumindo.
+    if Main.ripple >= 0: Rectangle {
+        property <length> max-r: sqrt(
+            pow(max(Main.rec-btn-cx, root.width - Main.rec-btn-cx) / 1px, 2)
+            + pow(max(Main.rec-btn-cy, root.height - Main.rec-btn-cy) / 1px, 2)) * 1px;
+        property <float> s: Main.ripple * (self.max-r / 94px + 1);
+        x: Main.rec-btn-cx - self.width / 2;
+        y: Main.rec-btn-cy - self.height / 2;
+        width: 200px * self.s;
+        height: self.width;
+        border-radius: self.width / 2;
+        border-width: 4px * self.s;
+        border-color: #ef4444;
+        opacity: 1 - Main.ripple;
+        drop-shadow-blur: 30px * self.s;
+        drop-shadow-color: rgba(239, 68, 68, 0.6);
+    }
+
+    // Camadas por cima: tamanho explícito, pra não restringirem a janela.
+    WindowPicker {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    ConfirmDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
 
     // `.toast-stack`: top/right 16px, acima de tudo menos a dica.
     ToastStack {

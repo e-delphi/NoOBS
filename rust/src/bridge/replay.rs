@@ -16,17 +16,16 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::time::Instant;
 
-use serde_json::json;
 use windows::Win32::System::ProcessStatus::{GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX};
 use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows::Win32::System::Threading::{GetCurrentProcess, GetCurrentProcessId, GetProcessTimes};
 use windows::Win32::Foundation::FILETIME;
 
 use crate::types::RecordingMeta;
-use crate::{config, encoder, engine, file_meta, gpu_usage, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui};
+use crate::{config, encoder, engine, file_meta, gpu_usage, lang, log, mainthread, player, probe, proc_watch, rec_indicator, ui, view};
 
 use super::recording;
-use super::{library, post_error, post_json, transcribe};
+use super::{library, post_error, transcribe};
 
 pub const TIMER_REPLAY_SAVE_TIMEOUT: usize = 7012;
 pub const TIMER_REPLAY_MEM: usize = 7014;
@@ -186,24 +185,24 @@ pub fn push_replay_state() {
         (s.wanted, s.active, if s.active { s.start.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0) } else { 0 })
     });
     let saving = engine::with_engine(|e| e.is_replay_saving()).unwrap_or(false);
-    post_json(json!({
-        "type": "replay_state",
-        "enabled": wanted,
-        "autoStart": config::get_config_bool("replayAutoStart", false),
-        "intoRecording": config::get_config_bool("replayIntoRecording", true),
-        "active": active,
-        "saving": saving,
-        "sinceMs": since,
-        "maxSec": max_sec_cfg(),
-        "maxMb": max_mb_cfg(),
-        "maxMbLimit": mem_limit_mb(),
-        "hotkey": super::hotkeys::spec_of(crate::hotkeys::Mode::Replay),
-        "apps": config::get_config_str("replayAutoApps", ""),
-        "indicator": config::get_config_bool("replayIndicator", true),
-        "indicatorCorner": config::get_config_str("replayIndicatorCorner", "top-right"),
-        "indicatorOpacity": config::get_config_int("replayIndicatorOpacity", 90),
-        "indicatorClickable": config::get_config_bool("replayIndicatorClickable", true),
-    }));
+    let st = view::ReplayState {
+        enabled: wanted,
+        auto_start: config::get_config_bool("replayAutoStart", false),
+        into_recording: config::get_config_bool("replayIntoRecording", true),
+        active,
+        saving,
+        since_ms: since,
+        max_sec: max_sec_cfg() as i64,
+        max_mb: max_mb_cfg() as i64,
+        max_mb_limit: mem_limit_mb() as i64,
+        hotkey: super::hotkeys::spec_of(crate::hotkeys::Mode::Replay),
+        apps: config::get_config_str("replayAutoApps", ""),
+        indicator: config::get_config_bool("replayIndicator", true),
+        indicator_corner: config::get_config_str("replayIndicatorCorner", "top-right"),
+        indicator_opacity: config::get_config_int("replayIndicatorOpacity", 90) as i64,
+        indicator_clickable: config::get_config_bool("replayIndicatorClickable", true),
+    };
+    view::call(move |v| v.replay_state(&st));
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +250,8 @@ fn finish_replay_saved(path: String, result: Result<i32, String>, meta: Recordin
     file_meta::mark_changed(&path);
     library::push_recording_added(&path, dur);
     let name = Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    post_json(json!({ "type": "replay_saved", "id": path, "name": name, "durationSec": dur }));
+    let id = path.clone();
+    view::call(move |v| v.replay_saved(&id, &name, dur));
     transcribe::enqueue_after_capture(&path);
 }
 
@@ -442,7 +442,7 @@ pub fn restart_for_encoder_change(what: &str) {
     log!("Buffer: {what} mudou — recomecando o buffer (o guardado e descartado).");
     stop_replay_buffer();
     start_replay_buffer();
-    post_json(json!({ "type": "replay_restarted" }));
+    view::call(|v| v.replay_restarted());
 }
 
 // ---------------------------------------------------------------------------

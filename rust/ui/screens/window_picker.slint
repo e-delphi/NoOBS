@@ -1,0 +1,444 @@
+// Seletor "Capturar..." (`.winpick-*` do record.css, `windowpicker.js`): duas
+// abas — JANELA (grade das janelas abertas, com prévia de cada uma) e ÁREA
+// (explica e dispara a seleção, que é de uma janela nativa do core). Aberto
+// por um atalho que achou várias janelas, mostra só elas, sem abas.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { IconButton, SearchBox, CheckMark, TextButton } from "../widgets/controls.slint";
+import { Icons, StrokeIcon } from "../widgets/icons.slint";
+import { ScrollArea } from "../widgets/scroll.slint";
+import { Main, WindowCard } from "main_state.slint";
+
+// Aba do segmentado (`.winpick-mode`).
+component ModeTab {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> selected;
+    callback clicked();
+    height: 28px;
+    width: row.preferred-width + 28px;
+    Rectangle {
+        border-radius: 6px;
+        background: root.selected ? Theme.panel-3 : transparent;
+        drop-shadow-offset-y: root.selected ? 1px : 0;
+        drop-shadow-blur: root.selected ? 2px : 0;
+        drop-shadow-color: rgba(0, 0, 0, 0.25);
+        animate background { duration: 120ms; }
+    }
+    row := HorizontalLayout {
+        x: 14px;
+        spacing: 6px;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            StrokeIcon {
+                commands: root.icon;
+                stroke: root.selected || ta.has-hover ? Theme.text : Theme.text-2;
+            }
+        }
+        Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.selected || ta.has-hover ? Theme.text : Theme.text-2;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Um cartão da grade (`.winpick-item`).
+component WindowCardView {
+    in property <WindowCard> item;
+    callback picked(string);
+    height: thumb.height + 6px + 16px + 6px + 14px + 16px;
+    Rectangle {
+        border-radius: 9px;
+        border-width: 1px;
+        border-color: ta.has-hover ? Theme.success : Theme.border;
+        background: ta.has-hover ? Theme.panel-3 : Theme.panel-2;
+        animate border-color, background { duration: 120ms; }
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+        // `aspect-ratio: 16 / 10`, imagem inteira (contain) sobre fundo escuro.
+        thumb := Rectangle {
+            height: self.width * 10 / 16;
+            border-radius: 6px;
+            background: #0b0b0d;
+            clip: true;
+            if root.item.has-thumb: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.item.thumb;
+                image-fit: contain;
+            }
+            if !root.item.has-thumb: StrokeIcon {
+                size: 34px;
+                thickness: 1.6;
+                commands: Icons.window-plain;
+                stroke: #4b4b55;
+            }
+        }
+        Text {
+            text: root.item.title;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.text;
+            overflow: elide;
+        }
+        Text {
+            text: root.item.info;
+            font-size: 10.5px;
+            color: Theme.text-3;
+            overflow: elide;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(root.item.id); }
+    }
+}
+
+export component WindowPicker {
+    visible: self.opacity > 0;
+    opacity: Main.picker-open ? 1 : 0;
+    animate opacity { duration: 160ms; easing: ease; }
+
+    // Fundo: clicar (apertar) fora do cartão fecha.
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                Main.picker-close();
+            }
+        }
+        Rectangle { background: rgba(0, 0, 0, 0.55); }
+    }
+
+    // Aba Área: o Esc/Enter vêm daqui. Aba Janela: o campo de busca pega o
+    // foco sozinho (`autofocus`) e repassa o Esc.
+    changed opacity => {
+        if Main.picker-open && self.opacity == 1 && Main.picker-area-mode {
+            keys.focus();
+        }
+    }
+
+    // `.winpick-modal`: até 680 de largura, com 24 px de folga em volta.
+    // Tamanho e posição explícitos: sem isso o tamanho preferido do cartão
+    // sobe pela árvore e vira restrição da JANELA (ela encolhia ao abrir).
+    keys := FocusScope {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                Main.picker-close();
+                return accept;
+            }
+            if e.text == Key.Return && Main.picker-area-mode {
+                Main.picker-select-area();
+                return accept;
+            }
+            reject
+        }
+
+    modal := Rectangle {
+        width: min(680px, root.width - 48px);
+        height: min(layout.preferred-height, root.height - 48px);
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border;
+        border-radius: 12px;
+        drop-shadow-offset-y: 20px;
+        drop-shadow-blur: 60px;
+        drop-shadow-color: rgba(0, 0, 0, 0.5);
+        clip: true;
+        transform-scale-x: Main.picker-open ? 100% : 97%;
+        transform-scale-y: Main.picker-open ? 100% : 97%;
+        animate transform-scale-x, transform-scale-y { duration: 160ms; easing: ease; }
+        TouchArea { }
+
+        layout := VerticalLayout {
+            // ---- cabeçalho ----
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 16px;
+                padding-bottom: 12px;
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 3px;
+                    Text {
+                        text: T.s("windowPicker.title");
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: Main.picker-subtitle;
+                        font-size: 12px;
+                        color: Theme.text-3;
+                        wrap: word-wrap;
+                        line-height-factor: 1.4 / 1.33;
+                    }
+                }
+                if !Main.picker-area-mode && !Main.picker-matches: IconButton {
+                    hint: T.s("windowPicker.refresh");
+                    hint-layer: 1;
+                    clicked => { Main.picker-refresh(); }
+                    StrokeIcon {
+                        commands: Icons.refresh;
+                        stroke: parent.icon-color;
+                    }
+                }
+                IconButton {
+                    hint: T.s("windowPicker.close");
+                    hint-layer: 1;
+                    clicked => { Main.picker-close(); }
+                    StrokeIcon {
+                        commands: Icons.close;
+                        stroke: parent.icon-color;
+                    }
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+            }
+
+            // ---- corpo ----
+            VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 12px;
+                padding-bottom: 18px;
+                min-height: 200px;
+                spacing: 12px;
+
+                // Abas Janela | Área (segmentado, `width: fit-content`).
+                if !Main.picker-matches: HorizontalLayout {
+                    alignment: start;
+                    Rectangle {
+                        width: tabs.preferred-width + 6px;
+                        height: 34px;
+                        background: Theme.panel-2;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        border-radius: 9px;
+                        tabs := HorizontalLayout {
+                            x: 3px;
+                            spacing: 4px;
+                            padding-top: 3px;
+                            padding-bottom: 3px;
+                            ModeTab {
+                                text: T.s("windowPicker.modeWindow");
+                                icon: Icons.window-plain;
+                                selected: !Main.picker-area-mode;
+                                clicked => { Main.picker-set-area-mode(false); }
+                            }
+                            ModeTab {
+                                text: T.s("windowPicker.modeArea");
+                                icon: Icons.area-dashed;
+                                selected: Main.picker-area-mode;
+                                clicked => { Main.picker-set-area-mode(true); }
+                            }
+                        }
+                    }
+                }
+
+                // ---- aba Janela ----
+                if !Main.picker-area-mode: VerticalLayout {
+                    spacing: 12px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        SearchBox {
+                            horizontal-stretch: 1;
+                            autofocus: Main.picker-open && !Main.picker-area-mode;
+                            text: Main.picker-search-text;
+                            placeholder: T.s("windowPicker.search");
+                            edited(t) => { Main.picker-search(t); }
+                            accepted => {
+                                if Main.picker-items.length > 0 {
+                                    Main.picker-pick(Main.picker-items[0].id);
+                                }
+                            }
+                        }
+                        // "Gravar o som do app" (`.winpick-audio`).
+                        if Main.picker-audio-supported: Rectangle {
+                            width: audio-row.preferred-width + 20px;
+                            height: 30px;
+                            border-radius: 7px;
+                            border-width: 1px;
+                            border-color: Main.picker-audio ? Theme.success : ata.has-hover ? Theme.text-3 : Theme.border-2;
+                            background: Main.picker-audio ? Theme.accent-bg : Theme.panel-2;
+                            animate border-color, background { duration: 120ms; }
+                            audio-row := HorizontalLayout {
+                                x: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    CheckMark { checked: Main.picker-audio; }
+                                }
+                                Text {
+                                    text: T.s("windowPicker.appAudio");
+                                    font-size: 12px;
+                                    color: Theme.text;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            ata := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { Main.picker-audio-changed(!Main.picker-audio); }
+                            }
+                            HintTrigger {
+                                hovered: ata.has-hover;
+                                hint: T.s("windowPicker.appAudioHint");
+                                layer: 1;
+                            }
+                        }
+                    }
+                    // Vazio / carregando (`.winpick-empty`).
+                    if Main.picker-loading || Main.picker-items.length == 0: Text {
+                        property <int> dots: floor(mod(animation-tick() / 1ms, 1400) / 350);
+                        height: 13px + 80px;
+                        text: Main.picker-loading
+                            ? T.s("windowPicker.loading") + (self.dots == 0 ? "" : self.dots == 1 ? "." : self.dots == 2 ? ".." : "...")
+                            : Main.picker-empty-text;
+                        font-size: 13px;
+                        color: Theme.text-3;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    // Grade `repeat(auto-fill, minmax(180px, 1fr))`, 12 px entre.
+                    if !Main.picker-loading && Main.picker-items.length > 0: grid := Rectangle {
+                        property <int> cols: max(1, floor((self.width + 12px) / 192px));
+                        property <length> cell-w: (self.width - (self.cols - 1) * 12px) / self.cols;
+                        property <length> cell-h: (self.cell-w - 16px) * 10 / 16 + 58px;
+                        property <int> rows: ceil(Main.picker-items.length / self.cols);
+                        height: min(self.rows * (self.cell-h + 12px) - 12px, Main.win-h - 48px - 160px);
+                        ScrollArea {
+                            width: parent.width;
+                            height: parent.height;
+                            content-h: grid.rows * (grid.cell-h + 12px) - 12px;
+                            for w[i] in Main.picker-items: WindowCardView {
+                                x: mod(i, grid.cols) * (grid.cell-w + 12px);
+                                y: floor(i / grid.cols) * (grid.cell-h + 12px);
+                                width: grid.cell-w;
+                                height: grid.cell-h;
+                                item: w;
+                                picked(id) => { Main.picker-pick(id); }
+                            }
+                        }
+                    }
+                }
+
+                // ---- aba Área (`.winpick-area`) ----
+                if Main.picker-area-mode: VerticalLayout {
+                    padding-top: 18px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    padding-bottom: 8px;
+                    spacing: 16px;
+                    alignment: start;
+                    // Desenho: tela escurecida, o buraco da área e o botão do canto.
+                    HorizontalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 180px;
+                            height: 108px;
+                            Rectangle {
+                                x: 2px * 180 / 160;
+                                y: 2px * 108 / 96;
+                                width: 156px * 180 / 160;
+                                height: 92px * 108 / 96;
+                                border-radius: 6px * 180 / 160;
+                                background: #0b0b0d;
+                                border-width: 1px;
+                                border-color: Theme.border-2;
+                            }
+                            Rectangle {
+                                x: 40px * 180 / 160;
+                                y: 22px * 108 / 96;
+                                width: 80px * 180 / 160;
+                                height: 52px * 108 / 96;
+                                border-radius: 2px;
+                                background: Theme.panel-3;
+                                border-width: 1.5px;
+                                border-color: white;
+                            }
+                            Rectangle {
+                                x: (114px - 6px) * 180 / 160;
+                                y: (12px - 6px) * 108 / 96;
+                                width: 12px * 180 / 160;
+                                height: self.width;
+                                border-radius: self.width / 2;
+                                background: #1e1e1e;
+                                border-width: 2px;
+                                border-color: #e53935;
+                            }
+                        }
+                    }
+                    // Passos (`.winpick-area-steps`: lista, 12,5 px).
+                    HorizontalLayout {
+                        alignment: center;
+                        // Largura FIXA (o `max-width: 460px` da web, que esse texto sempre
+                        // preenche): numa linha horizontal o Slint mede o texto quebrado
+                        // como se fosse uma linha só, e o botão de baixo subia por cima.
+                        VerticalLayout {
+                            width: min(460px, root.width - 100px);
+                            spacing: 6px;
+                            for step in [T.s("windowPicker.areaSteps.0"), T.s("windowPicker.areaSteps.1")]: HorizontalLayout {
+                                spacing: 0;
+                                Text {
+                                    width: 18px;
+                                    text: "•";
+                                    font-size: 12.5px;
+                                    color: Theme.text-2;
+                                    horizontal-alignment: center;
+                                }
+                                Text {
+                                    width: min(460px, root.width - 100px) - 18px;
+                                    text: step;
+                                    font-size: 12.5px;
+                                    color: Theme.text-2;
+                                    wrap: word-wrap;
+                                    line-height-factor: 1.55 / 1.33;
+                                }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        TextButton {
+                            primary: true;
+                            min-w: 180px;
+                            text: T.s("windowPicker.areaStart");
+                            clicked => { Main.picker-select-area(); }
+                        }
+                    }
+                    // Atalhos de área com retângulo salvo.
+                    if Main.picker-saved-areas.length > 0: HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        for a in Main.picker-saved-areas: TextButton {
+                            min-w: 180px;
+                            text: a.label;
+                            clicked => { Main.picker-saved-area(a.index); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+}

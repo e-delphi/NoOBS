@@ -19,12 +19,19 @@ export global Hints {
     in-out property <length> ay;
     in-out property <length> aw;
     in-out property <length> ah;
+    // Camada de cima aberta (0 = tela principal; um modal sobe pra 1). Só a
+    // dica dessa camada aparece (nem a de baixo, nem a de um modal que acabou
+    // de fechar e ainda está sumindo): debaixo de um modal o alvo continua com
+    // hover (o Slint só reavalia no próximo movimento), e na web o fundo do
+    // modal já teria disparado o mouseleave.
+    in-out property <int> top-layer;
 }
 
 export component HintTrigger {
     in property <bool> hovered;
     in property <bool> pressed;
     in property <string> hint;
+    in property <int> layer;
     width: 100%;
     height: 100%;
 
@@ -33,7 +40,7 @@ export component HintTrigger {
         running: false;
         triggered => {
             self.running = false;
-            if root.hint != "" {
+            if root.hint != "" && root.layer == Hints.top-layer {
                 Hints.text = root.hint;
                 Hints.ax = root.absolute-position.x;
                 Hints.ay = root.absolute-position.y;

@@ -9,6 +9,8 @@ import { HintTrigger } from "hint.slint";
 export component IconButton {
     in property <bool> enabled: true;
     in property <string> hint;
+    // Camada da dica (`Hints.top-layer`): 1 dentro de um modal.
+    in property <int> hint-layer;
     // Destaque de hover (`--success` nos botões do rodapé do cartão de
     // gravar). Transparente = o hover padrão (fundo `--panel-2`, ícone `--text`).
     in property <color> hover-accent: transparent;
@@ -46,6 +48,117 @@ export component IconButton {
         hovered: ta.has-hover;
         pressed: ta.pressed;
         hint: root.hint;
+        layer: root.hint-layer;
+    }
+}
+
+// `.search` (recordings.css): 30 px, borda, raio 7, foco verde.
+export component SearchBox {
+    in property <string> placeholder;
+    in-out property <string> text;
+    // Verdadeiro = pega o foco (ao virar verdadeiro e ao nascer verdadeiro).
+    in property <bool> autofocus;
+    callback edited(string);
+    callback accepted();
+    height: 30px;
+    forward-focus: input;
+    init => {
+        if self.autofocus {
+            input.focus();
+        }
+    }
+    changed autofocus => {
+        if self.autofocus {
+            input.focus();
+        }
+    }
+
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: input.has-focus ? Theme.success : Theme.border;
+        background: input.has-focus ? Theme.panel-2 : Theme.panel;
+        animate border-color, background { duration: 120ms; }
+    }
+    Text {
+        x: 10px;
+        visible: input.text == "";
+        text: root.placeholder;
+        font-size: 12px;
+        color: Theme.text-3;
+        vertical-alignment: center;
+    }
+    input := TextInput {
+        x: 10px;
+        width: parent.width - 20px;
+        text <=> root.text;
+        font-size: 12px;
+        color: Theme.text;
+        vertical-alignment: center;
+        selection-background-color: Theme.accent-bd;
+        single-line: true;
+        edited => { root.edited(self.text); }
+        accepted => { root.accepted(); }
+    }
+}
+
+// Caixa de marcar nativa do navegador com `accent-color: var(--success)`.
+export component CheckMark {
+    in property <bool> checked;
+    width: 13px;
+    height: 13px;
+    Rectangle {
+        border-radius: 2.5px;
+        border-width: root.checked ? 0 : 1px;
+        border-color: #858585;
+        background: root.checked ? Theme.success : white;
+    }
+    if root.checked: Path {
+        width: 13px;
+        height: 13px;
+        viewbox-width: 13;
+        viewbox-height: 13;
+        stroke: white;
+        stroke-width: 1.6px;
+        fill: transparent;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+        commands: "M3 6.8L5.4 9.1L10 4.2";
+    }
+}
+
+// `.export-btn`: 12 px, padding 7 16, raio 7. `primary` = verde.
+export component TextButton {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <length> min-w;
+    callback clicked();
+    height: 31px;
+    width: max(root.min-w, label.preferred-width + 32px);
+    opacity: root.enabled ? 1 : 0.45;
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: root.primary ? Theme.success : Theme.border-2;
+        background: root.primary ? (ta.has-hover && root.enabled ? Theme.success.brighter(8%) : Theme.success)
+            : (ta.has-hover && root.enabled ? Theme.panel-3 : Theme.panel-2);
+        animate background { duration: 120ms; }
+    }
+    label := Text {
+        text: root.text;
+        font-size: 12px;
+        color: root.primary ? white : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : not-allowed;
+        clicked => {
+            if root.enabled {
+                root.clicked();
+            }
+        }
     }
 }
 

@@ -82,6 +82,59 @@ pub struct RecState {
     pub paused: bool,
 }
 
+/// Buffer em memória: tudo que a linha da tela principal e a aba Buffer
+/// mostram (o `replay_state` da web).
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayState {
+    /// Ligado nesta sessão (o botão da tela principal).
+    pub enabled: bool,
+    /// Ligar sozinho ao abrir o app (Configurações).
+    pub auto_start: bool,
+    pub into_recording: bool,
+    /// Guardando agora (gravar manual pausa o buffer).
+    pub active: bool,
+    pub saving: bool,
+    /// Há quanto tempo está guardando, no instante do envio.
+    pub since_ms: u64,
+    pub max_sec: i64,
+    pub max_mb: i64,
+    pub max_mb_limit: i64,
+    pub hotkey: String,
+    pub apps: String,
+    pub indicator: bool,
+    pub indicator_corner: String,
+    pub indicator_opacity: i64,
+    pub indicator_clickable: bool,
+}
+
+/// Uma janela gravável no seletor "Capturar...". O `id` só aponta pra última
+/// lista guardada no core (pegadinha #66).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct WindowItem {
+    pub id: String,
+    pub title: String,
+    pub exe: String,
+    pub w: i32,
+    pub h: i32,
+}
+
+/// Seletor aberto por um atalho de janela que achou várias janelas.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowMatches {
+    pub seq: u32,
+    /// O trecho de título procurado.
+    pub pattern: String,
+    /// O Windows tem captura de som por processo.
+    pub app_audio: bool,
+    /// O atalho pede o som do app.
+    pub want_app_audio: bool,
+    /// O atraso do atalho conta depois da escolha.
+    pub delay_sec: u32,
+    pub items: Vec<WindowItem>,
+}
+
 /// Qual lista mudou durante a gravação (o banner de "atualiza ao parar").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingKind {
@@ -128,6 +181,23 @@ pub trait View {
     fn recording_finalizing(&self, active: bool);
     /// A gravação começou a parar (som de parada sem esperar o arquivo).
     fn recording_stopping(&self);
+
+    // ---- buffer em memória ----
+    fn replay_state(&self, st: &ReplayState);
+    /// Trecho salvo na biblioteca (`id` = caminho).
+    fn replay_saved(&self, id: &str, name: &str, duration_sec: i32);
+    /// Qualidade/fps/codec/áudio mudou com o buffer ligado: ele recomeçou e o
+    /// guardado foi descartado.
+    fn replay_restarted(&self);
+
+    // ---- "Capturar..." (janela / área) e contagem ----
+    /// A lista de janelas da rodada `seq` (as prévias vêm depois, uma a uma).
+    fn capture_windows(&self, seq: u32, items: &[WindowItem], app_audio: bool);
+    /// Prévia de uma janela (RGB). Rodada velha a interface ignora.
+    fn capture_window_thumb(&self, seq: u32, id: &str, width: u32, height: u32, rgb: &[u8]);
+    fn window_picker_matches(&self, m: &WindowMatches);
+    /// Contagem do atraso de um atalho: `sec` restantes de `total` (0 = acabou).
+    fn record_countdown(&self, sec: u32, total: u32);
 }
 
 thread_local! {
@@ -226,5 +296,31 @@ impl View for Recorder {
     }
     fn recording_stopping(&self) {
         crate::bridge::post_json(serde_json::json!({ "type": "recording_stopping" }));
+    }
+    fn replay_state(&self, st: &ReplayState) {
+        let mut v = serde_json::to_value(st).unwrap_or_default();
+        v["type"] = "replay_state".into();
+        crate::bridge::post_json(v);
+    }
+    fn replay_saved(&self, id: &str, name: &str, duration_sec: i32) {
+        crate::bridge::post_json(serde_json::json!({ "type": "replay_saved", "id": id, "name": name, "durationSec": duration_sec }));
+    }
+    fn replay_restarted(&self) {
+        crate::bridge::post_json(serde_json::json!({ "type": "replay_restarted" }));
+    }
+    fn capture_windows(&self, seq: u32, items: &[WindowItem], app_audio: bool) {
+        crate::bridge::post_json(serde_json::json!({ "type": "capture_windows", "seq": seq, "appAudio": app_audio, "items": items }));
+    }
+    fn capture_window_thumb(&self, seq: u32, id: &str, width: u32, height: u32, rgb: &[u8]) {
+        // Os pixels não viram JSON: vai só o tamanho, pros testes conferirem.
+        crate::bridge::post_json(serde_json::json!({ "type": "capture_window_thumb", "seq": seq, "id": id, "w": width, "h": height, "bytes": rgb.len() }));
+    }
+    fn window_picker_matches(&self, m: &WindowMatches) {
+        let mut v = serde_json::to_value(m).unwrap_or_default();
+        v["type"] = "window_picker_matches".into();
+        crate::bridge::post_json(v);
+    }
+    fn record_countdown(&self, sec: u32, total: u32) {
+        crate::bridge::post_json(serde_json::json!({ "type": "record_countdown", "sec": sec, "total": total }));
     }
 }

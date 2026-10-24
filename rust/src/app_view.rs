@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
-use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, View};
+use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, ReplayState, View, WindowItem, WindowMatches};
 use crate::{app_main, lang, log};
 
 slint::include_modules!();
@@ -195,6 +195,31 @@ impl View for SlintView {
     fn recording_stopping(&self) {
         // Atalho/bandeja: o clique na tela já tocou (o debounce evita o 2º).
         app_main::play_stop_sound();
+    }
+    fn replay_state(&self, st: &ReplayState) {
+        if let Some(w) = window() {
+            app_main::on_replay_state(&w, st);
+        }
+    }
+    fn replay_saved(&self, _id: &str, name: &str, duration_sec: i32) {
+        app_main::on_replay_saved(name, duration_sec);
+    }
+    fn replay_restarted(&self) {
+        app_main::on_replay_restarted();
+    }
+    fn capture_windows(&self, seq: u32, items: &[WindowItem], app_audio: bool) {
+        app_main::on_capture_windows(seq, items, app_audio);
+    }
+    fn capture_window_thumb(&self, seq: u32, id: &str, width: u32, height: u32, rgb: &[u8]) {
+        app_main::on_capture_window_thumb(seq, id, width, height, rgb);
+    }
+    fn window_picker_matches(&self, m: &WindowMatches) {
+        app_main::on_window_picker_matches(m);
+    }
+    fn record_countdown(&self, sec: u32, total: u32) {
+        if let Some(w) = window() {
+            app_main::on_record_countdown(&w, sec, total);
+        }
     }
 }
 

@@ -5,6 +5,7 @@
 import { Theme } from "../theme.slint";
 import { T } from "../i18n.slint";
 import { HintTrigger } from "../widgets/hint.slint";
+import { Confirm } from "../widgets/confirm.slint";
 import { IconButton, Toggle } from "../widgets/controls.slint";
 import { Icons, StrokeIcon, FillIcon } from "../widgets/icons.slint";
 import { Main } from "main_state.slint";
@@ -71,8 +72,12 @@ component RecordButton {
         height: parent.height + 4px;
         border-radius: self.width / 2;
         background: root.ring;
-        drop-shadow-blur: root.glow-blur;
-        drop-shadow-color: root.glow;
+        // Com um modal aberto o brilho sai: a sombra colorida translúcida
+        // debaixo do fundo preto translúcido do modal vira pontos brancos no
+        // renderizador Skia (medido: some sem o fundo ou sem o brilho). Sob
+        // 55% de preto ele quase não aparece na web.
+        drop-shadow-blur: Main.picker-open || Confirm.visible ? 0px : root.glow-blur;
+        drop-shadow-color: Main.picker-open || Confirm.visible ? transparent : root.glow;
         animate background { duration: 200ms; }
     }
     // Miolo, com a borda de 3px na cor do painel.
@@ -83,13 +88,57 @@ component RecordButton {
         border-color: Theme.panel;
         animate background { duration: 200ms; }
     }
-    // Círculo branco → quadrado arredondado gravando.
+    // Círculo branco → quadrado arredondado gravando. Some na contagem.
     Rectangle {
         width: root.recording ? 20px : 24px;
         height: self.width;
         border-radius: root.recording ? 4px : 12px;
         background: root.disabled ? Theme.text-3 : rgba(255, 255, 255, 0.95);
+        opacity: Main.countdown-sec > 0 ? 0 : 1;
         animate width, border-radius { duration: 200ms; }
+    }
+    // Contagem do atraso (`.cd-ring` / `.cd-num`): anel âmbar a 12 px do botão
+    // esvaziando no sentido horário a partir do topo, e os segundos no meio
+    // com um "pulo" a cada número (1,35 → 1 e 0,4 → 1 em 0,35 s).
+    if Main.countdown-sec > 0: Rectangle {
+        x: -12px;
+        y: -12px;
+        width: parent.width + 24px;
+        height: parent.height + 24px;
+        property <float> f: max(0, min(1, Main.countdown-frac));
+        // Trilho.
+        Rectangle {
+            border-radius: self.width / 2;
+            border-width: 3px * self.width / 96px;
+            border-color: rgba(245, 158, 11, 0.18);
+        }
+        // O que falta, num arco (cheio vira círculo: um arco só não fecha).
+        Path {
+            width: parent.width;
+            height: parent.height;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            stroke: #f59e0b;
+            stroke-width: 3px * self.width / 100px;
+            stroke-line-cap: round;
+            fill: transparent;
+            commands: parent.f >= 0.999
+                ? "M50 3A47 47 0 1 1 50 97A47 47 0 1 1 50 3"
+                : "M50 3A47 47 0 " + (parent.f > 0.5 ? "1" : "0") + " 1 "
+                    + (50 + 47 * sin(360deg * parent.f)) + " " + (50 - 47 * cos(360deg * parent.f));
+        }
+    }
+    if Main.countdown-sec > 0: Text {
+        property <float> k: min(1, Main.countdown-tick-age / 0.35);
+        // ease-out
+        property <float> e: 1 - (1 - self.k) * (1 - self.k);
+        text: Main.countdown-sec;
+        font-size: 28px;
+        font-weight: 700;
+        color: white;
+        opacity: 0.4 + 0.6 * self.e;
+        transform-scale-x: (135 - 35 * self.e) * 1%;
+        transform-scale-y: self.transform-scale-x;
     }
     // Finalizando: arco verde girando em volta (`record-finalizing-spin`).
     if root.finalizing: Path {
@@ -105,6 +154,15 @@ component RecordButton {
         // Quarto de cima + quarto da direita (border-top + border-right).
         commands: "M12.4 12.4A40.5 40.5 0 0 1 71.6 71.6";
         transform-rotation: 360deg * mod(animation-tick() / 1ms, 900) / 900;
+    }
+    // Centro do botão na janela: a onda vermelha ao começar sai daqui.
+    init => {
+        Main.rec-btn-cx = self.absolute-position.x + self.width / 2;
+        Main.rec-btn-cy = self.absolute-position.y + self.height / 2;
+    }
+    changed absolute-position => {
+        Main.rec-btn-cx = self.absolute-position.x + self.width / 2;
+        Main.rec-btn-cy = self.absolute-position.y + self.height / 2;
     }
     ta := TouchArea {
         mouse-cursor: root.finalizing ? progress : root.enabled || root.recording ? pointer : not-allowed;
@@ -124,12 +182,9 @@ component RecordButton {
 // Linha do buffer em memória (`.replay-row`): bolinha, nome + estado, salvar
 // (só ligado) e a chave. A linha inteira liga/desliga.
 component ReplayRow {
-    in property <bool> active;
-    in property <bool> on;
-    in property <string> status;
-    callback toggle();
-    callback save();
-    height: 46px;
+    property <bool> active: Main.replay-active;
+    // Medido contra a web (8 + 6 de padding e as duas linhas de texto).
+    height: 49px;
 
     Rectangle {
         border-radius: 0;
@@ -138,7 +193,7 @@ component ReplayRow {
     }
     ta := TouchArea {
         mouse-cursor: pointer;
-        clicked => { root.toggle(); }
+        clicked => { Main.replay-toggle(); }
     }
     HorizontalLayout {
         padding-left: 10px;
@@ -170,12 +225,12 @@ component ReplayRow {
             Text {
                 text: T.s("replay.label");
                 font-size: 12px;
-                font-weight: 500;
+                font-weight: 600;
                 color: Theme.text;
                 overflow: elide;
             }
             Text {
-                text: root.status;
+                text: Main.replay-status;
                 font-size: 10.5px;
                 color: root.active ? Theme.text-2 : Theme.text-3;
                 overflow: elide;
@@ -184,9 +239,10 @@ component ReplayRow {
         if root.active: IconButton {
             width: 28px;
             height: 28px;
-            hint: T.s("replay.save");
+            enabled: !Main.replay-saving;
+            hint: Main.replay-save-hint;
             hover-accent: Theme.success;
-            clicked => { root.save(); }
+            clicked => { Main.replay-save(); }
             StrokeIcon {
                 commands: Icons.download;
                 stroke: parent.icon-color;
@@ -194,18 +250,12 @@ component ReplayRow {
         }
         VerticalLayout {
             alignment: center;
-            Toggle { on: root.on; }
+            Toggle { on: Main.replay-on; }
         }
     }
 }
 
 export component RecordCard {
-    in property <bool> replay-active;
-    in property <bool> replay-on;
-    in property <string> replay-status;
-    callback replay-toggle();
-    callback replay-save();
-
     property <bool> rec: Main.recording;
     property <bool> paused: Main.recording && Main.paused;
 
@@ -286,7 +336,9 @@ export component RecordCard {
             }
 
             // ---- cronômetro ----
-            Rectangle { height: 10px + 4px; }
+            // `margin-bottom: 10px` do cabeçalho + 4 px do cronômetro, menos o que o
+            // Skia desce o texto de 38 px dentro da caixa (medido contra a web).
+            Rectangle { height: 11px; }
             HorizontalLayout {
                 alignment: center;
                 height: 38px;
@@ -332,7 +384,8 @@ export component RecordCard {
                     }
                 }
             }
-            Rectangle { height: 9px; }
+            // 9 px do CSS, compensando a mesma descida do cronômetro.
+            Rectangle { height: 6px; }
 
             // ---- botão ----
             HorizontalLayout {
@@ -348,10 +401,12 @@ export component RecordCard {
             }
             Rectangle { height: 12px; }
             Text {
-                text: (root.rec ? T.s("record.stop") : T.s("record.start")).to-uppercase();
+                text: (root.rec ? T.s("record.stop")
+                    : Main.countdown-sec > 0 ? T.s("record.countdownCancel")
+                    : T.s("record.start")).to-uppercase();
                 font-size: 11px;
                 letter-spacing: 2.42px;
-                font-weight: 500;
+                font-weight: 600;
                 color: root.rec ? Theme.text : Theme.text-2;
                 horizontal-alignment: center;
             }
@@ -377,11 +432,6 @@ export component RecordCard {
                     alignment: stretch;
                     ReplayRow {
                         horizontal-stretch: 1;
-                        active: root.replay-active;
-                        on: root.replay-on;
-                        status: root.replay-status;
-                        toggle => { root.replay-toggle(); }
-                        save => { root.replay-save(); }
                     }
                     VerticalLayout {
                         alignment: center;

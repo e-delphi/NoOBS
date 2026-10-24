@@ -418,6 +418,8 @@ fn init_ui() {
     // início os valores que a UI usa fora da tela (som ao gravar etc.).
     settings::push_settings();
     recording::push_recording_state();
+    // A linha do buffer na tela principal (a página pedia sozinha).
+    replay::push_replay_state();
     hotkeys::push_state();
     // Refresh automático quando o usuário mexe na pasta pelo Explorer.
     library::start_record_watch();
@@ -526,6 +528,10 @@ pub fn handle_set_language(code: &str) {
 
 pub use devices::handle_toggle_source;
 pub use recording::{handle_record_pause, handle_record_stop, last_encoder_caps};
+pub use replay::{handle_save_replay, handle_set_replay_enabled};
+pub use window_record::{handle_list_capture_windows, handle_record_window};
+pub use area::handle_select_capture_area;
+pub use hotkeys::{saved_areas, trigger as trigger_hotkey};
 
 /// O botão de gravar: na contagem do atraso da área, ele CANCELA (mesma
 /// regra do `record_start` do dispatch).

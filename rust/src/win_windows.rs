@@ -270,27 +270,28 @@ fn dib(dc: HDC, w: i32, h: i32) -> Option<(ObjGuard, *mut u8)> {
     Some((ObjGuard(HGDIOBJ(bmp.0)), bits as *mut u8))
 }
 
-/// JPEG da área cliente reduzida pra caber em `max_w` × `max_h`. Vazio se não
-/// der (janela sumiu, travada, tamanho zero). Dezenas de ms: em worker.
-pub fn capture_window_thumb_jpeg(hwnd: isize, max_w: i32, max_h: i32) -> Vec<u8> {
+/// Área cliente reduzida pra caber em `max_w` × `max_h`, em RGB 8 bits (linhas
+/// de cima pra baixo) com o tamanho. `None` se não der (janela sumiu, travada,
+/// tamanho zero). Dezenas de ms: em worker.
+pub fn capture_window_thumb_rgb(hwnd: isize, max_w: i32, max_h: i32) -> Option<(Vec<u8>, u32, u32)> {
     let h = HWND(hwnd as *mut _);
     unsafe {
         if hwnd == 0 || !IsWindow(Some(h)).as_bool() || IsIconic(h).as_bool() {
-            return Vec::new();
+            return None;
         }
         // O PrintWindow manda mensagem pra thread da janela: travada, o pedido
         // ficaria preso junto.
         if IsHungAppWindow(h).as_bool() {
-            return Vec::new();
+            return None;
         }
         let mut wr = RECT::default();
         if GetWindowRect(h, &mut wr).is_err() {
-            return Vec::new();
+            return None;
         }
-        let Some((cw, ch)) = capture_window_size(hwnd) else { return Vec::new() };
+        let (cw, ch) = capture_window_size(hwnd)?;
         let (ww, wh) = (wr.right - wr.left, wr.bottom - wr.top);
         if cw <= 0 || ch <= 0 || ww <= 0 || wh <= 0 {
-            return Vec::new();
+            return None;
         }
         // Onde a área cliente começa dentro da janela: a prévia recorta só ela.
         let mut org = POINT::default();
@@ -302,8 +303,8 @@ pub fn capture_window_thumb_jpeg(hwnd: isize, max_w: i32, max_h: i32) -> Vec<u8>
         let screen = DcGuard(GetDC(None), true);
         let full_dc = DcGuard(CreateCompatibleDC(Some(screen.0)), false);
         let thumb_dc = DcGuard(CreateCompatibleDC(Some(screen.0)), false);
-        let Some((full_bmp, _)) = dib(full_dc.0, ww, wh) else { return Vec::new() };
-        let Some((thumb_bmp, thumb_bits)) = dib(thumb_dc.0, tw, th) else { return Vec::new() };
+        let (full_bmp, _) = dib(full_dc.0, ww, wh)?;
+        let (thumb_bmp, thumb_bits) = dib(thumb_dc.0, tw, th)?;
         let of = SelectObject(full_dc.0, full_bmp.0);
         let ot = SelectObject(thumb_dc.0, thumb_bmp.0);
         let mut rgb = Vec::new();
@@ -320,14 +321,7 @@ pub fn capture_window_thumb_jpeg(hwnd: isize, max_w: i32, max_h: i32) -> Vec<u8>
         }
         SelectObject(full_dc.0, of);
         SelectObject(thumb_dc.0, ot);
-        if rgb.is_empty() {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        if jpeg_encoder::Encoder::new(&mut out, 70).encode(&rgb, tw as u16, th as u16, jpeg_encoder::ColorType::Rgb).is_err() {
-            return Vec::new();
-        }
-        out
+        (!rgb.is_empty()).then_some((rgb, tw as u32, th as u32))
     }
 }
 

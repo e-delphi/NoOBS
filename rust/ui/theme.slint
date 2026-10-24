@@ -38,6 +38,9 @@ export global Theme {
 
     // Tipografia do `body`: a pilha do CSS cai no Segoe UI no Windows (Inter
     // não vem instalada). Mono = `"SF Mono", "Cascadia Code", Consolas`.
+    // O Segoe UI do Windows tem 400, 600 e 700 — sem 500. O Chromium desenha o
+    // `font-weight: 500` do CSS com o semibold (600), e é esse o visual da web:
+    // nas telas, o 500 do CSS vira 600 aqui (medido lado a lado).
     out property <string> font: "Segoe UI";
     out property <string> mono: "Cascadia Code";
     out property <length> font-size: 13px;

@@ -20,7 +20,7 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -42,9 +42,6 @@ static META_LOCK: Mutex<()> = Mutex::new(());
 
 /// token (hash + sufixo) → arquivo no disco. Só servimos o que registramos.
 static TOKEN_MAP: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
-/// Prévias voláteis dos monitores: id → JPEG. Servidas em `/thumb/<id>.jpg`.
-static THUMB_MAP: Mutex<Option<HashMap<String, Vec<u8>>>> = Mutex::new(None);
-static THUMB_VERSION: AtomicU32 = AtomicU32::new(0);
 static SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 static SERVER_STOP: AtomicBool = AtomicBool::new(false);
 static SERVER_UP: AtomicBool = AtomicBool::new(false);
@@ -129,27 +126,6 @@ pub fn garbage_collect_cache(live_paths: &[String]) {
     if removed > 0 {
         log!("Cache GC: {removed} arquivo(s) orfao(s) removido(s).");
     }
-}
-
-// ---------------------------------------------------------------------------
-// Prévias dos monitores
-// ---------------------------------------------------------------------------
-
-/// Guarda o JPEG de um monitor (id = `"NoOBS Monitor N"`). Thread-safe.
-pub fn set_monitor_thumb(id: &str, jpeg: Vec<u8>) {
-    lock(&THUMB_MAP).get_or_insert_with(HashMap::new).insert(id.to_owned(), jpeg);
-    THUMB_VERSION.fetch_add(1, Ordering::SeqCst);
-}
-
-/// URL da prévia (`/thumb/<id>.jpg?v=N`); vazio se o servidor não subiu ou não há prévia.
-pub fn get_monitor_thumb_url(id: &str) -> String {
-    if !SERVER_UP.load(Ordering::SeqCst) {
-        return String::new();
-    }
-    if !lock(&THUMB_MAP).as_ref().is_some_and(|m| m.contains_key(id)) {
-        return String::new();
-    }
-    format!("http://127.0.0.1:{}/thumb/{id}.jpg?v={}", SERVER_PORT.load(Ordering::SeqCst), THUMB_VERSION.load(Ordering::SeqCst))
 }
 
 // ---------------------------------------------------------------------------
@@ -607,18 +583,7 @@ fn serve_file_with_range(req: &Request, file: &Path) -> Response {
 
 fn handle_request(req: &Request) -> Response {
     let doc = &req.doc;
-    let mut resp = if let Some(rest) = doc.strip_prefix("/thumb/") {
-        // /thumb/<id>.jpg — prévias voláteis de monitor.
-        let id = rest.split('.').next().unwrap_or("");
-        match lock(&THUMB_MAP).as_ref().and_then(|m| m.get(id)) {
-            Some(j) if !j.is_empty() => Response {
-                status: 200,
-                headers: vec![("Content-Type".into(), "image/jpeg".into()), ("Cache-Control".into(), "no-store".into())],
-                body: Body::Bytes(j.clone()),
-            },
-            _ => Response::simple(404, "no thumb"),
-        }
-    } else if let Some(rest) = doc.strip_prefix("/v/") {
+    let mut resp = if let Some(rest) = doc.strip_prefix("/v/") {
         // /v/<token>.ext — arquivos registrados.
         let token = rest.split('.').next().unwrap_or("");
         let file = lock(&TOKEN_MAP).as_ref().and_then(|m| m.get(token).cloned());
@@ -743,8 +708,6 @@ pub fn start_player_server() {
         return;
     }
     lock(&TOKEN_MAP).get_or_insert_with(HashMap::new);
-    lock(&THUMB_MAP).get_or_insert_with(HashMap::new);
-    THUMB_VERSION.store(0, Ordering::SeqCst);
     let listener = match TcpListener::bind("127.0.0.1:0") {
         Ok(l) => l,
         Err(e) => {
@@ -778,7 +741,6 @@ pub fn stop_player_server() {
     let port = SERVER_PORT.swap(0, Ordering::SeqCst);
     let _ = TcpStream::connect(("127.0.0.1", port));
     *lock(&TOKEN_MAP) = None;
-    *lock(&THUMB_MAP) = None;
 }
 
 #[cfg(test)]

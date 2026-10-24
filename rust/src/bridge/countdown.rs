@@ -8,12 +8,10 @@
 
 use std::cell::RefCell;
 
-use serde_json::json;
-
 use crate::engine::{AreaRect, WindowCapture};
 use crate::{area_frame, log, ui};
 
-use super::{area, post_json, recording, window_record};
+use super::{area, recording, window_record};
 
 pub const TIMER_COUNTDOWN: usize = 7019;
 
@@ -74,7 +72,7 @@ pub fn active() -> bool {
 /// `total` deixa a tela desenhar o anel do botão de gravar regredindo
 /// (e acertar o ponto dele se a página abriu no meio da contagem).
 fn push(sec: u32, total: u32) {
-    post_json(json!({ "type": "record_countdown", "sec": sec, "total": total }));
+    crate::view::call(move |v| v.record_countdown(sec, total));
 }
 
 /// Cancela a contagem em curso. `true` = havia uma.

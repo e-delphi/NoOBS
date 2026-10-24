@@ -53,6 +53,17 @@ fn set_list(list: Vec<Item>) {
 }
 
 /// Primeira combinação do modo (dica dos botões da tela principal).
+/// Atalhos de área com retângulo salvo: (índice, largura, altura, atalho). O
+/// seletor "Capturar..." mostra um botão pra cada.
+pub fn saved_areas() -> Vec<(usize, i32, i32, String)> {
+    list()
+        .iter()
+        .enumerate()
+        .filter(|(_, it)| it.mode == Mode::Area)
+        .filter_map(|(i, it)| it.area.map(|a| (i, a.w, a.h, it.hotkey.clone())))
+        .collect()
+}
+
 pub fn spec_of(mode: Mode) -> String {
     hotkeys::first_spec(&list(), mode)
 }

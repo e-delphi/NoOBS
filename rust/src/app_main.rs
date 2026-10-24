@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, Model, ModelRc, SharedPixelBuffer, VecModel};
 
-use crate::app_view::{AppWindow, DisplayItem, LegendItem, Main, SourceItem};
-use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState};
+use crate::app_view::{AppWindow, DisplayItem, Hints, LegendItem, Main, SavedArea, SourceItem, WindowCard};
+use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, ReplayState, WindowItem, WindowMatches};
 use crate::{bridge, config, lang, log};
 
 /// Cor de cada faixa isolada (2, 3, …), em ciclo — a `TRACK_PALETTE` da web.
@@ -58,6 +58,36 @@ struct State {
     finalizing: bool,
     pause_locked: bool,
     last_stop_sound: Option<Instant>,
+    // ---- buffer em memória ----
+    replay: ReplayState,
+    /// Quando o último estado chegou (base do "guardado" que anda sozinho).
+    replay_received: Option<Instant>,
+    replay_ticker: Option<slint::Timer>,
+    // ---- "Capturar..." ----
+    picker: Picker,
+    // ---- contagem e onda ----
+    countdown_sec: u32,
+    /// Quando a contagem marcaria zero e o total dela (o anel esvazia nisso).
+    countdown_end: Option<Instant>,
+    countdown_total: f32,
+    countdown_tick: Option<Instant>,
+    countdown_timer: Option<slint::Timer>,
+    ripple_timer: Option<slint::Timer>,
+}
+
+#[derive(Default)]
+struct Picker {
+    open: bool,
+    area: bool,
+    items: Vec<WindowItem>,
+    thumbs: HashMap<String, slint::Image>,
+    seq: u32,
+    search: String,
+    loading: bool,
+    audio_supported: bool,
+    /// Aberto por um atalho: (trecho do título, atraso).
+    matches: Option<(String, u32)>,
+    model: Rc<VecModel<WindowCard>>,
 }
 
 thread_local! {
@@ -86,8 +116,42 @@ pub fn setup(w: &AppWindow) {
     m.on_toggle_record(on_toggle_record);
     m.on_toggle_pause(on_toggle_pause);
     m.on_toggle_source(|id, enabled| on_toggle_source(id.as_str(), enabled));
+    m.on_replay_toggle(|| {
+        let on = with(|s| s.replay.enabled);
+        bridge::handle_set_replay_enabled(!on);
+    });
+    m.on_replay_save(|| {
+        let (active, saving) = with(|s| (s.replay.active, s.replay.saving));
+        if active && !saving {
+            bridge::handle_save_replay();
+        }
+    });
+    render_replay(w);
     m.on_open_settings(|| log::log("UI: Configuracoes (tela ainda nao portada)."));
-    m.on_open_window_picker(|| log::log("UI: seletor de janela (fase 1b)."));
+    with(|s| m.set_picker_items(ModelRc::from(s.picker.model.clone())));
+    m.on_open_window_picker(open_picker);
+    m.on_picker_close(close_picker);
+    m.on_picker_refresh(refresh_picker);
+    m.on_picker_set_area_mode(|area| set_picker_mode(area, true));
+    m.on_picker_search(|t| {
+        with(|s| s.picker.search = t.to_string());
+        render_picker();
+    });
+    m.on_picker_pick(|id| pick_window(id.as_str()));
+    m.on_picker_audio_changed(|on| {
+        config::set_config_bool("windowPickerAppAudio", on);
+        if let Some(w) = crate::app_view::window() {
+            main_global(&w).set_picker_audio(on);
+        }
+    });
+    m.on_picker_select_area(|| {
+        close_picker();
+        bridge::handle_select_capture_area();
+    });
+    m.on_picker_saved_area(|i| {
+        close_picker();
+        bridge::trigger_hotkey(i.max(0) as usize);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -577,8 +641,281 @@ fn on_toggle_record() {
         }
         bridge::handle_record_stop();
     } else {
+        // A onda só no começo: parar já se vê pelo fim do pulso vermelho.
+        if with(|s| s.countdown_sec) == 0 {
+            start_ripple();
+        }
         bridge::handle_record_start_button();
     }
+}
+
+/// `cubic-bezier(x1, y1, x2, y2)` em `t` (0..1): acha o parâmetro da curva
+/// cujo x é `t` (bissecção) e devolve o y.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+    let b = |a: f32, c: f32, u: f32| 3.0 * a * u * (1.0 - u).powi(2) + 3.0 * c * u * u * (1.0 - u) + u.powi(3);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if b(x1, x2, mid) < t {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    b(y1, y2, (lo + hi) / 2.0)
+}
+
+/// Onda vermelha que sai do botão de gravar (`triggerRecordRipple` da web):
+/// 1,8 s com `cubic-bezier(0.16, 1, 0.3, 1)`.
+fn start_ripple() {
+    let start = Instant::now();
+    let t = slint::Timer::default();
+    t.start(slint::TimerMode::Repeated, Duration::from_millis(16), move || {
+        let Some(w) = crate::app_view::window() else { return };
+        let k = (start.elapsed().as_secs_f32() / 1.8).min(1.0);
+        if k >= 1.0 {
+            main_global(&w).set_ripple(-1.0);
+            with(|s| s.ripple_timer = None);
+        } else {
+            main_global(&w).set_ripple(cubic_bezier(0.16, 1.0, 0.3, 1.0, k));
+        }
+    });
+    with(|s| s.ripple_timer = Some(t));
+}
+
+// ---------------------------------------------------------------------------
+// Contagem do atraso (`AreaCapture.onCountdown` da web)
+// ---------------------------------------------------------------------------
+
+pub fn on_record_countdown(w: &AppWindow, sec: u32, total: u32) {
+    let m = main_global(w);
+    let prev = with(|s| std::mem::replace(&mut s.countdown_sec, sec));
+    if sec == 0 {
+        with(|s| {
+            s.countdown_end = None;
+            s.countdown_timer = None;
+        });
+        m.set_countdown_sec(0);
+        if !with(|s| s.rec.active) {
+            m.set_status_text(lang::t("record.statusReady").into());
+        }
+        return;
+    }
+    let now = Instant::now();
+    // Contagem nova (ou que voltou a subir): o anel recomeça do ponto certo.
+    if prev == 0 || sec > prev || with(|s| s.countdown_end.is_none()) {
+        let tot = total.max(sec) as f32;
+        with(|s| {
+            s.countdown_total = tot;
+            s.countdown_end = Some(now + Duration::from_secs(sec as u64));
+        });
+    }
+    with(|s| s.countdown_tick = Some(now));
+    m.set_countdown_sec(sec as i32);
+    m.set_status_text(lang::t_with("record.countdown", &[("sec", &sec.to_string())]).into());
+    if with(|s| s.countdown_timer.is_none()) {
+        let t = slint::Timer::default();
+        t.start(slint::TimerMode::Repeated, Duration::from_millis(16), || {
+            let Some(w) = crate::app_view::window() else { return };
+            let (end, total, tick) = with(|s| (s.countdown_end, s.countdown_total, s.countdown_tick));
+            let m = main_global(&w);
+            if let Some(end) = end {
+                let left = end.saturating_duration_since(Instant::now()).as_secs_f32();
+                m.set_countdown_frac(if total > 0.0 { left / total } else { 0.0 });
+            }
+            if let Some(t) = tick {
+                m.set_countdown_tick_age(t.elapsed().as_secs_f32());
+            }
+        });
+        with(|s| s.countdown_timer = Some(t));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// "Capturar..." (`windowpicker.js`)
+// ---------------------------------------------------------------------------
+
+fn picker_subtitle(p: &Picker) -> String {
+    if let Some((pattern, _)) = &p.matches {
+        lang::t_with("windowPicker.matchesSubtitle", &[("title", pattern)])
+    } else if p.area {
+        lang::t("windowPicker.areaSubtitle")
+    } else {
+        lang::t("windowPicker.subtitle")
+    }
+}
+
+/// Grade filtrada pela busca (título ou exe), o texto de vazio e o resto do
+/// estado do seletor.
+fn render_picker() {
+    let Some(w) = crate::app_view::window() else { return };
+    let m = main_global(&w);
+    with(|s| {
+        let p = &s.picker;
+        let q = p.search.trim().to_lowercase();
+        let cards: Vec<WindowCard> = p
+            .items
+            .iter()
+            .filter(|it| q.is_empty() || it.title.to_lowercase().contains(&q) || it.exe.to_lowercase().contains(&q))
+            .map(|it| {
+                let thumb = p.thumbs.get(&it.id).cloned();
+                let size = if it.w > 0 && it.h > 0 { format!(" · {}×{}", it.w, it.h) } else { String::new() };
+                WindowCard {
+                    id: it.id.as_str().into(),
+                    title: it.title.as_str().into(),
+                    info: format!("{}{size}", it.exe).into(),
+                    has_thumb: thumb.is_some(),
+                    thumb: thumb.unwrap_or_default(),
+                }
+            })
+            .collect();
+        m.set_picker_empty_text(lang::t(if p.items.is_empty() { "windowPicker.empty" } else { "windowPicker.noMatch" }).into());
+        p.model.set_vec(cards);
+        m.set_picker_loading(p.loading);
+        m.set_picker_area_mode(p.area);
+        m.set_picker_matches(p.matches.is_some());
+        m.set_picker_subtitle(picker_subtitle(p).into());
+        m.set_picker_audio_supported(p.audio_supported);
+    });
+    let saved: Vec<SavedArea> = bridge::saved_areas()
+        .into_iter()
+        .map(|(i, aw, ah, hk)| {
+            let mut label = lang::t_with("windowPicker.savedArea", &[("w", &aw.to_string()), ("h", &ah.to_string())]);
+            if !hk.is_empty() {
+                label = format!("{label} · {hk}");
+            }
+            SavedArea { index: i as i32, label: label.into() }
+        })
+        .collect();
+    m.set_picker_saved_areas(ModelRc::from(Rc::new(VecModel::from(saved))));
+}
+
+fn open_picker() {
+    if with(|s| s.rec.active) {
+        return;
+    }
+    let Some(w) = crate::app_view::window() else { return };
+    let area = config::get_config_str("windowPickerMode", "window") == "area";
+    with(|s| {
+        s.picker = Picker { model: s.picker.model.clone(), seq: s.picker.seq, audio_supported: s.picker.audio_supported, ..Default::default() };
+        s.picker.open = true;
+    });
+    let m = main_global(&w);
+    m.set_picker_search_text("".into());
+    m.set_picker_audio(config::get_config_bool("windowPickerAppAudio", false));
+    m.set_picker_open(true);
+    set_hint_layer(&w, 1);
+    set_picker_mode(area, false);
+}
+
+/// Troca de aba. A lista de janelas só é pedida quando a aba Janela aparece
+/// (abrir direto na Área não gasta o PrintWindow de todas as janelas à toa).
+fn set_picker_mode(area: bool, remember: bool) {
+    let matches = with(|s| {
+        s.picker.area = area;
+        s.picker.matches.is_some()
+    });
+    if remember && !matches {
+        config::set_config_str("windowPickerMode", if area { "area" } else { "window" });
+    }
+    let need_list = with(|s| !area && s.picker.items.is_empty() && !s.picker.loading && s.picker.matches.is_none());
+    if need_list {
+        refresh_picker();
+    } else {
+        render_picker();
+    }
+}
+
+fn refresh_picker() {
+    with(|s| {
+        s.picker.loading = true;
+        s.picker.items.clear();
+        s.picker.thumbs.clear();
+    });
+    render_picker();
+    bridge::handle_list_capture_windows();
+}
+
+/// Camada de dicas em vigor (`Hints.top-layer`): ao abrir um modal, a dica
+/// que estava aberta embaixo some e as de baixo param de aparecer.
+fn set_hint_layer(w: &AppWindow, layer: i32) {
+    let h = w.global::<Hints>();
+    h.set_top_layer(layer);
+    h.set_visible(false);
+}
+
+fn close_picker() {
+    with(|s| {
+        s.picker.open = false;
+        s.picker.matches = None;
+    });
+    if let Some(w) = crate::app_view::window() {
+        main_global(&w).set_picker_open(false);
+        set_hint_layer(&w, 0);
+    }
+}
+
+fn pick_window(id: &str) {
+    if id.is_empty() {
+        return;
+    }
+    let (delay, supported) = with(|s| (s.picker.matches.as_ref().map_or(0, |m| m.1), s.picker.audio_supported));
+    close_picker();
+    start_ripple();
+    let app_audio = supported && config::get_config_bool("windowPickerAppAudio", false);
+    bridge::handle_record_window(id, app_audio, delay);
+}
+
+pub fn on_capture_windows(seq: u32, items: &[WindowItem], app_audio: bool) {
+    with(|s| {
+        s.picker.seq = seq;
+        s.picker.items = items.to_vec();
+        s.picker.thumbs.clear();
+        s.picker.loading = false;
+        s.picker.audio_supported = app_audio;
+    });
+    render_picker();
+}
+
+pub fn on_capture_window_thumb(seq: u32, id: &str, width: u32, height: u32, rgb: &[u8]) {
+    if with(|s| s.picker.seq) != seq || rgb.len() != (width * height * 3) as usize {
+        return;
+    }
+    let img = slint::Image::from_rgb8(SharedPixelBuffer::<slint::Rgb8Pixel>::clone_from_slice(rgb, width, height));
+    // Só troca a imagem do cartão (refazer a grade faria o hover piscar).
+    with(|s| {
+        s.picker.thumbs.insert(id.to_owned(), img.clone());
+        let model = &s.picker.model;
+        for i in 0..model.row_count() {
+            if let Some(mut c) = model.row_data(i) {
+                if c.id.as_str() == id {
+                    c.thumb = img.clone();
+                    c.has_thumb = true;
+                    model.set_row_data(i, c);
+                }
+            }
+        }
+    });
+}
+
+/// Atalho de janela com várias janelas casando o título: o seletor abre só
+/// com elas, sem abas, e o atraso do atalho conta depois da escolha.
+pub fn on_window_picker_matches(m: &WindowMatches) {
+    let Some(w) = crate::app_view::window() else { return };
+    with(|s| {
+        s.picker = Picker { model: s.picker.model.clone(), ..Default::default() };
+        s.picker.open = true;
+        s.picker.seq = m.seq;
+        s.picker.items = m.items.clone();
+        s.picker.audio_supported = m.app_audio;
+        s.picker.matches = Some((m.pattern.clone(), m.delay_sec));
+    });
+    let g = main_global(&w);
+    g.set_picker_search_text("".into());
+    g.set_picker_audio(m.want_app_audio);
+    g.set_picker_open(true);
+    set_hint_layer(&w, 1);
+    render_picker();
 }
 
 /// Trava até o próximo estado: dois cliques rápidos cruzariam pausa e retomada.
@@ -597,4 +934,83 @@ pub fn on_language_changed(w: &AppWindow) {
     on_recording_state(w, &RecState { elapsed_ms: None, ..st });
     refresh_sources(w);
     rebuild_displays(w);
+    render_replay(w);
+}
+
+// ---------------------------------------------------------------------------
+// Buffer em memória (`replay.js`)
+// ---------------------------------------------------------------------------
+
+/// "m:ss".
+fn fmt_min_sec(sec: i64) -> String {
+    format!("{}:{:02}", sec / 60, sec % 60)
+}
+
+/// Texto e botões da linha do buffer. O "guardado" anda sozinho entre um
+/// estado e outro (o core só manda quando algo muda), limitado ao teto de
+/// tempo — o de memória a tela não tem como saber.
+fn render_replay(w: &AppWindow) {
+    let m = main_global(w);
+    let (st, received) = with(|s| (s.replay.clone(), s.replay_received));
+    let recording = with(|s| s.rec.active);
+    let max = if st.max_sec > 0 { st.max_sec } else { 300 };
+    let text = if st.active {
+        if st.saving {
+            lang::t("replay.statusSaving")
+        } else {
+            let ms = st.since_ms + received.map_or(0, |r| r.elapsed().as_millis() as u64);
+            let held = ((ms / 1000) as i64).min(st.max_sec.max(0));
+            lang::t_with("replay.statusHolding", &[("held", &fmt_min_sec(held)), ("max", &fmt_min_sec(st.max_sec.max(0)))])
+        }
+    } else if st.enabled && recording {
+        lang::t("replay.statusPaused")
+    } else {
+        lang::t_with("replay.statusOff", &[("max", &fmt_min_sec(max))])
+    };
+    m.set_replay_on(st.enabled);
+    m.set_replay_active(st.active);
+    m.set_replay_saving(st.saving);
+    m.set_replay_status(text.into());
+    let hint = if st.hotkey.is_empty() {
+        lang::t("replay.saveHintNoKey")
+    } else {
+        lang::t_with("replay.saveHint", &[("spec", &st.hotkey)])
+    };
+    m.set_replay_save_hint(hint.into());
+}
+
+pub fn on_replay_state(w: &AppWindow, st: &ReplayState) {
+    with(|s| {
+        s.replay = st.clone();
+        s.replay_received = Some(Instant::now());
+    });
+    render_replay(w);
+    let ticking = with(|s| s.replay_ticker.is_some());
+    if st.active && !ticking {
+        let weak = w.as_weak();
+        let t = slint::Timer::default();
+        t.start(slint::TimerMode::Repeated, Duration::from_secs(1), move || {
+            if let Some(w) = weak.upgrade() {
+                render_replay(&w);
+            }
+        });
+        with(|s| s.replay_ticker = Some(t));
+    } else if !st.active && ticking {
+        with(|s| s.replay_ticker = None);
+    }
+}
+
+pub fn on_replay_saved(name: &str, duration_sec: i32) {
+    crate::app_view::show_toast(
+        &lang::t("replay.saved"),
+        &lang::t_with("replay.savedBody", &[("name", name), ("dur", &fmt_min_sec(duration_sec.max(0) as i64))]),
+        false,
+        5000,
+    );
+}
+
+/// O buffer recomeçou (qualidade/fps/codec/áudio mudou): sem o aviso, o
+/// "guardado" voltando a zero pareceria defeito.
+pub fn on_replay_restarted() {
+    crate::app_view::show_toast(&lang::t("replay.restarted"), &lang::t("replay.restartedBody"), false, 6000);
 }

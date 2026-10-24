@@ -29,6 +29,7 @@ component ModeTab {
     }
     row := HorizontalLayout {
         x: 14px;
+        width: parent.width - 28px;
         spacing: 6px;
         alignment: center;
         VerticalLayout {
@@ -234,8 +235,11 @@ export component WindowPicker {
                         border-width: 1px;
                         border-color: Theme.border;
                         border-radius: 9px;
+                        // Largura explícita: sem ela o layout herda a do
+                        // contêiner e, deslocado pelo `x`, passa da borda.
                         tabs := HorizontalLayout {
                             x: 3px;
+                            width: parent.width - 6px;
                             spacing: 4px;
                             padding-top: 3px;
                             padding-bottom: 3px;
@@ -283,6 +287,7 @@ export component WindowPicker {
                             animate border-color, background { duration: 120ms; }
                             audio-row := HorizontalLayout {
                                 x: 10px;
+                                width: parent.width - 20px;
                                 spacing: 6px;
                                 alignment: center;
                                 VerticalLayout {

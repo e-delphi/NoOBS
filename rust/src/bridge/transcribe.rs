@@ -486,7 +486,7 @@ pub fn handle_search_transcripts(query: &str) {
         }
         mainthread::queue(move || {
             if !is_shutting_down() {
-                post_json(json!({ "type": "transcript_search", "query": q, "ids": hits }));
+                crate::view::call(move |v| v.transcript_search(&q, &hits));
             }
         });
     });

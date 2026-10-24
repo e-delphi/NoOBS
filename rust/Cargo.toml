@@ -18,6 +18,9 @@ sha1 = "0.10"
 # O `#[implement]` expande para `windows_core::...`; precisa estar na raiz.
 windows-core = "0.61"
 jpeg-encoder = "0.6"
+# Miniaturas da biblioteca (JPG do cache) decodificadas numa worker. Já vem
+# pelo Slint; aqui só pede o JPEG.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 windows = { version = "0.61", features = [
   "Win32_Devices_FunctionDiscovery",

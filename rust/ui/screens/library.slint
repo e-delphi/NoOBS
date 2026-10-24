@@ -1,0 +1,1153 @@
+// Coluna da direita (`.recordings` da versão web): o bloco de telas no topo e,
+// rolando junto, a biblioteca — cabeçalho fixo ao rolar (`position: sticky`),
+// caminho da pasta, pastas e os grupos por período com o título de cada um
+// grudando embaixo do cabeçalho.
+//
+// Os cards são posicionados à mão (sem layout) e só existem os que estão na
+// área visível: com centenas de gravações, criar todos custaria memória de
+// miniatura à toa. A altura de cada peça é a do CSS, já com o `line-height:
+// 1.4` do `body`.
+
+import { Theme } from "../theme.slint";
+import { T } from "../i18n.slint";
+import { HintTrigger } from "../widgets/hint.slint";
+import { IconButton, SearchBox } from "../widgets/controls.slint";
+import { Icons, StrokeIcon, FillIcon } from "../widgets/icons.slint";
+import { ScrollArea } from "../widgets/scroll.slint";
+import { DisplaysBlock } from "displays.slint";
+import { Lib, RecCard, RecGroup, FolderCard, PathCrumb } from "library_state.slint";
+
+// Medidas (px lógicos) tiradas do recordings.css.
+global Geo {
+    out property <length> pad: 22px;
+    out property <length> gap: 12px;
+    out property <length> min-cell: 170px;
+    // `.rec-group-title`: 6 + 11×1,4 + 6 + 1 de borda; depois 8 de margem.
+    out property <length> title-h: 28.4px;
+    out property <length> title-gap: 8px;
+    out property <length> group-gap: 18px;
+    // Corpo do card: 8 + 12×1,4 + 1 + 11×1,4 + 10.
+    out property <length> body-h: 51.2px;
+    // `.rec-folder`: 10 + 12×1,4 + 11×1,4 + 10, mais as bordas.
+    out property <length> folder-h: 54.2px;
+    // `.rec-path`: 2 + 22 + 8, mais 10 de margem.
+    out property <length> path-h: 42px;
+}
+
+// Alvo de soltar: acende quando o arrasto passa por cima e é aceito.
+component DropZone {
+    in property <string> target;
+    property <bool> inside: Lib.drag-x >= self.absolute-position.x && Lib.drag-x < self.absolute-position.x + self.width
+        && Lib.drag-y >= self.absolute-position.y && Lib.drag-y < self.absolute-position.y + self.height;
+    out property <bool> over: Lib.dragging && self.inside && Lib.can-drop(self.target);
+    width: 100%;
+    height: 100%;
+    changed over => {
+        if self.over {
+            Lib.drop-target = self.target;
+        } else if Lib.drop-target == self.target {
+            Lib.drop-target = "";
+        }
+    }
+}
+
+// `.rec-check` / `.rec-group-check`: quadrado de 16 com o check do canto.
+// `state`: 0 vazio, 1 parcial (traço), 2 marcado.
+component SelectBox {
+    in property <int> state;
+    // Fundo/borda do vazio: no card é escuro translúcido, no grupo transparente.
+    in property <bool> on-thumb;
+    in property <bool> hovered;
+    width: 16px;
+    height: 16px;
+    Rectangle {
+        border-radius: 3px;
+        border-width: 1.5px;
+        border-color: root.state > 0 ? Theme.success
+            : root.on-thumb ? rgba(255, 255, 255, 0.75)
+            : root.hovered ? Theme.success : Theme.border-2;
+        background: root.state > 0 ? Theme.success : root.on-thumb ? rgba(0, 0, 0, 0.55) : transparent;
+        animate background, border-color { duration: 120ms; }
+    }
+    if root.state == 2: StrokeIcon {
+        size: 10px;
+        box: 16;
+        thickness: 2.5;
+        commands: Icons.check16;
+        stroke: white;
+    }
+    if root.state == 1: Rectangle {
+        width: 8px;
+        height: 2px;
+        border-radius: 1px;
+        background: white;
+    }
+}
+
+// Um selo do rodapé do card (`.rec-badge`).
+component Badge {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> sw;
+    in property <bool> icon;
+    in property <bool> faded;
+    // Ponteiro (coordenadas da janela) e se ele está sobre o card: a área de
+    // toque é UMA por card, e uma de baixo não recebe hover.
+    in property <length> px;
+    in property <length> py;
+    in property <bool> active;
+    out property <bool> inside: root.active && root.px >= self.absolute-position.x && root.px < self.absolute-position.x + self.width
+        && root.py >= self.absolute-position.y && root.py < self.absolute-position.y + self.height;
+    height: 15px;
+    width: root.icon ? 20px : label.preferred-width + 10px;
+    opacity: root.faded ? 0.45 : 1;
+    Rectangle {
+        border-radius: 3px;
+        border-width: 1px;
+        border-color: root.sw ? #f59e0b : Theme.border-2;
+        background: Theme.panel-2;
+    }
+    label := Text {
+        visible: !root.icon;
+        text: root.text;
+        font-size: 9px;
+        letter-spacing: 0.2px;
+        color: root.sw ? (Theme.dark ? #fbbf24 : #b45309) : Theme.text-3;
+        vertical-alignment: center;
+    }
+    if root.icon: StrokeIcon {
+        size: 10px;
+        thickness: 2.4;
+        commands: Icons.lines;
+        stroke: Theme.text-3;
+    }
+    HintTrigger {
+        hovered: root.inside;
+        hint: root.hint;
+    }
+}
+
+// `.rec-card`.
+component RecCardView {
+    in property <RecCard> item;
+    in property <bool> select-mode;
+    in property <bool> editing;
+    in property <string> edit-text;
+    property <length> thumb-h: (root.width - 2px) * 9 / 16;
+    property <bool> hover: ta.has-hover && !Lib.dragging;
+    property <bool> dragged-self: Lib.dragging && ta.pressed;
+    property <bool> show-check: root.hover || root.select-mode || root.item.selected;
+    // Ponteiro na janela (os selos testam por posição).
+    property <length> px: root.absolute-position.x + ta.mouse-x;
+    property <length> py: root.absolute-position.y + ta.mouse-y;
+    // Caixa de seleção: 16 px a 6 px do canto direito da miniatura.
+    property <bool> in-check: ta.mouse-x >= root.width - 23px && ta.mouse-x < root.width - 6px && ta.mouse-y >= 6px && ta.mouse-y < 24px;
+
+    init => { if !root.item.has-thumb { Lib.need-thumb(root.item.id); } }
+
+    opacity: root.item.cut || root.dragged-self ? 0.45 : 1;
+
+    // `:hover { transform: translateY(-1px); box-shadow: var(--shadow-md) }`
+    // e a seleção (`box-shadow: 0 0 0 2px var(--success)`).
+    frame := Rectangle {
+        y: root.hover ? -1px : 0;
+        animate y { duration: 150ms; }
+        if root.item.selected: Rectangle {
+            x: -2px;
+            y: -2px;
+            width: parent.width + 4px;
+            height: parent.height + 4px;
+            border-radius: 10px;
+            background: Theme.success;
+        }
+        Rectangle {
+            border-radius: 8px;
+            background: Theme.panel;
+            drop-shadow-offset-y: root.hover ? 4px : 0;
+            drop-shadow-blur: root.hover ? 12px : 0;
+            drop-shadow-color: Theme.shadow-md;
+        }
+        Rectangle {
+            border-radius: 8px;
+            clip: true;
+            // Miniatura.
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: root.thumb-h;
+                background: Theme.thumb-bg;
+                if root.item.has-thumb: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: root.item.thumb;
+                    image-fit: cover;
+                }
+                if !root.item.has-thumb: Text {
+                    text: "▶";
+                    font-size: 24px;
+                    color: Theme.thumb-fg;
+                }
+                // Posição na seleção (`.rec-order-badge`).
+                if root.item.order > 0: Rectangle {
+                    x: parent.width - 28px - self.width;
+                    y: 5px;
+                    height: 18px;
+                    width: max(18px, num.preferred-width + 10px);
+                    border-radius: 9px;
+                    background: Theme.success;
+                    drop-shadow-blur: 0;
+                    num := Text {
+                        text: root.item.order;
+                        font-size: 10px;
+                        font-weight: 700;
+                        color: white;
+                    }
+                    HintTrigger {
+                        hovered: root.hover && ta.mouse-x >= root.width - 29px - parent.width && ta.mouse-x < root.width - 29px
+                            && ta.mouse-y >= 5px && ta.mouse-y < 23px;
+                        hint: root.item.order-hint;
+                    }
+                }
+                // Duração (`.duration`).
+                if root.item.duration-text != "": Rectangle {
+                    x: parent.width - 6px - self.width;
+                    y: parent.height - 6px - self.height;
+                    width: dur.preferred-width + 12px;
+                    height: 18px;
+                    border-radius: 4px;
+                    background: rgba(0, 0, 0, 0.85);
+                    border-width: 1px;
+                    border-color: rgba(255, 255, 255, 0.06);
+                    dur := Text {
+                        text: root.item.duration-text;
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: rgba(255, 255, 255, 0.95);
+                    }
+                }
+                // Caixa de seleção (`.rec-check`).
+                check := Rectangle {
+                    x: parent.width - 22px;
+                    y: 6px;
+                    width: 16px;
+                    height: 16px;
+                    opacity: root.show-check ? 1 : 0;
+                    animate opacity { duration: 120ms; }
+                    SelectBox {
+                        state: root.item.selected ? 2 : 0;
+                        on-thumb: true;
+                    }
+                    HintTrigger {
+                        hovered: root.hover && root.in-check;
+                        hint: T.s("recordings.select");
+                    }
+                }
+            }
+            Rectangle {
+                y: 1px + root.thumb-h;
+                height: 1px;
+                background: Theme.border;
+            }
+            // Corpo: nome e o rodapé (tamanho à esquerda, selos à direita).
+            Rectangle {
+                x: 1px;
+                y: 2px + root.thumb-h;
+                width: parent.width - 2px;
+                height: Geo.body-h;
+                if !root.editing: Text {
+                    x: 10px;
+                    y: 8px;
+                    width: parent.width - 20px;
+                    height: 16.8px;
+                    text: root.item.name;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                if root.editing: Rectangle {
+                    x: 6px;
+                    y: 6px;
+                    width: parent.width - 12px;
+                    height: 20.8px;
+                    border-radius: 4px;
+                    background: Theme.panel-2;
+                    border-width: 1.5px;
+                    border-color: Theme.success;
+                    edit := TextInput {
+                        x: 4px;
+                        width: parent.width - 8px;
+                        text: root.edit-text;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        single-line: true;
+                        vertical-alignment: center;
+                        selection-background-color: Theme.accent-bd;
+                        init => {
+                            self.focus();
+                            self.select-all();
+                        }
+                        accepted => { Lib.rename-commit(root.item.id, self.text); }
+                        key-pressed(e) => {
+                            if e.text == Key.Escape {
+                                Lib.rename-cancel();
+                                return accept;
+                            }
+                            reject
+                        }
+                        changed has-focus => {
+                            if !self.has-focus && root.editing {
+                                Lib.rename-commit(root.item.id, self.text);
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    x: 10px;
+                    y: 8px + 16.8px + 1px;
+                    width: parent.width - 20px;
+                    height: 15.4px;
+                    spacing: 6px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.item.size-text;
+                        font-size: 11px;
+                        color: Theme.text-3;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    HorizontalLayout {
+                        spacing: 3px;
+                        alignment: end;
+                        if root.item.codec != "": Badge {
+                            px: root.px;
+                            py: root.py;
+                            active: root.hover;
+                            text: root.item.codec;
+                            sw: !root.item.codec-hw;
+                            hint: root.item.codec-hint;
+                        }
+                        if root.item.fps-text != "": Badge {
+                            px: root.px;
+                            py: root.py;
+                            active: root.hover;
+                            text: root.item.fps-text;
+                            hint: root.item.fps-hint;
+                        }
+                        if root.item.quality-text != "": Badge {
+                            px: root.px;
+                            py: root.py;
+                            active: root.hover;
+                            text: root.item.quality-text;
+                            hint: root.item.quality-hint;
+                        }
+                        if root.item.transcript > 0: Badge {
+                            px: root.px;
+                            py: root.py;
+                            active: root.hover;
+                            icon: true;
+                            faded: root.item.transcript == 2;
+                            hint: root.item.transcript == 2 ? T.s("recordings.badge.transcriptEmpty") : T.s("recordings.badge.transcript");
+                        }
+                    }
+                }
+            }
+        }
+        // Borda (por cima da miniatura, como a do CSS).
+        Rectangle {
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: root.hover ? Theme.border-2 : Theme.border;
+            animate border-color { duration: 150ms; }
+        }
+    }
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        property <bool> was-drag;
+        property <bool> in-thumb: self.pressed-y < root.thumb-h + 2px;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                self.was-drag = false;
+                if e.button == PointerEventButton.right {
+                    Lib.context("recording", root.item.id, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+                }
+            }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left && Lib.dragging {
+                self.was-drag = true;
+                Lib.drag-end(true);
+            }
+        }
+        moved => {
+            if self.pressed && !Lib.dragging && !root.editing && !self.was-drag
+                && (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
+                Lib.drag-start(root.item.id);
+            }
+            if Lib.dragging && self.pressed {
+                Lib.drag-x = root.absolute-position.x + self.mouse-x;
+                Lib.drag-y = root.absolute-position.y + self.mouse-y;
+            }
+        }
+        clicked => {
+            if self.was-drag {
+                self.was-drag = false;
+                return;
+            }
+            if root.in-check {
+                Lib.toggle-select(root.item.id);
+                return;
+            }
+            // O corpo (nome + tamanho) não abre: é o alvo do duplo clique.
+            if !self.in-thumb {
+                return;
+            }
+            if root.select-mode {
+                Lib.toggle-select(root.item.id);
+            } else {
+                Lib.card-clicked(root.item.id);
+            }
+        }
+        double-clicked => {
+            if !self.in-thumb && !root.editing {
+                Lib.rename-recording(root.item.id);
+            }
+        }
+    }
+    // A dica da data vale fora da caixa de seleção e da linha dos selos (lá
+    // valem as deles).
+    HintTrigger {
+        hovered: root.hover && !root.editing && !root.in-check && ta.mouse-y < root.thumb-h + 2px + 8px + 16.8px;
+        pressed: ta.pressed;
+        hint: root.item.hint;
+    }
+}
+
+// `.rec-folder` (e o ".." de voltar).
+component FolderCardView {
+    in property <FolderCard> item;
+    in property <bool> editing;
+    in property <string> edit-text;
+    property <bool> hover: ta.has-hover && !Lib.dragging;
+    property <bool> dragged-self: Lib.dragging && ta.pressed;
+    property <bool> target: dz.over;
+
+    opacity: root.item.cut || root.dragged-self ? 0.45 : root.item.up && !root.hover && !root.target ? 0.75 : 1;
+
+    Rectangle {
+        y: root.hover ? -1px : 0;
+        animate y { duration: 150ms; }
+        if root.target: Rectangle {
+            x: -2px;
+            y: -2px;
+            width: parent.width + 4px;
+            height: parent.height + 4px;
+            border-radius: 10px;
+            background: Theme.success;
+        }
+        Rectangle {
+            border-radius: 8px;
+            background: root.target ? Theme.panel-2 : Theme.panel;
+            border-width: 1px;
+            border-color: root.target ? Theme.success : root.hover ? Theme.border-2 : Theme.border;
+            drop-shadow-offset-y: root.hover ? 4px : 0;
+            drop-shadow-blur: root.hover ? 12px : 0;
+            drop-shadow-color: Theme.shadow-md;
+            animate border-color, background { duration: 150ms; }
+        }
+        StrokeIcon {
+            x: 13px;
+            size: 26px;
+            thickness: 1.6;
+            commands: root.item.up ? Icons.folder-up : Icons.folder;
+            stroke: root.target ? Theme.success : root.hover ? Theme.text-2 : Theme.text-3;
+        }
+        if !root.editing: Text {
+            x: 49px;
+            y: 11px;
+            width: parent.width - 49px - 13px;
+            height: 16.8px;
+            text: root.item.name;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        if root.editing: Rectangle {
+            x: 45px;
+            y: 9px;
+            width: parent.width - 45px - 9px;
+            height: 20.8px;
+            border-radius: 4px;
+            background: Theme.panel-2;
+            border-width: 1.5px;
+            border-color: Theme.success;
+            TextInput {
+                x: 4px;
+                width: parent.width - 8px;
+                text: root.edit-text;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text;
+                single-line: true;
+                vertical-alignment: center;
+                selection-background-color: Theme.accent-bd;
+                init => {
+                    self.focus();
+                    self.select-all();
+                }
+                accepted => { Lib.rename-commit(root.item.id, self.text); }
+                key-pressed(e) => {
+                    if e.text == Key.Escape {
+                        Lib.rename-cancel();
+                        return accept;
+                    }
+                    reject
+                }
+                changed has-focus => {
+                    if !self.has-focus && root.editing {
+                        Lib.rename-commit(root.item.id, self.text);
+                    }
+                }
+            }
+        }
+        Text {
+            x: 49px;
+            y: 11px + 16.8px;
+            width: parent.width - 49px - 13px;
+            height: 15.4px;
+            text: root.item.meta;
+            font-size: 11px;
+            color: Theme.text-3;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+    dz := DropZone {
+        target: root.item.id;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        property <bool> was-drag;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                self.was-drag = false;
+                if e.button == PointerEventButton.right && !root.item.up {
+                    Lib.context("folder", root.item.id, root.absolute-position.x + self.mouse-x, root.absolute-position.y + self.mouse-y);
+                }
+            }
+            if e.kind == PointerEventKind.up && e.button == PointerEventButton.left && Lib.dragging {
+                self.was-drag = true;
+                Lib.drag-end(true);
+            }
+        }
+        moved => {
+            if self.pressed && !root.item.up && !Lib.dragging && !root.editing && !self.was-drag
+                && (abs(self.mouse-x - self.pressed-x) > 4px || abs(self.mouse-y - self.pressed-y) > 4px) {
+                Lib.drag-start(root.item.id);
+            }
+            if Lib.dragging && self.pressed {
+                Lib.drag-x = root.absolute-position.x + self.mouse-x;
+                Lib.drag-y = root.absolute-position.y + self.mouse-y;
+            }
+        }
+        clicked => {
+            if self.was-drag {
+                self.was-drag = false;
+                return;
+            }
+            // Editando, o clique posiciona o cursor no nome: não navega.
+            if root.editing {
+                return;
+            }
+            if root.item.up {
+                Lib.go-up();
+            } else {
+                Lib.open-folder(root.item.id);
+            }
+        }
+    }
+    HintTrigger {
+        hovered: root.hover && !root.editing;
+        pressed: ta.pressed;
+        hint: root.item.hint;
+    }
+}
+
+// Botão de excluir da barra: vermelho com seleção; durante um arrasto vira
+// alvo (borda e ícone vermelhos; em cima, fundo vermelho cheio).
+component DeleteButton {
+    in property <bool> enabled;
+    in property <string> hint;
+    property <bool> armed: Lib.dragging;
+    property <bool> on: root.enabled || root.armed;
+    property <bool> target: dz.over;
+    width: 30px;
+    height: 30px;
+    opacity: root.on ? 1 : 0.4;
+    property <color> red: Theme.danger-2;
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: root.armed ? root.red : Theme.border;
+        background: root.target ? root.red
+            : root.armed ? rgba(239, 68, 68, 0.12)
+            : root.on && ta.has-hover ? rgba(239, 68, 68, 0.08) : Theme.panel;
+        transform-scale-x: root.target ? 108% : 100%;
+        transform-scale-y: root.target ? 108% : 100%;
+        animate background, border-color { duration: 120ms; }
+    }
+    StrokeIcon {
+        commands: Icons.trash;
+        stroke: root.target ? white : root.on ? root.red : Theme.text-2;
+    }
+    dz := DropZone {
+        target: "::trash";
+    }
+    ta := TouchArea {
+        mouse-cursor: root.enabled ? pointer : not-allowed;
+        clicked => {
+            if root.enabled {
+                Lib.delete-selected();
+            }
+        }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        pressed: ta.pressed;
+        hint: root.hint;
+    }
+}
+
+// `.recordings-header`: título + armazenamento à esquerda; busca e botões à
+// direita (descem pra 2ª linha quando não cabem ao lado).
+export component LibHeader {
+    in property <bool> wrapped;
+    out property <length> title-w: h2.preferred-width + 8px + meta.preferred-width;
+    background := Rectangle {
+        background: Theme.bg;
+    }
+    h2 := Text {
+        x: Geo.pad;
+        y: root.wrapped ? 14px : 14px + (30px - 22.4px) / 2;
+        height: 22.4px;
+        text: T.s("recordings.title");
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.16px;
+        color: Theme.text;
+        vertical-alignment: center;
+    }
+    meta := HorizontalLayout {
+        x: h2.x + h2.preferred-width + 8px;
+        y: h2.y + 5.6px;
+        height: 15.4px;
+        width: min(self.preferred-width, root.width - self.x - Geo.pad);
+        for part[i] in Lib.meta-parts: HorizontalLayout {
+            if i > 0: Rectangle {
+                width: sep.preferred-width + 16px;
+                sep := Text {
+                    x: 8px;
+                    text: "|";
+                    font-size: 11px;
+                    color: Theme.border-2;
+                }
+            }
+            Text {
+                text: part;
+                font-size: 11px;
+                color: Theme.text-3;
+                vertical-alignment: center;
+            }
+        }
+        if Lib.low-disk: Rectangle {
+            width: 18px;
+            StrokeIcon {
+                x: 5px;
+                y: 2px;
+                size: 13px;
+                thickness: 2.2;
+                commands: Icons.warn;
+                stroke: #f59e0b;
+            }
+            lta := TouchArea { }
+            HintTrigger {
+                hovered: lta.has-hover;
+                hint: T.s("recordings.lowSpaceHint");
+            }
+        }
+    }
+    actions := HorizontalLayout {
+        x: root.wrapped ? Geo.pad : root.width - Geo.pad - self.preferred-width;
+        y: root.wrapped ? 14px + 22.4px + 10px : 14px;
+        height: 30px;
+        spacing: 8px;
+        SearchBox {
+            width: 220px;
+            text <=> Lib.search-text;
+            placeholder: T.s("recordings.search");
+            edited(t) => { Lib.search(t); }
+        }
+        IconButton {
+            hint: T.s("recordings.openFolder");
+            clicked => { Lib.open-record-dir(); }
+            StrokeIcon {
+                commands: Icons.folder;
+                stroke: parent.icon-color;
+            }
+        }
+        IconButton {
+            hint: T.s("recordings.newFolder");
+            clicked => { Lib.new-folder(); }
+            StrokeIcon {
+                commands: Icons.folder-plus;
+                stroke: parent.icon-color;
+            }
+        }
+        IconButton {
+            enabled: Lib.sel-count >= 2 && !Lib.merge-busy;
+            hint: Lib.merge-hint;
+            clicked => { Lib.merge-selected(); }
+            FillIcon {
+                size: 15px;
+                commands: Icons.merge;
+                fill: parent.icon-color;
+            }
+        }
+        IconButton {
+            enabled: Lib.export-enabled;
+            hint: Lib.export-hint;
+            clicked => { Lib.export-selected(); }
+            StrokeIcon {
+                commands: Icons.download;
+                stroke: parent.icon-color;
+            }
+        }
+        DeleteButton {
+            enabled: Lib.sel-count > 0;
+            hint: Lib.delete-hint;
+        }
+    }
+}
+
+// Caminho da pasta navegada (`.rec-path`). Cada pedaço é alvo de soltar.
+component PathBar {
+    HorizontalLayout {
+        y: 2px;
+        height: 22px;
+        spacing: 2px;
+        alignment: start;
+        // Voltar (`.path-back`).
+        Rectangle {
+            width: 28px;
+            Rectangle {
+                width: 22px;
+                x: 0;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: bdz.over ? Theme.success : bta.has-hover ? Theme.border-2 : Theme.border;
+                background: bdz.over ? Theme.success : bta.has-hover ? Theme.panel-3 : Theme.panel;
+                StrokeIcon {
+                    size: 14px;
+                    thickness: 2.2;
+                    commands: Icons.chevron-left;
+                    stroke: bdz.over ? white : bta.has-hover ? Theme.text : Theme.text-2;
+                }
+                bdz := DropZone {
+                    target: Lib.parent-dir;
+                }
+                bta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { Lib.go-up(); }
+                }
+                HintTrigger {
+                    hovered: bta.has-hover;
+                    hint: T.s("recordings.folderUp");
+                }
+            }
+        }
+        for c[i] in Lib.crumbs: HorizontalLayout {
+            spacing: 2px;
+            if i > 0: Text {
+                text: "/";
+                font-size: 12px;
+                color: Theme.border-2;
+                vertical-alignment: center;
+            }
+            Rectangle {
+                width: min(220px, lbl.preferred-width + 12px);
+                border-radius: 5px;
+                background: dz.over ? Theme.success : !c.current && cta.has-hover ? Theme.panel-3 : transparent;
+                lbl := Text {
+                    x: 6px;
+                    width: parent.width - 12px;
+                    text: c.label;
+                    font-size: 12px;
+                    font-weight: c.current ? 600 : 400;
+                    color: dz.over ? white : c.current || cta.has-hover ? Theme.text : Theme.text-3;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                dz := DropZone {
+                    target: c.current ? "" : c.id;
+                }
+                cta := TouchArea {
+                    mouse-cursor: c.current ? default : pointer;
+                    clicked => {
+                        if !c.current {
+                            Lib.open-folder(c.id);
+                        }
+                    }
+                }
+                HintTrigger {
+                    hovered: cta.has-hover;
+                    hint: c.hint;
+                }
+            }
+        }
+    }
+}
+
+// Título de um grupo (`.rec-group-title`): faixa de fundo na largura toda,
+// com a caixa de "selecionar o período" à direita.
+component GroupTitle {
+    in property <string> label;
+    in property <int> check;
+    in property <string> key;
+    in property <bool> show-check: true;
+    height: Geo.title-h;
+    Rectangle {
+        background: Theme.bg;
+    }
+    Text {
+        x: Geo.pad;
+        y: 6px;
+        height: 15.4px;
+        // `text-transform: uppercase`.
+        text: root.label.to-uppercase();
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.66px;
+        color: Theme.text-3;
+        vertical-alignment: center;
+    }
+    if root.show-check: Rectangle {
+        x: root.width - Geo.pad - 16px;
+        y: 6px + (15.4px - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        SelectBox {
+            state: root.check;
+            hovered: gta.has-hover;
+        }
+        gta := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { Lib.group-toggle(root.key); }
+        }
+        HintTrigger {
+            hovered: gta.has-hover;
+            hint: T.s("recordings.selectAllInGroup");
+        }
+    }
+    Rectangle {
+        y: root.height - 1px;
+        height: 1px;
+        background: Theme.border;
+    }
+}
+
+export component LibraryPane {
+    property <length> inner-w: root.width - 2 * Geo.pad - 8px;
+    property <int> cols: max(1, floor((self.inner-w + Geo.gap) / (Geo.min-cell + Geo.gap)));
+    property <length> cell-w: (self.inner-w - (self.cols - 1) * Geo.gap) / self.cols;
+    property <length> card-h: (self.cell-w - 2px) * 9 / 16 + 3px + Geo.body-h;
+    changed cols => { Lib.cols-changed(self.cols); }
+    init => { Lib.cols-changed(self.cols); }
+
+    // Cabeçalho: quebra quando título + armazenamento não cabem ao lado da busca.
+    property <bool> wrapped: header-probe.title-w + 8px + 220px + 5 * 38px > root.width - 8px - 2 * Geo.pad;
+    property <length> header-h: self.wrapped ? 14px + 22.4px + 10px + 30px + 14px : 58px;
+
+    // Posições no conteúdo rolável.
+    // `.displays-block { margin-bottom: 6px }`.
+    property <length> header-y: displays.preferred-height + 6px;
+    property <length> path-y: self.header-y + self.header-h;
+    property <length> folders-y: self.path-y + (Lib.at-root ? 0 : Geo.path-h);
+    property <bool> show-folders: Lib.folders.length > 0;
+    property <int> folder-rows: ceil(Lib.folders.length / self.cols);
+    property <length> folders-h: self.show-folders
+        ? Geo.title-h + Geo.title-gap + self.folder-rows * (Geo.folder-h + Geo.gap) - Geo.gap + Geo.group-gap : 0;
+    property <length> groups-y: self.folders-y + self.folders-h;
+    // Fim do último grupo: a partir das linhas antes dele + as dele.
+    property <int> last-rows: Lib.groups.length == 0 ? 0
+        : Lib.groups[Lib.groups.length - 1].rows-before + ceil(Lib.groups[Lib.groups.length - 1].items.length / self.cols);
+    property <length> content-h: Lib.empty ? self.groups-y + 120px
+        : self.groups-y + Lib.groups.length * (Geo.title-h + Geo.title-gap + Geo.group-gap - Geo.gap)
+          + self.last-rows * (self.card-h + Geo.gap) + 18px;
+
+    // Área à vista, com folga (cards fora dela não existem).
+    property <length> scroll: -area.content-y;
+    property <length> view-top: self.scroll - 400px;
+    property <length> view-bottom: self.scroll + root.height + 400px;
+
+    function group-y(g: int, rows-before: int) -> length {
+        return self.groups-y + g * (Geo.title-h + Geo.title-gap + Geo.group-gap - Geo.gap) + rows-before * (self.card-h + Geo.gap);
+    }
+
+    property <length> header-top: max(0px, root.header-y - root.scroll);
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if e.modifiers.control && (e.text == "x" || e.text == "X") {
+                Lib.key-cut();
+                return accept;
+            }
+            if e.modifiers.control && (e.text == "v" || e.text == "V") {
+                Lib.key-paste();
+                return accept;
+            }
+            if (e.text == Key.Backspace && !e.modifiers.control && !e.modifiers.alt) || (e.modifiers.alt && e.text == Key.LeftArrow) {
+                if !Lib.at-root {
+                    Lib.go-up();
+                    return accept;
+                }
+            }
+            reject
+        }
+
+        area := ScrollArea {
+            width: root.width;
+            height: root.height;
+            content-h: root.content-h;
+
+            // Fundo da lista: botão direito no vazio = "Nova pasta / Colar".
+            TouchArea {
+                y: root.header-y;
+                height: max(0px, root.content-h - root.header-y);
+                pointer-event(e) => {
+                    if e.kind == PointerEventKind.down {
+                        keys.focus();
+                        if e.button == PointerEventButton.right {
+                            Lib.context("empty", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                        }
+                    }
+                }
+            }
+
+            displays := DisplaysBlock {
+                x: Geo.pad;
+                y: 0;
+                width: root.width - 2 * Geo.pad - 8px;
+            }
+
+            if !Lib.at-root: PathBar {
+                x: Geo.pad;
+                y: root.path-y;
+                width: root.inner-w;
+                height: Geo.path-h;
+            }
+
+            // Pastas.
+            for f[i] in Lib.folders: FolderCardView {
+                x: Geo.pad + mod(i, root.cols) * (root.cell-w + Geo.gap);
+                y: root.folders-y + Geo.title-h + Geo.title-gap + floor(i / root.cols) * (Geo.folder-h + Geo.gap);
+                width: root.cell-w;
+                height: Geo.folder-h;
+                item: f;
+                editing: Lib.editing-id != "" && Lib.editing-id == f.id;
+                edit-text: Lib.editing-text;
+            }
+
+            // Cards, só os que estão à vista.
+            for g[gi] in Lib.groups: Rectangle {
+                property <length> gy: root.group-y(gi, g.rows-before) + Geo.title-h + Geo.title-gap;
+                for c[i] in g.items: Rectangle {
+                    property <length> cy: parent.gy + floor(i / root.cols) * (root.card-h + Geo.gap);
+                    if self.cy + root.card-h >= root.view-top && self.cy <= root.view-bottom: RecCardView {
+                        x: Geo.pad + mod(i, root.cols) * (root.cell-w + Geo.gap);
+                        y: parent.cy;
+                        width: root.cell-w;
+                        height: root.card-h;
+                        item: c;
+                        select-mode: Lib.sel-count > 0;
+                        editing: Lib.editing-id != "" && Lib.editing-id == c.id;
+                        edit-text: Lib.editing-text;
+                    }
+                }
+            }
+
+            if Lib.empty: Text {
+                x: Geo.pad;
+                y: root.path-y + (Lib.at-root ? 0 : Geo.path-h) + 40px;
+                width: root.inner-w;
+                text: T.s("recordings.empty");
+                font-size: 13px;
+                color: Theme.text-3;
+                horizontal-alignment: center;
+            }
+        }
+
+        // Títulos dos grupos, POR CIMA da rolagem: grudam embaixo do cabeçalho
+        // e saem empurrados quando o grupo acaba (o `sticky` do CSS).
+        // `x` explícito: sem ele o Slint centraliza (ficava 4 px à direita).
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: root.width - 8px;
+            height: root.height;
+            clip: true;
+            if root.show-folders && !Lib.empty: GroupTitle {
+                property <length> nat: root.folders-y - root.scroll;
+                property <length> end: root.folders-y + root.folders-h - Geo.group-gap - root.scroll;
+                y: min(max(self.nat, root.header-h), self.end - self.height);
+                width: parent.width;
+                label: T.s("recordings.foldersGroup");
+                show-check: false;
+            }
+            for g[gi] in Lib.groups: Rectangle {
+                property <length> nat: root.group-y(gi, g.rows-before) - root.scroll;
+                property <length> end: self.nat + Geo.title-h + Geo.title-gap + ceil(g.items.length / root.cols) * (root.card-h + Geo.gap) - Geo.gap;
+                property <length> ty: min(max(self.nat, root.header-h), self.end - Geo.title-h);
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                if self.ty + Geo.title-h > 0 && self.ty < root.height: GroupTitle {
+                    y: parent.ty;
+                    width: parent.width;
+                    label: g.label;
+                    check: g.check;
+                    key: g.key;
+                }
+            }
+            header := LibHeader {
+                y: root.header-top;
+                width: parent.width;
+                height: root.header-h;
+                wrapped: root.wrapped;
+            }
+        }
+        // Só pra medir o título (a quebra depende dele, não da posição).
+        header-probe := LibHeader {
+            visible: false;
+            width: 0;
+            height: 0;
+        }
+    }
+
+    // O Rust pede o foco (ex.: clique num card).
+    property <int> focus-seq: Lib.focus-seq;
+    changed focus-seq => { keys.focus(); }
+}
+
+// Menu do botão direito (`.ctx-menu`): fica na janela inteira, preso dentro
+// dela; clicar fora ou Esc fecha.
+export component ContextMenu {
+    visible: Lib.ctx-open;
+    // Clique fora fecha (e não passa pro que está embaixo, como o mousedown
+    // capturado pela página).
+    TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                Lib.ctx-close();
+            }
+        }
+    }
+    keys := FocusScope {
+        width: 0;
+        height: 0;
+        key-pressed(e) => {
+            if e.text == Key.Escape {
+                Lib.ctx-close();
+                return accept;
+            }
+            reject
+        }
+    }
+    changed visible => {
+        if self.visible {
+            keys.focus();
+        }
+    }
+    menu := Rectangle {
+        width: max(150px, list.preferred-width + 8px);
+        height: list.preferred-height + 8px;
+        x: max(4px, min(Lib.ctx-x, root.width - self.width - 4px));
+        y: max(4px, min(Lib.ctx-y, root.height - self.height - 4px));
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border-2;
+        border-radius: 7px;
+        drop-shadow-offset-y: 8px;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: rgba(0, 0, 0, 0.35);
+        TouchArea { }
+        list := VerticalLayout {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            for it in Lib.ctx-items: Rectangle {
+                height: it.sep ? 9px : 30.8px;
+                if it.sep: Rectangle {
+                    x: 2px;
+                    width: parent.width - 4px;
+                    height: 1px;
+                    background: Theme.border;
+                }
+                if !it.sep: Rectangle {
+                    border-radius: 4px;
+                    background: !it.disabled && ita.has-hover ? (it.danger ? Theme.danger : Theme.panel-3) : transparent;
+                    opacity: it.disabled ? 0.4 : 1;
+                    Text {
+                        x: 12px;
+                        text: it.label;
+                        font-size: 12px;
+                        color: it.danger ? (!it.disabled && ita.has-hover ? white : Theme.danger-2) : Theme.text;
+                        vertical-alignment: center;
+                    }
+                    ita := TouchArea {
+                        mouse-cursor: it.disabled ? default : pointer;
+                        clicked => {
+                            if !it.disabled {
+                                Lib.ctx-run(it.action);
+                            }
+                        }
+                    }
+                    HintTrigger {
+                        hovered: ita.has-hover;
+                        hint: it.hint;
+                        layer: 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// O que vai sendo arrastado, colado no ponteiro (a "imagem do arrasto" do
+// navegador).
+export component DragGhost {
+    visible: Lib.dragging;
+    Rectangle {
+        x: Lib.drag-x + 14px;
+        y: Lib.drag-y + 10px;
+        width: lbl.preferred-width + 20px;
+        height: 26px;
+        border-radius: 7px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.border-2;
+        opacity: 0.92;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: Theme.shadow-md;
+        lbl := Text {
+            text: Lib.drag-label;
+            font-size: 12px;
+            font-weight: 600;
+            color: Theme.text;
+        }
+    }
+}

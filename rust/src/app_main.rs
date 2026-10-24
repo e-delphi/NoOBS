@@ -838,7 +838,7 @@ fn refresh_picker() {
 
 /// Camada de dicas em vigor (`Hints.top-layer`): ao abrir um modal, a dica
 /// que estava aberta embaixo some e as de baixo param de aparecer.
-fn set_hint_layer(w: &AppWindow, layer: i32) {
+pub(crate) fn set_hint_layer(w: &AppWindow, layer: i32) {
     let h = w.global::<Hints>();
     h.set_top_layer(layer);
     h.set_visible(false);

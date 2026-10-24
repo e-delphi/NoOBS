@@ -11,8 +11,10 @@ use std::time::Duration;
 
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 
-use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, ReplayState, View, WindowItem, WindowMatches};
-use crate::{app_main, lang, log};
+use crate::view::{
+    AudioMeter, Device, Library, MonitorThumb, PendingKind, RecItem, RecState, ReplayState, View, WindowItem, WindowMatches,
+};
+use crate::{app_library, app_main, lang, log};
 
 slint::include_modules!();
 
@@ -132,6 +134,8 @@ impl View for SlintView {
             let t = w.global::<T>();
             t.set_rev(t.get_rev() + 1);
             crate::app_main::on_language_changed(&w);
+            // Rótulos dos períodos, meses e contagens são montados no Rust.
+            app_library::render();
         }
     }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
@@ -221,6 +225,34 @@ impl View for SlintView {
             app_main::on_record_countdown(&w, sec, total);
         }
     }
+
+    fn library(&self, lib: &Library) {
+        app_library::on_library(lib);
+    }
+    fn recording_added(&self, item: &RecItem, free_bytes: i64) {
+        app_library::on_recording_added(item, free_bytes);
+    }
+    fn recording_meta(&self, id: &str, duration: i32, thumb: &str) {
+        app_library::on_recording_meta(id, duration, thumb);
+    }
+    fn recording_renamed(&self, old_id: &str, new_id: &str, new_name: &str) {
+        app_library::on_recording_renamed(old_id, new_id, new_name);
+    }
+    fn recording_removed(&self, id: &str, free_bytes: i64) {
+        app_library::on_recording_removed(id, free_bytes);
+    }
+    fn folder_created(&self, id: &str) {
+        app_library::on_folder_created(id);
+    }
+    fn transcript_search(&self, query: &str, ids: &[String]) {
+        app_library::on_transcript_search(query, ids);
+    }
+    fn merge_pending(&self) {
+        app_library::on_merge_pending();
+    }
+    fn merge_done(&self, ok: bool) {
+        app_library::on_merge_done(ok);
+    }
 }
 
 /// Cria a janela (escondida), registra o [`View`] e liga os callbacks.
@@ -243,9 +275,12 @@ pub fn create() -> Option<AppWindow> {
     w.on_toast_clicked(dismiss_toast);
 
     w.global::<Confirm>().on_accepted(|action, arg| {
-        log!("Confirm: \"{action}\" ({arg}) — sem tratador ainda.");
+        if !app_library::on_confirm(action.as_str()) {
+            log!("Confirm: \"{action}\" ({arg}) — sem tratador.");
+        }
     });
     app_main::setup(&w);
+    app_library::setup(&w);
 
     crate::view::set(Rc::new(SlintView));
     Some(w)

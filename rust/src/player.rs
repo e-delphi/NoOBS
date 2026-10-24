@@ -407,7 +407,7 @@ pub fn save_meta_subset(path: &str, obj_json: &str) {
 
 /// Garante duração e miniatura cacheadas. Duração: do `<hash>.json` ou do Probe
 /// (e guarda); miniatura: `extract_frame_jpeg` a ~10% (altura 240; o card tem
-/// ~212×122 com object-fit:cover). Worker. Devolve `(duração_s, url_da_miniatura)`.
+/// ~212×122 com object-fit:cover). Worker. Devolve `(duração_s, arquivo_da_miniatura)`.
 pub fn ensure_recording_meta(path: &str) -> Option<(i32, String)> {
     if !Path::new(path).exists() || !crate::ffi::ffmpeg::ffmpeg_lib_available() {
         return None;
@@ -442,8 +442,9 @@ pub fn ensure_recording_meta(path: &str) -> Option<(i32, String)> {
             log!("Player: thumbnail falhou para {}", file_name(path));
         }
     }
-    let url = if thumb.exists() { make_url("-thumb", &thumb, ".jpg") } else { String::new() };
-    ((duration > 0) || !url.is_empty()).then_some((duration, url))
+    // A janela decodifica o JPG do cache direto (sem servidor HTTP).
+    let file = if thumb.exists() { thumb.to_string_lossy().into_owned() } else { String::new() };
+    ((duration > 0) || !file.is_empty()).then_some((duration, file))
 }
 
 /// Só lê o cache (instantâneo, sem libav): para a main thread.
@@ -462,8 +463,8 @@ pub fn get_cached_meta(path: &str) -> (i32, String, RecordingMeta) {
         meta = m;
     }
     let thumb = dir.join(format!("{}.jpg", hash_name(path)));
-    let url = if thumb.exists() && SERVER_UP.load(Ordering::SeqCst) { make_url("-thumb", &thumb, ".jpg") } else { String::new() };
-    (meta.duration_sec, url, meta)
+    let file = if thumb.exists() { thumb.to_string_lossy().into_owned() } else { String::new() };
+    (meta.duration_sec, file, meta)
 }
 
 // ---------------------------------------------------------------------------

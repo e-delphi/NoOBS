@@ -2759,6 +2759,7 @@ dependencies = [
  "chrono",
  "embed-resource",
  "flate2",
+ "image",
  "jpeg-encoder",
  "libloading",
  "serde",

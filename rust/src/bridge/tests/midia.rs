@@ -238,8 +238,8 @@ fn abrir_pasta_gera_previa_e_duracao() {
     let r = testkit::wait_for("recording_meta", 20_000).expect("recording_meta");
     assert_eq!(r["id"], f.as_str());
     assert_eq!(r["duration"], 4);
-    let (st, body) = testkit::http_get(r["thumb"].as_str().unwrap(), None);
-    assert_eq!(st, 200);
+    // A janela decodifica o JPG do cache direto (sem servidor HTTP).
+    let body = std::fs::read(r["thumb"].as_str().unwrap()).expect("arquivo da miniatura");
     assert_eq!(&body[..2], b"\xFF\xD8", "miniatura JPEG");
 }
 

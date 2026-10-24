@@ -11,11 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
-
 use crate::ffi::ffmpeg::ffmpeg_lib_available;
 use crate::types::RecordingLayout;
-use crate::{ffmpeg_ops, file_meta, lang, log, mainthread, player, record_watch};
+use crate::{ffmpeg_ops, file_meta, lang, log, mainthread, player, record_watch, view};
 
 use super::library::{
     current_browse_dir, delete_to_recycle_bin, format_bytes_short, is_dir_in_record_dir, is_path_in_record_dir,
@@ -23,7 +21,7 @@ use super::library::{
     scan_recordings_meta, set_browse_dir,
 };
 use super::recording::{last_recording_path, record_dir, recording_active};
-use super::{devices, export, is_shutting_down, post_error, post_json};
+use super::{devices, export, is_shutting_down, post_error};
 
 fn trim_sep(s: &str) -> String {
     s.trim_end_matches(['\\', '/']).to_owned()
@@ -119,7 +117,7 @@ pub fn handle_create_folder(name: &str) {
     push_recordings();
     // DEPOIS da lista: a UI acha o card recém-criado e já abre a edição do
     // nome (o gesto do Explorer). Antes, o card ainda não existiria no DOM.
-    post_json(json!({ "type": "folder_created", "id": new_path }));
+    view::call(move |v| v.folder_created(&new_path));
 }
 
 pub fn handle_rename_folder(path: &str, new_name: &str) {
@@ -203,7 +201,7 @@ pub fn handle_delete_folder(path: &str) {
 }
 
 /// Move gravações e/ou pastas para dentro de outra pasta (arrastar e colar).
-pub fn handle_move_items(ids: &[Value], target: &str) {
+pub fn handle_move_items(ids: &[String], target: &str) {
     let target = if target.is_empty() { trim_sep(&current_browse_dir()) } else { trim_sep(target) };
     if !is_dir_in_record_dir(&target) {
         log!("HandleMoveItems: destino fora da pasta de gravacao: {target}");
@@ -216,7 +214,7 @@ pub fn handle_move_items(ids: &[Value], target: &str) {
     let root = record_root();
     let mut moved = 0;
     for v in ids {
-        let src = trim_sep(v.as_str().unwrap_or("").trim());
+        let src = trim_sep(v.trim());
         if src.is_empty() {
             continue;
         }
@@ -315,13 +313,13 @@ fn common_merge_meta(paths: &[String]) -> Option<crate::types::RecordingMeta> {
 }
 
 fn push_merge_done(ok: bool) {
-    post_json(json!({ "type": "merge_done", "ok": ok }));
+    view::call(move |v| v.merge_done(ok));
 }
 
 /// Une N gravações (na ordem da seleção) num MKV novo por stream copy; os
 /// originais vão pra Lixeira SÓ depois de dar certo. Em worker: arquivos
 /// grandes levam segundos mesmo sem re-encode.
-pub fn handle_merge_recordings(ids: &[Value]) {
+pub fn handle_merge_recordings(ids: &[String]) {
     if ids.len() < 2 {
         return;
     }
@@ -333,7 +331,7 @@ pub fn handle_merge_recordings(ids: &[Value]) {
     let mut paths = Vec::with_capacity(ids.len());
     let mut total: i64 = 0;
     for v in ids {
-        let p = v.as_str().unwrap_or("").to_owned();
+        let p = v.clone();
         if p.is_empty() || !is_path_in_record_dir(&p) || !is_recording_ext(&p) || !Path::new(&p).is_file() {
             push_merge_done(false);
             post_error(lang::t("error.fileNotFound"));
@@ -362,7 +360,7 @@ pub fn handle_merge_recordings(ids: &[Value]) {
         return;
     }
     let out = make_merge_path();
-    post_json(json!({ "type": "merge_pending" }));
+    view::call(|v| v.merge_pending());
 
     std::thread::spawn(move || {
         if is_shutting_down() {
@@ -404,8 +402,8 @@ pub fn handle_merge_recordings(ids: &[Value]) {
             if is_shutting_down() {
                 return;
             }
-            for p in &recycled {
-                post_json(json!({ "type": "recording_removed", "id": p }));
+            for p in recycled {
+                view::call(move |v| v.recording_removed(&p, -1));
             }
             player::garbage_collect_cache(&list_recordings_recursive(&record_root()));
             push_recording_added(&out, 0);

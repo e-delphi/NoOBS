@@ -162,15 +162,29 @@ passando.
   por mensagem, então não há captura dele aberto na web — conferido contra o
   `record.css`), a contagem e a onda (pedem gravação de verdade).
 
+- **Fase 2 — feita.** Biblioteca (`ui/screens/library*.slint`, presenter
+  `src/app_library.rs`): a coluna da direita rola inteira (telas + gravações)
+  com o cabeçalho e o título de cada grupo grudando; pastas, caminho, grupos
+  por período, busca (inclusive na transcrição), seleção com a ordem da
+  união, menu de contexto nos três alvos, renomear no próprio card,
+  recortar/colar (e Ctrl+X/Ctrl+V/Backspace), arrastar pra pasta, pro
+  caminho e pra lixeira, excluir, unir. A biblioteca chega tipada
+  (`View::library` e vizinhos), sem JSON. Conferido por captura contra a web
+  (cabeçalho, grupos e cards alinhados ao pixel). **Provisório**: clicar no
+  card abre no player do Windows até a fase 3; "Exportar" fica apagado e o
+  progresso de exportação no card entra com a fase 5.
+
 ### Como comparar sem tocar na área de trabalho
 
 Scripts em PowerShell, todos só sobre a janela do app: captura por
 `PrintWindow(PW_RENDERFULLCONTENT)` (funciona coberta e fora da tela),
 clique por `PostMessage(WM_LBUTTONDOWN/UP)` em coordenadas da captura
-(menos a borda e a barra de título) e, pra não pular na frente do usuário,
+(menos a borda e a barra de título; também botão direito, duplo clique, roda e
+arrasto com WM_MOUSEMOVE + MK_LBUTTON) e, pra não pular na frente do usuário,
 `ShowWindow(SW_SHOWNOACTIVATE)` + `SetWindowPos` pra x = −4000. A janela do
 WebView2 não aceita o clique por mensagem: a web só dá pra capturar no
-estado em que estiver.
+estado em que estiver. Teclado: o winit ignora WM_CHAR solto — vai
+WM_KEYDOWN por tecla (VK_A… sai minúsculo).
 
 ### O que a fase 1 ensinou
 
@@ -240,14 +254,38 @@ estado em que estiver.
   um `allow(dead_code)` SÓ no build do app (os testes continuam avisando) —
   sai na fase 6.
 
+### O que a fase 2 ensinou
+
+- **O `Flickable` arrasta o conteúdo com o mouse** (gesto de toque): arrastar
+  um card rolava a lista. `mouse-drag-pan-enabled: false` no `ScrollArea`
+  desliga só o arrasto do mouse; roda e toque continuam.
+- **Sem `x`, o Slint centraliza também na horizontal** (não só o `y`): a
+  camada fixa do cabeçalho, 8 px mais estreita que o painel, ficou 4 px à
+  direita.
+- **Uma área de toque por card.** Hover não atravessa: com a área do card por
+  cima, as dos selos nunca recebiam hover (e por baixo, o card perdia o hover
+  sobre eles). Os selos, a caixa de seleção e o número da ordem testam a
+  posição do ponteiro do card.
+- **`position: sticky` é uma camada por cima da rolagem**: cabeçalho e
+  títulos são desenhados fora do `Flickable`, na posição
+  `min(max(natural − rolagem, topo), fim do grupo − altura)`.
+- **Só existem os cards à vista** (com 400 px de folga): a posição de cada um
+  sai das linhas antes do grupo (`rows-before`, que o Rust recalcula quando o
+  número de colunas muda). A miniatura é decodificada numa worker (`image`,
+  só JPEG) quando o card aparece, e ficam no máximo 120 na memória (~400 KB
+  cada na placa); a que sai é tirada do modelo também.
+- **Miniatura é arquivo, não URL**: `player::ensure_recording_meta` /
+  `get_cached_meta` devolvem o caminho do `<hash>.jpg` (o servidor HTTP sai
+  com o player).
+
 | # | Fase | Substitui | Risco |
 |---|---|---|---|
 | 0 | **Fundação**: tira WebView2 e hibernação; janela Slint + janela Win32 oculta; trait `View` + `View` falso dos testes; globais `Theme` e `T`; casca da janela (cabeçalho, navegação), toast, diálogo de confirmação, dica | `index.html` (casca), `bridge.js`, `i18n.js`, `widgets.js`, `base/layout/widgets.css` | médio (laço de mensagens) |
 | 1 | **Tela principal**: cartão de gravar/pausar, buffer, telas/mics/saídas/webcams com prévia e medidor, dispositivos ocultos, gravar janela, área, contagem | `record`, `displays`, `replay`, `windowpicker`, `area`, `hotkey` | baixo |
-| 2 | **Biblioteca**: cards com prévia, grupos por data, pastas, navegação, busca (inclusive na transcrição), seleção, menu de contexto, renomear, arrastar, progresso de exportação no card | `recordings`, `folders`, `main` (menu) | médio (arrastar) |
+| 2 | **Biblioteca**: cards com prévia, grupos por data, pastas, navegação, busca (inclusive na transcrição), seleção, menu de contexto, renomear, arrastar | `recordings`, `folders`, `main` (menu) | médio (arrastar) |
 | 3 | **Player**: o da prova de conceito + áudio e faixas, velocidade, saltos, forma de onda, zoom/região, painel de informações, transcrição ao lado e legenda | `player` | **alto** (áudio) |
 | 4 | **Configurações**: todas as abas, editor genérico dos filtros de áudio, teste de qualidade, transcrição (fila, diagnóstico, motor local), atalhos | `settings`, `audiofilters`, `videotest`, `transcribe`, `hotkeys` | médio (volume) |
-| 5 | **Exportação**: prévia com composição, recorte com alças e zoom, linha do tempo com cortes e forma de onda, faixas, CC | `export` | alto (volume e interação) |
+| 5 | **Exportação**: prévia com composição, recorte com alças e zoom, linha do tempo com cortes e forma de onda, faixas, CC, progresso no card da origem | `export` | alto (volume e interação) |
 | 6 | **Fechamento**: instalador sem WebView2, `startup_check`, README e CLAUDE.md (protocolo, hibernação, pegadinhas que mudaram), sai o `bridge::dispatch`/`post_json` e o `allow(dead_code)` do `lib.rs`, conferência visual final de todas as telas | — | baixo |
 
 A ordem põe primeiro o que destrava o resto (0), depois o que se usa todo

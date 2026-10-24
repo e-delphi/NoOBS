@@ -15,6 +15,9 @@ export component ScrollArea {
         height: root.height;
         content-width: root.width;
         content-height: max(root.height, root.content-h);
+        // Como na web: o mouse não arrasta o conteúdo (só roda e toque). Sem
+        // isto, arrastar um card rolava a lista em vez de mover o card.
+        mouse-drag-pan-enabled: false;
         @children
     }
 

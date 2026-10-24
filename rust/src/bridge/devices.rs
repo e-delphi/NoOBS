@@ -13,7 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::json;
 
 use crate::audio_tracks::compute_audio_track_assignments;
 use crate::audio_watch::{self, DeviceChangeKind};
@@ -25,7 +24,7 @@ use crate::win_preview::{self, MonitorInfo};
 use crate::{config, lang, log, mainthread, ui, win_webcam};
 
 use super::recording::{push_refresh_busy, record_dir, recording_active};
-use super::{is_shutting_down, post_json};
+use super::is_shutting_down;
 
 pub const PFX_MONITOR: &str = "NoOBS Monitor ";
 pub const PFX_MIC: &str = "NoOBS Mic - ";
@@ -318,22 +317,7 @@ pub fn push_init(include_audio: bool) {
         let (mics, spks) = build_audio_with_tracks();
         view::call(move |v| v.audio_sources(&mics, &spks, true, &[]));
     }
-    // A biblioteca (gravações da pasta navegada + pastas + caminho) e as
-    // preferências ainda vão no formato antigo: telas ainda não portadas
-    // (docs/ui-slint.md, fases 2 e 4).
-    let dir = record_dir().to_string_lossy().into_owned();
-    let mut init = json!({
-        "type": "init",
-        "language": lang::current_language(),
-        "recordDir": dir,
-        "freeBytes": record_dir_free_bytes(),
-        "languagePref": config::get_config_str("language", ""),
-        "languages": lang::available_languages(),
-    });
-    for (k, v) in super::library::init_listing() {
-        init[k] = v;
-    }
-    post_json(init);
+    super::library::push_recordings();
 }
 
 // ---------------------------------------------------------------------------

@@ -175,6 +175,10 @@ fn str_field<'a>(obj: &'a Value, key: &str) -> &'a str {
     obj.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+fn str_list(arr: &[Value]) -> Vec<String> {
+    arr.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()
+}
+
 fn bool_field(obj: &Value, key: &str, default: bool) -> bool {
     obj.get(key).and_then(Value::as_bool).unwrap_or(default)
 }
@@ -272,12 +276,12 @@ fn dispatch_inner(raw: &str) {
         "delete_folder" => folders::handle_delete_folder(str_field(&msg, "id")),
         "move_items" => {
             if let Some(ids) = msg.get("ids").and_then(Value::as_array) {
-                folders::handle_move_items(ids, str_field(&msg, "target"));
+                folders::handle_move_items(&str_list(ids), str_field(&msg, "target"));
             }
         }
         "merge_recordings" => {
             if let Some(ids) = msg.get("ids").and_then(Value::as_array) {
-                folders::handle_merge_recordings(ids);
+                folders::handle_merge_recordings(&str_list(ids));
             }
         }
         "get_replay_state" => replay::push_replay_state(),
@@ -532,6 +536,12 @@ pub use replay::{handle_save_replay, handle_set_replay_enabled};
 pub use window_record::{handle_list_capture_windows, handle_record_window};
 pub use area::handle_select_capture_area;
 pub use hotkeys::{saved_areas, trigger as trigger_hotkey};
+pub use export::export_in_use;
+pub use folders::{
+    handle_create_folder, handle_delete_folder, handle_merge_recordings, handle_move_items, handle_open_folder, handle_rename_folder,
+};
+pub use library::{handle_delete_recording, handle_open_record_dir, handle_open_recording, handle_rename_recording};
+pub use transcribe::{handle_search_transcripts, handle_transcribe_recording};
 
 /// O botão de gravar: na contagem do atraso da área, ele CANCELA (mesma
 /// regra do `record_start` do dispatch).

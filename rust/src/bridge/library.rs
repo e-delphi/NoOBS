@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Local, Timelike};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
-use crate::types::RecordingMeta;
+use crate::view::{self, Crumb, FolderItem, Library, RecItem};
 use crate::{config, ffmpeg_ops, lang, log, mainthread, player, probe, record_watch, ui};
 
 use super::recording::{last_recording_path, record_dir, recording_active};
@@ -277,31 +277,33 @@ fn file_name(p: &str) -> String {
     Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Selos de COMO a gravação foi feita; cada chave só aparece se conhecida
-/// (gravação anterior a estes campos não tem nenhuma e a UI não desenha selo).
-fn add_recording_badges(item: &mut Value, meta: &RecordingMeta) {
-    if !meta.codec.is_empty() {
-        item["codec"] = json!(meta.codec);
-        item["codecHw"] = json!(meta.codec_hw);
-    }
-    if meta.fps > 0 {
-        item["fps"] = json!(meta.fps);
-    }
-    if meta.quality_level >= 0 {
-        item["quality"] = json!(meta.quality_level);
+/// Um card da galeria, só com o que o cache já sabe (instantâneo, sem libav).
+/// Os selos de COMO foi gravada só vêm se conhecidos: gravação anterior a
+/// esses campos não tem nenhum e a interface não desenha selo.
+fn build_rec_item(path: &str, mtime: SystemTime, size: i64, duration: i32) -> RecItem {
+    let (dur, thumb, meta) = player::get_cached_meta(path);
+    RecItem {
+        id: path.to_owned(),
+        name: file_stem(path),
+        date: iso_local(mtime),
+        size,
+        size_text: format_bytes_short(size),
+        duration: if duration > 0 { duration } else { dur.max(0) },
+        thumb,
+        codec: meta.codec.clone(),
+        codec_hw: meta.codec_hw,
+        fps: meta.fps,
+        quality: meta.quality_level,
+        // Só aparece quando JÁ foi transcrita.
+        transcript: crate::transcribe::transcript_state(path).to_owned(),
     }
 }
 
-/// `TranscriptState` — selo "transcrita" ('' = nenhum).
-fn transcript_state(path: &str) -> String {
-    crate::transcribe::transcript_state(path).to_owned()
-}
-
-fn build_recordings_array() -> Value {
+fn build_recordings() -> Vec<RecItem> {
     // Lista a pasta NAVEGADA, não a raiz (na raiz as duas são a mesma coisa).
     let dir = current_browse_dir();
     if dir.is_empty() || !Path::new(&dir).is_dir() {
-        return json!([]);
+        return Vec::new();
     }
     let recording = recording_active();
     let last = last_recording_path();
@@ -314,51 +316,31 @@ fn build_recordings_array() -> Value {
         }
         let Ok(md) = std::fs::metadata(&path) else { continue };
         let Ok(mtime) = md.modified() else { continue };
-        let size = md.len() as i64;
-        let (dur, thumb, meta) = player::get_cached_meta(&path);
-        let mut item = json!({
-            "id": path,
-            "name": file_stem(&path),
-            "date": iso_local(mtime),
-            "size": size,
-            "sizeText": format_bytes_short(size),
-            "duration": if dur > 0 { json!(dur) } else { json!("") },
-        });
-        if !thumb.is_empty() {
-            item["thumb"] = json!(thumb);
-        }
-        add_recording_badges(&mut item, &meta);
-        // Só aparece quando JÁ foi transcrita.
-        let tr = transcript_state(&path);
-        if !tr.is_empty() {
-            item["transcript"] = json!(tr);
-        }
-        items.push(item);
+        items.push(build_rec_item(&path, mtime, md.len() as i64, 0));
     }
-    Value::Array(items)
+    items
 }
 
 /// Subpastas da pasta navegada, cada uma com quantas gravações guarda
 /// (recursivo) e quanto ocupam. Na raiz, as pastas ocultas ficam de fora.
-fn build_folders_array() -> Value {
+fn build_folders() -> Vec<FolderItem> {
     let hidden = if is_browse_root() { hidden_folder_names() } else { Vec::new() };
-    let items = list_sub_folders(&current_browse_dir())
+    list_sub_folders(&current_browse_dir())
         .into_iter()
         .filter(|d| !is_hidden_folder_name(&file_name(d), &hidden))
         .map(|d| {
             let (cnt, sz) = folder_stats(&d);
-            json!({ "id": d, "name": file_name(&d), "count": cnt, "size": sz, "sizeText": format_bytes_short(sz) })
+            FolderItem { name: file_name(&d), count: cnt as i64, size: sz, size_text: format_bytes_short(sz), id: d }
         })
-        .collect();
-    Value::Array(items)
+        .collect()
 }
 
 /// Caminho da raiz até a pasta navegada, um item por nível. O primeiro é sempre
-/// a pasta de gravação (a UI desenha como "início").
-fn build_breadcrumb_array() -> Value {
+/// a pasta de gravação (a interface desenha como "início").
+fn build_breadcrumb() -> Vec<Crumb> {
     let root = record_dir().to_string_lossy().into_owned();
     let root = trim_sep(&root).to_owned();
-    let mut items = vec![json!({ "id": root, "name": file_name(&root), "root": true })];
+    let mut items = vec![Crumb { id: root.clone(), name: file_name(&root), root: true }];
     if !is_browse_root() {
         let cur = current_browse_dir();
         let cur = trim_sep(&cur);
@@ -366,51 +348,39 @@ fn build_breadcrumb_array() -> Value {
         let mut acc = root.clone();
         for part in rel.split('\\').filter(|p| !p.is_empty()) {
             acc = format!("{acc}\\{part}");
-            items.push(json!({ "id": acc, "name": part, "root": false }));
+            items.push(Crumb { id: acc.clone(), name: part.to_owned(), root: false });
         }
     }
-    Value::Array(items)
+    items
 }
 
-/// Campos de navegação que acompanham TODA listagem (`init` e
-/// `recordings_loaded`): mandar junto evita um estado que diverge da lista que
-/// chegou no mesmo push.
-pub fn add_browse_info(obj: &mut Value) {
-    obj["folders"] = build_folders_array();
-    obj["currentDir"] = json!(trim_sep(&current_browse_dir()));
-    obj["parentDir"] = json!(browse_parent_dir());
-    obj["atRoot"] = json!(is_browse_root());
-    obj["breadcrumb"] = build_breadcrumb_array();
-}
-
-/// A parte de listagem do `init`: `recordings` + navegação.
-pub fn init_listing() -> Map<String, Value> {
-    let mut o = json!({ "recordings": build_recordings_array() });
-    add_browse_info(&mut o);
-    o.as_object().cloned().unwrap_or_default()
+/// A biblioteca inteira da pasta navegada: lista e navegação no MESMO push,
+/// pra nunca divergirem.
+pub fn build_library() -> Library {
+    Library {
+        recordings: build_recordings(),
+        folders: build_folders(),
+        current_dir: trim_sep(&current_browse_dir()).to_owned(),
+        parent_dir: browse_parent_dir(),
+        at_root: is_browse_root(),
+        breadcrumb: build_breadcrumb(),
+        record_dir: record_dir().to_string_lossy().into_owned(),
+        free_bytes: super::devices::record_dir_free_bytes(),
+    }
 }
 
 pub fn push_recordings() {
-    let mut obj = json!({
-        "type": "recordings_loaded",
-        "recordings": build_recordings_array(),
-        "recordDir": record_dir().to_string_lossy(),
-        "freeBytes": super::devices::record_dir_free_bytes(),
-    });
-    add_browse_info(&mut obj);
-    post_json(obj);
+    let lib = build_library();
+    view::call(move |v| v.library(&lib));
 }
 
-pub fn push_recording_meta(path: &str, duration: i32, thumb_url: &str) {
-    let mut obj = json!({ "type": "recording_meta", "id": path, "duration": duration });
-    if !thumb_url.is_empty() {
-        obj["thumb"] = json!(thumb_url);
-    }
-    post_json(obj);
+pub fn push_recording_meta(path: &str, duration: i32, thumb: &str) {
+    let (path, thumb) = (path.to_owned(), thumb.to_owned());
+    view::call(move |v| v.recording_meta(&path, duration, &thumb));
 }
 
 /// Um card novo (fim da gravação, exportação, união). Só entra se o arquivo
-/// pertence à pasta que a UI mostra: gravação nova sempre cai na RAIZ, e
+/// pertence à pasta que a interface mostra: gravação nova sempre cai na RAIZ, e
 /// empurrar o card enquanto o usuário navega numa subpasta o poria visualmente
 /// onde ele não está.
 pub fn push_recording_added(path: &str, duration_sec: i32) {
@@ -433,32 +403,15 @@ pub fn push_recording_added(path: &str, duration_sec: i32) {
     };
     let size = md.len() as i64;
     log!("PushRecordingAdded: size={size} bytes");
-    let mut item = json!({
-        "id": path,
-        "name": file_stem(path),
-        "date": iso_local(md.modified().unwrap_or(SystemTime::now())),
-        "size": size,
-        "sizeText": format_bytes_short(size),
-        "duration": duration_sec,
-    });
     // O SaveRecordingMeta já rodou (o stop chama antes deste push): os selos já
     // estão no <hash>.json.
-    let (_, _, meta) = player::get_cached_meta(path);
-    add_recording_badges(&mut item, &meta);
-    let tr = transcript_state(path);
-    if !tr.is_empty() {
-        item["transcript"] = json!(tr);
-    }
-    post_json(json!({
-        "type": "recording_added",
-        "item": item,
-        // Gravação nova consumiu disco: atualiza o "X GB livre" e o aviso (<5 GB).
-        "freeBytes": super::devices::record_dir_free_bytes(),
-    }));
+    let item = build_rec_item(path, md.modified().unwrap_or(SystemTime::now()), size, duration_sec);
+    // Gravação nova consumiu disco: atualiza o "X GB livre" e o aviso (<5 GB).
+    let free = super::devices::record_dir_free_bytes();
+    view::call(move |v| v.recording_added(&item, free));
     // Gera a miniatura em background; chega depois via recording_meta.
     scan_single_recording_meta(path);
 }
-
 // ---------------------------------------------------------------------------
 // Scan de metadados (duração + miniatura) em worker
 // ---------------------------------------------------------------------------
@@ -914,12 +867,8 @@ pub fn handle_rename_recording(old_path: &str, new_name: &str) {
     // Migra o cache (thumb/duração/mp4/json/faixas) do hash antigo para o novo —
     // senão fica órfão até o próximo GC e a gravação regenera tudo do zero.
     player::rename_cache_entries(old_path, &new_path_s);
-    post_json(json!({
-        "type": "recording_renamed",
-        "oldId": old_path,
-        "newId": new_path_s,
-        "newName": file_stem(&new_path_s),
-    }));
+    let (old_id, name) = (old_path.to_owned(), file_stem(&new_path_s));
+    view::call(move |v| v.recording_renamed(&old_id, &new_path_s, &name));
 }
 
 pub fn handle_open_record_dir() {
@@ -1026,12 +975,9 @@ pub fn handle_delete_recording(path: &str) {
             // A transcrição é por gravação: sem isto ficaria órfã no cache e ainda
             // apareceria na busca por texto; esperando na fila, sai junto, sem aviso.
             super::transcribe::forget_recording(&path);
-            post_json(json!({
-                "type": "recording_removed",
-                "id": path,
-                // O delete liberou espaço: refresh do indicador na UI.
-                "freeBytes": super::devices::record_dir_free_bytes(),
-            }));
+            // O delete liberou espaço: refresh do indicador na interface.
+            let free = super::devices::record_dir_free_bytes();
+            view::call(move |v| v.recording_removed(&path, free));
         });
     });
 }

@@ -4,7 +4,7 @@
 // `z-index` da web: diálogo de confirmação, avisos e a dica.
 //
 // As telas entram por fase (docs/ui-slint.md): a coluna de fontes na fase 1,
-// as gravações na 2.
+// telas e gravações (`LibraryPane`) na 2.
 
 import { Theme } from "theme.slint";
 import { T } from "i18n.slint";
@@ -13,11 +13,13 @@ import { ToastItem, ToastStack } from "widgets/toast.slint";
 import { Confirm, ConfirmDialog } from "widgets/confirm.slint";
 import { Main, SourceItem, LegendItem, DisplayItem } from "screens/main_state.slint";
 import { SourcesColumn } from "screens/sources.slint";
-import { DisplaysBlock } from "screens/displays.slint";
+import { LibraryPane, ContextMenu, DragGhost } from "screens/library.slint";
+import { Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem } from "screens/library_state.slint";
 import { WindowPicker } from "screens/window_picker.slint";
 import { WindowCard, SavedArea } from "screens/main_state.slint";
 
-export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea }
+export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea,
+    Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -63,20 +65,13 @@ export component AppWindow inherits Window {
             background: Theme.border;
         }
     }
-    // `.recordings`: padding 0 22 18. As gravações entram na fase 2.
-    recordings := Rectangle {
+    // `.recordings`: telas + biblioteca, rolando juntas.
+    recordings := LibraryPane {
         visible: !root.narrow;
         x: sources.width;
         y: 0;
         width: root.width - sources.width;
         height: root.height;
-        VerticalLayout {
-            padding-left: 22px;
-            padding-right: 22px;
-            padding-bottom: 18px;
-            alignment: start;
-            DisplaysBlock { }
-        }
     }
 
     // Onda vermelha ao começar a gravar (`.record-ripple`): anel de 200 px
@@ -101,6 +96,20 @@ export component AppWindow inherits Window {
 
     // Camadas por cima: tamanho explícito, pra não restringirem a janela.
     WindowPicker {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    ContextMenu {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    DragGhost {
         x: 0;
         y: 0;
         width: root.width;

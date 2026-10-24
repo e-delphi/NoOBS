@@ -56,6 +56,7 @@ pub mod ffi;
 pub mod capture;
 
 modulos! {
+    app_library,
     app_main,
     app_view,
     sounds,

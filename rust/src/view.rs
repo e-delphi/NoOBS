@@ -135,6 +135,65 @@ pub struct WindowMatches {
     pub items: Vec<WindowItem>,
 }
 
+/// Uma gravação da biblioteca (um card).
+#[derive(Clone, Debug, Default)]
+pub struct RecItem {
+    /// Caminho completo (é o id em toda a biblioteca).
+    pub id: String,
+    /// Nome do arquivo sem extensão.
+    pub name: String,
+    /// Data de modificação, local (`2026-10-23T18:53:52`): agrupa por dia.
+    pub date: String,
+    pub size: i64,
+    pub size_text: String,
+    /// Segundos (0 = ainda não medida).
+    pub duration: i32,
+    /// Miniatura no cache (`<hash>.jpg`); vazia = ainda não gerada.
+    pub thumb: String,
+    /// Selos de como foi gravada: vazios/negativos = desconhecido.
+    pub codec: String,
+    pub codec_hw: bool,
+    pub fps: i32,
+    pub quality: i32,
+    /// `ok` (transcrita), `empty` (transcrita, sem fala) ou vazio.
+    pub transcript: String,
+}
+
+/// Uma subpasta da pasta navegada (card de pasta).
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderItem {
+    pub id: String,
+    pub name: String,
+    /// Gravações dentro (recursivo) e quanto ocupam.
+    pub count: i64,
+    pub size: i64,
+    pub size_text: String,
+}
+
+/// Um nível do caminho até a pasta navegada. O primeiro é a raiz.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Crumb {
+    pub id: String,
+    pub name: String,
+    pub root: bool,
+}
+
+/// A biblioteca inteira da pasta navegada (o `recordings_loaded` da web): a
+/// lista e a navegação chegam juntas, pra nunca divergirem.
+#[derive(Clone, Debug, Default)]
+pub struct Library {
+    pub recordings: Vec<RecItem>,
+    pub folders: Vec<FolderItem>,
+    pub current_dir: String,
+    pub parent_dir: String,
+    pub at_root: bool,
+    pub breadcrumb: Vec<Crumb>,
+    pub record_dir: String,
+    /// Espaço livre no disco da pasta de gravação (-1 = desconhecido).
+    pub free_bytes: i64,
+}
+
 /// Qual lista mudou durante a gravação (o banner de "atualiza ao parar").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PendingKind {
@@ -198,6 +257,51 @@ pub trait View {
     fn window_picker_matches(&self, m: &WindowMatches);
     /// Contagem do atraso de um atalho: `sec` restantes de `total` (0 = acabou).
     fn record_countdown(&self, sec: u32, total: u32);
+
+    // ---- biblioteca ----
+    /// A lista da pasta navegada, inteira (navegar, mover, renomear pasta, o
+    /// watcher da pasta).
+    fn library(&self, lib: &Library);
+    /// Um card novo na pasta navegada (fim de gravação, união, trecho salvo).
+    fn recording_added(&self, item: &RecItem, free_bytes: i64);
+    /// Miniatura e/ou duração ficaram prontas (`thumb` vazio = sem miniatura).
+    fn recording_meta(&self, id: &str, duration: i32, thumb: &str);
+    fn recording_renamed(&self, old_id: &str, new_id: &str, new_name: &str);
+    /// Saiu da biblioteca. `free_bytes` < 0 = não mudou.
+    fn recording_removed(&self, id: &str, free_bytes: i64);
+    /// Pasta criada pela interface: já está na lista, entra em edição do nome.
+    fn folder_created(&self, id: &str);
+    /// Gravações cuja TRANSCRIÇÃO casa com a busca `query`.
+    fn transcript_search(&self, query: &str, ids: &[String]);
+    /// União em curso / terminou.
+    fn merge_pending(&self);
+    fn merge_done(&self, ok: bool);
+}
+
+/// O formato antigo de um card (`recordings_loaded`/`recording_added`).
+#[cfg(any(test, feature = "app-tests"))]
+fn rec_item_json(it: &RecItem) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "id": it.id, "name": it.name, "date": it.date, "size": it.size, "sizeText": it.size_text,
+        "duration": if it.duration > 0 { serde_json::json!(it.duration) } else { serde_json::json!("") },
+    });
+    if !it.thumb.is_empty() {
+        v["thumb"] = it.thumb.clone().into();
+    }
+    if !it.codec.is_empty() {
+        v["codec"] = it.codec.clone().into();
+        v["codecHw"] = it.codec_hw.into();
+    }
+    if it.fps > 0 {
+        v["fps"] = it.fps.into();
+    }
+    if it.quality >= 0 {
+        v["quality"] = it.quality.into();
+    }
+    if !it.transcript.is_empty() {
+        v["transcript"] = it.transcript.clone().into();
+    }
+    v
 }
 
 thread_local! {
@@ -322,5 +426,45 @@ impl View for Recorder {
     }
     fn record_countdown(&self, sec: u32, total: u32) {
         crate::bridge::post_json(serde_json::json!({ "type": "record_countdown", "sec": sec, "total": total }));
+    }
+    fn library(&self, lib: &Library) {
+        let recs: Vec<_> = lib.recordings.iter().map(rec_item_json).collect();
+        crate::bridge::post_json(serde_json::json!({
+            "type": "recordings_loaded", "recordings": recs, "recordDir": lib.record_dir, "freeBytes": lib.free_bytes,
+            "folders": lib.folders, "currentDir": lib.current_dir, "parentDir": lib.parent_dir,
+            "atRoot": lib.at_root, "breadcrumb": lib.breadcrumb,
+        }));
+    }
+    fn recording_added(&self, item: &RecItem, free_bytes: i64) {
+        crate::bridge::post_json(serde_json::json!({ "type": "recording_added", "item": rec_item_json(item), "freeBytes": free_bytes }));
+    }
+    fn recording_meta(&self, id: &str, duration: i32, thumb: &str) {
+        let mut v = serde_json::json!({ "type": "recording_meta", "id": id, "duration": duration });
+        if !thumb.is_empty() {
+            v["thumb"] = thumb.into();
+        }
+        crate::bridge::post_json(v);
+    }
+    fn recording_renamed(&self, old_id: &str, new_id: &str, new_name: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "recording_renamed", "oldId": old_id, "newId": new_id, "newName": new_name }));
+    }
+    fn recording_removed(&self, id: &str, free_bytes: i64) {
+        let mut v = serde_json::json!({ "type": "recording_removed", "id": id });
+        if free_bytes >= 0 {
+            v["freeBytes"] = free_bytes.into();
+        }
+        crate::bridge::post_json(v);
+    }
+    fn folder_created(&self, id: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "folder_created", "id": id }));
+    }
+    fn transcript_search(&self, query: &str, ids: &[String]) {
+        crate::bridge::post_json(serde_json::json!({ "type": "transcript_search", "query": query, "ids": ids }));
+    }
+    fn merge_pending(&self) {
+        crate::bridge::post_json(serde_json::json!({ "type": "merge_pending" }));
+    }
+    fn merge_done(&self, ok: bool) {
+        crate::bridge::post_json(serde_json::json!({ "type": "merge_done", "ok": ok }));
     }
 }

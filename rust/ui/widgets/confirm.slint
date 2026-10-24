@@ -5,6 +5,7 @@
 
 import { Theme } from "../theme.slint";
 import { T } from "../i18n.slint";
+import { Hints } from "hint.slint";
 
 export global Confirm {
     in-out property <bool> visible;
@@ -70,6 +71,13 @@ component ConfirmButton {
 
 export component ConfirmDialog {
     property <bool> down-on-backdrop;
+    // Aberto, só as dicas do diálogo valem (a do botão que o abriu ficaria por
+    // cima dele: o hover só é reavaliado no próximo movimento).
+    property <bool> open: Confirm.visible;
+    changed open => {
+        Hints.top-layer = self.open ? 1 : 0;
+        Hints.visible = false;
+    }
     visible: self.opacity > 0;
     opacity: Confirm.visible ? 1 : 0;
     animate opacity { duration: 160ms; easing: ease; }

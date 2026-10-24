@@ -18,6 +18,8 @@ import { Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem } from "screens/
 import { Pl, InfoRow, InfoSection, ViewOpt, TrackRow, TurnRow } from "screens/player_state.slint";
 import { PlayerOverlay } from "screens/player.slint";
 import { SettingsScreen } from "screens/settings.slint";
+import { ExportScreen } from "screens/export.slint";
+import { Ex, ExChk, ExRow, ExTick, ExCut, ExLabel } from "screens/export_state.slint";
 import { St, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel } from "screens/settings_state.slint";
 import { SelOpt } from "widgets/form.slint";
 import { WindowPicker } from "screens/window_picker.slint";
@@ -25,7 +27,8 @@ import { WindowCard, SavedArea } from "screens/main_state.slint";
 
 export { Theme, T, Hints, Confirm, ToastItem, Main, SourceItem, LegendItem, DisplayItem, WindowCard, SavedArea,
     Lib, RecCard, RecGroup, FolderCard, PathCrumb, CtxItem, Pl, InfoRow, InfoSection,
-    ViewOpt, TrackRow, TurnRow, St, SelOpt, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel }
+    ViewOpt, TrackRow, TurnRow, St, SelOpt, FolderRow, DevRow, DevGroup, HkRow, QItem, VtLevel,
+    Ex, ExChk, ExRow, ExTick, ExCut, ExLabel }
 
 export component AppWindow inherits Window {
     // `windowTitle` do config (barra de título e taskbar).
@@ -124,6 +127,15 @@ export component AppWindow inherits Window {
 
     // Configurações (`z-index: 8500` na web): abaixo do player.
     SettingsScreen {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // Exportação (`z-index: 8600`): acima das Configurações, abaixo do player
+    // (a prévia gerada abre no player por cima dela).
+    ExportScreen {
         x: 0;
         y: 0;
         width: root.width;

@@ -69,20 +69,22 @@ export component SDivider inherits Rectangle {
 export component CheckBox {
     in property <bool> checked;
     in property <length> size: 16px;
+    // Desativada: o cinza do Chromium (sem a cor de destaque).
+    in property <bool> disabled;
     width: root.size;
     height: root.size;
     Rectangle {
         border-radius: 2px;
         border-width: root.checked ? 0 : 1px;
-        border-color: #767676;
-        background: root.checked ? Theme.success : white;
+        border-color: root.disabled ? #8f8f8f : #767676;
+        background: root.disabled ? (root.checked ? #949494 : #a5a5a5) : root.checked ? Theme.success : white;
     }
     if root.checked: Path {
         width: root.size;
         height: root.size;
         viewbox-width: 16;
         viewbox-height: 16;
-        stroke: #1f2320;
+        stroke: root.disabled ? #d0d0d0 : #1f2320;
         stroke-width: root.size * 2.2 / 16;
         fill: transparent;
         stroke-line-cap: round;

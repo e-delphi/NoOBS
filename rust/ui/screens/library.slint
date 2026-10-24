@@ -137,6 +137,11 @@ component RecCardView {
     property <bool> hover: ta.has-hover && !Lib.dragging;
     property <bool> dragged-self: Lib.dragging && ta.pressed;
     property <bool> show-check: root.hover || root.select-mode || root.item.selected;
+    property <bool> exporting: Lib.export-id != "" && Lib.export-id == root.item.id;
+    // O × do rodapé de exportação (o TouchArea do card fica por cima de tudo).
+    property <length> xbtn-y: 1px + root.thumb-h - 41px + 7px;
+    property <bool> in-xbtn: root.exporting && ta.has-hover && ta.mouse-x >= root.width - 29px && ta.mouse-x < root.width - 11px
+        && ta.mouse-y >= root.xbtn-y && ta.mouse-y < root.xbtn-y + 18px;
     // Ponteiro na janela (os selos testam por posição).
     property <length> px: root.absolute-position.x + ta.mouse-x;
     property <length> py: root.absolute-position.y + ta.mouse-y;
@@ -359,11 +364,73 @@ component RecCardView {
                 }
             }
         }
+        // Exportação em curso desta gravação (`.rec-export`): rótulo, cancelar
+        // e a barra. Na web é um rodapé que alonga o card; aqui fica sobre a
+        // base da miniatura, pra grade não mudar de altura no meio da linha.
+        if root.exporting: Rectangle {
+            x: 1px;
+            y: 1px + root.thumb-h - self.height;
+            width: parent.width - 2px;
+            height: 1px + 6px + 18px + 4px + 4px + 8px;
+            background: Theme.panel;
+            Rectangle { background: Theme.accent-bg; }
+            Rectangle {
+                y: 0;
+                height: 1px;
+                background: Theme.border;
+            }
+            Text {
+                x: 10px;
+                y: 7px;
+                width: parent.width - 20px - 24px;
+                height: 18px;
+                text: Lib.export-label;
+                font-size: 10.5px;
+                color: Lib.export-canceling ? Theme.text-3 : Theme.accent-2;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Rectangle {
+                x: parent.width - 10px - 18px;
+                y: 7px;
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                background: root.in-xbtn && !Lib.export-canceling ? Theme.danger : transparent;
+                opacity: Lib.export-canceling ? 0.4 : 1;
+                StrokeIcon {
+                    size: 11px;
+                    thickness: 2.4;
+                    commands: "M18 6L6 18 M6 6L18 18";
+                    stroke: root.in-xbtn && !Lib.export-canceling ? white : Theme.text-3;
+                }
+                HintTrigger {
+                    hovered: root.in-xbtn;
+                    hint: T.s("recordings.cancelExport");
+                }
+            }
+            Rectangle {
+                x: 10px;
+                y: 7px + 18px + 4px;
+                width: parent.width - 20px;
+                height: 4px;
+                border-radius: 2px;
+                background: Theme.border-2;
+                clip: true;
+                Rectangle {
+                    x: 0;
+                    width: parent.width * Lib.export-pct;
+                    border-radius: 2px;
+                    background: Lib.export-canceling ? Theme.border-2 : Theme.accent;
+                    animate width { duration: 200ms; }
+                }
+            }
+        }
         // Borda (por cima da miniatura, como a do CSS).
         Rectangle {
             border-radius: 8px;
             border-width: 1px;
-            border-color: root.hover ? Theme.border-2 : Theme.border;
+            border-color: root.exporting && !Lib.export-canceling ? Theme.accent : root.hover ? Theme.border-2 : Theme.border;
             animate border-color { duration: 150ms; }
         }
     }
@@ -401,6 +468,12 @@ component RecCardView {
             }
             if root.in-check {
                 Lib.toggle-select(root.item.id);
+                return;
+            }
+            if root.in-xbtn {
+                if !Lib.export-canceling {
+                    Lib.export-cancel();
+                }
                 return;
             }
             // O corpo (nome + tamanho) não abre: é o alvo do duplo clique.

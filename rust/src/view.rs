@@ -499,6 +499,14 @@ pub trait View {
     fn transcribe_queue(&self, items: &[QueueItem]);
     fn local_asr_state(&self, st: &LocalAsrInfo);
     fn root_folders(&self, folders: &[RootFolder]);
+    /// Exportação em curso: `pct` 0..100 e a gravação de ORIGEM (a barra vive
+    /// no card dela, com a tela fechada).
+    fn export_progress(&self, pct: f64, source: &str);
+    /// Exportação terminada (`path` = arquivo novo, se deu certo).
+    fn export_done(&self, ok: bool, canceled: bool, path: &str, source: &str);
+    /// Prévia da exportação (alguns segundos, numa pasta temporária).
+    fn export_preview_progress(&self, pct: f64);
+    fn export_preview_done(&self, ok: bool, canceled: bool, path: &str);
 }
 
 /// O formato antigo de um card (`recordings_loaded`/`recording_added`).
@@ -801,5 +809,17 @@ impl View for Recorder {
             })
             .collect();
         crate::bridge::post_json(serde_json::json!({ "type": "root_folders", "folders": arr }));
+    }
+    fn export_progress(&self, pct: f64, source: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "export_progress", "pct": pct, "id": source }));
+    }
+    fn export_done(&self, ok: bool, canceled: bool, path: &str, source: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "export_done", "ok": ok, "canceled": canceled, "path": path, "sourceId": source }));
+    }
+    fn export_preview_progress(&self, pct: f64) {
+        crate::bridge::post_json(serde_json::json!({ "type": "export_preview_progress", "pct": pct }));
+    }
+    fn export_preview_done(&self, ok: bool, canceled: bool, path: &str) {
+        crate::bridge::post_json(serde_json::json!({ "type": "export_preview_done", "ok": ok, "canceled": canceled, "path": path }));
     }
 }

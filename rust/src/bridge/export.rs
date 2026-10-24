@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::time::{Instant, SystemTime};
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::export_captions::CaptionTurn;
 use crate::ffmpeg_export::{
@@ -37,7 +37,7 @@ use super::devices::record_dir_free_bytes;
 use super::transcribe::SPEAKERS_META_KEY;
 use super::library::{format_bytes_short, is_path_in_record_dir, is_recording_ext, list_recordings_recursive, push_recording_added, sanitize_file_name};
 use super::recording::{last_encoder_caps, record_dir, recording_active};
-use super::{is_shutting_down, post_error, post_json};
+use super::{is_shutting_down, post_error};
 
 /// Intervalo mínimo entre pushes de progresso: sem isso o JS recebe centenas de
 /// mensagens por segundo e a fila do WebView engasga.
@@ -96,11 +96,12 @@ fn source() -> String {
 fn push_export_progress(pct: f64) {
     LAST_PCT.with(|p| p.set(pct));
     if PREVIEW.with(Cell::get) {
-        post_json(json!({ "type": "export_preview_progress", "pct": pct }));
+        crate::view::call(move |v| v.export_preview_progress(pct));
         return;
     }
     // Id da ORIGEM: com a tela fechada, a barra vive no card dela.
-    post_json(json!({ "type": "export_progress", "pct": pct, "id": source() }));
+    let src = source();
+    crate::view::call(move |v| v.export_progress(pct, &src));
 }
 
 /// Página (re)carregada. Hibernar descarrega a interface mas a exportação
@@ -114,12 +115,14 @@ pub fn on_page_ready() {
 }
 
 fn push_export_done(ok: bool, canceled: bool, path: &str) {
+    let path = path.to_owned();
     if PREVIEW.with(Cell::get) {
-        post_json(json!({ "type": "export_preview_done", "ok": ok, "canceled": canceled, "path": path }));
+        crate::view::call(move |v| v.export_preview_done(ok, canceled, &path));
         return;
     }
-    // `sourceId`: o card da origem, onde a UI apaga a barra de progresso.
-    post_json(json!({ "type": "export_done", "ok": ok, "canceled": canceled, "path": path, "sourceId": source() }));
+    // A origem: o card onde a interface apaga a barra de progresso.
+    let src = source();
+    crate::view::call(move |v| v.export_done(ok, canceled, &path, &src));
 }
 
 // ---------------------------------------------------------------------------
@@ -227,9 +230,79 @@ fn fail(msg_key: &str) {
     post_error(lang::t(msg_key));
 }
 
+/// Pedido de exportação (o formulário da tela). Os campos são os do
+/// `export_recording` da versão web.
+#[derive(Clone, Debug, Default)]
+pub struct ExportRequest {
+    /// Gravação de origem.
+    pub id: String,
+    /// Prévia: (cursor em s, duração do arquivo final em s).
+    pub preview: Option<(f64, f64)>,
+    /// Só o áudio (nenhuma tela escolhida).
+    pub no_video: bool,
+    /// Trechos mantidos, em ms da origem.
+    pub segments: Vec<(i32, i32)>,
+    pub target_height: i32,
+    /// 0 = a taxa da origem (× velocidade).
+    pub fps: i32,
+    pub speed: f64,
+    pub mix_audio: bool,
+    pub crf: i32,
+    pub scale_algo: String,
+    /// Vocabulário do app (`h264-hw`…); `auto` = o melhor.
+    pub encoder: String,
+    /// Índices do layout da gravação; vazio = canvas inteiro.
+    pub regions: Vec<i32>,
+    /// Recorte livre (x, y, w, h) no canvas da origem.
+    pub crop: Option<(i32, i32, i32, i32)>,
+    pub audio_streams: Vec<i32>,
+    pub mix_track_index: i32,
+    pub original_audio: bool,
+    pub burn_captions: bool,
+    pub keep_transcript: bool,
+    /// `mp4` | `mkv`.
+    pub container: String,
+    pub name: String,
+}
+
+/// O `export_recording` da versão web (testes e o dispatch).
+pub fn handle_export_recording(msg: &Value) {
+    let preview = msg.get("preview").filter(|p| p.is_object()).map(|p| {
+        (p.get("fromMs").and_then(Value::as_f64).unwrap_or(0.0).max(0.0) / 1000.0, p.get("sec").and_then(Value::as_f64).unwrap_or(10.0))
+    });
+    let segments = msg
+        .get("segments")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().map(|s| (int_field(s, "startMs", 0), int_field(s, "endMs", 0))).collect())
+        .unwrap_or_default();
+    let crop = msg.get("crop").filter(|c| c.is_object()).map(|c| (int_field(c, "x", 0), int_field(c, "y", 0), int_field(c, "w", 0), int_field(c, "h", 0)));
+    handle_export(ExportRequest {
+        id: msg.get("id").and_then(Value::as_str).unwrap_or("").to_owned(),
+        preview,
+        no_video: msg.get("noVideo").and_then(Value::as_bool).unwrap_or(false),
+        segments,
+        target_height: int_field(msg, "targetHeight", 0),
+        fps: int_field(msg, "fps", 0),
+        speed: msg.get("speed").and_then(Value::as_f64).unwrap_or(1.0),
+        mix_audio: msg.get("mixAudio").and_then(Value::as_bool).unwrap_or(false),
+        crf: int_field(msg, "crf", EXPORT_CRF_DEFAULT),
+        scale_algo: msg.get("scaleAlgo").and_then(Value::as_str).unwrap_or("bicubic").to_owned(),
+        encoder: msg.get("encoder").and_then(Value::as_str).unwrap_or("auto").to_owned(),
+        regions: int_array(msg, "regions"),
+        crop,
+        audio_streams: int_array(msg, "audioStreams"),
+        mix_track_index: int_field(msg, "mixTrackIndex", -1),
+        original_audio: msg.get("originalAudio").and_then(Value::as_bool).unwrap_or(false),
+        burn_captions: msg.get("burnCaptions").and_then(Value::as_bool).unwrap_or(false),
+        keep_transcript: msg.get("keepTranscript").and_then(Value::as_bool).unwrap_or(true),
+        container: msg.get("container").and_then(Value::as_str).unwrap_or("mp4").to_owned(),
+        name: msg.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+    });
+}
+
 /// Exporta um trecho da gravação com re-encode. Roda em worker (pode levar
 /// minutos). Valida pasta, arquivo e espaço antes de começar.
-pub fn handle_export_recording(msg: &Value) {
+pub fn handle_export(req: ExportRequest) {
     if export_busy() {
         post_error(lang::t("error.exportBusy"));
         return;
@@ -244,50 +317,43 @@ pub fn handle_export_recording(msg: &Value) {
         fail("error.mediaLibUnavailable");
         return;
     }
-    let src_path = msg.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+    let src_path = req.id.clone();
     if src_path.is_empty() || !is_path_in_record_dir(&src_path) || !is_recording_ext(&src_path) || !Path::new(&src_path).is_file() {
         fail("error.fileNotFound");
         return;
     }
 
     // Prévia: segundos do arquivo final a partir do cursor.
-    let preview = msg.get("preview").filter(|p| p.is_object()).map(|p| {
-        let sec = p.get("sec").and_then(Value::as_f64).unwrap_or(10.0);
-        let sec = PREVIEW_SECS.iter().copied().find(|&s| (s - sec).abs() < 0.5).unwrap_or(10.0);
-        (p.get("fromMs").and_then(Value::as_f64).unwrap_or(0.0).max(0.0) / 1000.0, sec)
-    });
+    let preview = req.preview.map(|(from, sec)| (from.max(0.0), PREVIEW_SECS.iter().copied().find(|&s| (s - sec).abs() < 0.5).unwrap_or(10.0)));
 
     let mut opts = ExportOptions { src_path: src_path.clone(), ..Default::default() };
     // Meta da origem (layout de monitores, fps): serve às regiões, ao layout do
     // arquivo exportado e ao selo de fps.
     let src_meta = player::load_recording_meta(&src_path);
     // Só o áudio: nenhuma tela escolhida na exportação.
-    opts.no_video = msg.get("noVideo").and_then(Value::as_bool).unwrap_or(false);
+    opts.no_video = req.no_video;
 
     // Trechos que o usuário decidiu manter, em ordem. A UI manda pares de ms; só
     // entram os válidos e o total tem que ser > 0.
     let mut total_sec = 0.0;
-    if let Some(segs) = msg.get("segments").and_then(Value::as_array) {
-        for s in segs {
-            let (start_ms, end_ms) = (int_field(s, "startMs", 0), int_field(s, "endMs", 0));
-            if end_ms <= start_ms {
-                continue;
-            }
-            opts.segments.push(ExportSegment { start_sec: start_ms as f64 / 1000.0, end_sec: end_ms as f64 / 1000.0 });
-            total_sec += (end_ms - start_ms) as f64 / 1000.0;
+    for &(start_ms, end_ms) in &req.segments {
+        if end_ms <= start_ms {
+            continue;
         }
+        opts.segments.push(ExportSegment { start_sec: start_ms as f64 / 1000.0, end_sec: end_ms as f64 / 1000.0 });
+        total_sec += (end_ms - start_ms) as f64 / 1000.0;
     }
     if opts.segments.is_empty() || total_sec <= 0.0 {
         fail("error.exportBadRange");
         return;
     }
 
-    opts.target_height = int_field(msg, "targetHeight", 0);
+    opts.target_height = req.target_height;
     // 0 = mantém a taxa da origem; o ffmpeg_export nunca aumenta.
-    opts.target_fps = int_field(msg, "fps", 0);
+    opts.target_fps = req.fps;
     // Velocidade (1 = normal, até EXPORT_SPEED_MAX, fração vale): o teto de fps vira
     // fps da origem × velocidade e o áudio é acelerado mantendo o tom.
-    opts.speed = msg.get("speed").and_then(Value::as_f64).unwrap_or(1.0);
+    opts.speed = req.speed;
     if opts.speed < 1.0 || opts.speed.is_nan() {
         opts.speed = 1.0;
     }
@@ -301,21 +367,21 @@ pub fn handle_export_recording(msg: &Value) {
         }
         log!("Export: previa de {sec}s a partir de {from:.1}s ({total_sec:.1}s da origem).");
     }
-    opts.mix_audio = msg.get("mixAudio").and_then(Value::as_bool).unwrap_or(false);
+    opts.mix_audio = req.mix_audio;
     // Qualidade: CRF na escala do x264. O ffmpeg_export traduz para o controle
     // nativo de cada encoder, sempre em VBR — não existe alvo de bitrate.
-    opts.crf = int_field(msg, "crf", EXPORT_CRF_DEFAULT);
+    opts.crf = req.crf;
     // Algoritmo de reamostragem: a UI só oferece a escolha com redução de resolução.
-    opts.scale_algo = msg.get("scaleAlgo").and_then(Value::as_str).unwrap_or("bicubic").to_owned();
+    opts.scale_algo = if req.scale_algo.is_empty() { "bicubic".to_owned() } else { req.scale_algo.clone() };
 
     // Encoder: a UI manda o ID do vocabulário do app ('h264-hw'), nunca o nome do
     // libavcodec — a tradução (e o fallback) fica no backend.
-    let enc_pref = msg.get("encoder").and_then(Value::as_str).unwrap_or("auto");
+    let enc_pref = if req.encoder.is_empty() { "auto" } else { req.encoder.as_str() };
     opts.encoder_name = resolve_export_encoder(enc_pref, &last_encoder_caps().unwrap_or_default());
 
     // Regiões: a UI manda ÍNDICES do layout; o layout de verdade vem do
     // <hash>.json. Lista vazia = canvas inteiro.
-    let region_idx = int_array(msg, "regions");
+    let region_idx = req.regions.clone();
     if !region_idx.is_empty() {
         match &src_meta {
             Some(m) if !m.layout.regions.is_empty() => {
@@ -334,15 +400,8 @@ pub fn handle_export_recording(msg: &Value) {
     // uma região de forma livre, e o build_comp_regions já trata retângulo arbitrário
     // (clamp no canvas + arredondamento par). A UI só manda os dois juntos por
     // engano; se acontecer, o recorte ganha (o gesto mais direto).
-    if let Some(crop) = msg.get("crop").filter(|c| c.is_object()) {
-        let r = RecordingRegion {
-            name: String::new(),
-            kind: "crop".into(),
-            x: int_field(crop, "x", 0),
-            y: int_field(crop, "y", 0),
-            w: int_field(crop, "w", 0),
-            h: int_field(crop, "h", 0),
-        };
+    if let Some((x, y, w, h)) = req.crop {
+        let r = RecordingRegion { name: String::new(), kind: "crop".into(), x, y, w, h };
         // Degenerado (ou negativo) = sem recorte. O clamp contra o tamanho real do
         // quadro é do build_comp_regions; aqui só barramos o que nunca poderia valer.
         if r.w >= 2 && r.h >= 2 && r.x >= 0 && r.y >= 0 {
@@ -358,9 +417,9 @@ pub fn handle_export_recording(msg: &Value) {
     // segurança. Exceção: o "áudio original" — reproduz as faixas como o OBS gravou
     // (mistura E isoladas, cada uma na sua stream, copiadas sem reprocessar) e deixa
     // o mix desligado (juntaria a mistura com as vozes que ela já contém).
-    let audio_sel = int_array(msg, "audioStreams");
-    let mix_track_idx = int_field(msg, "mixTrackIndex", -1);
-    let original_audio = msg.get("originalAudio").and_then(Value::as_bool).unwrap_or(false);
+    let audio_sel = req.audio_streams.clone();
+    let mix_track_idx = req.mix_track_index;
+    let original_audio = req.original_audio;
     if original_audio {
         opts.mix_audio = false;
     }
@@ -381,7 +440,7 @@ pub fn handle_export_recording(msg: &Value) {
     opts.mix_title = lang::t("export.mixTrackTitle");
 
     // Legenda queimada: os turnos vêm do cache da transcrição, nunca da UI.
-    if msg.get("burnCaptions").and_then(Value::as_bool).unwrap_or(false) && !opts.no_video {
+    if req.burn_captions && !opts.no_video {
         opts.captions = load_caption_turns(&src_path);
         log!("Export: legenda queimada com {} turno(s).", opts.captions.len());
     }
@@ -389,7 +448,7 @@ pub fn handle_export_recording(msg: &Value) {
     // A transcrição só acompanha o arquivo se o ÁUDIO dele ainda for o que foi
     // transcrito: a mistura, ou todas as faixas isoladas. Quem sabe quantas faixas
     // existem é a UI, que manda a conclusão. A prévia não leva.
-    let keep_transcript = preview.is_none() && msg.get("keepTranscript").and_then(Value::as_bool).unwrap_or(true);
+    let keep_transcript = preview.is_none() && req.keep_transcript;
     let seg_starts: Vec<f64> = opts.segments.iter().map(|s| s.start_sec).collect();
     let seg_ends: Vec<f64> = opts.segments.iter().map(|s| s.end_sec).collect();
 
@@ -433,7 +492,7 @@ pub fn handle_export_recording(msg: &Value) {
         if mix_track_idx >= 0 && (original_audio || has_first) {
             opts.audio_streams = vec![mix_track_idx];
         }
-    } else if msg.get("container").and_then(Value::as_str).unwrap_or("mp4").to_lowercase() == "mkv" {
+    } else if req.container.eq_ignore_ascii_case("mkv") {
         opts.container = "matroska".into();
         ext = ".mkv";
     } else {
@@ -442,7 +501,7 @@ pub fn handle_export_recording(msg: &Value) {
     }
 
     // Escreve num ".part" e só renomeia no fim (#51e).
-    let name = msg.get("name").and_then(Value::as_str).unwrap_or("");
+    let name = req.name.as_str();
     let final_path = if preview.is_some() {
         clear_previews();
         let _ = std::fs::create_dir_all(preview_dir());
@@ -625,6 +684,7 @@ fn copy_file_times(from: &str, to: &str) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn arrays_de_inteiros_da_ui() {

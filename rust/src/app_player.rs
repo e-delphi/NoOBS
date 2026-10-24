@@ -309,7 +309,8 @@ pub fn close() {
     g.set_tr_search(SharedString::new());
     with(|st| st.tr_query.clear());
     with(|st| st.id.clear());
-    crate::app_main::set_hint_layer(&w, 0);
+    // Aberto por cima da exportação (prévia gerada): as dicas voltam pra ela.
+    crate::app_main::set_hint_layer(&w, if crate::app_export::is_open() { crate::app_export::HINT_LAYER } else { 0 });
     bridge::set_player_open(false);
 }
 
@@ -1180,7 +1181,7 @@ fn sync_transcript_active(force: bool) {
 /// Slint não mede texto daqui: a média de largura do Segoe UI semibold,
 /// ~0,55 do tamanho, faz o papel da régua invisível da web) e divide o tempo
 /// pela proporção de caracteres.
-fn caption_chunks(t: &Transcript, idx: usize, width_px: f32, font_px: f32) -> Vec<(String, f64, f64)> {
+pub(crate) fn caption_chunks(t: &Transcript, idx: usize, width_px: f32, font_px: f32) -> Vec<(String, f64, f64)> {
     let Some(turn) = t.turns.get(idx) else { return Vec::new() };
     let per_line = ((width_px / (font_px * 0.55)).floor() as usize).max(10);
     let max = per_line * 2;

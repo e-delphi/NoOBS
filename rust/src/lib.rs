@@ -59,6 +59,7 @@ modulos! {
     app_library,
     app_main,
     app_player,
+    app_export,
     app_settings,
     app_view,
     sounds,

@@ -15,7 +15,7 @@ use crate::view::{
     AudioMeter, Device, ExportEncoderInfo, Library, LocalAsrInfo, MonitorThumb, PendingKind, QueueItem, RecItem, RecState, ReplayState,
     RootFolder, TranscribeState, Transcript, UpdateInfo, VideoInfo, VideoTestState, View, WindowItem, WindowMatches,
 };
-use crate::{app_library, app_main, app_player, app_settings, lang, log};
+use crate::{app_export, app_library, app_main, app_player, app_settings, lang, log};
 
 slint::include_modules!();
 
@@ -264,13 +264,23 @@ impl View for SlintView {
         app_library::on_merge_done(ok);
     }
     fn waveform(&self, id: &str, peaks: &[f32], hi: bool) {
-        app_player::on_waveform(id, peaks, hi);
+        // A de alta resolução é da linha do tempo da exportação.
+        if hi {
+            app_export::on_waveform(id, peaks);
+        } else {
+            app_player::on_waveform(id, peaks, hi);
+        }
     }
     fn video_info(&self, info: &VideoInfo) {
-        app_player::on_video_info(info);
+        // A exportação aberta neste id fica com a resposta; senão é do player.
+        if !app_export::on_video_info(info) {
+            app_player::on_video_info(info);
+        }
     }
     fn transcript(&self, t: &Transcript) {
-        app_player::on_transcript(t);
+        if !app_export::on_transcript(t) {
+            app_player::on_transcript(t);
+        }
     }
 
     fn settings_changed(&self) {
@@ -282,8 +292,9 @@ impl View for SlintView {
     fn update_result(&self, r: &UpdateInfo) {
         app_settings::on_update_result(r);
     }
-    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, _export: &[ExportEncoderInfo]) {
+    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, export: &[ExportEncoderInfo]) {
         app_settings::on_encoder_caps();
+        app_export::set_encoders(export);
     }
     fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>) {
         let status: Vec<&'static str> = status.iter().map(|s| static_status(s)).collect();
@@ -306,6 +317,18 @@ impl View for SlintView {
     }
     fn root_folders(&self, folders: &[RootFolder]) {
         app_settings::on_root_folders(folders);
+    }
+    fn export_progress(&self, pct: f64, source: &str) {
+        app_export::on_progress(pct, source);
+    }
+    fn export_done(&self, ok: bool, canceled: bool, path: &str, _source: &str) {
+        app_export::on_done(ok, canceled, path);
+    }
+    fn export_preview_progress(&self, pct: f64) {
+        app_export::on_preview_progress(pct);
+    }
+    fn export_preview_done(&self, ok: bool, canceled: bool, path: &str) {
+        app_export::on_preview_done(ok, canceled, path);
     }
 }
 
@@ -350,6 +373,7 @@ pub fn create() -> Option<AppWindow> {
     app_library::setup(&w);
     app_player::setup(&w);
     app_settings::setup(&w);
+    app_export::setup(&w);
 
     crate::view::set(Rc::new(SlintView));
     Some(w)

@@ -1,0 +1,210 @@
+// Estado da tela de exportação (`export.js` da versão web). Quem preenche é o
+// `src/app_export.rs`: as contas (trechos, recorte, zoom, composição, linha
+// do tempo) ficam lá; a `.slint` desenha e devolve os gestos.
+
+import { SelOpt } from "../widgets/form.slint";
+
+// Uma caixa marcável em pílula (`.export-check`). `idx` volta no clique.
+export struct ExChk {
+    idx: int,
+    text: string,
+    checked: bool,
+    disabled: bool,
+}
+
+// Uma linha de pílulas (o `flex-wrap` da web é quebrado no Rust).
+export struct ExRow {
+    items: [ExChk],
+}
+
+// Marca da régua de tempo; `x` já na vista (px a partir da borda esquerda).
+export struct ExTick {
+    x: length,
+    text: string,
+}
+
+// Divisão entre trechos (`.export-cut`); `target` = a que "Remover divisão" apaga.
+export struct ExCut {
+    x: length,
+    target: bool,
+}
+
+// Rótulo de duração de um trecho (só sem a forma de onda).
+export struct ExLabel {
+    x: length,
+    w: length,
+    text: string,
+}
+
+export global Ex {
+    in property <bool> open;
+
+    // ---- telas ----
+    in property <[ExRow]> region-rows;
+
+    // ---- prévia ----
+    // Proporção do quadro (largura / altura): a da origem ou a da composição.
+    in property <float> aspect: 16 / 9;
+    in property <bool> ready;
+    in property <string> msg;
+    in property <bool> audio-only;
+    in property <image> frame;
+    in property <length> frame-x;
+    in property <length> frame-y;
+    in property <length> frame-w;
+    in property <length> frame-h;
+    // Recorte: retângulo em frações do quadro.
+    in property <bool> crop-on;
+    in property <float> crop-l;
+    in property <float> crop-t;
+    in property <float> crop-w: 1;
+    in property <float> crop-h: 1;
+    in property <string> crop-size;
+    in property <bool> cropping;
+    in property <bool> edges-h: true;
+    in property <bool> edges-v: true;
+    // Zoom da prévia e deslocamento (px, origem no centro do quadro).
+    in property <float> zoom: 1;
+    in property <length> pan-x;
+    in property <length> pan-y;
+    in property <bool> panning;
+    in property <string> caption;
+    in property <length> caption-font: 12px;
+    in property <length> caption-w: 300px;
+
+    // ---- barra do recorte ----
+    in property <bool> crop-reset-enabled;
+    in property <string> zoom-badge: "100%";
+    in property <bool> zoom-reset-enabled;
+    in property <string> crop-info;
+
+    // ---- reprodução ----
+    in property <bool> play-enabled;
+    in property <bool> playing;
+    in property <bool> muted;
+    in property <int> volume: 100;
+    in property <bool> cc-enabled;
+    in property <bool> cc-active;
+    in property <string> cc-hint;
+
+    // ---- linha do tempo ----
+    in property <image> tl-img;
+    in property <bool> has-wave;
+    in property <[ExLabel]> part-labels;
+    in property <[ExCut]> cuts;
+    in property <length> playhead-x;
+    in property <[ExTick]> ticks;
+    in property <length> sb-x;
+    in property <length> sb-w;
+    in property <bool> cut-enabled;
+    in property <bool> uncut-enabled;
+    in property <string> uncut-hint;
+    in property <string> toggle-text;
+    in property <bool> toggle-enabled;
+    in property <string> tl-zoom-text: "1.0×";
+    in-out property <string> time-text: "00:00";
+    in property <string> total-text: "00:00";
+    in property <string> range-text;
+
+    // ---- áudio ----
+    in property <bool> audio-visible;
+    in property <bool> orig-visible;
+    in property <bool> orig-checked;
+    in property <[ExRow]> track-rows;
+    in property <bool> mix-checked;
+    in property <bool> mix-enabled;
+
+    // ---- vídeo ----
+    in property <bool> video-off;
+    in property <[SelOpt]> res-opts;
+    in property <int> res-idx;
+    in property <[SelOpt]> enc-opts;
+    in property <int> enc-idx;
+    in property <bool> scale-visible;
+    in property <[SelOpt]> scale-opts;
+    in property <int> scale-idx;
+    in property <string> scale-hint;
+    in-out property <string> speed-text: "1";
+    in property <bool> speed-invalid;
+    in property <string> speed-value;
+    in property <bool> fps-visible;
+    in property <int> fps-min: 20;
+    in property <int> fps-max: 60;
+    in property <int> fps-val: 60;
+    in property <string> fps-text;
+    in property <int> q-pos: 28;
+    in property <string> q-text;
+    in property <string> q-hint;
+    in property <bool> q-warn;
+    in property <bool> burn-checked;
+    in property <bool> burn-enabled;
+    in property <string> cap-hint;
+
+    // ---- arquivo e ações ----
+    in-out property <string> name;
+    in property <[SelOpt]> cont-opts;
+    in property <int> cont-idx;
+    in property <bool> cont-enabled: true;
+    in property <string> cont-hint;
+    in property <string> run-text;
+    in property <bool> run-enabled;
+    in property <bool> running;
+    in property <string> prev-text;
+    in property <bool> prev-enabled: true;
+    in property <int> prevsec-idx: 1;
+    in property <bool> prevsec-enabled: true;
+    in property <float> progress;
+    in property <string> progress-text;
+
+    // Sobe quando o Rust quer a rolagem do formulário no topo.
+    in property <int> scroll-top-seq;
+
+    callback close();
+    callback region(int);
+    callback frame-resized(length, length);
+    // Recorte: direção (`n`…`se`, `move`) e o ponteiro na janela.
+    callback crop-down(string, length, length);
+    callback crop-move(length, length);
+    callback crop-up();
+    callback pan-down(length, length);
+    callback pan-move(length, length);
+    callback pan-up();
+    // Ctrl + roda na prévia: ponteiro relativo ao CENTRO do palco.
+    callback stage-wheel(length, length, float);
+    // Clique parado na prévia (toca/pausa; arrastar pra deslocar não conta).
+    callback stage-click();
+    callback crop-reset();
+    callback crop-zoom(float);
+    callback crop-zoom-reset();
+    callback toggle-play();
+    callback toggle-mute();
+    callback volume-changed(int);
+    callback toggle-cc();
+    callback tl-view(length);
+    callback tl-seek(length);
+    callback tl-wheel(length, float);
+    callback tl-scroll(length);
+    callback cut();
+    callback uncut();
+    callback toggle-part();
+    callback tl-zoom(float);
+    callback time-commit(string);
+    callback orig(bool);
+    callback track(int);
+    callback mix(bool);
+    callback res(int);
+    callback enc(int);
+    callback scale(int);
+    callback speed-edit(string);
+    callback speed-commit(string);
+    callback speed-step(int);
+    callback fps(int);
+    callback quality(int);
+    callback burn(bool);
+    callback cont(int);
+    callback run();
+    callback preview();
+    callback prevsec(int);
+    // Teclas da tela (Espaço, Ctrl +/−/0, Esc). Devolve se tratou.
+    callback key(string, bool) -> bool;
+}

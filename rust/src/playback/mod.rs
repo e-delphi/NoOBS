@@ -333,6 +333,15 @@ pub struct Playback {
 impl Playback {
     /// Abre e começa a tocar. `out` é chamado de threads do motor.
     pub fn open(path: &str, view: ViewSpec, out: Arc<dyn Fn(Out) + Send + Sync>) -> Self {
+        Self::open_with(path, view, out, true)
+    }
+
+    /// Abre parado no começo (a prévia da exportação só toca a pedido).
+    pub fn open_paused(path: &str, view: ViewSpec, out: Arc<dyn Fn(Out) + Send + Sync>) -> Self {
+        Self::open_with(path, view, out, false)
+    }
+
+    fn open_with(path: &str, view: ViewSpec, out: Arc<dyn Fn(Out) + Send + Sync>, autoplay: bool) -> Self {
         let shared = Arc::new(Shared {
             clock: Clock::new(),
             pos: AtomicU64::new(0f64.to_bits()),
@@ -357,7 +366,11 @@ impl Playback {
                 .ok();
         }
         let p = Self { vtx, atx, shared, has_audio, rate: 1.0 };
-        p.play();
+        if autoplay {
+            p.play();
+        } else {
+            p.pause();
+        }
         p
     }
 

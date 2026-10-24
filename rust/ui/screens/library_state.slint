@@ -93,6 +93,12 @@ export global Lib {
     in property <string> delete-hint;
     in property <string> merge-hint;
     in property <string> export-hint;
+    // Exportação em curso: a barra mora no card da gravação de origem.
+    in property <string> export-id;
+    in property <float> export-pct;
+    in property <string> export-label;
+    in property <bool> export-canceling;
+    callback export-cancel();
 
     // ---- edição do nome no próprio card ----
     in property <string> editing-id;

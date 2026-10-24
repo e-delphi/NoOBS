@@ -247,6 +247,46 @@ pub fn localize_decimal(s: &str) -> String {
     if sep == '.' { s.to_owned() } else { s.replace('.', &sep.to_string()) }
 }
 
+/// Largura do texto em px (Segoe UI no tamanho `px`), pra quebrar linhas de
+/// pílulas como o `flex-wrap` da web (o Slint não mede texto do lado do Rust).
+pub fn text_width(text: &str, px: i32, weight: i32) -> i32 {
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, CreateFontW, DeleteDC, DeleteObject, GetTextExtentPoint32W, SelectObject, CLIP_DEFAULT_PRECIS,
+        DEFAULT_CHARSET, DEFAULT_PITCH, FF_SWISS, FONT_QUALITY, HGDIOBJ, OUT_TT_PRECIS,
+    };
+    unsafe {
+        let dc = CreateCompatibleDC(None);
+        if dc.is_invalid() {
+            return (text.chars().count() as f32 * px as f32 * 0.55) as i32;
+        }
+        let font = CreateFontW(
+            -px,
+            0,
+            0,
+            0,
+            weight,
+            0,
+            0,
+            0,
+            DEFAULT_CHARSET,
+            OUT_TT_PRECIS,
+            CLIP_DEFAULT_PRECIS,
+            FONT_QUALITY(4),
+            (DEFAULT_PITCH.0 | FF_SWISS.0) as u32,
+            windows::core::w!("Segoe UI"),
+        );
+        let old = SelectObject(dc, HGDIOBJ(font.0));
+        let w: Vec<u16> = text.encode_utf16().collect();
+        let mut sz = SIZE::default();
+        let _ = GetTextExtentPoint32W(dc, &w, &mut sz);
+        SelectObject(dc, old);
+        let _ = DeleteObject(HGDIOBJ(font.0));
+        let _ = DeleteDC(dc);
+        sz.cx
+    }
+}
+
 #[cfg(test)]
 mod png_tests {
     use super::encode_png_rgba;

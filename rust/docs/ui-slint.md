@@ -170,9 +170,7 @@ passando.
   recortar/colar (e Ctrl+X/Ctrl+V/Backspace), arrastar pra pasta, pro
   caminho e pra lixeira, excluir, unir. A biblioteca chega tipada
   (`View::library` e vizinhos), sem JSON. Conferido por captura contra a web
-  (cabeçalho, grupos e cards alinhados ao pixel). **Provisório**: clicar no
-  card abre no player do Windows até a fase 3; "Exportar" fica apagado e o
-  progresso de exportação no card entra com a fase 5.
+  (cabeçalho, grupos e cards alinhados ao pixel).
 
 - **Fase 3 — feita.** Player próprio (`src/playback/`: vídeo decodificado e
   convertido na placa, áudio de todas as faixas misturado por tempo com o
@@ -200,6 +198,21 @@ passando.
   `local_asr_state`, `hotkeys_state`, `video_test`, `update_result`…); o
   JSON antigo só existe no gravador dos testes. Conferido aba por aba contra
   a web, as duas no tamanho de maximizada. Sem a hibernação (saiu na fase 0).
+- **Fase 5 — feita.** Exportação (`ui/screens/export*.slint`, presenter
+  `src/app_export.rs`): telas (com "só áudio"), prévia pelo motor do player
+  ABERTO PARADO (`Playback::open_paused`; tocando, ele manda no cursor),
+  composição das telas escolhidas, recorte com alças/sombra/terços/medida,
+  zoom e deslocamento da prévia (Ctrl+roda, botão do meio, Shift+arrasto),
+  legenda (CC) com os blocos do player, linha do tempo com cortes, trecho
+  tirado listrado, forma de onda de alta resolução, régua e rolagem, faixas
+  de áudio (o volume por faixa do motor toca as marcadas), resolução,
+  codificador, redimensionamento, velocidade, fps, qualidade, legenda
+  gravada, nome/formato, a exportação e a prévia gerada (abre no player por
+  cima). O pedido vai tipado (`bridge::export::ExportRequest`) e o progresso
+  volta pelo `View` (`export_progress`/`export_done`/`export_preview_*`).
+  "Exportar" e o menu da biblioteca ligados; a barra de progresso mora no
+  card da origem, com o × de cancelar. Conferido contra a web com as duas
+  janelas maximizadas (formulário a 1–2 px) e exportando de verdade.
 
 ### Como comparar sem tocar na área de trabalho
 
@@ -368,6 +381,35 @@ E o DOWN sem MOVE antes usa a ÚLTIMA posição do mouse, não a do lParam.
   Configurações viraram métodos tipados do `View`; o gravador reproduz o JSON
   antigo (`settings_json`, pastas sumidas sem `count`…) e os testes seguiram
   iguais, exceto o do teste de qualidade, que agora confere o PNG no disco.
+
+### O que a fase 5 ensinou
+
+- **O estado da tela que vem da `.slint` não pode ser zerado na abertura.**
+  O tamanho do quadro e da linha do tempo chegam por `changed` quando a
+  janela muda — antes de qualquer abertura. O reset do `open_for` os apagava
+  e a prévia ficava 2×2 (preta) e a linha do tempo sem imagem.
+- **Laço de layout com a barra de rolagem**: descontar os 8 px só "quando
+  rola" faz a largura da coluna depender da altura do conteúdo, que depende
+  da largura. O formulário é sempre mais alto que a janela: a barra fica
+  sempre descontada (como a web, na prática).
+- **O `preferred-height` do layout fica aquém** com dicas que quebram linha:
+  os botões do fim ficavam cortados. A altura rolável sai da posição de um
+  marcador vazio no fim do layout (`end-mark`), com o layout em
+  `height: self.preferred-height` (sem isso o marcador entra em laço com a
+  área rolável).
+- **`flex-wrap` de pílulas**: o Slint não mede texto do lado do Rust e não
+  quebra linha de filhos. As linhas saem quebradas no Rust medindo com GDI
+  (`win::text_width`, Segoe UI 12 px) e cada linha é um `HorizontalLayout`.
+- **O TouchArea do card fica por cima de tudo**: o × do rodapé de exportação
+  é testado por posição no clique do card, como a caixa de seleção.
+- **Na web, só as pílulas montadas por `_mkCheck` ganham `.checked`**: as
+  caixas soltas ("Manter o áudio original", "Juntar as faixas") ficam com a
+  borda comum mesmo marcadas (`EChk.plain`). E a caixa nativa desativada é
+  cinza (`CheckBox.disabled`), não a verde apagada.
+- **Diferença aceita**: na web o rodapé de progresso alonga o card; aqui ele
+  fica sobre a base da miniatura (a grade tem altura de linha fixa). E com a
+  prévia aproximada, a folga de 14 px do palco fica preta (na web o vídeo
+  aproximado aparecia nela) — o motor só desenha dentro do quadro.
 
 | # | Fase | Substitui | Risco |
 |---|---|---|---|

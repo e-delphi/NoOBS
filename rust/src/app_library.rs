@@ -389,10 +389,25 @@ fn sync_bar(w: &AppWindow) {
     g.set_merge_hint(
         if n < 2 { lang::t("recordings.selectToMerge") } else { lang::t_with("recordings.mergeN", &[("count", &n.to_string())]) }.into(),
     );
-    // A exportação entra na fase 5 (docs/ui-slint.md): até lá o botão fica
-    // apagado.
-    g.set_export_enabled(false);
+    // Exportar opera sobre UMA gravação, e uma exportação por vez.
+    g.set_export_enabled(n == 1 && crate::app_export::running_id().is_empty());
     g.set_export_hint(if n == 1 { lang::t("export.buttonHint") } else { lang::t("export.selectOne") }.into());
+}
+
+/// A exportação começou/terminou: o botão "Exportar" da barra acompanha.
+pub fn sync_export_button() {
+    if let Some(w) = window() {
+        sync_bar(&w);
+    }
+}
+
+/// Exportação concluída: a seleção (a gravação de origem) sai.
+pub fn clear_selection() {
+    with(|st| st.selection.clear());
+    refresh_marks();
+    if let Some(w) = window() {
+        sync_bar(&w);
+    }
 }
 
 /// Só as marcas de seleção/recorte, sem refazer os modelos (refazer recriaria
@@ -1109,8 +1124,14 @@ fn open_context(kind: &str, id: &str, x: f32, y: f32) {
         "recording" => {
             let ids = target_ids(id);
             let bulk = ids.len() > 1;
-            // Exportar opera sobre UMA gravação; a tela entra na fase 5.
-            items.push(CtxItem { disabled: true, hint: lang::t("export.selectOne").into(), ..item(lang::t("export.menuItem"), "export") });
+            // Exportar opera sobre UMA gravação (com várias marcadas, exportaria
+            // só a clicada, e o menu sugeriria todas).
+            let busy = !crate::app_export::running_id().is_empty();
+            if bulk || busy {
+                items.push(CtxItem { disabled: true, hint: lang::t("export.selectOne").into(), ..item(lang::t("export.menuItem"), "export") });
+            } else {
+                items.push(item(lang::t("export.menuItem"), "export"));
+            }
             items.push(item(
                 if bulk { lang::t_with("recordings.cutN", &[("count", &ids.len().to_string())]) } else { lang::t("recordings.cut") },
                 "cut",
@@ -1163,6 +1184,7 @@ fn ctx_run(action: &str) {
     close_context();
     let (_, id) = CTX.with(|c| c.borrow().clone());
     match action {
+        "export" => crate::app_export::open_for(&id),
         "cut" => cut(target_ids(&id)),
         "transcribe" => bridge::handle_transcribe_recording(&id),
         "delete" => {
@@ -1209,7 +1231,13 @@ pub fn setup(w: &AppWindow) {
     g.on_open_record_dir(bridge::handle_open_record_dir);
     g.on_new_folder(new_folder);
     g.on_merge_selected(merge_selected);
-    g.on_export_selected(|| {});
+    g.on_export_selected(|| {
+        let ids = with(|st| st.selection.clone());
+        if ids.len() == 1 {
+            crate::app_export::open_for(&ids[0]);
+        }
+    });
+    g.on_export_cancel(crate::app_export::cancel);
     g.on_delete_selected(|| delete_recordings(with(|st| st.selection.clone())));
     g.on_card_clicked(|id| card_clicked(id.as_str()));
     g.on_toggle_select(|id| {

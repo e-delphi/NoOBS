@@ -39,24 +39,32 @@ component SectionTitle {
 }
 
 // Uma barra do medidor (`.source-meter-track`): o degradê fixo por posição
-// (verde até 60%, âmbar em 75%, vermelho de 95%) e a "capa" `--panel-3` que
-// desliza pra direita conforme o sinal sobe.
+// (verde até 60%, âmbar em 75%, vermelho de 95%) aparece só até o nível, sobre
+// o fundo `--panel-3`.
+//
+// O degradê vai RECORTADO na largura do nível, e não coberto por uma capa
+// cinza: com a escala da tela (150%) a capa caía em meio pixel nas bordas e
+// deixava fios coloridos do degradê vazando em cima e embaixo da barra parada.
 component MeterTrack inherits Rectangle {
     in property <float> level;
     in property <bool> muted;
     in property <bool> dim;
     clip: true;
     border-radius: 1.5px;
+    background: Theme.panel-3;
+    property <float> shown: root.muted ? 1 : root.level;
     Rectangle {
-        opacity: root.dim ? 0.25 : 1;
-        background: root.muted ? Theme.danger
-            : @linear-gradient(90deg, Theme.success 0%, Theme.success 60%, #f59e0b 75%, Theme.danger-2 95%, Theme.danger-2 100%);
-    }
-    Rectangle {
-        x: parent.width * (root.muted ? 1 : root.level);
-        width: parent.width - self.x;
-        background: Theme.panel-3;
-        animate x { duration: 90ms; easing: linear; }
+        x: 0;
+        width: parent.width * root.shown;
+        clip: true;
+        animate width { duration: 90ms; easing: linear; }
+        Rectangle {
+            x: 0;
+            width: root.width;
+            opacity: root.dim ? 0.25 : 1;
+            background: root.muted ? Theme.danger
+                : @linear-gradient(90deg, Theme.success 0%, Theme.success 60%, #f59e0b 75%, Theme.danger-2 95%, Theme.danger-2 100%);
+        }
     }
 }
 

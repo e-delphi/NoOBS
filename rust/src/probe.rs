@@ -43,6 +43,7 @@ impl ProbeReport {
         self.streams.iter().filter(|s| s.kind == "audio")
     }
 
+    #[cfg(any(test, feature = "app-tests"))]
     pub fn audio_track_count(&self) -> usize {
         self.audio_streams().count()
     }

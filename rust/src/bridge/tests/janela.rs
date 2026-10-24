@@ -7,7 +7,6 @@
 use serde_json::json;
 
 use crate::config;
-use crate::lang;
 use crate::testkit::{self, begin, send};
 
 #[test]
@@ -34,43 +33,6 @@ fn titulo_da_janela() {
     assert_eq!(config::get_config_str("windowTitle", ""), "Gravação 🎬");
     send(json!({ "type": "set_window_title" }));
     assert_eq!(config::get_config_str("windowTitle", ""), "NoOBS");
-}
-
-// ---- validação de atalho (usada pela aba Atalhos) ----------------------------
-
-#[test]
-fn validar_atalho_responde_com_o_motivo() {
-    let _s = begin();
-    let caso = |spec: &str| {
-        testkit::clear_sent();
-        send(json!({ "type": "validate_hotkey", "hotkey": spec }));
-        testkit::last_of("hotkey_validation_result").expect("resposta")
-    };
-    let ok = caso("Ctrl+Shift+F9");
-    assert_eq!(ok["ok"], true);
-    assert_eq!(ok["reason"], "");
-
-    let vazio = caso("   ");
-    assert_eq!(vazio["ok"], true, "vazio = desligar, é válido");
-    assert_eq!(vazio["hotkey"], "");
-
-    let invalido = caso("Ctrl+Shift");
-    assert_eq!(invalido["ok"], false);
-    assert_eq!(invalido["reason"], lang::t("settings.hotkey.invalidSpec"));
-
-    for (spec, chave) in [
-        ("Alt+Tab", "altTab"),
-        ("Win+L", "winL"),
-        ("Ctrl+Alt+Delete", "ctrlAltDel"),
-        ("Win+Up", "winArrows"),
-        ("Ctrl+Esc", "ctrlEsc"),
-    ] {
-        let r = caso(spec);
-        assert_eq!(r["ok"], false, "{spec}");
-        assert_eq!(r["reason"], lang::t(&format!("settings.hotkey.reserved.{chave}")), "{spec}");
-        // O motivo sai traduzido, nunca a chave crua.
-        assert!(!r["reason"].as_str().unwrap().starts_with('['), "{spec}: {}", r["reason"]);
-    }
 }
 
 // ---- preferências -----------------------------------------------------------

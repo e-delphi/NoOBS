@@ -27,7 +27,7 @@ use serde_json::Value;
 
 use crate::export_captions::CaptionTurn;
 use crate::ffmpeg_export::{
-    compute_export_layout, export_video, resolve_export_encoder, ExportOptions, ExportResult, ExportSegment, EXPORT_CRF_DEFAULT,
+    compute_export_layout, export_video, resolve_export_encoder, ExportOptions, ExportResult, ExportSegment,
     EXPORT_FPS_MAX, EXPORT_FPS_MAX_SVT, EXPORT_SPEED_MAX,
 };
 use crate::types::{RecordingMeta, RecordingRegion};
@@ -214,6 +214,7 @@ fn load_caption_turns(path: &str) -> Vec<CaptionTurn> {
         .collect()
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn int_array(msg: &Value, key: &str) -> Vec<i32> {
     msg.get(key)
         .and_then(Value::as_array)
@@ -221,6 +222,7 @@ fn int_array(msg: &Value, key: &str) -> Vec<i32> {
         .unwrap_or_default()
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn int_field(msg: &Value, key: &str, default: i32) -> i32 {
     msg.get(key).and_then(Value::as_f64).map_or(default, |f| f as i32)
 }
@@ -265,7 +267,8 @@ pub struct ExportRequest {
     pub name: String,
 }
 
-/// O `export_recording` da versão web (testes e o dispatch).
+/// O `export_recording` da versão web (só os testes, pelo dispatch).
+#[cfg(any(test, feature = "app-tests"))]
 pub fn handle_export_recording(msg: &Value) {
     let preview = msg.get("preview").filter(|p| p.is_object()).map(|p| {
         (p.get("fromMs").and_then(Value::as_f64).unwrap_or(0.0).max(0.0) / 1000.0, p.get("sec").and_then(Value::as_f64).unwrap_or(10.0))
@@ -285,7 +288,7 @@ pub fn handle_export_recording(msg: &Value) {
         fps: int_field(msg, "fps", 0),
         speed: msg.get("speed").and_then(Value::as_f64).unwrap_or(1.0),
         mix_audio: msg.get("mixAudio").and_then(Value::as_bool).unwrap_or(false),
-        crf: int_field(msg, "crf", EXPORT_CRF_DEFAULT),
+        crf: int_field(msg, "crf", crate::ffmpeg_export::EXPORT_CRF_DEFAULT),
         scale_algo: msg.get("scaleAlgo").and_then(Value::as_str).unwrap_or("bicubic").to_owned(),
         encoder: msg.get("encoder").and_then(Value::as_str).unwrap_or("auto").to_owned(),
         regions: int_array(msg, "regions"),

@@ -1,28 +1,18 @@
-//! Servidor HTTP local + cache de mídia para tocar gravações no WebView2
-//! (porte de `OBSPlayer.pas`).
+//! Cache de mídia por gravação (porte da parte de cache do `OBSPlayer.pas`).
+//! O servidor HTTP local que servia o WebView2 saiu com a interface web: o
+//! player e a exportação leem o arquivo direto (`playback`).
 //!
-//! Por que existe: o WebView2 não toca `file://`, e MKV não toca direto no
-//! Chromium. A solução é remuxar para MP4 (sem reencode, só troca de container)
-//! e servir por `127.0.0.1` com suporte a Range (essencial para o seek).
-//!
-//! * HTTP em `127.0.0.1:porta-livre` (porta 0 = o SO escolhe, pegadinha #17);
 //! * cache em `%LOCALAPPDATA%\NoOBS\cache\<hash>.*` — `<hash>` = 10 primeiros
 //!   bytes do SHA-1 do path em minúsculas (pegadinha #55: mover/renomear muda
 //!   o hash);
 //! * `<hash>.json` guarda duração, layout e os caches de probe/waveform, sempre
 //!   sob `META_LOCK` (read-modify-write concorrente perderia chaves).
 //!
-//! Remux, extração de áudio e miniatura rodam in-process (libav), mas levam
-//! dezenas/centenas de ms: chamar de worker.
+//! A miniatura roda in-process (libav), mas leva dezenas/centenas de ms:
+//! chamar de worker.
 
-use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::net::{TcpListener, TcpStream};
-use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
@@ -30,21 +20,9 @@ use sha1::{Digest, Sha1};
 use crate::types::{RecordingMeta, RecordingRegion};
 use crate::{ffmpeg_ops, log, probe};
 
-/// Por quanto tempo o Chromium pode reter os bytes de mídia servidos em `/v/`.
-/// Uma hora cobre a sessão de quem revê uma gravação; o que importa é NÃO ser
-/// `no-store`, que proibia o cache de mídia de guardar qualquer coisa — todo
-/// seek (e cada passo de uma varredura em velocidade alta) voltava pela rede.
-const MEDIA_CACHE_SECONDS: u32 = 3600;
-
 /// Serializa leitura/escrita do `<hash>.json`. Sem isso dois saves concorrentes
 /// (info + waveform) fazem read-modify-write em corrida e um perde a chave do outro.
 static META_LOCK: Mutex<()> = Mutex::new(());
-
-/// token (hash + sufixo) → arquivo no disco. Só servimos o que registramos.
-static TOKEN_MAP: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
-static SERVER_PORT: AtomicU16 = AtomicU16::new(0);
-static SERVER_STOP: AtomicBool = AtomicBool::new(false);
-static SERVER_UP: AtomicBool = AtomicBool::new(false);
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
@@ -54,7 +32,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 // Cache: caminhos e hash
 // ---------------------------------------------------------------------------
 
-/// `%LOCALAPPDATA%\NoOBS\cache\` — servida ao player pelo HTTP local.
+/// `%LOCALAPPDATA%\NoOBS\cache\`.
 pub fn cache_root_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("APPDATA"))
@@ -126,123 +104,6 @@ pub fn garbage_collect_cache(live_paths: &[String]) {
     if removed > 0 {
         log!("Cache GC: {removed} arquivo(s) orfao(s) removido(s).");
     }
-}
-
-// ---------------------------------------------------------------------------
-// URLs
-// ---------------------------------------------------------------------------
-
-/// Registra token → arquivo e devolve a URL. Vazio sem servidor ou sem arquivo.
-fn make_url(token_suffix: &str, file: &Path, ext: &str) -> String {
-    if !SERVER_UP.load(Ordering::SeqCst) || !file.exists() {
-        return String::new();
-    }
-    let token = format!("{}{token_suffix}", hash_name(&file.to_string_lossy()));
-    lock(&TOKEN_MAP).get_or_insert_with(HashMap::new).insert(token.clone(), file.to_path_buf());
-    format!("http://127.0.0.1:{}/v/{token}{ext}", SERVER_PORT.load(Ordering::SeqCst))
-}
-
-fn ext_of(path: &str) -> String {
-    Path::new(path).extension().map(|e| format!(".{}", e.to_string_lossy().to_lowercase())).unwrap_or_default()
-}
-
-/// Serve o arquivo original sem transcode (pode falhar no player se o codec não
-/// for suportado pelo WebView2, ex.: HEVC sem a extensão). Instantâneo.
-pub fn get_direct_url(path: &str) -> String {
-    make_url("-direct", Path::new(path), &ext_of(path))
-}
-
-/// URL de um arquivo qualquer (ex.: quadros PNG do teste de qualidade). Leva um
-/// sufixo de tempo: o mesmo caminho é reescrito a cada teste e o `<img>` não
-/// pode reaproveitar a imagem do teste anterior.
-pub fn get_file_url(path: &str) -> String {
-    let url = make_url("-file", Path::new(path), &ext_of(path));
-    if url.is_empty() {
-        return url;
-    }
-    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    format!("{url}?t={t}")
-}
-
-/// Remux MKV → MP4 (`-c copy`; só troca de container). O Chromium toca H.264 em
-/// MP4 sempre; HEVC depende de extensão/hardware — responsabilidade do
-/// navegador, sem transcode (custo evitado).
-fn ensure_cached_mp4(path: &str) -> Option<PathBuf> {
-    if !Path::new(path).exists() {
-        return None;
-    }
-    if !crate::ffi::ffmpeg::ffmpeg_lib_available() {
-        log!("Player: libavformat indisponivel — nao da pra preparar cache.");
-        return None;
-    }
-    let cache_file = cache_dir_for().join(format!("{}.mp4", hash_name(path)));
-    // Cache existe e tem conteúdo: reusa. Inválido: apaga.
-    if cache_file.exists() {
-        let src = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(-1);
-        let cached = std::fs::metadata(&cache_file).map(|m| m.len()).unwrap_or(0);
-        if cached > 0 && src > 0 {
-            return Some(cache_file);
-        }
-        let _ = std::fs::remove_file(&cache_file);
-    }
-    let t0 = Instant::now();
-    if !ffmpeg_ops::remux_file(path, &cache_file.to_string_lossy()) {
-        log!("Player: remux falhou para {}", file_name(path));
-        return None;
-    }
-    log!("Player: remux em {}ms -> {}", t0.elapsed().as_millis(), cache_file.file_name().unwrap_or_default().to_string_lossy());
-    Some(cache_file)
-}
-
-fn file_name(p: &str) -> String {
-    Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
-}
-
-/// URL "transcodada": garante MP4 jogável. Pode demorar — worker.
-pub fn get_transcoded_url(path: &str) -> String {
-    match ensure_cached_mp4(path) {
-        Some(f) => make_url("-tx", &f, ".mp4"),
-        None => String::new(),
-    }
-}
-
-/// Extrai cada faixa de áudio ISOLADA como `.m4a` (AAC stream copy) e devolve as
-/// URLs. Cacheia por hash do path. A faixa 0 (o mix) NÃO é extraída: o `<video>`
-/// do player toca o mix da própria fonte e o JS pula `urls[0]` (extrair seria um
-/// arquivo nunca consumido), então `urls[0]` fica vazio.
-pub fn get_audio_track_urls(path: &str) -> Option<Vec<String>> {
-    if !Path::new(path).exists() || !crate::ffi::ffmpeg::ffmpeg_lib_available() {
-        return None;
-    }
-    let report = probe::probe(Path::new(path))?;
-    let track_count = report.audio_track_count();
-    if track_count == 0 {
-        return None;
-    }
-    let dir = cache_dir_for();
-    let token = hash_name(path);
-    let mut urls = vec![String::new(); track_count];
-    if track_count == 1 {
-        return Some(urls); // só o mix: nada isolado a extrair
-    }
-
-    // Faixas 1..N-1 = isoladas (cache <hash>_aN.m4a).
-    let files: Vec<PathBuf> = (1..track_count).map(|i| dir.join(format!("{token}_a{i}.m4a"))).collect();
-    if files.iter().any(|f| !f.exists()) {
-        let t0 = Instant::now();
-        log!("Player: extraindo {} faixa(s) de audio isolada(s) de {}", track_count - 1, file_name(path));
-        // O offset 1 do extract pula o stream do mix.
-        let outs: Vec<String> = files.iter().map(|f| f.to_string_lossy().into_owned()).collect();
-        if !ffmpeg_ops::extract_audio_tracks(path, &outs, 1, None) {
-            log!("Player: extract audio falhou.");
-            return None;
-        }
-        log!("Player: extract em {}ms.", t0.elapsed().as_millis());
-    }
-    for (i, f) in files.iter().enumerate() {
-        urls[i + 1] = make_url(&format!("-a{}", i + 1), f, ".m4a");
-    }
-    Some(urls)
 }
 
 // ---------------------------------------------------------------------------
@@ -439,10 +300,10 @@ pub fn ensure_recording_meta(path: &str) -> Option<(i32, String)> {
     if !thumb.exists() {
         let seek = if duration > 10 { duration / 10 } else { 1 };
         if !ffmpeg_ops::extract_frame_jpeg(path, &thumb.to_string_lossy(), seek, 240) {
-            log!("Player: thumbnail falhou para {}", file_name(path));
+            log!("Player: thumbnail falhou para {}", Path::new(path).file_name().unwrap_or_default().to_string_lossy());
         }
     }
-    // A janela decodifica o JPG do cache direto (sem servidor HTTP).
+    // A janela decodifica o JPG do cache direto.
     let file = if thumb.exists() { thumb.to_string_lossy().into_owned() } else { String::new() };
     ((duration > 0) || !file.is_empty()).then_some((duration, file))
 }
@@ -467,283 +328,6 @@ pub fn get_cached_meta(path: &str) -> (i32, String, RecordingMeta) {
     (meta.duration_sec, file, meta)
 }
 
-// ---------------------------------------------------------------------------
-// Servidor HTTP
-// ---------------------------------------------------------------------------
-
-fn content_type_for(path: &Path) -> &'static str {
-    match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
-        Some("mp4") | Some("m4v") => "video/mp4",
-        Some("mkv") => "video/x-matroska",
-        Some("webm") => "video/webm",
-        Some("mov") => "video/quicktime",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("png") => "image/png",
-        Some("m4a") => "audio/mp4",
-        Some("aac") => "audio/aac",
-        Some("mp3") => "audio/mpeg",
-        _ => "application/octet-stream",
-    }
-}
-
-struct Request {
-    method: String,
-    doc: String,
-    range: Option<String>,
-}
-
-/// Respostas já com status e cabeçalhos; o corpo (se houver) é transmitido do
-/// arquivo em blocos — memória por requisição = o buffer, independente do tamanho do vídeo.
-enum Body {
-    None,
-    Bytes(Vec<u8>),
-    File { path: PathBuf, start: u64, len: u64 },
-}
-
-struct Response {
-    status: u16,
-    headers: Vec<(String, String)>,
-    body: Body,
-}
-
-impl Response {
-    fn simple(status: u16, text: &str) -> Self {
-        Self { status, headers: vec![("Content-Type".into(), "text/plain".into())], body: Body::Bytes(text.as_bytes().to_vec()) }
-    }
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(b[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn serve_file_with_range(req: &Request, file: &Path) -> Response {
-    let Ok(meta) = std::fs::metadata(file) else { return Response::simple(404, "not found") };
-    let total = meta.len() as i64;
-    // Arquivo vazio/inválido: 200 vazio (evita range negativo).
-    if total <= 0 {
-        return Response { status: 200, headers: vec![], body: Body::None };
-    }
-    let (mut start, mut end) = (0i64, total - 1);
-    let mut status = 200;
-    let mut headers: Vec<(String, String)> = Vec::new();
-
-    if let Some(range) = req.range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
-        // "bytes=START-END", "bytes=START-" ou "bytes=-N" (sufixo).
-        if let Some((s, e)) = range.split_once('-') {
-            if s.is_empty() {
-                // Sufixo: últimos N bytes (RFC 7233).
-                let n: i64 = e.parse().unwrap_or(0);
-                if n > 0 {
-                    start = total - n.min(total);
-                    end = total - 1;
-                }
-            } else {
-                start = s.parse().unwrap_or(0);
-                if !e.is_empty() {
-                    end = e.parse().unwrap_or(total - 1);
-                }
-            }
-        }
-        end = end.min(total - 1);
-        if start > end {
-            return Response { status: 416, headers: vec![("Content-Range".into(), format!("bytes */{total}"))], body: Body::None };
-        }
-        // Serve EXATAMENTE o range pedido (sem cap): cortar por chunk QUEBRAVA MP4
-        // com moov no fim (o Chromium pede a cauda para achar o moov e entrava em
-        // laço re-pedindo, disco a 8 MB/s sem parar).
-        status = 206;
-        headers.push(("Content-Range".into(), format!("bytes {start}-{end}/{total}")));
-    }
-    let len = (end - start + 1) as u64;
-    let ct = content_type_for(file);
-    headers.push(("Content-Type".into(), ct.into()));
-    headers.push(("Accept-Ranges".into(), "bytes".into()));
-    // Mídia cacheável (o conteúdo de uma URL /v/ não muda: o token é o hash do
-    // PATH e os arquivos por trás são escritos uma vez; a porta é efêmera, então
-    // nada sobrevive para a sessão seguinte). `private`: conteúdo do usuário.
-    // IMAGEM fica de fora: a miniatura PODE ser regerada na mesma sessão com a
-    // mesma URL.
-    let cc = if ct.starts_with("image/") { "no-store".to_owned() } else { format!("private, max-age={MEDIA_CACHE_SECONDS}") };
-    headers.push(("Cache-Control".into(), cc));
-    Response { status, headers, body: Body::File { path: file.to_path_buf(), start: start as u64, len } }
-}
-
-fn handle_request(req: &Request) -> Response {
-    let doc = &req.doc;
-    let mut resp = if let Some(rest) = doc.strip_prefix("/v/") {
-        // /v/<token>.ext — arquivos registrados.
-        let token = rest.split('.').next().unwrap_or("");
-        let file = lock(&TOKEN_MAP).as_ref().and_then(|m| m.get(token).cloned());
-        match file {
-            Some(f) => serve_file_with_range(req, &f),
-            None => Response::simple(404, "unknown token"),
-        }
-    } else {
-        Response::simple(404, "not found")
-    };
-    // CORS restrito ao origin EXATO da UI (https://noobs.app), não '*': a UI
-    // roda lá e o áudio das faixas vem de 127.0.0.1 (cross-origin; sem ACAO o
-    // Web Audio marca o recurso como "tainted" e o GainNode dá SILÊNCIO). '*'
-    // deixaria qualquer página no navegador normal do usuário ler cross-origin
-    // as prévias de monitor (id ADIVINHÁVEL = screenshot do desktop ao vivo).
-    resp.headers.push(("Access-Control-Allow-Origin".into(), "https://noobs.app".into()));
-    resp.headers.push(("Vary".into(), "Origin".into()));
-    resp
-}
-
-fn reason(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        206 => "Partial Content",
-        404 => "Not Found",
-        416 => "Range Not Satisfiable",
-        500 => "Internal Server Error",
-        _ => "OK",
-    }
-}
-
-fn write_response(stream: &mut TcpStream, resp: Response, head_only: bool) -> std::io::Result<()> {
-    let body_len: u64 = match &resp.body {
-        Body::None => 0,
-        Body::Bytes(b) => b.len() as u64,
-        Body::File { len, .. } => *len,
-    };
-    let mut head = format!("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status));
-    for (k, v) in &resp.headers {
-        head.push_str(&format!("{k}: {v}\r\n"));
-    }
-    head.push_str(&format!("Content-Length: {body_len}\r\nConnection: keep-alive\r\n\r\n"));
-    stream.write_all(head.as_bytes())?;
-    if head_only {
-        return Ok(());
-    }
-    match resp.body {
-        Body::None => {}
-        Body::Bytes(b) => stream.write_all(&b)?,
-        Body::File { path, start, len } => {
-            // FILE_SHARE_READ | FILE_SHARE_DELETE: permite mover/renomear o arquivo
-            // enquanto o player o serve (sem isso o .mkv fica travado e "excluir
-            // enquanto toca" falha com sharing violation).
-            let mut f = match std::fs::OpenOptions::new().read(true).share_mode(1 | 4).open(&path) {
-                Ok(f) => f,
-                Err(_) => return Ok(()), // cabeçalho já saiu; a conexão cai
-            };
-            f.seek(SeekFrom::Start(start))?;
-            let mut remaining = len;
-            let mut buf = vec![0u8; 256 * 1024];
-            while remaining > 0 {
-                let want = remaining.min(buf.len() as u64) as usize;
-                let n = f.read(&mut buf[..want])?;
-                if n == 0 {
-                    break;
-                }
-                stream.write_all(&buf[..n])?;
-                remaining -= n as u64;
-            }
-        }
-    }
-    stream.flush()
-}
-
-/// Lê uma requisição (linha + cabeçalhos). `None` = conexão fechada/inválida.
-fn read_request(reader: &mut BufReader<TcpStream>) -> Option<Request> {
-    let mut line = String::new();
-    if reader.read_line(&mut line).ok()? == 0 {
-        return None;
-    }
-    let mut parts = line.split_whitespace();
-    let method = parts.next()?.to_owned();
-    let target = parts.next()?.to_owned();
-    let mut range = None;
-    loop {
-        let mut h = String::new();
-        if reader.read_line(&mut h).ok()? == 0 {
-            return None;
-        }
-        let h = h.trim_end();
-        if h.is_empty() {
-            break;
-        }
-        if let Some((k, v)) = h.split_once(':') {
-            if k.eq_ignore_ascii_case("range") {
-                range = Some(v.trim().to_owned());
-            }
-        }
-    }
-    let doc = percent_decode(target.split('?').next().unwrap_or(""));
-    Some(Request { method, doc, range })
-}
-
-fn serve_connection(stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
-    let _ = stream.set_nodelay(true);
-    let Ok(read_half) = stream.try_clone() else { return };
-    let mut reader = BufReader::new(read_half);
-    let mut stream = stream;
-    while !SERVER_STOP.load(Ordering::SeqCst) {
-        let Some(req) = read_request(&mut reader) else { return };
-        let head_only = req.method.eq_ignore_ascii_case("HEAD");
-        if write_response(&mut stream, handle_request(&req), head_only).is_err() {
-            return; // cliente abortou (seek/troca de vídeo): normal
-        }
-    }
-}
-
-/// Sobe o servidor em `127.0.0.1:porta-livre` (porta 0). Idempotente.
-pub fn start_player_server() {
-    if SERVER_UP.load(Ordering::SeqCst) {
-        return;
-    }
-    lock(&TOKEN_MAP).get_or_insert_with(HashMap::new);
-    let listener = match TcpListener::bind("127.0.0.1:0") {
-        Ok(l) => l,
-        Err(e) => {
-            log!("Player: falha ao subir servidor: {e}");
-            return;
-        }
-    };
-    let port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-    SERVER_PORT.store(port, Ordering::SeqCst);
-    SERVER_STOP.store(false, Ordering::SeqCst);
-    SERVER_UP.store(true, Ordering::SeqCst);
-    std::thread::spawn(move || {
-        for conn in listener.incoming() {
-            if SERVER_STOP.load(Ordering::SeqCst) {
-                break;
-            }
-            if let Ok(s) = conn {
-                std::thread::spawn(move || serve_connection(s));
-            }
-        }
-    });
-    log!("Player: HTTP server em 127.0.0.1:{port}");
-}
-
-pub fn stop_player_server() {
-    if !SERVER_UP.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    SERVER_STOP.store(true, Ordering::SeqCst);
-    // Acorda o accept para o laço ver o flag.
-    let port = SERVER_PORT.swap(0, Ordering::SeqCst);
-    let _ = TcpStream::connect(("127.0.0.1", port));
-    *lock(&TOKEN_MAP) = None;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,27 +338,5 @@ mod tests {
         assert_eq!(a.len(), 20);
         assert_eq!(a, hash_name("c:\\videos\\a.MKV"));
         assert_ne!(a, hash_name("C:\\Videos\\B.mkv"));
-    }
-
-    #[test]
-    fn percent_decode_espaco() {
-        assert_eq!(percent_decode("/thumb/NoOBS%20Monitor%200.jpg"), "/thumb/NoOBS Monitor 0.jpg");
-        assert_eq!(percent_decode("/v/abc"), "/v/abc");
-        assert_eq!(percent_decode("100%"), "100%");
-    }
-
-    #[test]
-    fn range_sufixo_e_aberto() {
-        let dir = std::env::temp_dir().join("noobs_player_test.bin");
-        std::fs::write(&dir, vec![0u8; 1000]).unwrap();
-        let mk = |r: &str| Request { method: "GET".into(), doc: String::new(), range: Some(r.into()) };
-        let r = serve_file_with_range(&mk("bytes=-100"), &dir);
-        assert_eq!(r.status, 206);
-        assert!(r.headers.iter().any(|(k, v)| k == "Content-Range" && v == "bytes 900-999/1000"));
-        let r = serve_file_with_range(&mk("bytes=10-"), &dir);
-        assert!(r.headers.iter().any(|(k, v)| k == "Content-Range" && v == "bytes 10-999/1000"));
-        let r = serve_file_with_range(&mk("bytes=2000-"), &dir);
-        assert_eq!(r.status, 416);
-        let _ = std::fs::remove_file(&dir);
     }
 }

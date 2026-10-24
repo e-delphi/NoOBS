@@ -18,7 +18,9 @@
 
 use std::cell::{Cell, RefCell};
 
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(any(test, feature = "app-tests"))]
+use serde_json::Value;
 
 use crate::engine::AreaRect;
 use crate::hotkeys::{self, Item, Mode};
@@ -140,7 +142,8 @@ pub fn handle_set_items(items: Vec<Item>) {
     replay::push_replay_state();
 }
 
-/// `set_hotkeys`: a tela manda a lista inteira a cada mudança.
+/// `set_hotkeys` dos testes (a tela Slint chama `handle_set_items`).
+#[cfg(any(test, feature = "app-tests"))]
 pub fn handle_set_hotkeys(items: &Value) {
     handle_set_items(hotkeys::list_from_json(items));
 }

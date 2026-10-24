@@ -198,7 +198,6 @@ pub fn media() -> bool {
         eprintln!("FFmpeg indisponivel — teste pulado.");
         return false;
     }
-    crate::player::start_player_server();
     true
 }
 
@@ -214,61 +213,3 @@ impl Session {
     }
 }
 
-/// `GET` HTTP/1.1 cru (o servidor do player é local). `(status, corpo)`.
-pub fn http_get(url: &str, range: Option<&str>) -> (u16, Vec<u8>) {
-    use std::io::{Read, Write};
-    let rest = url.strip_prefix("http://").expect("url http");
-    let (host, path) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, "/".into()));
-    let mut s = std::net::TcpStream::connect(host).expect("conectar no player");
-    s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-    let range = range.map(|r| format!("Range: {r}\r\n")).unwrap_or_default();
-    write!(s, "GET {path} HTTP/1.1\r\nHost: {host}\r\n{range}Connection: close\r\n\r\n").unwrap();
-    // Lê o cabeçalho e depois exatamente o `Content-Length`: o servidor mantém a
-    // conexão aberta (o <video> a reaproveita), então ler até o fim esperaria o
-    // tempo limite inteiro.
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 65536];
-    let sep = loop {
-        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-            break p;
-        }
-        let n = s.read(&mut tmp).unwrap_or(0);
-        assert!(n > 0, "conexao fechada antes do cabecalho");
-        buf.extend_from_slice(&tmp[..n]);
-    };
-    let len = String::from_utf8_lossy(&buf[..sep])
-        .lines()
-        .find_map(|l| l.to_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok()));
-    match len {
-        Some(len) => {
-            while buf.len() < sep + 4 + len {
-                let n = s.read(&mut tmp).unwrap_or(0);
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&tmp[..n]);
-            }
-        }
-        None => {
-            let _ = s.read_to_end(&mut buf);
-        }
-    }
-    let head = String::from_utf8_lossy(&buf[..sep]).into_owned();
-    let status = head.split_whitespace().nth(1).and_then(|c| c.parse().ok()).unwrap_or(0);
-    let mut body = buf[sep + 4..].to_vec();
-    // Resposta em pedaços (chunked): junta.
-    if head.to_lowercase().contains("transfer-encoding: chunked") {
-        let mut out = Vec::new();
-        let mut i = 0;
-        while let Some(nl) = body[i..].windows(2).position(|w| w == b"\r\n") {
-            let n = usize::from_str_radix(String::from_utf8_lossy(&body[i..i + nl]).trim(), 16).unwrap_or(0);
-            if n == 0 {
-                break;
-            }
-            out.extend_from_slice(&body[i + nl + 2..i + nl + 2 + n]);
-            i += nl + 2 + n + 2;
-        }
-        body = out;
-    }
-    (status, body)
-}

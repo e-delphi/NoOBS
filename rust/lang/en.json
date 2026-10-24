@@ -499,7 +499,7 @@
     },
     "autoRecord": {
       "label": "Automatically record during calls",
-      "hint": "Starts recording when it detects the microphone being used by another app (a Teams, WhatsApp, etc. call) and stops when it's released. Works even with the window in the tray or the app hibernating.",
+      "hint": "Starts recording when it detects the microphone being used by another app (a Teams, WhatsApp, etc. call) and stops when it's released. Works even with the window in the tray.",
       "appsPlaceholder": "teams, whatsapp, zoom",
       "appsHint": "Apps to watch, comma-separated (part of the process name). Empty = any app that uses the microphone. Browser calls show up as chrome.exe / msedge.exe.",
       "exceptPlaceholder": "steam, discord",
@@ -650,7 +650,7 @@
       "intoRecordingHint": "When checked, starting a recording with the buffer on reuses what it has already kept: the file starts with that footage and continues without a break. When unchecked, whatever was in the buffer is discarded and the recording starts from scratch.",
       "apps": "Turn on by itself with these programs",
       "appsPlaceholder": "e.g.: whatsapp, telegram, teams",
-      "appsHint": "Program names separated by commas. While any of them is open the buffer turns on by itself; when they all close, it turns off. Part of the name is enough (\"teams\" matches \"ms-teams\"). Works with NoOBS hibernating too. Empty = off.",
+      "appsHint": "Program names separated by commas. While any of them is open the buffer turns on by itself; when they all close, it turns off. Part of the name is enough (\"teams\" matches \"ms-teams\"). Works with NoOBS in the tray too. Empty = off.",
       "indicator": "Show the buffer indicator on screen",
       "indicatorClickable": "Clicking the indicator saves the clip",
       "indicatorHint": "A green dot with how much is kept, in the corner of the screen. You see it but it <b>does not enter the recording</b>, and clicking it saves the clip. It hides while a full-screen application is in front (on top of it, it drops the FPS) and comes back when you leave it. Requires Windows 10 2004+.",
@@ -663,7 +663,7 @@
     }
   },
   "hotkeys": {
-    "hint": "Each hotkey works in any program, even with NoOBS in the tray or hibernating. Recording hotkeys, pressed again, stop the recording (or cancel the delay countdown).",
+    "hint": "Each hotkey works in any program, even with NoOBS in the tray. Recording hotkeys, pressed again, stop the recording (or cancel the delay countdown).",
     "add": "+ Add hotkey",
     "empty": "No hotkeys. Use \"Add hotkey\" to create one.",
     "remove": "Remove hotkey",
@@ -726,16 +726,16 @@
       "<b>GPU acceleration</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) with CPU x264 fallback",
       "<b>Quick editing in the player</b> — split, merge, waveform and per-track volume",
       "<b>Automatic recording during calls</b> — detects the microphone in use by Teams, WhatsApp and the like, and stops on its own",
-      "<b>Global shortcut</b> and <b>hibernation mode</b> (~5 MB of RAM when idle in the tray)",
+      "<b>Global shortcuts</b> — record, save the buffer and capture an area even with NoOBS in the tray",
       "<b>MKV container</b> — the recording survives a power loss"
     ],
     "builtWith": [
       "Rust — native Win64 target",
       "Direct3D 11 + Windows Graphics Capture + WASAPI — screen, window, webcam and audio capture",
       "FFmpeg — encoders, MKV/MP4, remux, track extraction and thumbnails",
-      "WebView2 (Chromium) — HTML/CSS/JS interface"
+      "Slint — native interface (Skia renderer)"
     ],
-    "footer": "Uses FFmpeg (LGPL/GPL) and Microsoft's WebView2.",
+    "footer": "Uses FFmpeg (LGPL/GPL) and Slint (royalty-free license).",
     "close": "Close"
   },
   "player": {

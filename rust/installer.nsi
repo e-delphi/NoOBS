@@ -100,7 +100,7 @@ FunctionEnd
 ; O taskkill /F so PEDE o fim: o TerminateProcess volta antes de o
 ; processo terminar de ser desmontado, e o NoOBS.exe (e as DLLs ao lado
 ; dele) continuam travados ate a ultima thread sair. Com driver de video,
-; WebView2 e antivirus no meio, isso leva SEGUNDOS em algumas maquinas.
+; antivirus no meio, isso leva SEGUNDOS em algumas maquinas.
 ; Antes era "taskkill + Sleep 500" e pronto: onde a desmontagem demorava
 ; mais, a copia morria no "Erro ao abrir arquivo para escrita" e so
 ; passava depois de alguns "Repetir" — quando o processo ja tinha saido.
@@ -279,6 +279,11 @@ Section "NoOBS" SecMain
     RMDir /r "$INSTDIR\data"
     RMDir /r "$INSTDIR\obs-plugins"
     RMDir /r "$INSTDIR\ui"
+    ; Dados do WebView2 da interface web (a de hoje e Slint, sem navegador):
+    ; a pasta ao lado do exe sai com o bin\ acima; a de versoes antigas e o
+    ; ARQUIVO marcador que a substituiu numa maquina de desenvolvimento saem aqui.
+    Delete "$LOCALAPPDATA\TNoOBS"
+    RMDir /r "$LOCALAPPDATA\TNoOBS"
 
     ; O app inteiro: o exe (UI e traducoes vao dentro dele) e as DLLs do
     ; FFmpeg com as dependencias delas. Lista fechada de proposito: nada que
@@ -474,6 +479,7 @@ Section "Uninstall"
     ; Pergunta se quer remover configuracoes e cache
     MessageBox MB_YESNO "Deseja remover as configuracoes e cache do NoOBS?" IDNO skip
         RMDir /r "$LOCALAPPDATA\NoOBS"
+        Delete "$LOCALAPPDATA\TNoOBS"
         RMDir /r "$LOCALAPPDATA\TNoOBS"
     skip:
 SectionEnd

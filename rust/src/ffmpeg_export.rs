@@ -105,6 +105,8 @@ pub struct ExportEncoder {
 
 pub const EXPORT_CRF_MIN: i32 = 0;
 pub const EXPORT_CRF_MAX: i32 = 51;
+/// Padrão do `export_recording` dos testes (a tela parte do mesmo 23).
+#[cfg(any(test, feature = "app-tests"))]
 pub const EXPORT_CRF_DEFAULT: i32 = 23;
 /// Velocidade máxima da exportação acelerada.
 pub const EXPORT_SPEED_MAX: f64 = 512.0;

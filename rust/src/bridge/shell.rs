@@ -1,14 +1,12 @@
 //! Integração do Bridge com o shell do Windows (partes do `OBSBridge.pas`):
-//! bandeja, validação de atalho e as preferências de janela (título, fechar
-//! pra bandeja, autostart, elevação…).
+//! bandeja e as preferências de janela (título, fechar pra bandeja,
+//! autostart, elevação…).
 //!
 //! Tudo na main thread.
 
-use serde_json::json;
+use crate::{autostart, config, engine, log, tray, ui};
 
-use crate::{autostart, config, engine, hotkey, lang, log, tray, ui};
-
-use super::{post_json, recording};
+use super::recording;
 
 /// Liga a bandeja e a janela ao Bridge (parte do `initialization` do Delphi).
 pub fn install() {
@@ -44,30 +42,6 @@ pub fn should_hide_on_close() -> bool {
 /// mudou com ela escondida, pelo atalho ou pela bandeja).
 pub fn on_window_restored() {
     recording::push_recording_state();
-}
-
-// ---------------------------------------------------------------------------
-// Validação de atalho (a lista mora em `bridge::hotkeys`)
-// ---------------------------------------------------------------------------
-
-/// Valida um atalho para a UI (`hotkey_validation_result`), com o motivo já
-/// traduzido. A regra (lista de reservados) fica toda no backend.
-pub fn handle_validate_hotkey(spec: &str) {
-    let spec = spec.trim();
-    let reason = if spec.is_empty() {
-        None
-    } else {
-        match hotkey::parse_hotkey(spec) {
-            None => Some("settings.hotkey.invalidSpec"),
-            Some(hk) => hotkey::reserved_reason(hk.modifiers, hk.vk),
-        }
-    };
-    post_json(json!({
-        "type": "hotkey_validation_result",
-        "hotkey": spec,
-        "ok": reason.is_none(),
-        "reason": reason.map(lang::t).unwrap_or_default(),
-    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +89,3 @@ pub fn handle_set_window_title(title: &str) {
     ui::apply_window_title();
 }
 
-/// Notificação do Windows clicada / "abrir" vindo da UI.
-pub fn handle_tray_show() {
-    ui::restore_from_tray();
-}

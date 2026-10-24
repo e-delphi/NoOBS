@@ -243,6 +243,8 @@ fn remux_dispatch(src: &str, targets: &[Vec<u32>], outputs: &[String], cancel: O
 }
 
 /// Copia TODOS os streams do source para um único output (`ffmpeg -i src -c copy dst`).
+/// Era o remux pro MP4 que o WebView2 tocava; hoje só os testes o usam.
+#[cfg(any(test, feature = "app-tests"))]
 pub fn remux_file(src: &str, dst: &str) -> bool {
     if !ffmpeg_lib_available() {
         return false;

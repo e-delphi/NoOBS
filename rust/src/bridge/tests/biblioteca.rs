@@ -80,24 +80,6 @@ fn renomear_recusa_o_que_nao_deve() {
     let _ = std::fs::remove_file(fora);
 }
 
-// ---- abrir ------------------------------------------------------------------
-
-#[test]
-fn abrir_gravacao_so_midia_dentro_da_pasta() {
-    let s = begin();
-    let mkv = s.file("v.mkv", b"x");
-    let exe = s.file("malicioso.exe", b"MZ");
-    let bat = s.file("x.bat", b"@echo");
-    send(json!({ "type": "open_recording", "id": mkv }));
-    send(json!({ "type": "open_recording", "id": exe }));
-    send(json!({ "type": "open_recording", "id": bat }));
-    send(json!({ "type": "open_recording", "id": "C:\\Windows\\notepad.exe" }));
-    assert_eq!(testkit::effects(), vec![format!("shell_open:{mkv}")]);
-    // Mídia dentro da pasta que sumiu: avisa.
-    send(json!({ "type": "open_recording", "id": s.path("sumiu.mp4") }));
-    assert_eq!(testkit::errors(), vec![lang::t("error.fileNotFound")]);
-}
-
 #[test]
 fn abrir_pasta_de_gravacao() {
     let s = begin();

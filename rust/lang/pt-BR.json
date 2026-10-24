@@ -499,7 +499,7 @@
     },
     "autoRecord": {
       "label": "Gravar automaticamente durante chamadas",
-      "hint": "Inicia a gravação quando detecta o microfone sendo usado por outro app (chamada de Teams, WhatsApp, etc.) e para quando ele é liberado. Funciona até com a janela na bandeja ou o app hibernando.",
+      "hint": "Inicia a gravação quando detecta o microfone sendo usado por outro app (chamada de Teams, WhatsApp, etc.) e para quando ele é liberado. Funciona até com a janela na bandeja.",
       "appsPlaceholder": "teams, whatsapp, zoom",
       "appsHint": "Apps a monitorar, separados por vírgula (parte do nome do processo). Vazio = qualquer app que use o microfone. Chamadas no navegador aparecem como chrome.exe / msedge.exe.",
       "exceptPlaceholder": "steam, discord",
@@ -650,7 +650,7 @@
       "intoRecordingHint": "Marcado, iniciar uma gravação com o buffer ligado aproveita o que ele já guardou: o arquivo começa por esse trecho e continua sem interrupção. Desmarcado, o que estava no buffer é descartado e a gravação começa do zero.",
       "apps": "Ligar sozinho com estes programas",
       "appsPlaceholder": "ex.: whatsapp, telegram, teams",
-      "appsHint": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"teams\" acha \"ms-teams\"). Funciona também com o NoOBS hibernando. Vazio = desligado.",
+      "appsHint": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"teams\" acha \"ms-teams\"). Funciona também com o NoOBS na bandeja. Vazio = desligado.",
       "indicator": "Mostrar indicador do buffer na tela",
       "indicatorClickable": "Clicar no indicador salva o trecho",
       "indicatorHint": "Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece pra você mas <b>não entra na gravação</b>, e clicar nela salva o trecho. Some enquanto uma aplicação em tela cheia estiver na frente (por cima dela ele derruba o FPS) e volta quando você sai dela. Requer Windows 10 2004+.",
@@ -663,7 +663,7 @@
     }
   },
   "hotkeys": {
-    "hint": "Cada atalho funciona em qualquer programa, mesmo com o NoOBS na bandeja ou hibernando. Os de gravação, apertados de novo, param a gravação (ou cancelam a contagem do atraso).",
+    "hint": "Cada atalho funciona em qualquer programa, mesmo com o NoOBS na bandeja. Os de gravação, apertados de novo, param a gravação (ou cancelam a contagem do atraso).",
     "add": "+ Adicionar atalho",
     "empty": "Nenhum atalho. Use \"Adicionar atalho\" para criar um.",
     "remove": "Remover atalho",
@@ -726,16 +726,16 @@
       "<b>Aceleração de GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) com fallback CPU x264",
       "<b>Edição rápida no player</b> — dividir, unir, waveform e volume por faixa de áudio",
       "<b>Gravação automática em chamadas</b> — detecta o microfone em uso por Teams, WhatsApp e afins, e para sozinho ao fim",
-      "<b>Atalho global</b> e <b>modo hibernação</b> (~5 MB de RAM quando ocioso na bandeja)",
+      "<b>Atalhos globais</b> — gravam, salvam o buffer e capturam área mesmo com o NoOBS na bandeja",
       "<b>Container MKV</b> — a gravação sobrevive a queda de energia"
     ],
     "builtWith": [
       "Rust — target Win64 nativo",
       "Direct3D 11 + Windows Graphics Capture + WASAPI — captura de tela, janela, webcam e áudio",
       "FFmpeg — encoders, MKV/MP4, remux, extração de faixas e thumbnails",
-      "WebView2 (Chromium) — interface HTML/CSS/JS"
+      "Slint — interface nativa (renderer Skia)"
     ],
-    "footer": "Usa o FFmpeg (LGPL/GPL) e o WebView2 da Microsoft.",
+    "footer": "Usa o FFmpeg (LGPL/GPL) e o Slint (licença royalty-free).",
     "close": "Fechar"
   },
   "player": {

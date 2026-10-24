@@ -26,7 +26,7 @@ use crate::view::{self, Crumb, FolderItem, LayoutRegion, Library, RecItem, Strea
 use crate::{config, ffmpeg_ops, lang, log, mainthread, player, probe, record_watch, ui};
 
 use super::recording::{last_recording_path, record_dir, recording_active};
-use super::{is_shutting_down, post_error, post_json};
+use super::{is_shutting_down, post_error};
 
 /// Extensões de vídeo reconhecidas como gravação. Fonte única da listagem e da
 /// whitelist de `open_recording` (não deixar a UI mandar `ShellExecute('open')`
@@ -543,17 +543,6 @@ pub fn resolve_recording_start_clock_sec(path: &str) -> i32 {
     }
 }
 
-fn push_play_url(path: &str, url: &str, mode: &str) {
-    post_json(json!({
-        "type": "play_url",
-        "id": path,
-        "name": file_stem(path),
-        "url": url,
-        "mode": mode, // 'direct' | 'transcoded'
-        "startClockSec": resolve_recording_start_clock_sec(path),
-    }));
-}
-
 /// Valida o path da UI: dentro da pasta de gravação (ou uma prévia de
 /// exportação — só LEITURA passa por aqui) e existente (senão avisa).
 pub fn checked_recording(path: &str, warn_missing: bool) -> bool {
@@ -567,49 +556,6 @@ pub fn checked_recording(path: &str, warn_missing: bool) -> bool {
         return false;
     }
     true
-}
-
-/// Tentativa rápida: serve o arquivo original direto. Se o WebView2 tiver o
-/// codec toca sem custo; se falhar, o JS dispara `request_transcode`.
-pub fn handle_play_recording(path: &str) {
-    if !checked_recording(path, true) {
-        return;
-    }
-    let url = player::get_direct_url(path);
-    if url.is_empty() {
-        post_error(lang::t("error.prepareUrlFailed"));
-        return;
-    }
-    push_play_url(path, &url, "direct");
-}
-
-/// O JS chama isto depois que o player falhou com o original: remux em worker.
-pub fn handle_request_transcode(path: &str) {
-    if !checked_recording(path, true) {
-        return;
-    }
-    if !crate::ffi::ffmpeg::ffmpeg_lib_available() {
-        post_error(lang::t("error.mediaLibUnavailable"));
-        return;
-    }
-    post_json(json!({ "type": "play_pending", "id": path }));
-    let path = path.to_owned();
-    std::thread::spawn(move || {
-        if is_shutting_down() {
-            return;
-        }
-        let url = std::panic::catch_unwind(|| player::get_transcoded_url(&path)).unwrap_or_default();
-        if is_shutting_down() {
-            return;
-        }
-        mainthread::queue(move || {
-            if url.is_empty() {
-                post_error(lang::t("error.transcodeFailed"));
-            } else {
-                push_play_url(&path, &url, "transcoded");
-            }
-        });
-    });
 }
 
 fn video_info_has_rateless_video(v: &Value) -> bool {
@@ -774,50 +720,6 @@ pub fn handle_request_waveform(path: &str, buckets: i64, hi: bool) {
     });
 }
 
-/// Grade de keyframes para o avanço por saltos do player (pegadinha #61). Sem
-/// cache: sai do índice do MKV em 1–6 ms. Sem índice (gravação interrompida)
-/// manda lista vazia e o player segue no acelerado normal.
-pub fn handle_request_keyframes(path: &str) {
-    if !checked_recording(path, false) || !crate::ffi::ffmpeg::ffmpeg_lib_available() {
-        return;
-    }
-    let path = path.to_owned();
-    std::thread::spawn(move || {
-        if is_shutting_down() {
-            return;
-        }
-        let (times, fps) = std::panic::catch_unwind(|| ffmpeg_ops::list_video_keyframes(&path)).ok().flatten().unwrap_or_default();
-        if is_shutting_down() {
-            return;
-        }
-        let r3 = |v: f64| (v * 1000.0).round() / 1000.0;
-        let obj = json!({ "type": "keyframes", "id": path, "fps": r3(fps), "times": times.iter().map(|t| r3(*t)).collect::<Vec<_>>() });
-        mainthread::queue(move || post_json(obj));
-    });
-}
-
-/// Extrai as faixas isoladas (uma vez, ~0,5–2 s) e devolve as URLs; o JS cria
-/// `<audio>` sincronizados ao vídeo para a mixagem por faixa em tempo real.
-pub fn handle_request_audio_tracks(path: &str) {
-    if !checked_recording(path, true) {
-        return;
-    }
-    let path = path.to_owned();
-    std::thread::spawn(move || {
-        if is_shutting_down() {
-            return;
-        }
-        let urls = std::panic::catch_unwind(|| player::get_audio_track_urls(&path)).ok().flatten();
-        if is_shutting_down() {
-            return;
-        }
-        mainthread::queue(move || match urls {
-            Some(urls) => post_json(json!({ "type": "audio_tracks_ready", "id": path, "urls": urls })),
-            None => post_error(lang::t("error.extractAudioFailed")),
-        });
-    });
-}
-
 // ---------------------------------------------------------------------------
 // Renomear, abrir, excluir
 // ---------------------------------------------------------------------------
@@ -883,21 +785,6 @@ pub fn handle_open_record_dir() {
         return;
     }
     ui::shell_open(&dir.to_string_lossy());
-}
-
-/// Só abre gravação DENTRO da pasta de gravação: `ShellExecute('open')` num path
-/// arbitrário executaria .exe/.bat/.lnk com o handler padrão (defesa em
-/// profundidade contra mensagem forjada).
-pub fn handle_open_recording(path: &str) {
-    if !is_path_in_record_dir(path) || !is_recording_ext(path) {
-        log!("HandleOpenRecording: rejeitado (fora da pasta ou ext nao-midia): {path}");
-        return;
-    }
-    if !Path::new(path).is_file() {
-        post_error(lang::t("error.fileNotFound"));
-        return;
-    }
-    ui::shell_open(path);
 }
 
 /// Manda para a Lixeira (recuperável), com retry curto: logo após uma gravação a

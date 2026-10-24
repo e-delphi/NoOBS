@@ -499,7 +499,7 @@
     },
     "autoRecord": {
       "label": "Grabar automáticamente durante llamadas",
-      "hint": "Inicia la grabación cuando detecta el micrófono en uso por otra app (una llamada de Teams, WhatsApp, etc.) y para cuando se libera. Funciona incluso con la ventana en la bandeja o la app hibernando.",
+      "hint": "Inicia la grabación cuando detecta el micrófono en uso por otra app (una llamada de Teams, WhatsApp, etc.) y para cuando se libera. Funciona incluso con la ventana en la bandeja.",
       "appsPlaceholder": "teams, whatsapp, zoom",
       "appsHint": "Apps a vigilar, separadas por comas (parte del nombre del proceso). Vacío = cualquier app que use el micrófono. Las llamadas en el navegador aparecen como chrome.exe / msedge.exe.",
       "exceptPlaceholder": "steam, discord",
@@ -650,7 +650,7 @@
       "intoRecordingHint": "Marcado, iniciar una grabación con el búfer activo aprovecha lo que ya guardó: el archivo empieza por ese fragmento y sigue sin interrupción. Sin marcar, lo que había en el búfer se descarta y la grabación empieza desde cero.",
       "apps": "Activar solo con estos programas",
       "appsPlaceholder": "ej.: whatsapp, telegram, teams",
-      "appsHint": "Nombres de programas separados por comas. Mientras uno esté abierto, el búfer se activa solo; cuando todos se cierren, se apaga. Basta una parte del nombre (\"teams\" encuentra \"ms-teams\"). Funciona también con NoOBS hibernando. Vacío = apagado.",
+      "appsHint": "Nombres de programas separados por comas. Mientras uno esté abierto, el búfer se activa solo; cuando todos se cierren, se apaga. Basta una parte del nombre (\"teams\" encuentra \"ms-teams\"). Funciona también con NoOBS en la bandeja. Vacío = apagado.",
       "indicator": "Mostrar el indicador del búfer en pantalla",
       "indicatorClickable": "Hacer clic en el indicador guarda el fragmento",
       "indicatorHint": "Un punto verde con lo que ya está guardado, en la esquina de la pantalla. Lo ves tú pero <b>no entra en la grabación</b>, y al hacer clic guarda el fragmento. Se oculta mientras una aplicación a pantalla completa está al frente (encima de ella baja los FPS) y vuelve cuando sales de ella. Requiere Windows 10 2004+.",
@@ -663,7 +663,7 @@
     }
   },
   "hotkeys": {
-    "hint": "Cada atajo funciona en cualquier programa, incluso con NoOBS en la bandeja o hibernando. Los de grabación, pulsados de nuevo, detienen la grabación (o cancelan la cuenta atrás del retraso).",
+    "hint": "Cada atajo funciona en cualquier programa, incluso con NoOBS en la bandeja. Los de grabación, pulsados de nuevo, detienen la grabación (o cancelan la cuenta atrás del retraso).",
     "add": "+ Añadir atajo",
     "empty": "No hay atajos. Usa \"Añadir atajo\" para crear uno.",
     "remove": "Quitar atajo",
@@ -726,16 +726,16 @@
       "<b>Aceleración por GPU</b>: AV1, HEVC, H.264 (NVIDIA / AMD / Intel) con respaldo CPU x264",
       "<b>Edición rápida en el reproductor</b> — dividir, unir, forma de onda y volumen por pista",
       "<b>Grabación automática en llamadas</b> — detecta el micrófono en uso por Teams, WhatsApp y similares, y se detiene solo",
-      "<b>Atajo global</b> y <b>modo hibernación</b> (~5 MB de RAM cuando está inactivo en la bandeja)",
+      "<b>Atajos globales</b> — graban, guardan el búfer y capturan un área incluso con NoOBS en la bandeja",
       "<b>Contenedor MKV</b> — la grabación sobrevive a un corte de energía"
     ],
     "builtWith": [
       "Rust — target Win64 nativo",
       "Direct3D 11 + Windows Graphics Capture + WASAPI — captura de pantalla, ventana, cámara y audio",
       "FFmpeg — codificadores, MKV/MP4, remux, extracción de pistas y miniaturas",
-      "WebView2 (Chromium) — interfaz HTML/CSS/JS"
+      "Slint — interfaz nativa (renderizador Skia)"
     ],
-    "footer": "Usa FFmpeg (LGPL/GPL) y WebView2 de Microsoft.",
+    "footer": "Usa FFmpeg (LGPL/GPL) y Slint (licencia royalty-free).",
     "close": "Cerrar"
   },
   "player": {

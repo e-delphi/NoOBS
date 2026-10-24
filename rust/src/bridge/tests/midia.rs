@@ -22,74 +22,6 @@ fn ids(v: &Value) -> Vec<String> {
 // ---- player -----------------------------------------------------------------
 
 #[test]
-fn tocar_serve_o_arquivo_original() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    let f = s.sample("h264_2faixas.mkv", "tocar.mkv");
-    send(json!({ "type": "play_recording", "id": f }));
-    let r = testkit::last_of("play_url").expect("play_url");
-    assert_eq!(r["mode"], "direct");
-    assert_eq!(r["name"], "tocar");
-    assert!(r["startClockSec"].as_i64().is_some_and(|c| (0..86_400).contains(&c)));
-    let url = r["url"].as_str().unwrap();
-    let (st, body) = testkit::http_get(url, None);
-    assert_eq!(st, 200);
-    assert_eq!(body, std::fs::read(&f).unwrap(), "o arquivo inteiro, byte a byte");
-    // Pedaço (o <video> faz seek por Range).
-    let (st, body) = testkit::http_get(url, Some("bytes=100-199"));
-    assert_eq!(st, 206);
-    assert_eq!(body, std::fs::read(&f).unwrap()[100..200].to_vec());
-}
-
-#[test]
-fn tocar_recusa_e_avisa() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    send(json!({ "type": "play_recording", "id": "C:\\Windows\\notepad.exe" }));
-    assert!(testkit::sent_of("play_url").is_empty() && testkit::errors().is_empty());
-    send(json!({ "type": "play_recording", "id": s.path("sumiu.mkv") }));
-    assert_eq!(testkit::errors(), vec![lang::t("error.fileNotFound")]);
-}
-
-#[test]
-fn transcodificar_entrega_mp4() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    let f = s.sample("h264_2faixas.mkv", "remux.mkv");
-    send(json!({ "type": "request_transcode", "id": f }));
-    assert!(testkit::last_of("play_pending").is_some(), "avisa que vai demorar");
-    let r = testkit::wait_for("play_url", 15_000).expect("play_url");
-    assert_eq!(r["mode"], "transcoded");
-    let (st, body) = testkit::http_get(r["url"].as_str().unwrap(), Some("bytes=0-63"));
-    assert_eq!(st, 206);
-    assert_eq!(&body[4..8], b"ftyp", "é MP4");
-    // De novo: sai do cache, mesma URL.
-    testkit::clear_sent();
-    send(json!({ "type": "request_transcode", "id": f }));
-    assert_eq!(testkit::wait_for("play_url", 15_000).unwrap()["url"], r["url"]);
-}
-
-#[test]
-fn transcodificar_o_que_nao_e_video_avisa() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    let f = s.file("falso.mkv", "isto não é vídeo".repeat(100).as_bytes());
-    send(json!({ "type": "request_transcode", "id": f }));
-    assert!(testkit::wait_for("error", 15_000).is_some());
-    assert_eq!(testkit::errors(), vec![lang::t("error.transcodeFailed")]);
-}
-
-// ---- painel de informações --------------------------------------------------
-
-#[test]
 fn informacoes_do_video() {
     let s = begin();
     if !testkit::media() {
@@ -186,47 +118,6 @@ fn waveform_sem_arquivo_nao_responde() {
 }
 
 #[test]
-fn keyframes_do_player() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    let f = s.sample("h264_2faixas.mkv", "kf.mkv");
-    send(json!({ "type": "request_keyframes", "id": f }));
-    let r = testkit::wait_for("keyframes", 10_000).unwrap();
-    assert_eq!(r["times"], json!([0.0, 1.0, 2.0, 3.0]));
-    assert_eq!(r["fps"], 30.0);
-    let g = s.sample("interrompido.mkv", "kf-interrompido.mkv");
-    testkit::clear_sent();
-    send(json!({ "type": "request_keyframes", "id": g }));
-    assert_eq!(testkit::wait_for("keyframes", 10_000).unwrap()["times"], json!([0.0, 1.0]));
-}
-
-// ---- faixas de áudio do player ----------------------------------------------
-
-#[test]
-fn faixas_isoladas_viram_urls() {
-    let s = begin();
-    if !testkit::media() {
-        return;
-    }
-    let f = s.sample("h264_6faixas.mkv", "faixas.mkv");
-    send(json!({ "type": "request_audio_tracks", "id": f }));
-    let r = testkit::wait_for("audio_tracks_ready", 20_000).expect("audio_tracks_ready");
-    let urls = ids(&r["urls"]);
-    assert_eq!(urls.len(), 6);
-    // A mistura (0) toca no <video>: não é extraída.
-    assert_eq!(urls[0], "");
-    for u in &urls[1..] {
-        let (st, body) = testkit::http_get(u, Some("bytes=0-31"));
-        assert_eq!(st, 206, "{u}");
-        assert_eq!(&body[4..8], b"ftyp", "M4A");
-    }
-}
-
-// ---- prévia e duração da biblioteca -----------------------------------------
-
-#[test]
 fn abrir_pasta_gera_previa_e_duracao() {
     let s = begin();
     if !testkit::media() {
@@ -319,7 +210,7 @@ fn exportar_como_a_pagina_manda() {
 }
 
 #[test]
-fn previa_da_exportacao_fica_fora_da_biblioteca_e_toca_no_player() {
+fn previa_da_exportacao_fica_fora_da_biblioteca_e_abre_no_player() {
     let s = begin();
     if !testkit::media() {
         return;
@@ -347,10 +238,8 @@ fn previa_da_exportacao_fica_fora_da_biblioteca_e_toca_no_player() {
     assert!(testkit::sent_of("recording_added").is_empty());
     assert!(testkit::sent_of("export_progress").is_empty());
     assert!(!testkit::sent_of("export_preview_progress").is_empty());
-    // O player da galeria toca.
-    testkit::clear_sent();
-    send(json!({ "type": "play_recording", "id": out }));
-    assert_eq!(testkit::last_of("play_url").expect("play_url")["id"], out.as_str());
+    // O player abre (a leitura passa pela mesma validação de caminho).
+    assert!(crate::bridge::check_recording_for_player(&out));
     // Mexer no arquivo, não: renomear/excluir são só da biblioteca.
     send(json!({ "type": "delete_recording", "id": out }));
     assert!(std::path::Path::new(&out).exists());

@@ -213,6 +213,18 @@ passando.
   "Exportar" e o menu da biblioteca ligados; a barra de progresso mora no
   card da origem, com o × de cancelar. Conferido contra a web com as duas
   janelas maximizadas (formulário a 1–2 px) e exportando de verdade.
+- **Fase 6 — feita.** O `allow(dead_code)` do `lib.rs` saiu e o app compila
+  sem aviso: o `bridge::dispatch` (entrada JSON) e o que só ele alcança
+  ficaram só nos testes (`cfg(any(test, feature = "app-tests"))`); o que só
+  a página web usava saiu de vez — o servidor HTTP do `player.rs`, as URLs de
+  mídia, o remux pro MP4 do player, as faixas em M4A, os keyframes, validar
+  atalho, abrir gravação, `tray_show` — com os testes deles. O `post_json`
+  ficou como registro dos testes (no app não faz nada). O instalador apaga o
+  `%LOCALAPPDATA%\TNoOBS` (pasta ou o arquivo marcador) e a pasta do
+  WebView2 sai com o `bin\`. README do Rust, `mapa-ui-rust-dlls.md` e os
+  textos do "Sobre" e das dicas (WebView2, hibernação) atualizados nos 3
+  idiomas. Medido: aberto, o app Slint fica em ~290 MB de working set (um
+  processo); a web eram ~470 MB em 7 processos, e ~1 MB hibernando.
 
 ### Como comparar sem tocar na área de trabalho
 
@@ -297,12 +309,11 @@ E o DOWN sem MOVE antes usa a ÚLTIMA posição do mouse, não a do lParam.
   antigas. **Isso é um bug da versão publicada (`rust`)**: instalação nova
   não tem a pasta. Remendo nesta máquina: `%LOCALAPPDATA%\TNoOBS` virou um
   ARQUIVO marcador, e a versão web cai na pasta padrão
-  (`bin\NoOBS.exe.WebView2`). Apagar o marcador quando a Slint substituir a
-  web; o instalador da fase 6 limpa os dois.
+  (`bin\NoOBS.exe.WebView2`). O instalador da fase 6 limpa os dois.
 - **Código morto durante a migração.** Handlers só alcançados pelo
   `bridge::dispatch` ficam sem quem chame no app (231 avisos). `lib.rs` tem
   um `allow(dead_code)` SÓ no build do app (os testes continuam avisando) —
-  sai na fase 6.
+  saiu na fase 6.
 
 ### O que a fase 2 ensinou
 

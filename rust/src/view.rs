@@ -185,10 +185,13 @@ pub struct Crumb {
 pub struct Library {
     pub recordings: Vec<RecItem>,
     pub folders: Vec<FolderItem>,
+    // Só o gravador dos testes lê estes dois (o JSON antigo da lista).
+    #[cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
     pub current_dir: String,
     pub parent_dir: String,
     pub at_root: bool,
     pub breadcrumb: Vec<Crumb>,
+    #[cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
     pub record_dir: String,
     /// Espaço livre no disco da pasta de gravação (-1 = desconhecido).
     pub free_bytes: i64,
@@ -368,6 +371,7 @@ pub struct VideoTestState {
     pub level: i32,
     pub pct: i64,
     pub seconds: u32,
+    #[cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
     pub total: i32,
     // Só no `done`:
     pub duration: f64,
@@ -382,10 +386,13 @@ pub struct VideoTestState {
 #[derive(Clone, Debug, Default)]
 pub struct VideoTestLevel {
     pub level: i32,
+    #[cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
     pub crf: i32,
     pub bytes: i64,
     /// Quadro do meio do clipe (PNG) e o MP4 do nível, caminhos no disco.
     pub image: String,
+    // O comparador da web tocava os MP4; o daqui compara os quadros parados.
+    #[cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
     pub video: String,
 }
 

@@ -14,11 +14,6 @@
 //! sempre FORA do app: `#[cfg(test)]` (só no `cargo test`) e os executáveis
 //! de `tests/` (feature `app-tests`, ver `modulos!`).
 
-// MIGRAÇÃO PRA SLINT (docs/ui-slint.md): os handlers de telas ainda não
-// portadas só são alcançados pelo `bridge::dispatch`, que no app não tem mais
-// quem chame — no build do app eles aparecem como código morto. Os testes os
-// exercitam (lá o aviso continua ligado). SAI NA FASE 6.
-#![cfg_attr(not(any(test, feature = "app-tests")), allow(dead_code))]
 
 /// Os módulos são PRIVADOS no build normal: o exe não expõe nada. Só com a
 /// feature `app-tests` eles viram públicos, pros executáveis de teste de

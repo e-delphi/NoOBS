@@ -3,18 +3,16 @@
 //! dispositivos, biblioteca, pastas, exportação, transcrição, buffer, janela,
 //! área, teste de vídeo, shell, settings).
 //!
-//! ## Migração pra Slint (docs/ui-slint.md)
-//! A interface chama os handlers DIRETO e recebe os eventos pelo
-//! [`crate::view::View`], sem JSON. Enquanto as telas são portadas, sobram do
-//! protocolo antigo:
-//! * [`dispatch`] — a entrada por JSON que os testes usam (some quando a última
-//!   tela deixar de precisar dela);
-//! * [`post_json`] — eventos de telas ainda não portadas: nos testes viram o
-//!   registro de sempre; no app não têm destino.
+//! ## Interface (docs/ui-slint.md)
+//! A interface Slint chama os handlers DIRETO e recebe os eventos pelo
+//! [`crate::view::View`], sem JSON. Do protocolo da versão web sobrou só o
+//! que os testes usam:
+//! * `dispatch` — a entrada por JSON (só com `test`/`app-tests`);
+//! * [`post_json`] — o registro do que a página receberia; no app não faz nada.
 
 use serde_json::Value;
 
-use crate::{config, file_meta, lang, log, mainthread, player, record_watch, ui, view};
+use crate::{config, file_meta, lang, log, mainthread, record_watch, ui, view};
 
 mod area;
 mod countdown;
@@ -120,7 +118,6 @@ pub fn shutdown() {
     record_watch::stop();
     log::log("Shutdown: RecordWatch ok");
     recording::shutdown();
-    player::stop_player_server();
     transcribe::shutdown();
     file_meta::shutdown();
     log::log("Shutdown: fim");
@@ -171,25 +168,31 @@ pub fn post_error(message: impl Into<String>) {
     view::call(move |v| v.error(&message));
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn str_field<'a>(obj: &'a Value, key: &str) -> &'a str {
     obj.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn str_list(arr: &[Value]) -> Vec<String> {
     arr.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn bool_field(obj: &Value, key: &str, default: bool) -> bool {
     obj.get(key).and_then(Value::as_bool).unwrap_or(default)
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn int_field(obj: &Value, key: &str, default: i32) -> i32 {
     obj.get(key).and_then(Value::as_f64).map_or(default, |f| f as i32)
 }
 
-/// Entrada única das mensagens vindas do JS.
+/// Entrada por JSON (o protocolo da versão web). Só os testes a usam: o app
+/// chama os handlers direto da interface Slint.
 /// Uma falha num handler não derruba o app: registra e segue, como o
 /// `try/except` do `Dispatch` do Delphi ("excecao no handler").
+#[cfg(any(test, feature = "app-tests"))]
 pub fn dispatch(raw: &str) {
     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dispatch_inner(raw))).is_err() {
         let ty = serde_json::from_str::<Value>(raw).ok().map(|m| str_field(&m, "type").to_owned()).unwrap_or_default();
@@ -197,6 +200,7 @@ pub fn dispatch(raw: &str) {
     }
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn dispatch_inner(raw: &str) {
     let Ok(msg) = serde_json::from_str::<Value>(raw) else {
         log::log("Dispatch: payload não é JSON — descartado.");
@@ -236,18 +240,13 @@ fn dispatch_inner(raw: &str) {
             log!("PlayerOpen={open}");
         }
         "rename_recording" => library::handle_rename_recording(str_field(&msg, "id"), str_field(&msg, "newName")),
-        "open_recording" => library::handle_open_recording(str_field(&msg, "id")),
         "open_record_dir" => library::handle_open_record_dir(),
-        "play_recording" => library::handle_play_recording(str_field(&msg, "id")),
-        "request_transcode" => library::handle_request_transcode(str_field(&msg, "id")),
         "request_video_info" => library::handle_request_video_info(str_field(&msg, "id")),
-        "request_audio_tracks" => library::handle_request_audio_tracks(str_field(&msg, "id")),
         "request_waveform" => library::handle_request_waveform(
             str_field(&msg, "id"),
             msg.get("buckets").and_then(Value::as_i64).unwrap_or(0),
             bool_field(&msg, "hi", false),
         ),
-        "request_keyframes" => library::handle_request_keyframes(str_field(&msg, "id")),
         "export_recording" => export::handle_export_recording(&msg),
         "cancel_export" => export::handle_cancel_export(),
         "delete_recording" => library::handle_delete_recording(str_field(&msg, "id")),
@@ -311,10 +310,8 @@ fn dispatch_inner(raw: &str) {
         "set_auto_record_mic_except" => settings::handle_set_auto_record_mic_except(str_field(&msg, "apps")),
         "check_updates" => settings::handle_check_updates(),
         "set_check_updates" => settings::handle_set_check_updates(bool_field(&msg, "enabled", false)),
-        "tray_show" => shell::handle_tray_show(),
         "toggle_fullscreen" => ui::toggle_fullscreen(),
         "set_window_title" => shell::handle_set_window_title(str_field(&msg, "title")),
-        "validate_hotkey" => shell::handle_validate_hotkey(str_field(&msg, "hotkey")),
         "set_autostart" => shell::handle_set_autostart(bool_field(&msg, "enabled", false)),
         "set_run_as_admin" => shell::handle_set_run_as_admin(bool_field(&msg, "enabled", false)),
         "set_close_to_tray" => shell::handle_set_close_to_tray(bool_field(&msg, "enabled", false)),
@@ -352,6 +349,7 @@ fn dispatch_inner(raw: &str) {
     }
 }
 
+#[cfg(any(test, feature = "app-tests"))]
 fn not_ported(ty: &str) {
     log!("Dispatch: type=\"{ty}\" ainda não portado para Rust.");
 }
@@ -408,8 +406,6 @@ fn init_ui() {
     start_backend();
     log!("DoInit: interface pronta ({}).", if first { "primeira" } else { "de novo" });
     push_theme();
-    // HTTP local das prévias/vídeos; falhar aqui não derruba o app.
-    player::start_player_server();
     // Lista e metadados (duração/miniatura) da pasta de gravação.
     library::push_recordings();
     library::scan_recordings_meta();

@@ -44,6 +44,8 @@ struct State {
     seeking: bool,
     last_activity: Option<Instant>,
     near_edge: bool,
+    /// Mouse sobre a barra de controles ou o painel: a barra não some.
+    hold_ui: bool,
     peaks: Option<(String, Vec<f32>)>,
     wave_width: u32,
     timer: Option<slint::Timer>,
@@ -396,7 +398,7 @@ fn tick() {
         let ms = if g.get_fullscreen() && st.near_edge { IDLE_EDGE_MS } else { IDLE_MS };
         st.last_activity.is_some_and(|t| t.elapsed() >= Duration::from_millis(ms))
     });
-    if g.get_playing() && idle_due && !g.get_idle() {
+    if g.get_playing() && idle_due && !g.get_idle() && !with(|st| st.hold_ui) {
         g.set_idle(true);
     }
     sync_transcript_active(false);
@@ -1359,6 +1361,13 @@ pub fn setup(w: &AppWindow) {
     });
     g.on_reset_zoom(reset_zoom);
     g.on_activity(activity);
+    g.on_hold_ui(|on| {
+        with(|st| {
+            st.hold_ui = on;
+            // Saindo da barra/painel, conta o tempo parado a partir daqui.
+            st.last_activity = Some(std::time::Instant::now());
+        });
+    });
     g.on_key(|t, c, a, s| key(t.as_str(), c, a, s));
 }
 

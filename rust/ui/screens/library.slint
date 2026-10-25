@@ -462,6 +462,9 @@ component RecCardView {
                 Lib.drag-h = root.height;
                 Lib.drag-x = root.absolute-position.x + self.mouse-x;
                 Lib.drag-y = root.absolute-position.y + self.mouse-y;
+                // Já é arrasto: soltar em qualquer lugar (inclusive no próprio
+                // card, no ponto de partida) não pode virar clique.
+                self.was-drag = true;
                 Lib.drag-start(root.item.id);
             }
             if Lib.dragging && self.pressed {
@@ -639,6 +642,9 @@ component FolderCardView {
                 Lib.drag-h = root.height;
                 Lib.drag-x = root.absolute-position.x + self.mouse-x;
                 Lib.drag-y = root.absolute-position.y + self.mouse-y;
+                // Já é arrasto: soltar em qualquer lugar (inclusive no próprio
+                // card, no ponto de partida) não pode virar clique.
+                self.was-drag = true;
                 Lib.drag-start(root.item.id);
             }
             if Lib.dragging && self.pressed {
@@ -954,7 +960,9 @@ component GroupTitle {
 export component LibraryPane {
     property <length> inner-w: root.width - 2 * Geo.pad - 8px;
     property <int> cols: max(1, floor((self.inner-w + Geo.gap) / (Geo.min-cell + Geo.gap)));
-    property <length> cell-w: (self.inner-w - (self.cols - 1) * Geo.gap) / self.cols;
+    // Largura FIXA (a mínima da grade): redimensionar a janela muda quantos
+    // cards cabem por linha, não o tamanho deles. Só encolhe se nem um cabe.
+    property <length> cell-w: min(Geo.min-cell, self.inner-w);
     property <length> card-h: (self.cell-w - 2px) * 9 / 16 + 3px + Geo.body-h;
     changed cols => { Lib.cols-changed(self.cols); }
     init => { Lib.cols-changed(self.cols); }

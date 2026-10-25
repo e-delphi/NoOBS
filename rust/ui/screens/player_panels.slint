@@ -504,7 +504,10 @@ component TurnView {
                         text: Pl.editing-speaker-text;
                         font-size: 11px;
                         font-weight: 600;
-                        color: root.spk-color;
+                        // Texto comum do tema (claro no escuro), não a cor do falante.
+                        color: Theme.text;
+                        selection-background-color: Theme.accent;
+                        selection-foreground-color: white;
                         single-line: true;
                         vertical-alignment: center;
                         init => {
@@ -634,7 +637,7 @@ export component TranscriptPanel {
                         }
                     }
                 }
-                background: tr.active ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.06)) : tta.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.04)) : transparent;
+                background: tr.active ? (Theme.dark ? rgba(255, 255, 255, 0.08) : rgba(0, 0, 0, 0.06)) : tta.has-hover || txt-ta.has-hover ? (Theme.dark ? rgba(255, 255, 255, 0.05) : rgba(0, 0, 0, 0.04)) : transparent;
                 animate background { duration: 120ms; }
                 tta := TouchArea {
                     mouse-cursor: pointer;
@@ -647,6 +650,18 @@ export component TranscriptPanel {
                     width: parent.width;
                     turn: tr;
                     editing: Pl.editing-turn == tr.idx;
+                }
+                // Por CIMA do texto da fala: o StyledText aceita todo clique e
+                // movimento (mesmo sem link), então o TouchArea de trás nunca
+                // via o clique nem mostrava a mãozinha ali. Começa abaixo da
+                // linha do nome (8 + 15,4 + 3), que segue renomeando o falante.
+                txt-ta := TouchArea {
+                    x: 0;
+                    y: 26.4px;
+                    width: parent.width;
+                    height: parent.height - 26.4px;
+                    mouse-cursor: pointer;
+                    clicked => { Pl.turn-clicked(tr.idx); }
                 }
                 Rectangle {
                     x: 0;

@@ -198,8 +198,10 @@ component ReplayRow {
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 10px;
-        padding-top: 8px;
-        padding-bottom: 6px;
+        // Simétrico (a web usa 8/6): com 8/6 o texto ficava 1 px abaixo do
+        // centro da faixa, onde estão os botões ao lado.
+        padding-top: 7px;
+        padding-bottom: 7px;
         spacing: 10px;
         alignment: stretch;
         // Bolinha: cinza desligado, verde pulsando guardando.
@@ -236,16 +238,20 @@ component ReplayRow {
                 overflow: elide;
             }
         }
-        if root.active: IconButton {
-            width: 28px;
-            height: 28px;
-            enabled: !Main.replay-saving;
-            hint: Main.replay-save-hint;
-            hover-accent: Theme.success;
-            clicked => { Main.replay-save(); }
-            StrokeIcon {
-                commands: Icons.download;
-                stroke: parent.icon-color;
+        // Centrado como a chave: solto no layout ele ficava no topo da faixa.
+        if root.active: VerticalLayout {
+            alignment: center;
+            IconButton {
+                width: 28px;
+                height: 28px;
+                enabled: !Main.replay-saving;
+                hint: Main.replay-save-hint;
+                hover-accent: Theme.success;
+                clicked => { Main.replay-save(); }
+                StrokeIcon {
+                    commands: Icons.download;
+                    stroke: parent.icon-color;
+                }
             }
         }
         VerticalLayout {

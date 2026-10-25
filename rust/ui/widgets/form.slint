@@ -78,7 +78,9 @@ export component CheckBox {
         height: root.size;
         viewbox-width: 16;
         viewbox-height: 16;
-        stroke: root.disabled ? #d0d0d0 : #1f2320;
+        // Como o Chromium com `accent-color`: "V" escuro sobre o verde do tema
+        // escuro, branco sobre o verde mais fechado do tema claro.
+        stroke: root.disabled ? #d0d0d0 : Theme.dark ? #1f2320 : white;
         stroke-width: root.size * 2.2 / 16;
         fill: transparent;
         stroke-line-cap: round;

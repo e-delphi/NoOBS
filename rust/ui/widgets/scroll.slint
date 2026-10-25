@@ -14,6 +14,10 @@ export component ScrollArea {
         flick.content-y = max(-root.max-scroll, min(0px, y));
     }
     property <length> max-scroll: max(0px, root.content-h - root.height);
+    // Pixels por "linha" da roda. O Slint anda 60 px por linha; o Chromium
+    // anda 100 px por clique da roda (3 linhas de 33 px) — a lista andava
+    // pouco por clique comparada à web.
+    in property <float> wheel-mult: 100 / 60;
 
     flick := Flickable {
         width: root.width;
@@ -23,7 +27,19 @@ export component ScrollArea {
         // Como na web: o mouse não arrasta o conteúdo (só roda e toque). Sem
         // isto, arrastar um card rolava a lista em vez de mover o card.
         mouse-drag-pan-enabled: false;
-        @children
+        // A roda é tratada aqui (ancestral dos filhos, dentro do Flickable):
+        // o que os filhos não usam sobe até este TouchArea, que rola na
+        // velocidade da web antes do Flickable ver o evento.
+        TouchArea {
+            scroll-event(e) => {
+                if root.max-scroll <= 0 || e.delta-y == 0 {
+                    return reject;
+                }
+                flick.content-y = max(-root.max-scroll, min(0px, flick.content-y + e.delta-y * root.wheel-mult));
+                accept
+            }
+            @children
+        }
     }
 
     if root.max-scroll > 0: Rectangle {

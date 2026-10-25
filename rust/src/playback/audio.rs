@@ -50,6 +50,11 @@ struct Track {
     /// Amostras estéreo intercaladas a partir de `head`.
     fifo: VecDeque<f32>,
     head: f64,
+    /// `head` vale? Depois de um salto não: os quadros que o decoder entrega
+    /// logo após o `flush` costumam vir SEM pts, e o `head` antigo ficava —
+    /// pulando pra trás, o áudio novo era tomado pelo instante velho e a
+    /// mistura esperava até lá em silêncio.
+    head_known: bool,
     eof: bool,
 }
 
@@ -194,6 +199,7 @@ impl Engine {
                 channels: par.ch_layout.nb_channels.max(1) as usize,
                 fifo: VecDeque::new(),
                 head: 0.0,
+                head_known: false,
                 eof: false,
             });
         }
@@ -227,6 +233,7 @@ impl Engine {
         for tr in &mut self.tracks {
             unsafe { (a.codec.avcodec_flush_buffers)(tr.dec.ptr()) };
             tr.fifo.clear();
+            tr.head_known = false;
             tr.eof = false;
         }
         self.mix_t = t.max(0.0);
@@ -257,7 +264,7 @@ impl Engine {
     /// A faixa tem amostras até `t`?
     fn covers(&self, i: usize, t: f64) -> bool {
         let tr = &self.tracks[i];
-        tr.eof || tr.head + (tr.fifo.len() / 2) as f64 / self.rate_hz as f64 >= t
+        tr.eof || (tr.head_known && tr.head + (tr.fifo.len() / 2) as f64 / self.rate_hz as f64 >= t)
     }
 
     /// Lê pacotes até toda faixa cobrir `until` (ou o arquivo acabar).
@@ -268,7 +275,7 @@ impl Engine {
             guard += 1;
             // Uma faixa que nunca entrega (vazia no trecho) não pode segurar as
             // outras: depois de 2 s de folga, a mistura segue com silêncio nela.
-            let ahead = self.tracks.iter().any(|t| t.head + (t.fifo.len() / 2) as f64 / self.rate_hz as f64 > until + 2.0);
+            let ahead = self.tracks.iter().any(|t| t.head_known && t.head + (t.fifo.len() / 2) as f64 / self.rate_hz as f64 > until + 2.0);
             if ahead || guard > 20_000 {
                 break;
             }
@@ -282,6 +289,16 @@ impl Engine {
             }
             let si = self.pkt.stream_index;
             if let Some(i) = self.tracks.iter().position(|t| t.idx == si) {
+                // Primeiro pacote da faixa depois de abrir/pular: a posição sai
+                // dele (o quadro decodificado pode não ter pts).
+                let tr = &mut self.tracks[i];
+                if !tr.head_known && tr.fifo.is_empty() {
+                    let ts = if self.pkt.pts != AV_NOPTS_VALUE { self.pkt.pts } else { self.pkt.dts };
+                    if ts != AV_NOPTS_VALUE {
+                        tr.head = ts as f64 * tr.tb.num as f64 / tr.tb.den as f64;
+                        tr.head_known = true;
+                    }
+                }
                 if unsafe { (a.codec.avcodec_send_packet)(self.tracks[i].dec.ptr(), self.pkt.ptr()) } == 0 {
                     self.drain(i);
                 }
@@ -299,6 +316,7 @@ impl Engine {
             let ts = if f.pts != AV_NOPTS_VALUE { f.pts } else { f.pkt_dts };
             if tr.fifo.is_empty() && ts != AV_NOPTS_VALUE {
                 tr.head = ts as f64 * tr.tb.num as f64 / tr.tb.den as f64;
+                tr.head_known = true;
             }
             let nch = tr.channels;
             for s in 0..n {
@@ -551,4 +569,42 @@ fn run_inner(path: &str, rx: Receiver<ACmd>, shared: &Shared, has_audio: &Atomic
         }
     }
     dev.stop();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rms(v: &[f32]) -> f32 {
+        (v.iter().map(|x| x * x).sum::<f32>() / v.len().max(1) as f32).sqrt()
+    }
+
+    /// Pular pra trás e pra frente continua entregando som (o player emudecia
+    /// depois de mudar a posição).
+    #[test]
+    fn salto_continua_com_som() {
+        if !crate::media_tests::dlls() {
+            return;
+        }
+        let path = crate::media_tests::fixture("h264_2faixas.mkv");
+        let mut e = Engine::open(&path).expect("abrir");
+        let mut antes = Vec::new();
+        for _ in 0..20 {
+            antes.extend(e.mix_block().expect("bloco antes"));
+        }
+        assert!(rms(&antes) > 1e-4, "sem som antes do salto: {}", rms(&antes));
+        for &t in &[1.5, 0.3, 2.5] {
+            e.seek(t);
+            let mut depois = Vec::new();
+            for _ in 0..20 {
+                match e.mix_block() {
+                    Some(b) => depois.extend(b),
+                    None => break,
+                }
+            }
+            assert!(!depois.is_empty(), "nada depois do salto pra {t}");
+            assert!(rms(&depois) > 1e-4, "mudo depois do salto pra {t}: {}", rms(&depois));
+            assert!((e.mix_t - t).abs() < 1.0, "mix_t {} longe de {t}", e.mix_t);
+        }
+    }
 }

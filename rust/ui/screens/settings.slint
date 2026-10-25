@@ -1638,7 +1638,11 @@ export component SettingsScreen {
             if St.tab == "about": AboutTab { }
         }
     }
-    // Cada aba começa do topo.
+    // Cada aba começa do topo. E a dica aberta fecha: o alvo dela era da aba
+    // anterior, que saiu da tela sem o "mouse saiu" que a fecharia.
     property <string> tab: St.tab;
-    changed tab => { body.set-scroll(0); }
+    changed tab => {
+        body.set-scroll(0);
+        Hints.visible = false;
+    }
 }

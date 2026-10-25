@@ -67,6 +67,8 @@ struct WinState {
     dot_icon: Option<HICON>,
     recording_now: bool,
     fullscreen: bool,
+    /// Janela antes da tela cheia: (maximizada, posição externa, tamanho interno).
+    pre_fullscreen: Option<(bool, (i32, i32), (u32, u32))>,
 }
 
 thread_local! {
@@ -474,13 +476,51 @@ pub fn apply_tray_menu_theme(dark: bool) {
 }
 
 /// Tela cheia da janela: sem bordas, cobrindo o monitor onde ela está.
+///
+/// Feita à mão (sem moldura + 1 px a mais que o monitor embaixo), não pelo
+/// `set_fullscreen` do winit: com a janela EXATAMENTE do tamanho do monitor o
+/// DWM promove a cadeia de troca à apresentação direta (independent flip), e
+/// a troca de modo congelava o cursor por ~1 s ao entrar.
 pub fn toggle_fullscreen() {
+    use slint::winit_030::winit::dpi::{PhysicalPosition, PhysicalSize};
+    use slint::winit_030::WinitWindowAccessor;
     let Some(w) = app_window() else { return };
     let on = wstate(|s| {
         s.fullscreen = !s.fullscreen;
         s.fullscreen
     });
-    w.window().set_fullscreen(on);
+    let done = w.window().with_winit_window(|ww| {
+        if on {
+            let Some(mon) = ww.current_monitor() else { return false };
+            let pos = ww.outer_position().map(|p| (p.x, p.y)).unwrap_or((0, 0));
+            let size = ww.inner_size();
+            let max = ww.is_maximized();
+            wstate(|s| s.pre_fullscreen = Some((max, pos, (size.width, size.height))));
+            if max {
+                ww.set_maximized(false);
+            }
+            ww.set_decorations(false);
+            let (mp, ms) = (mon.position(), mon.size());
+            ww.set_outer_position(PhysicalPosition::new(mp.x, mp.y));
+            let _ = ww.request_inner_size(PhysicalSize::new(ms.width, ms.height + 1));
+        } else {
+            ww.set_decorations(true);
+            match wstate(|s| s.pre_fullscreen.take()) {
+                Some((max, pos, size)) => {
+                    ww.set_outer_position(PhysicalPosition::new(pos.0, pos.1));
+                    let _ = ww.request_inner_size(PhysicalSize::new(size.0, size.1));
+                    if max {
+                        ww.set_maximized(true);
+                    }
+                }
+                None => ww.set_maximized(true),
+            }
+        }
+        true
+    });
+    if done != Some(true) {
+        w.window().set_fullscreen(on);
+    }
 }
 
 /// Fecha o app de verdade (menu da bandeja, instalador).

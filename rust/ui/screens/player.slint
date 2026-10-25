@@ -324,6 +324,13 @@ export component PlayerOverlay {
     // Painel aberto à direita: o palco encolhe (`transition: width 220ms`).
     property <length> panel-w: Pl.info-open ? 320px : Pl.tr-open ? 360px : 0;
     animate panel-w { duration: 220ms; easing: ease; }
+    // O palco vai direto pro tamanho final (só o painel desliza): animando a
+    // largura do palco, cada passo re-renderizava o quadro e a redução do
+    // vídeo arrastava.
+    property <length> stage-w: root.width - (Pl.info-open ? 320px : Pl.tr-open ? 360px : 0);
+    // Mouse sobre a barra de controles ou sobre o painel: a barra não some.
+    property <bool> hold: bar-ta.has-hover || panel-ta.has-hover;
+    changed hold => { Pl.hold-ui(self.hold); }
     property <bool> speed-open: speed.open;
 
     // Pulso do indicador central: só anima enquanto dura (sem `animation-tick`
@@ -364,7 +371,7 @@ export component PlayerOverlay {
         stage := Rectangle {
             x: 0;
             y: 0;
-            width: root.width - root.panel-w;
+            width: root.stage-w;
             height: root.height;
             clip: true;
             init => { Pl.stage-resized(self.width, self.height); }
@@ -548,13 +555,15 @@ export component PlayerOverlay {
             width: root.panel-w;
             height: root.height;
             clip: true;
-            if Pl.info-open: InfoPanel {
-                x: 0;
-                height: parent.height;
-            }
-            if Pl.tr-open: TranscriptPanel {
-                x: 0;
-                height: parent.height;
+            panel-ta := TouchArea {
+                if Pl.info-open: InfoPanel {
+                    x: 0;
+                    height: parent.height;
+                }
+                if Pl.tr-open: TranscriptPanel {
+                    x: 0;
+                    height: parent.height;
+                }
             }
         }
 
@@ -677,72 +686,74 @@ export component PlayerOverlay {
             visible: self.opacity > 0;
             animate opacity { duration: 220ms; easing: ease; }
             background: @linear-gradient(0deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.4) 60%, rgba(0, 0, 0, 0) 100%);
-            TouchArea {
+            // Ancestral da barra: com o mouse em cima dela (inclusive sobre os
+            // botões) a barra não some — `hold` abaixo.
+            bar-ta := TouchArea {
                 changed mouse-x => { Pl.activity(self.mouse-x, root.height - 64px + self.mouse-y); }
                 changed mouse-y => { Pl.activity(self.mouse-x, root.height - 64px + self.mouse-y); }
-            }
-            HorizontalLayout {
-                padding-left: 16px;
-                padding-right: 16px;
-                padding-top: 18px;
-                padding-bottom: 14px;
-                spacing: 12px;
-                PlBtn {
-                    icon: Pl.playing ? PlIcons.pause : PlIcons.play;
-                    hint: T.s("player.playPause");
-                    clicked => { Pl.toggle-play(); }
-                }
-                Text {
-                    min-width: 90px;
-                    text: Pl.time-text;
-                    font-size: 12px;
-                    color: rgba(255, 255, 255, 0.85);
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-                if Pl.clock-text != "": Rectangle {
-                    width: ck.preferred-width + 17px;
-                    Path {
-                        x: 0;
-                        width: 13px;
-                        height: 13px;
-                        viewbox-width: 24;
-                        viewbox-height: 24;
-                        fill: rgba(255, 255, 255, 0.7);
-                        opacity: 0.85;
-                        commands: PlIcons.clock;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 18px;
+                    padding-bottom: 14px;
+                    spacing: 12px;
+                    PlBtn {
+                        icon: Pl.playing ? PlIcons.pause : PlIcons.play;
+                        hint: T.s("player.playPause");
+                        clicked => { Pl.toggle-play(); }
                     }
-                    ck := Text {
-                        x: 17px;
-                        text: Pl.clock-text;
+                    Text {
+                        min-width: 90px;
+                        text: Pl.time-text;
                         font-size: 12px;
-                        color: rgba(255, 255, 255, 0.7);
+                        color: rgba(255, 255, 255, 0.85);
+                        horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    ckta := TouchArea { }
-                    HintTrigger {
-                        hovered: ckta.has-hover;
-                        hint: T.s("player.clockTitle");
-                        layer: 2;
+                    if Pl.clock-text != "": Rectangle {
+                        width: ck.preferred-width + 17px;
+                        Path {
+                            x: 0;
+                            width: 13px;
+                            height: 13px;
+                            viewbox-width: 24;
+                            viewbox-height: 24;
+                            fill: rgba(255, 255, 255, 0.7);
+                            opacity: 0.85;
+                            commands: PlIcons.clock;
+                        }
+                        ck := Text {
+                            x: 17px;
+                            text: Pl.clock-text;
+                            font-size: 12px;
+                            color: rgba(255, 255, 255, 0.7);
+                            vertical-alignment: center;
+                        }
+                        ckta := TouchArea { }
+                        HintTrigger {
+                            hovered: ckta.has-hover;
+                            hint: T.s("player.clockTitle");
+                            layer: 2;
+                        }
                     }
-                }
-                SeekBar {
-                    horizontal-stretch: 1;
-                }
-                VolumeControl { }
-                speed := SpeedControl { }
-                CcControl { }
-                PlBtn {
-                    icon: PlIcons.info;
-                    fg: rgba(255, 255, 255, 0.85);
-                    active: Pl.info-open;
-                    hint: T.s("player.videoInfo");
-                    clicked => { Pl.toggle-info(); }
-                }
-                PlBtn {
-                    icon: Pl.fullscreen ? PlIcons.fs-exit : PlIcons.fs-enter;
-                    hint: T.s("player.fullscreen");
-                    clicked => { Pl.toggle-fullscreen(); }
+                    SeekBar {
+                        horizontal-stretch: 1;
+                    }
+                    VolumeControl { }
+                    speed := SpeedControl { }
+                    CcControl { }
+                    PlBtn {
+                        icon: PlIcons.info;
+                        fg: rgba(255, 255, 255, 0.85);
+                        active: Pl.info-open;
+                        hint: T.s("player.videoInfo");
+                        clicked => { Pl.toggle-info(); }
+                    }
+                    PlBtn {
+                        icon: Pl.fullscreen ? PlIcons.fs-exit : PlIcons.fs-enter;
+                        hint: T.s("player.fullscreen");
+                        clicked => { Pl.toggle-fullscreen(); }
+                    }
                 }
             }
         }

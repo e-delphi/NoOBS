@@ -130,5 +130,7 @@ export global Pl {
     callback pan-move(length, length);
     callback reset-zoom();
     callback activity(length, length);
+    // Mouse em cima da barra de controles ou do painel lateral (a barra fica).
+    callback hold-ui(bool);
     callback key(string, bool, bool, bool);
 }

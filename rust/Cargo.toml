@@ -111,3 +111,9 @@ strip = true
 # miniatura, exportação, dispatch, timers…) vira código morto no release e
 # qualquer falha fecha o app sem deixar nada no log. O Delphi trata a mesma
 # falha com try/except e segue; o unwind é o que permite o equivalente.
+
+# wgpu-hal com uma linha trocada: a swapchain da janela sem DXGI_SCALING_STRETCH,
+# pra o Windows não esticar o quadro antigo enquanto a janela é redimensionada
+# (vendor/wgpu-hal/src/dx12/mod.rs, procure "NoOBS").
+[patch.crates-io]
+wgpu-hal = { path = "vendor/wgpu-hal" }

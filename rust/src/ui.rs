@@ -709,7 +709,10 @@ pub fn run() {
     }
 
     // Skia: o mesmo rasterizador do Chromium — texto e bordas como na versão web.
-    if let Err(e) = slint::BackendSelector::new().backend_name("winit".into()).renderer_name("skia".into()).select() {
+    // `NOOBS_RENDERER` troca a superfície (ex.: `skia-software`) pra comparar.
+    let renderer = std::env::var("NOOBS_RENDERER").unwrap_or_else(|_| "skia".into());
+    log!("UI: renderer {renderer}");
+    if let Err(e) = slint::BackendSelector::new().backend_name("winit".into()).renderer_name(renderer).select() {
         log!("UI: renderer skia indisponivel ({e}) — usando o padrao do Slint.");
     }
     let Some(window) = app_view::create() else {

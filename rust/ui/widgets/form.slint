@@ -166,6 +166,7 @@ export component SInput {
         single-line: true;
         vertical-alignment: center;
         selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.text;
         edited => {
             if root.max-length > 0 && self.text.character-count > root.max-length {
                 return;

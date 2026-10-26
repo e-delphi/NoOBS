@@ -55,6 +55,10 @@ export global Pl {
     in property <length> frame-y;
     in property <length> frame-w;
     in property <length> frame-h;
+    // Quanto deslocar o quadro mostrado: o arrasto anda na hora, sem esperar
+    // o motor refazer o quadro na vista nova.
+    in property <length> frame-shift-x;
+    in property <length> frame-shift-y;
 
     // Barra de progresso: posição 0..1 e os textos.
     in property <float> progress;

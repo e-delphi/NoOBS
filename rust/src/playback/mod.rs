@@ -86,6 +86,11 @@ pub struct Layout {
     pub w: i32,
     pub h: i32,
     pub pieces: Vec<Piece>,
+    /// Zoom e deslocamento da vista que gerou o quadro: a tela desloca o
+    /// quadro mostrado até chegar o da vista nova (arrasto sem atraso).
+    pub zoom: f64,
+    pub pan_x: f64,
+    pub pan_y: f64,
 }
 
 /// Composição das regiões (`applyRegionView` da web): lado a lado pela
@@ -166,7 +171,7 @@ pub fn layout(src_w: i32, src_h: i32, v: &ViewSpec) -> Option<Layout> {
             Some(Piece { sx, sy, sw: sw_, sh: sh_, dx, dy, dw, dh })
         })
         .collect();
-    Some(Layout { x: bx0 as i32, y: by0 as i32, w: (bx1 - bx0) as i32, h: (by1 - by0) as i32, pieces })
+    Some(Layout { x: bx0 as i32, y: by0 as i32, w: (bx1 - bx0) as i32, h: (by1 - by0) as i32, pieces, zoom: z, pan_x: v.pan_x, pan_y: v.pan_y })
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +278,8 @@ pub struct Info {
 pub enum Out {
     Info(Info),
     /// Quadro pronto, já no tamanho e na posição do palco (pixels físicos).
-    Frame { buf: SharedPixelBuffer<Rgba8Pixel>, x: i32, y: i32 },
+    /// `view` = (zoom, pan_x, pan_y) da vista que gerou o quadro (px físicos).
+    Frame { buf: SharedPixelBuffer<Rgba8Pixel>, x: i32, y: i32, view: (f64, f64, f64) },
     /// Chegou ao fim (a reprodução parou sozinha).
     Ended,
     Error(String),

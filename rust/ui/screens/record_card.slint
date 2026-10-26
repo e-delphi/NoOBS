@@ -367,6 +367,7 @@ export component RecordCard {
                 IconButton {
                     width: 28px;
                     height: 28px;
+                    enabled: !Main.starting;
                     hint: T.s("header.settings");
                     clicked => { Main.open-settings(); }
                     StrokeIcon {
@@ -435,7 +436,8 @@ export component RecordCard {
                     recording: root.rec;
                     paused: root.paused;
                     enabled: Main.can-record;
-                    finalizing: Main.finalizing;
+                    // Iniciando usa o mesmo arco girando e o mesmo bloqueio do clique.
+                    finalizing: Main.finalizing || Main.starting;
                     hint: Main.can-record || root.rec ? "" : T.s("record.needDevice");
                     clicked => { Main.toggle-record(); }
                 }
@@ -473,13 +475,14 @@ export component RecordCard {
                     alignment: stretch;
                     ReplayRow {
                         horizontal-stretch: 1;
+                        opacity: Main.starting ? 0.5 : 1;
                     }
                     VerticalLayout {
                         alignment: center;
                         IconButton {
                             width: 28px;
                             height: 28px;
-                            enabled: !root.rec;
+                            enabled: !root.rec && !Main.starting;
                             hint: T.s("windowPicker.button");
                             hover-accent: Theme.success;
                             clicked => { Main.open-window-picker(); }
@@ -510,6 +513,11 @@ export component RecordCard {
                             }
                         }
                     }
+                }
+                // Iniciando: o buffer fica visível mas sem resposta ao clique.
+                if Main.starting: TouchArea {
+                    x: -6px;
+                    width: parent.width + 12px;
                 }
             }
         }

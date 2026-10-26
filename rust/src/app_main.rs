@@ -500,6 +500,11 @@ pub fn on_device_change_pending(w: &AppWindow, kind: PendingKind, pending: bool)
 
 pub fn on_refresh_busy(w: &AppWindow, busy: bool, what: &str) {
     let m = main_global(w);
+    // Começar a gravar não cobre a coluna: o botão gira e o resto desativa.
+    if what == "starting" {
+        m.set_starting(busy);
+        return;
+    }
     m.set_busy(busy);
     if busy {
         let key = match what {
@@ -674,12 +679,24 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
 
 /// Onda vermelha que sai do botão de gravar (`triggerRecordRipple` da web):
 /// 1,8 s com `cubic-bezier(0.16, 1, 0.3, 1)`.
+///
+/// O relógio só anda o que a tela pôde mostrar (no máximo 50 ms por tique):
+/// com a main travada montando a captura, um relógio de parede pularia o
+/// começo da curva — que é onde está quase toda a expansão — e a onda só
+/// apareceria já perto do fim.
 fn start_ripple() {
-    let start = Instant::now();
+    let mut last = Instant::now();
+    let mut played = 0.0f32;
+    if let Some(w) = crate::app_view::window() {
+        main_global(&w).set_ripple(0.0);
+    }
     let t = slint::Timer::default();
     t.start(slint::TimerMode::Repeated, Duration::from_millis(16), move || {
         let Some(w) = crate::app_view::window() else { return };
-        let k = (start.elapsed().as_secs_f32() / 1.8).min(1.0);
+        let now = Instant::now();
+        played += now.duration_since(last).as_secs_f32().min(0.05);
+        last = now;
+        let k = (played / 1.8).min(1.0);
         if k >= 1.0 {
             main_global(&w).set_ripple(-1.0);
             with(|s| s.ripple_timer = None);

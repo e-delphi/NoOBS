@@ -558,7 +558,7 @@ pub fn set_player_open(open: bool) {
 /// regra do `record_start` do dispatch).
 pub fn handle_record_start_button() {
     if !countdown::cancel() {
-        recording::handle_record_start();
+        recording::handle_record_start_async();
     }
 }
 

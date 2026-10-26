@@ -88,49 +88,45 @@ export component AppWindow inherits Window {
     // centrado no botão crescendo até cobrir a janela (escala = maior
     // distância até um canto / 94 + 1) e sumindo.
     //
-    // Sem `drop-shadow`: no Slint a sombra é do retângulo CHEIO, e pintava de
-    // vermelho toda a área por onde a onda já tinha passado (e deixava a borda
-    // rosada). Os brilhos da web (`0 0 30px` por fora, `inset 0 0 12px` por
-    // dentro, escalando junto) viram anéis concêntricos cada vez mais fracos;
-    // o miolo fica transparente como o `background: transparent` da web.
+    // Um gradiente radial reproduz o anel e os dois brilhos da web, que
+    // escalam junto: `border: 4px` (raio 96..100 do elemento de 200 px),
+    // `0 0 30px rgba(.6)` por fora e `inset 0 0 12px rgba(.4)` por dentro,
+    // com a queda gaussiana do desfoque (sigma = metade do raio do blur).
+    // O quadrado vai até o raio 140 (onde o brilho de fora já zerou); o raio
+    // padrão do gradiente é a meia diagonal, 140·√2 — daí os percentuais.
+    // Sem `drop-shadow`: no Slint ela é do retângulo CHEIO e pintaria de
+    // vermelho todo o miolo por onde a onda já passou.
     if Main.ripple >= 0: Rectangle {
         property <length> max-r: sqrt(
             pow(max(Main.rec-btn-cx, root.width - Main.rec-btn-cx) / 1px, 2)
             + pow(max(Main.rec-btn-cy, root.height - Main.rec-btn-cy) / 1px, 2)) * 1px;
         property <float> s: Main.ripple * (self.max-r / 94px + 1);
-        property <length> d: 200px * self.s;
-        property <length> u: 4px * self.s;
-        x: Main.rec-btn-cx - self.d / 2;
-        y: Main.rec-btn-cy - self.d / 2;
-        width: self.d;
-        height: self.d;
+        property <length> half: 140px * self.s;
+        x: Main.rec-btn-cx - self.half;
+        y: Main.rec-btn-cy - self.half;
+        width: 2 * self.half;
+        height: self.width;
         opacity: 1 - Main.ripple;
-        // Brilho de fora: três faixas da espessura do anel, saindo dele.
-        for k in [3, 2, 1]: Rectangle {
-            x: -k * parent.u;
-            y: -k * parent.u;
-            width: parent.d + 2 * k * parent.u;
-            height: self.width;
-            border-radius: self.width / 2;
-            border-width: parent.u;
-            border-color: rgba(239, 68, 68, k == 1 ? 0.30 : k == 2 ? 0.16 : 0.07);
-        }
-        // Brilho de dentro: duas faixas logo dentro do anel.
-        for k in [1, 2]: Rectangle {
-            x: k * parent.u;
-            y: k * parent.u;
-            width: parent.d - 2 * k * parent.u;
-            height: self.width;
-            border-radius: self.width / 2;
-            border-width: parent.u * 0.75;
-            border-color: rgba(239, 68, 68, k == 1 ? 0.22 : 0.09);
-        }
-        // O anel (`border: 4px solid #ef4444`).
-        Rectangle {
-            border-radius: parent.d / 2;
-            border-width: parent.u;
-            border-color: #ef4444;
-        }
+        background: @radial-gradient(circle,
+            rgba(239, 68, 68, 0) 0%,
+            rgba(239, 68, 68, 0) 41.42%,
+            rgba(239, 68, 68, 0.009) 42.43%,
+            rgba(239, 68, 68, 0.027) 43.94%,
+            rgba(239, 68, 68, 0.063) 45.46%,
+            rgba(239, 68, 68, 0.123) 46.97%,
+            rgba(239, 68, 68, 0.2) 48.48%,
+            #ef4444 48.49%,
+            #ef4444 50.50%,
+            rgba(239, 68, 68, 0.3) 50.52%,
+            rgba(239, 68, 68, 0.237) 52.53%,
+            rgba(239, 68, 68, 0.178) 54.55%,
+            rgba(239, 68, 68, 0.127) 56.57%,
+            rgba(239, 68, 68, 0.086) 58.59%,
+            rgba(239, 68, 68, 0.055) 60.61%,
+            rgba(239, 68, 68, 0.029) 63.13%,
+            rgba(239, 68, 68, 0.014) 65.66%,
+            rgba(239, 68, 68, 0) 70.71%,
+            rgba(239, 68, 68, 0) 100%);
     }
 
     // Camadas por cima: tamanho explícito, pra não restringirem a janela.

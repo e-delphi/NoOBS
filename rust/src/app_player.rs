@@ -35,6 +35,8 @@ struct State {
     zoom: f64,
     pan: (f64, f64),
     pan_start: (f64, f64),
+    /// (zoom, pan_x, pan_y) do quadro na tela, em px lógicos.
+    frame_view: (f64, f64, f64),
     master: i32,
     muted: bool,
     tracks: Vec<f32>,
@@ -167,6 +169,21 @@ fn push_view() {
             pb.set_view(v);
         }
     });
+    sync_frame_shift();
+}
+
+/// Desloca o quadro mostrado pela diferença entre o deslocamento atual e o
+/// da vista que o gerou. Só com o mesmo zoom: num zoom diferente o quadro
+/// teria de ser reescalado, e aí vale esperar o novo.
+fn sync_frame_shift() {
+    let Some(w) = window() else { return };
+    let (dx, dy) = with(|st| {
+        let (z, px, py) = st.frame_view;
+        if (z - st.zoom).abs() < 1e-9 { (st.pan.0 - px, st.pan.1 - py) } else { (0.0, 0.0) }
+    });
+    let g = w.global::<Pl>();
+    g.set_frame_shift_x(dx as f32);
+    g.set_frame_shift_y(dy as f32);
 }
 
 fn push_volumes() {
@@ -335,7 +352,7 @@ fn on_out(id: &str, o: Out) {
             with(|st| st.duration = i.duration);
             g.set_loading(false);
         }
-        Out::Frame { buf, x, y } => {
+        Out::Frame { buf, x, y, view } => {
             let k = scale();
             let (bw, bh) = (buf.width(), buf.height());
             g.set_frame(slint::Image::from_rgba8(buf));
@@ -343,6 +360,8 @@ fn on_out(id: &str, o: Out) {
             g.set_frame_y(y as f32 / k);
             g.set_frame_w(bw as f32 / k);
             g.set_frame_h(bh as f32 / k);
+            with(|st| st.frame_view = (view.0, view.1 / k as f64, view.2 / k as f64));
+            sync_frame_shift();
             g.set_loading(false);
             with(|st| {
                 if let Some(pb) = &st.pb {

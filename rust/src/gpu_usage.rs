@@ -13,10 +13,13 @@
 //! lista os mais usados pelo nome que vier.
 //!
 //! O contador é uma TAXA: cada leitura é a média desde a anterior. ~1,5 ms
-//! com ~400 instâncias — barato pra main thread a cada 30 s.
+//! com ~400 instâncias — barato pra main thread a cada 30 s. ABRIR a consulta
+//! é que não: ~380 ms (o PDH carrega o provedor e enumera as instâncias), e
+//! isso acontecia na main logo depois de começar a gravar, congelando a onda
+//! do botão. Por isso a abertura vai numa thread própria.
 
-use std::cell::Cell;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use windows::core::w;
 use windows::Win32::System::Performance::{
@@ -33,24 +36,56 @@ const MAX_ENGINES: usize = 4;
 /// Abaixo disso não entra.
 const MIN_PCT: f64 = 1.0;
 
-thread_local! {
-    static QUERY: Cell<isize> = const { Cell::new(0) };
-    static COUNTER: Cell<isize> = const { Cell::new(0) };
-    static FAILED: Cell<bool> = const { Cell::new(false) };
+/// Handles do PDH como inteiros (os tipos do crate não são `Send`).
+struct St {
+    query: isize,
+    counter: isize,
+    failed: bool,
+    /// Quem chamou `start` ainda quer os contadores (um `stop` durante a
+    /// abertura manda a thread fechar o que abriu).
+    want: bool,
+    opening: bool,
 }
 
-/// Abre a consulta e faz a 1ª leitura (a base da média). Idempotente.
+static ST: Mutex<St> = Mutex::new(St { query: 0, counter: 0, failed: false, want: false, opening: false });
+
+fn st() -> std::sync::MutexGuard<'static, St> {
+    ST.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Abre a consulta e faz a 1ª leitura (a base da média), numa thread à parte.
+/// Idempotente.
 pub fn start() {
-    if QUERY.with(Cell::get) != 0 || FAILED.with(Cell::get) {
-        return;
+    {
+        let mut s = st();
+        s.want = true;
+        if s.failed || s.query != 0 || s.opening {
+            return;
+        }
+        s.opening = true;
     }
+    std::thread::spawn(|| {
+        let opened = open();
+        let mut s = st();
+        s.opening = false;
+        match opened {
+            Some((q, c)) if s.want => {
+                s.query = q;
+                s.counter = c;
+            }
+            Some((q, _)) => close(q),
+            None => s.failed = true,
+        }
+    });
+}
+
+fn open() -> Option<(isize, isize)> {
     unsafe {
         let mut q = PDH_HQUERY::default();
         let r = PdhOpenQueryW(None, 0, &mut q);
         if r != 0 {
-            FAILED.with(|f| f.set(true));
             log!("GpuUsage: PdhOpenQuery falhou (${r:x}).");
-            return;
+            return None;
         }
         let mut c = PDH_HCOUNTER::default();
         let r = PdhAddEnglishCounterW(q, w!("\\GPU Engine(*)\\Utilization Percentage"), 0, &mut c);
@@ -59,22 +94,26 @@ pub fn start() {
             // segue sem esta parte.
             log!("GpuUsage: contador de GPU indisponivel (${r:x}).");
             let _ = PdhCloseQuery(q);
-            FAILED.with(|f| f.set(true));
-            return;
+            return None;
         }
         let _ = PdhCollectQueryData(q);
-        QUERY.with(|x| x.set(q.0 as isize));
-        COUNTER.with(|x| x.set(c.0 as isize));
+        Some((q.0 as isize, c.0 as isize))
+    }
+}
+
+fn close(q: isize) {
+    unsafe {
+        let _ = PdhCloseQuery(PDH_HQUERY(q as *mut _));
     }
 }
 
 pub fn stop() {
-    let q = QUERY.with(|x| x.replace(0));
-    COUNTER.with(|x| x.set(0));
+    let mut s = st();
+    s.want = false;
+    s.counter = 0;
+    let q = std::mem::replace(&mut s.query, 0);
     if q != 0 {
-        unsafe {
-            let _ = PdhCloseQuery(PDH_HQUERY(q as *mut _));
-        }
+        close(q);
     }
 }
 
@@ -127,7 +166,9 @@ fn summarize(samples: &[(String, f64)], own_pid: u32) -> String {
 
 /// Lê o intervalo desde a leitura anterior. Vazio se não há contadores.
 pub fn sample(own_pid: u32) -> String {
-    let (q, c) = (QUERY.with(Cell::get), COUNTER.with(Cell::get));
+    // A trava fica até o fim: um `stop` não pode fechar a consulta no meio.
+    let s = st();
+    let (q, c) = (s.query, s.counter);
     if q == 0 {
         return String::new();
     }

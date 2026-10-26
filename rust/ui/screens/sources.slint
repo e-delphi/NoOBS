@@ -420,6 +420,7 @@ export component SourcesColumn {
         // `.sources-scroll`: vaza até as bordas (margem -12 + padding 12).
         Rectangle {
             vertical-stretch: 1;
+            opacity: Main.starting ? 0.5 : 1;
             scroll := ScrollArea {
                 x: -12px;
                 width: parent.width + 24px;
@@ -490,6 +491,8 @@ export component SourcesColumn {
                     }
                 }
             }
+            // Iniciando: a lista fica visível, apagada e sem resposta ao clique.
+            if Main.starting: TouchArea { }
         }
     }
 

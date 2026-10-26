@@ -173,6 +173,7 @@ component EInput {
         horizontal-alignment: root.align;
         vertical-alignment: center;
         selection-background-color: Theme.accent;
+        selection-foreground-color: Theme.text;
         edited => { root.edited(self.text); }
         accepted => { root.committed(self.text); }
         changed has-focus => {

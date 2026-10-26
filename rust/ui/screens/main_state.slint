@@ -94,6 +94,9 @@ export global Main {
     // ---- avisos da coluna ----
     in property <bool> busy;
     in property <string> busy-text;
+    // Montando a captura depois do clique em gravar: o botão gira e a coluna
+    // fica visível mas desativada (sem a tela de carregamento por cima).
+    in property <bool> starting;
     in property <bool> audio-pending;
     // Versão nova (`#updateBanner`, verde): some no X, só nesta sessão.
     in-out property <bool> update-banner;

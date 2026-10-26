@@ -24,7 +24,7 @@ use crate::capture::encode::VideoEncoderConfig;
 use crate::capture::gpu::{Device, Rect};
 use crate::capture::layout::{area_layout, DesktopRect};
 use crate::capture::pipeline::{AudioConfig, AudioInputSpec, Session, SessionConfig, SourceSpec, VideoTarget};
-use crate::engine::{AreaRect, CaptureEngine, CaptureInputs, Event, RecordRequest, VideoStats};
+use crate::engine::{AreaRect, CaptureEngine, CaptureInputs, Event, RecordRequest, StartJob, VideoStats};
 use crate::scene::{filter_enabled_monitors, CaptureMonitor};
 use crate::types::{EncoderCaps, AudioDev, RecordingLayout, RecordingRegion};
 use crate::{config, encoder, lang, log, mainthread, win_audio_meter as wam};
@@ -406,6 +406,32 @@ impl CaptureEngine for NativeEngine {
         self.ensure_initialized()?;
         let (cfg, mutes) = self.build_config(req, inputs, None)?;
         self.start_session(cfg, mutes)?;
+        self.output_path = req.output_path.clone();
+        self.recording = true;
+        Ok(())
+    }
+    fn begin_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<StartJob, String> {
+        if self.recording || self.replay_active || self.session.is_some() {
+            return Err("Ja esta gravando.".into());
+        }
+        self.ensure_initialized()?;
+        let (cfg, mutes) = self.build_config(req, inputs, None)?;
+        // O COM de cada fonte vive na thread dela: a montagem não precisa de
+        // apartamento nenhum na thread que a chama.
+        Ok(StartJob(Box::new(move || {
+            let s = Session::start(cfg)?;
+            for (name, muted) in mutes {
+                s.set_audio_muted(&name, muted);
+            }
+            Ok(Box::new(s) as Box<dyn std::any::Any + Send>)
+        })))
+    }
+    fn complete_recording(&mut self, req: &RecordRequest, started: Box<dyn std::any::Any + Send>) -> Result<(), String> {
+        let s = started.downcast::<Session>().map_err(|_| "sessao de captura invalida".to_owned())?;
+        if self.recording || self.replay_active || self.session.is_some() {
+            return Err("Ja esta gravando.".into());
+        }
+        self.session = Some(Arc::new(*s));
         self.output_path = req.output_path.clone();
         self.recording = true;
         Ok(())

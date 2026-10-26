@@ -414,7 +414,7 @@ fn on_out(id: &str, o: Out) {
     let g = ex(&w);
     match o {
         Out::Info(_) => {}
-        Out::Frame { buf, x, y } => {
+        Out::Frame { buf, x, y, .. } => {
             let k = scale();
             let (bw, bh) = (buf.width(), buf.height());
             g.set_frame(slint::Image::from_rgba8(buf));

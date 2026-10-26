@@ -61,6 +61,11 @@ pub struct RecordRequest {
     pub area: Option<AreaRect>,
 }
 
+/// A parte demorada de começar uma gravação (abrir encoder e dispositivos,
+/// ~200 ms), separada pra rodar fora da main: o `Box` devolvido volta pro
+/// motor no `complete_recording`, já na main.
+pub struct StartJob(pub Box<dyn FnOnce() -> Result<Box<dyn std::any::Any + Send>, String> + Send>);
+
 /// Notificações para o Bridge, sempre na main thread e fora do empréstimo.
 #[derive(Debug)]
 pub enum Event {
@@ -93,6 +98,10 @@ pub trait CaptureEngine {
     fn set_source_muted(&self, source_name: &str, muted: bool);
     fn update_area(&mut self, ar: AreaRect) -> bool;
     fn build_and_start_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<(), String>;
+    /// O mesmo, em duas metades: a montagem (`StartJob`, qualquer thread) e o
+    /// registro do que ela montou (`complete_recording`, na main).
+    fn begin_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<StartJob, String>;
+    fn complete_recording(&mut self, req: &RecordRequest, started: Box<dyn std::any::Any + Send>) -> Result<(), String>;
     fn set_recording_paused(&mut self, pause: bool) -> bool;
     fn request_stop(&mut self);
     fn force_complete_stop(&mut self);

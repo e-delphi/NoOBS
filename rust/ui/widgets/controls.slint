@@ -96,6 +96,7 @@ export component SearchBox {
         color: Theme.text;
         vertical-alignment: center;
         selection-background-color: Theme.accent-bd;
+        selection-foreground-color: Theme.text;
         single-line: true;
         edited => { root.edited(self.text); }
         accepted => { root.accepted(); }

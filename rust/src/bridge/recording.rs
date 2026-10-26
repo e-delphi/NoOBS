@@ -37,6 +37,11 @@ const DEFAULT_FILENAME_PATTERN: &str = "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}";
 #[derive(Default)]
 struct RecState {
     recording_active: bool,
+    /// Montando a captura numa thread (`handle_record_start_async`): conta
+    /// como gravando pra todo o resto, que não pode montar outra por cima.
+    starting: bool,
+    /// Pediram pra parar enquanto montava: para assim que ela subir.
+    stop_after_start: bool,
     /// `RecordingStartTickMs`: quando a gravação (ou o que o buffer já tinha) começou.
     recording_start: Option<Instant>,
     last_recording_path: String,
@@ -88,7 +93,7 @@ fn with_state<R>(f: impl FnOnce(&mut RecState) -> R) -> R {
 }
 
 pub fn recording_active() -> bool {
-    with_state(|s| s.recording_active)
+    with_state(|s| s.recording_active || s.starting)
 }
 
 /// Caminho da gravação em curso (ou da última): a listagem o esconde enquanto o
@@ -387,6 +392,18 @@ pub fn with_engine_result<R>(f: impl FnOnce(&mut dyn engine::CaptureEngine) -> R
 // ---------------------------------------------------------------------------
 
 pub fn handle_record_start() {
+    start_impl(false);
+}
+
+/// Igual ao `handle_record_start`, mas a montagem da captura (~200 ms: encoder
+/// e dispositivos de áudio) roda numa thread — a main segue desenhando (a onda
+/// do botão de gravar travava logo no começo). O resto do início volta pra
+/// main quando ela termina.
+pub fn handle_record_start_async() {
+    start_impl(true);
+}
+
+fn start_impl(run_async: bool) {
     if recording_active() {
         return;
     }
@@ -435,31 +452,79 @@ pub fn handle_record_start() {
     let t0 = Instant::now();
     log!("HandleRecordStart: inicio.");
     push_refresh_busy(true, "starting");
-    match start_recording_inner(continue_replay) {
-        Ok(()) => log!("HandleRecordStart: total {}ms.", t0.elapsed().as_millis()),
-        Err(e) => {
-            with_state(|s| {
-                s.recording_active = false;
-                s.window = None;
-                s.area = None;
+    let (req, job) = match prepare_start(continue_replay) {
+        Ok(p) => p,
+        Err(e) => return start_failed(&e, t0),
+    };
+    let Some(job) = job else {
+        // Continuando o buffer: nada a montar.
+        return start_done(Ok(()), &req, t0, t0);
+    };
+    let t_step = Instant::now();
+    if !run_async {
+        let r = (job.0)().and_then(|st| with_engine_result(|e| e.complete_recording(&req, st)));
+        return start_done(r, &req, t0, t_step);
+    }
+    with_state(|s| {
+        s.starting = true;
+        s.stop_after_start = false;
+        // O arquivo nasce durante a montagem: a lista já o esconde (o card
+        // "0 B" apareceria até ela terminar).
+        s.last_recording_path = req.output_path.clone();
+    });
+    std::thread::spawn(move || {
+        let r = (job.0)();
+        crate::mainthread::queue(move || {
+            let stop = with_state(|s| {
+                s.starting = false;
+                std::mem::replace(&mut s.stop_after_start, false)
             });
-            replay::sync_transcribe_pause();
-            // Reverte os ícones se já tinham virado "gravando" (no-op se não).
-            tray::set_recording(false);
-            ui::set_window_icon_recording(false);
-            post_error(lang::t_with("error.recordStartFailed", &[("error", &e)]));
-            push_recording_state();
-            log!("HandleRecordStart: FALHOU apos {}ms: {e}", t0.elapsed().as_millis());
-            // A gravação não subiu: o buffer que ela derrubou volta.
-            if replay::replay_wanted() {
-                replay::start_replay_buffer();
+            let r = r.and_then(|st| with_engine_result(|e| e.complete_recording(&req, st)));
+            let ok = r.is_ok();
+            start_done(r, &req, t0, t_step);
+            if ok && stop {
+                log!("HandleRecordStart: parada pedida durante a montagem — parando.");
+                handle_record_stop();
             }
+        });
+    });
+}
+
+fn start_done(r: Result<(), String>, req: &RecordRequest, t0: Instant, t_step: Instant) {
+    match r {
+        Ok(()) => {
+            log!("HandleRecordStart: BuildAndStartRecording em {}ms.", t_step.elapsed().as_millis());
+            after_start(req);
+            log!("HandleRecordStart: total {}ms.", t0.elapsed().as_millis());
+            push_refresh_busy(false, "starting");
         }
+        Err(e) => start_failed(&e, t0),
+    }
+}
+
+fn start_failed(e: &str, t0: Instant) {
+    with_state(|s| {
+        s.recording_active = false;
+        s.window = None;
+        s.area = None;
+    });
+    replay::sync_transcribe_pause();
+    // Reverte os ícones se já tinham virado "gravando" (no-op se não).
+    tray::set_recording(false);
+    ui::set_window_icon_recording(false);
+    post_error(lang::t_with("error.recordStartFailed", &[("error", e)]));
+    push_recording_state();
+    log!("HandleRecordStart: FALHOU apos {}ms: {e}", t0.elapsed().as_millis());
+    // A gravação não subiu: o buffer que ela derrubou volta.
+    if replay::replay_wanted() {
+        replay::start_replay_buffer();
     }
     push_refresh_busy(false, "starting");
 }
 
-fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
+/// Até a montagem: motor de pé, nome do arquivo, e ou a gravação já
+/// pendurada no buffer (`None`) ou a montagem a rodar (`Some`).
+fn prepare_start(mut continue_replay: bool) -> Result<(RecordRequest, Option<engine::StartJob>), String> {
     engine::ensure_created();
     let t_step = Instant::now();
     let cold = !engine::with_engine(|e| e.is_initialized()).unwrap_or(false);
@@ -480,17 +545,21 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
         area,
     };
 
-    let t_step = Instant::now();
     if continue_replay && !replay::continue_into_recording(&req.output_path) {
         continue_replay = false;
         log!("HandleRecordStart: nao deu pra continuar o buffer — descartando-o.");
         replay::stop_replay_buffer();
     }
-    if !continue_replay {
-        let inputs = gather_capture_inputs();
-        with_engine_result(|e| e.build_and_start_recording(&req, &inputs))?;
+    if continue_replay {
+        return Ok((req, None));
     }
-    log!("HandleRecordStart: BuildAndStartRecording em {}ms.", t_step.elapsed().as_millis());
+    let inputs = gather_capture_inputs();
+    let job = with_engine_result(|e| e.begin_recording(&req, &inputs))?;
+    Ok((req, Some(job)))
+}
+
+/// Depois que a captura subiu: estado, ícones, timers, janela.
+fn after_start(req: &RecordRequest) {
 
     with_state(|s| {
         s.recording_active = true;
@@ -536,10 +605,14 @@ fn start_recording_inner(mut continue_replay: bool) -> Result<(), String> {
     if config::get_config_bool("recIndicator", false) {
         show_rec_indicator_from_config();
     }
-    Ok(())
 }
 
 pub fn handle_record_stop() {
+    if with_state(|s| s.starting) {
+        log!("HandleRecordStop: captura ainda montando — para assim que subir.");
+        with_state(|s| s.stop_after_start = true);
+        return;
+    }
     if !recording_active() {
         log!("HandleRecordStop: chamado mas RecordingActive=False — no-op.");
         return;

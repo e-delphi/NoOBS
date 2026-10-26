@@ -365,7 +365,7 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
             return;
         }
         match d.render(held, l) {
-            Some(buf) => out(Out::Frame { buf, x: l.x, y: l.y }),
+            Some(buf) => out(Out::Frame { buf, x: l.x, y: l.y, view: (l.zoom, l.pan_x, l.pan_y) }),
             None => shared.ui_pending.store(false, Ordering::Release),
         }
     };
@@ -403,6 +403,9 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
         let cmds: Vec<VCmd> = std::mem::take(&mut pending);
         // Só o último seek importa (arrastar a barra manda dezenas).
         let last_seek = cmds.iter().rposition(|c| matches!(c, VCmd::Seek(_) | VCmd::Step(_)));
+        // Idem a vista: um arrasto rápido manda várias por lote, e refazer o
+        // quadro a cada uma acumulava atraso.
+        let last_view = cmds.iter().rposition(|c| matches!(c, VCmd::View(_)));
         for (i, c) in cmds.into_iter().enumerate() {
             match c {
                 VCmd::Play => {
@@ -416,7 +419,7 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
                 VCmd::View(v) => {
                     view = v;
                     lay = layout(d.src_w, d.src_h, &view);
-                    if d.has_held {
+                    if d.has_held && Some(i) == last_view {
                         // Pausado (ou entre quadros): o mostrado é refeito na vista nova.
                         shared.ui_pending.store(false, Ordering::Release);
                         present(&mut d, true, &lay, cur);

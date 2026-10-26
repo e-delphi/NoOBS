@@ -379,8 +379,8 @@ export component PlayerOverlay {
             changed height => { Pl.stage-resized(self.width, self.height); }
 
             Image {
-                x: Pl.frame-x;
-                y: Pl.frame-y;
+                x: Pl.frame-x + Pl.frame-shift-x;
+                y: Pl.frame-y + Pl.frame-shift-y;
                 width: Pl.frame-w;
                 height: Pl.frame-h;
                 source: Pl.frame;

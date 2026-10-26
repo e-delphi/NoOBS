@@ -66,7 +66,7 @@ impl Dec {
         if !input.find_stream_info() {
             return Err("find_stream_info falhou".into());
         }
-        let v_idx = unsafe { first_stream_of_type(input.ptr(), AVMEDIA_TYPE_VIDEO) }.ok_or("sem video")? as i32;
+        let v_idx = unsafe { first_moving_video(input.ptr()) }.ok_or(NO_VIDEO)? as i32;
         let st = input.stream(v_idx as u32).ok_or("stream")?;
         let par = unsafe { st.codecpar.as_ref() }.ok_or("codecpar")?;
         let fr = st.avg_frame_rate;
@@ -321,6 +321,71 @@ impl Dec {
     }
 }
 
+/// `AV_DISPOSITION_ATTACHED_PIC`: a "faixa de vídeo" é a capa embutida (MP3,
+/// M4A) — um quadro só. Como vídeo, a reprodução acabava no mesmo instante.
+const DISPOSITION_ATTACHED_PIC: i32 = 0x0400;
+
+/// Primeira faixa de vídeo que não é capa.
+unsafe fn first_moving_video(ic: *const AVFormatContext) -> Option<u32> {
+    (0..nb_streams(ic)).find(|&i| {
+        stream(ic, i).is_some_and(|s| {
+            s.disposition & DISPOSITION_ATTACHED_PIC == 0
+                && s.codecpar.as_ref().is_some_and(|cp| cp.codec_type == AVMEDIA_TYPE_VIDEO)
+        })
+    })
+}
+
+/// Erro do `Dec::open` pra arquivo sem faixa de vídeo (o `.mp3` da exportação
+/// "só áudio", ou um com só a capa): o player toca só o som.
+const NO_VIDEO: &str = "sem video";
+
+/// Arquivo só de áudio: o som sai da thread de áudio como sempre; esta só faz
+/// o papel que a de vídeo tem no relógio — duração, posição e fim.
+fn run_audio_only(path: &str, rx: Receiver<VCmd>, shared: Arc<Shared>, out: Arc<dyn Fn(Out) + Send + Sync>) {
+    let duration = Input::open(path)
+        .ok()
+        .map(|input| {
+            let d = unsafe { container_duration_us(input.ptr()) } as f64 / 1e6;
+            if d > 0.0 { d } else { (unsafe { scan_duration_by_packets(input.ptr()) }) as f64 / 1e6 }
+        })
+        .unwrap_or(0.0)
+        .max(0.0);
+    shared.duration.store(duration.to_bits(), Ordering::Relaxed);
+    log!("Player: so audio, {duration:.1} s");
+    out(Out::Info(Info { duration }));
+    let mut playing = false;
+    loop {
+        let c = if playing {
+            match rx.recv_timeout(Duration::from_millis(30)) {
+                Ok(c) => Some(c),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(_) => break,
+            }
+        } else {
+            match rx.recv() {
+                Ok(c) => Some(c),
+                Err(_) => break,
+            }
+        };
+        match c {
+            Some(VCmd::Play) => playing = true,
+            Some(VCmd::Pause) => playing = false,
+            Some(VCmd::Seek(t)) => shared.set_position(t),
+            _ => {}
+        }
+        if playing {
+            let t = shared.clock.now().max(0.0);
+            if duration > 0.0 && t >= duration {
+                playing = false;
+                shared.set_position(duration);
+                out(Out::Ended);
+            } else {
+                shared.set_position(t);
+            }
+        }
+    }
+}
+
 /// Maior keyframe <= t (a lista vem ordenada do índice).
 fn kf_at_or_before(kf: &[f64], t: f64) -> Option<f64> {
     let i = kf.partition_point(|&k| k <= t);
@@ -330,6 +395,7 @@ fn kf_at_or_before(kf: &[f64], t: f64) -> Option<f64> {
 pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Shared>, out: Arc<dyn Fn(Out) + Send + Sync>) {
     let mut d = match Dec::open(path) {
         Ok(d) => d,
+        Err(e) if e == NO_VIDEO => return run_audio_only(path, rx, shared, out),
         Err(e) => {
             log!("Player: video nao abriu ({e}): {path}");
             out(Out::Error(e));

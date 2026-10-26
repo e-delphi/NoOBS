@@ -42,6 +42,8 @@ static HOST_HWND: AtomicIsize = AtomicIsize::new(0);
 /// minimizada). 0 até a 1ª exibição.
 static VISIBLE_HWND: AtomicIsize = AtomicIsize::new(0);
 static WM_SHOW_INSTANCE: AtomicU32 = AtomicU32::new(0);
+/// `TaskbarCreated` (registrada): a barra de tarefas foi recriada.
+static WM_TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// Mutex de instância única: o handle fica aberto até o processo sair.
 static MUTEX: AtomicIsize = AtomicIsize::new(0);
 /// "Fechar" de verdade (menu da bandeja, instalador): o fechar da janela não
@@ -295,10 +297,16 @@ pub fn hide_to_tray() {
         return;
     }
     let Some(w) = app_window() else { return };
+    // Sem ícone na bandeja, esconder deixaria o app sem como voltar (sem
+    // janela, sem ícone — parece fechado): vai pra barra de tarefas.
+    if !tray::install(host_window(), &window_title()) {
+        log::log("UI: bandeja indisponivel — minimizando pra barra de tarefas em vez de esconder.");
+        minimize_to_taskbar();
+        return;
+    }
     remember_maximized(&w);
     crate::view::call(|v| v.window_hidden());
     let _ = w.hide();
-    tray::install(host_window(), &window_title());
 }
 
 fn remember_maximized(_w: &AppWindow) {
@@ -533,7 +541,10 @@ pub fn quit() {
 fn on_tray_command(id: i32) {
     match id {
         tray::ID_TRAY_SHOW => restore_from_tray(),
-        tray::ID_TRAY_QUIT => quit(),
+        tray::ID_TRAY_QUIT => {
+            log::log("UI: Sair pelo menu da bandeja — fechando o app.");
+            quit();
+        }
         _ => {}
     }
 }
@@ -547,6 +558,11 @@ extern "system" fn host_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARA
     let show = WM_SHOW_INSTANCE.load(Ordering::SeqCst);
     if show != 0 && msg == show {
         restore_from_tray();
+        return LRESULT(0);
+    }
+    let tb = WM_TASKBAR_CREATED.load(Ordering::SeqCst);
+    if tb != 0 && msg == tb {
+        tray::on_taskbar_created(hwnd, &window_title());
         return LRESULT(0);
     }
 
@@ -704,7 +720,9 @@ pub fn run() {
         mainthread::set_wake_window(host);
         // Elevado (runAsAdmin), o Windows barra mensagens de quem não é: o
         // clique na bandeja (vem do Explorer) e o aviso de uma 2ª instância.
-        elevate::allow_from_lower_il(host, &[show_msg, tray::WM_TRAYICON, RegisterWindowMessageW(w!("TaskbarCreated"))]);
+        let taskbar_created = RegisterWindowMessageW(w!("TaskbarCreated"));
+        WM_TASKBAR_CREATED.store(taskbar_created, Ordering::SeqCst);
+        elevate::allow_from_lower_il(host, &[show_msg, tray::WM_TRAYICON, taskbar_created]);
         tray::set_callbacks(tray::Callbacks { on_command: Some(on_tray_command), ..Default::default() });
     }
 
@@ -724,9 +742,11 @@ pub fn run() {
         // [X] / Alt+F4: vai pra bandeja (closeToTray, gravando, buffer) em vez
         // de fechar — a decisão é do bridge.
         if !REAL_QUIT.load(Ordering::SeqCst) && hooks(|h| h.on_should_hide_on_close).is_some_and(|f| f()) {
+            log::log("UI: fechar a janela — vai pra bandeja.");
             hide_to_tray();
             return slint::CloseRequestResponse::KeepWindowShown;
         }
+        log::log("UI: fechar a janela — fechando o app (bandeja desligada).");
         quit();
         slint::CloseRequestResponse::HideWindow
     });

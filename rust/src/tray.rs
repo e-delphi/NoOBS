@@ -41,6 +41,9 @@ pub struct Callbacks {
 struct State {
     hwnd: Option<HWND>,
     added: bool,
+    /// Alguém pediu o ícone (e não o tirou): a barra de tarefas recriada
+    /// (`TaskbarCreated`) o põe de volta.
+    wanted: bool,
     base_icon: Option<HICON>,
     recording_icon: Option<HICON>,
     recording_now: bool,
@@ -86,9 +89,11 @@ fn base_data(hwnd: HWND) -> NOTIFYICONDATAW {
     NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: 1, ..Default::default() }
 }
 
-pub fn install(hwnd: HWND, tooltip: &str) {
+/// Põe o ícone na bandeja. `true` se ele está lá.
+pub fn install(hwnd: HWND, tooltip: &str) -> bool {
+    with(|s| s.wanted = true);
     if with(|s| s.added) {
-        return;
+        return true;
     }
     let mut d = base_data(hwnd);
     d.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
@@ -102,7 +107,7 @@ pub fn install(hwnd: HWND, tooltip: &str) {
     });
     if !ok {
         log::log("Tray: Shell_NotifyIconW(NIM_ADD) falhou.");
-        return;
+        return false;
     }
     // Rede de segurança: o ícone pode nascer DEPOIS de a gravação começar (o
     // start chama `set_recording(true)`, e sem ícone isso é no-op). Com
@@ -112,6 +117,27 @@ pub fn install(hwnd: HWND, tooltip: &str) {
     if with(|s| s.cb.on_is_recording).is_some_and(|f| f()) {
         set_recording(true);
     }
+    true
+}
+
+/// `TaskbarCreated`: o Explorer reiniciou (ou a bandeja ficou pronta depois
+/// do arranque com o Windows) e todo ícone sumiu junto. Sem isto o NoOBS
+/// escondido ficava sem janela e sem ícone — parecia fechado.
+pub fn on_taskbar_created(hwnd: HWND, tooltip: &str) {
+    if !with(|s| s.wanted) {
+        return;
+    }
+    // Tira o que houver antes (no-op se o Explorer já levou junto): sem isso,
+    // um aviso repetido daria NIM_ADD num ícone que ainda existe e falharia.
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_DELETE, &base_data(hwnd));
+    }
+    with(|s| {
+        s.added = false;
+        s.recording_now = false;
+    });
+    let ok = install(hwnd, tooltip);
+    log::log(&format!("Tray: barra de tarefas recriada — icone {}.", if ok { "recolocado" } else { "NAO recolocado" }));
 }
 
 pub fn remove() {
@@ -121,6 +147,7 @@ pub fn remove() {
     }
     with(|s| {
         s.added = false;
+        s.wanted = false;
         // Um ícone novo nasce sem a bolinha: o próximo set_recording reaplica.
         s.recording_now = false;
     });

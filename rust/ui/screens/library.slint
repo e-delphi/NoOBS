@@ -188,10 +188,12 @@ component RecCardView {
                     source: root.item.thumb;
                     image-fit: cover;
                 }
-                if !root.item.has-thumb: Text {
-                    text: "▶";
-                    font-size: 24px;
-                    color: Theme.thumb-fg;
+                // O "▶" da web, desenhado: como texto, o Skia pega a fonte de
+                // emoji do Windows e sai o botão azul.
+                if !root.item.has-thumb: FillIcon {
+                    size: 22px;
+                    commands: "M7 4.5L19.5 12L7 19.5Z";
+                    fill: Theme.thumb-fg;
                 }
                 // Posição na seleção (`.rec-order-badge`).
                 if root.item.order > 0: Rectangle {

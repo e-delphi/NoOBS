@@ -181,6 +181,32 @@ pub fn fullscreen_app_active() -> bool {
     }
 }
 
+/// A janela em foco, pro log (`classe "título" WxH`): quem foi tomado por
+/// tela cheia.
+pub fn foreground_desc() -> String {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return "nenhuma".into();
+        }
+        let mut cls = [0u16; 64];
+        let n = GetClassNameW(fg, &mut cls) as usize;
+        let mut title = [0u16; 80];
+        let tn = GetWindowTextW(fg, &mut title) as usize;
+        let mut r = RECT::default();
+        let _ = GetWindowRect(fg, &mut r);
+        format!(
+            "{} \"{}\" {}x{} em ({}, {})",
+            String::from_utf16_lossy(&cls[..n]),
+            String::from_utf16_lossy(&title[..tn]),
+            r.right - r.left,
+            r.bottom - r.top,
+            r.left,
+            r.top
+        )
+    }
+}
+
 /// 20..100% → alfa 51..255 (abaixo de 20% seria invisível demais).
 fn opacity_to_alpha(pct: i32) -> u8 {
     mul_div(pct.clamp(20, 100), 255, 100) as u8

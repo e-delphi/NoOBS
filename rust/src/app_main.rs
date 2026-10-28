@@ -151,6 +151,18 @@ pub fn setup(w: &AppWindow) {
             main_global(&w).set_picker_audio(on);
         }
     });
+    m.on_picker_timelapse_changed(|on| {
+        config::set_config_bool("areaTimelapse", on);
+        if let Some(w) = crate::app_view::window() {
+            main_global(&w).set_picker_timelapse(on);
+        }
+    });
+    m.on_picker_timelapse_cursor_changed(|on| {
+        config::set_config_bool("areaTimelapseCursor", on);
+        if let Some(w) = crate::app_view::window() {
+            main_global(&w).set_picker_timelapse_cursor(on);
+        }
+    });
     m.on_picker_select_area(|| {
         close_picker();
         bridge::handle_select_capture_area();
@@ -827,6 +839,8 @@ fn open_picker() {
     let m = main_global(&w);
     m.set_picker_search_text("".into());
     m.set_picker_audio(config::get_config_bool("windowPickerAppAudio", false));
+    m.set_picker_timelapse(config::get_config_bool("areaTimelapse", false));
+    m.set_picker_timelapse_cursor(config::get_config_bool("areaTimelapseCursor", true));
     m.set_picker_open(true);
     set_hint_layer(&w, 1);
     set_picker_mode(area, false);

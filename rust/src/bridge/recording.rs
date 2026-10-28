@@ -742,6 +742,17 @@ pub fn on_engine_recording_stopped(output_path: &str) {
 
     replay::clear_continuation();
 
+    // A duração do card é a do ARQUIVO, não a do relógio: com Timelapse (e com
+    // pausa) o arquivo tem menos tempo do que se passou gravando.
+    let file_sec = engine::with_engine(|e| e.last_file_duration()).unwrap_or(0.0);
+    if file_sec > 0.0 {
+        let d = file_sec.round().max(1.0) as i32;
+        if d != with_state(|s| s.last_recording_duration) {
+            log!("OnEngineRecordingStopped: duracao do arquivo {file_sec:.2} s (relogio {} s).", with_state(|s| s.last_recording_duration));
+        }
+        with_state(|s| s.last_recording_duration = d);
+    }
+
     // Layout (canvas + monitores/webcams) + duração + como foi gravado, para o
     // <hash>.json. O codec vem do encoder que o engine REALMENTE criou (o
     // fallback pode ter trocado o pedido); fps e qualidade vêm do config, que

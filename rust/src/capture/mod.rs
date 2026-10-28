@@ -21,6 +21,7 @@ pub mod encode;
 pub mod gpu;
 pub mod layout;
 pub mod mixer;
+pub mod motion;
 pub mod output;
 pub mod pipeline;
 pub mod router;

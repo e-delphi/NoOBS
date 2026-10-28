@@ -149,6 +149,9 @@ export global Main {
     in property <string> picker-empty-text;
     in property <bool> picker-audio-supported;
     in property <bool> picker-audio;
+    // Timelapse da gravação de área (e se o cursor conta como movimento).
+    in property <bool> picker-timelapse;
+    in property <bool> picker-timelapse-cursor;
     in property <[SavedArea]> picker-saved-areas;
     callback picker-close();
     callback picker-refresh();
@@ -156,6 +159,8 @@ export global Main {
     callback picker-search(string);
     callback picker-pick(string);
     callback picker-audio-changed(bool);
+    callback picker-timelapse-changed(bool);
+    callback picker-timelapse-cursor-changed(bool);
     callback picker-select-area();
     callback picker-saved-area(int);
 

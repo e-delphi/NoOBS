@@ -370,7 +370,21 @@ fn on_tick() {
                     let _ = ShowWindow(h, cmd);
                 }
             }
-            log!("AreaFrame: {} (app em tela cheia).", if fs { "escondida" } else { "de volta" });
+            if fs {
+                log!("AreaFrame: escondida (app em tela cheia: {}).", rec_indicator::foreground_desc());
+            } else {
+                log!("AreaFrame: de volta (saiu a tela cheia).");
+            }
+        }
+        // Outra janela "sempre por cima" ativada depois passa na frente da
+        // moldura (e ela ficava escondida atrás do programa gravado): volta pro
+        // topo. Só fora da tela cheia — por cima de jogo custa quadros (#49).
+        if !fs {
+            unsafe {
+                for h in [frame, button, edit].into_iter().flatten() {
+                    let _ = SetWindowPos(h, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                }
+            }
         }
     }
 }

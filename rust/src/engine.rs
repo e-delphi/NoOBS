@@ -106,6 +106,9 @@ pub trait CaptureEngine {
     fn request_stop(&mut self);
     fn force_complete_stop(&mut self);
     fn stop_recording(&mut self) -> String;
+    /// Duração do último arquivo fechado, pelo que foi escrito nele (s; 0 =
+    /// desconhecida). Com Timelapse ou pausa é menor que o tempo de relógio.
+    fn last_file_duration(&self) -> f64;
 
     fn is_replay_active(&self) -> bool;
     fn is_replay_saving(&self) -> bool;

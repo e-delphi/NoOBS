@@ -27,6 +27,7 @@ use super::clock::{now_ns, FrameGrid, Sleeper};
 use super::encode::{AudioEncoder, AvAacEncoder, AvVideoEncoder, StreamInfo, VideoEncoder, VideoEncoderConfig};
 use super::gpu::{Compositor, Device, Nv12Converter, Rect};
 use super::mixer::{block_start_ns, AudioMixer, MixInput, BLOCK_FRAMES, MIX_DELAY_NS};
+use super::motion::{Mask, MotionDetector};
 use super::router::{Cmd, FileDone, Msg, Router, RouterStats};
 use super::layout::fit_inside;
 use super::video::{VideoSource, WgcSource, WgcTarget};
@@ -89,7 +90,21 @@ pub struct SessionConfig {
     /// Gravação que começa junto com a sessão; vazio = nenhuma (só buffer,
     /// ou gravação pedida depois com `start_recording`).
     pub output_path: String,
+    /// Timelapse (gravação de área): só grava quando a imagem muda.
+    pub motion: Option<MotionConfig>,
 }
+
+/// Timelapse: a área na área de trabalho (pra achar o cursor no canvas) e se
+/// mexer o cursor conta como mudança.
+#[derive(Debug, Clone, Copy)]
+pub struct MotionConfig {
+    /// `(x, y, largura, altura)` em pixels da área de trabalho.
+    pub area: (i32, i32, i32, i32),
+    pub count_cursor: bool,
+}
+
+/// Margem do Timelapse: quanto entra antes e depois de cada mudança.
+pub const TIMELAPSE_MARGIN_NS: i64 = 1_000_000_000;
 
 /// Números da sessão (lidos de qualquer thread).
 #[derive(Default)]
@@ -122,6 +137,9 @@ type PacketTx = Sender<Msg>;
 /// com largura 0 = a fonte não é desenhada.
 type Placements = Arc<Mutex<Vec<(Option<Rect>, Option<Rect>)>>>;
 
+/// Área do Timelapse na área de trabalho; muda junto com a moldura.
+type MotionArea = Arc<Mutex<(i32, i32, i32, i32)>>;
+
 struct Control {
     stop: AtomicBool,
     /// O próximo quadro TEM que ser keyframe (corte do buffer, retomada, início de gravação).
@@ -146,6 +164,7 @@ pub struct Session {
     tx: Option<Sender<Msg>>,
     start_ns: u64,
     placements: Placements,
+    motion_area: MotionArea,
     audio_sources: Vec<Arc<dyn AudioSource>>,
     video: Option<JoinHandle<()>>,
     audio: Option<JoinHandle<()>>,
@@ -166,14 +185,15 @@ impl Session {
         let ctl = Arc::new(Control { stop: AtomicBool::new(false), force_key: Arc::new(AtomicBool::new(false)), stop_ns: AtomicU64::new(u64::MAX), error: Mutex::new(None) });
         let stats = Arc::new(Stats::default());
         let placements: Placements = Arc::new(Mutex::new(cfg.sources.iter().map(|s| (s.crop, s.dest)).collect()));
+        let motion_area: MotionArea = Arc::new(Mutex::new(cfg.motion.map(|m| m.area).unwrap_or_default()));
 
         // ---- vídeo: montado na própria thread (D3D11 + WinRT ficam nela) ----
         let (vready_tx, vready_rx) = channel::<Result<StreamInfo, String>>();
         let (vgo_tx, vgo_rx) = channel::<Option<Go>>();
-        let (c2, s2, vcfg, pl2) = (ctl.clone(), stats.clone(), cfg.clone(), placements.clone());
+        let (c2, s2, vcfg, pl2, ma2) = (ctl.clone(), stats.clone(), cfg.clone(), placements.clone(), motion_area.clone());
         let video = std::thread::Builder::new()
             .name("noobs-captura-video".into())
-            .spawn(move || video_thread(vcfg, pl2, c2, s2, vready_tx, vgo_rx))
+            .spawn(move || video_thread(vcfg, pl2, ma2, c2, s2, vready_tx, vgo_rx))
             .map_err(|e| format!("thread de vídeo: {e}"))?;
         let vinfo = match vready_rx.recv() {
             Ok(Ok(i)) => i,
@@ -232,7 +252,7 @@ impl Session {
 
         // ---- gravador ----
         let router_stats = Arc::new(RouterStats::default());
-        let router = Router::new(infos, cfg.replay, ctl.force_key.clone(), router_stats.clone());
+        let router = Router::new(infos, cfg.replay, cfg.motion.is_some(), ctl.force_key.clone(), router_stats.clone());
         let (tx, rx) = channel::<Msg>();
         let c3 = ctl.clone();
         let writer = std::thread::Builder::new()
@@ -265,7 +285,7 @@ impl Session {
         });
         let _ = vgo_tx.send(Some(Go { start_ns, tx: tx.clone() }));
         log!("Captura: sessao {}x{} @{} fps, {} fonte(s) de video, {} de audio → {}", cfg.width, cfg.height, cfg.fps, cfg.sources.len(), audio_sources.len(), cfg.output_path);
-        Ok(Self { ctl, stats, router: router_stats, tx: Some(tx), start_ns, placements, audio_sources, video: Some(video), audio: audio.flatten(), writer: Some(writer), path: cfg.output_path })
+        Ok(Self { ctl, stats, router: router_stats, tx: Some(tx), start_ns, placements, motion_area, audio_sources, video: Some(video), audio: audio.flatten(), writer: Some(writer), path: cfg.output_path })
     }
 
     fn cmd<T>(&self, make: impl FnOnce(Sender<Result<T, String>>) -> Cmd) -> Result<T, String> {
@@ -329,6 +349,11 @@ impl Session {
         }
     }
 
+    /// A área do Timelapse mudou (moldura movida): o cursor é achado nela.
+    pub fn set_motion_area(&self, area: (i32, i32, i32, i32)) {
+        *self.motion_area.lock().unwrap_or_else(|e| e.into_inner()) = area;
+    }
+
     /// Muda o mudo de uma fonte de áudio (pelo nome do `AudioInputSpec`).
     pub fn set_audio_muted(&self, name: &str, muted: bool) -> bool {
         let mut found = false;
@@ -381,6 +406,7 @@ struct VideoParts {
     comp: Compositor,
     conv: Nv12Converter,
     enc: Box<dyn VideoEncoder>,
+    motion: Option<MotionDetector>,
 }
 
 fn build_video(cfg: &SessionConfig) -> Result<VideoParts, String> {
@@ -397,10 +423,14 @@ fn build_video(cfg: &SessionConfig) -> Result<VideoParts, String> {
     let comp = Compositor::new(&dev, cfg.width, cfg.height)?;
     let conv = Nv12Converter::new(&dev, cfg.width, cfg.height)?;
     let enc = AvVideoEncoder::open(&dev, &cfg.encoder)?;
-    Ok(VideoParts { dev, sources, comp, conv, enc: Box::new(enc) })
+    let motion = match cfg.motion {
+        Some(_) => Some(MotionDetector::new(&dev, cfg.width, cfg.height)?),
+        None => None,
+    };
+    Ok(VideoParts { dev, sources, comp, conv, enc: Box::new(enc), motion })
 }
 
-fn video_thread(cfg: SessionConfig, placements: Placements, ctl: Arc<Control>, stats: Arc<Stats>, ready: Sender<Result<StreamInfo, String>>, go: Receiver<Option<Go>>) {
+fn video_thread(cfg: SessionConfig, placements: Placements, motion_area: MotionArea, ctl: Arc<Control>, stats: Arc<Stats>, ready: Sender<Result<StreamInfo, String>>, go: Receiver<Option<Go>>) {
     // WGC precisa de apartamento WinRT; o pool é free-threaded, então MTA serve.
     let ro = unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.is_ok();
     let built = build_video(&cfg).and_then(|p| p.enc.stream_info().map(|i| (p, i)));
@@ -412,7 +442,7 @@ fn video_thread(cfg: SessionConfig, placements: Placements, ctl: Arc<Control>, s
         Ok((mut p, info)) => {
             let _ = ready.send(Ok(info));
             if let Ok(Some(g)) = go.recv() {
-                run_video(&cfg, &mut p, g, &placements, &ctl, &stats);
+                run_video(&cfg, &mut p, g, &placements, &motion_area, &ctl, &stats);
             }
         }
     }
@@ -421,9 +451,30 @@ fn video_thread(cfg: SessionConfig, placements: Placements, ctl: Arc<Control>, s
     }
 }
 
-fn run_video(cfg: &SessionConfig, p: &mut VideoParts, go: Go, placements: &Placements, ctl: &Control, stats: &Stats) {
+/// Cursor na área de trabalho, se visível.
+fn cursor_pos() -> Option<(i32, i32)> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetCursorInfo, CURSORINFO, CURSOR_SHOWING};
+    let mut ci = CURSORINFO { cbSize: std::mem::size_of::<CURSORINFO>() as u32, ..Default::default() };
+    unsafe { GetCursorInfo(&mut ci) }.ok()?;
+    (ci.flags.0 & CURSOR_SHOWING.0 != 0).then_some((ci.ptScreenPos.x, ci.ptScreenPos.y))
+}
+
+/// Caixa do cursor no canvas: a seta e o I-beam cabem em 64 px (escala 200%)
+/// a partir do ponto quente, que fica perto do canto de cima à esquerda.
+fn cursor_mask(pos: (i32, i32), area: (i32, i32, i32, i32), cw: u32, ch: u32) -> Option<Mask> {
+    let (ax, ay, aw, ah) = area;
+    if aw <= 0 || ah <= 0 {
+        return None;
+    }
+    let (kx, ky) = (cw as f32 / aw as f32, ch as f32 / ah as f32);
+    Some(Mask { x: (pos.0 - 16 - ax) as f32 * kx, y: (pos.1 - 16 - ay) as f32 * ky, w: 80.0 * kx, h: 80.0 * ky })
+}
+
+fn run_video(cfg: &SessionConfig, p: &mut VideoParts, go: Go, placements: &Placements, motion_area: &MotionArea, ctl: &Control, stats: &Stats) {
     let mut grid = FrameGrid::starting_at(cfg.fps, go.start_ns);
     let mut packets = Vec::new();
+    let mut last_cursor: Option<(i32, i32)> = None;
+    let frame_ns = |index: u64| (index as i128 * 1_000_000_000 / cfg.fps.max(1) as i128) as i64;
     while !ctl.stop.load(Ordering::SeqCst) {
         let tick = grid.wait();
         let t0 = now_ns();
@@ -443,6 +494,21 @@ fn run_video(cfg: &SessionConfig, p: &mut VideoParts, go: Go, placements: &Place
             }
         }
         p.conv.convert(&p.dev, p.comp.canvas_srv());
+        if let (Some(det), Some(mc)) = (p.motion.as_mut(), cfg.motion) {
+            let mut masks = Vec::new();
+            if !mc.count_cursor {
+                // O cursor de antes e o de agora: os dois pedaços mudaram.
+                let area = *motion_area.lock().unwrap_or_else(|e| e.into_inner());
+                let now = cursor_pos();
+                for pos in [last_cursor, now].into_iter().flatten() {
+                    masks.extend(cursor_mask(pos, area, cfg.width, cfg.height));
+                }
+                last_cursor = now;
+            }
+            if let Some((index, moving)) = det.feed(&p.dev, &p.comp.canvas, tick.index, masks) {
+                let _ = go.tx.send(Msg::Activity { ns: frame_ns(index), moving });
+            }
+        }
         let te = now_ns();
         stats.worst_poll_us.fetch_max(poll_ns / 1000, Ordering::Relaxed);
         stats.worst_draw_us.fetch_max((te - t0 - poll_ns) / 1000, Ordering::Relaxed);

@@ -15,7 +15,7 @@ use std::time::Duration;
 use noobs::capture::encode::{AvVideoEncoder, VideoEncoder, VideoEncoderConfig};
 use noobs::capture::gpu::{Compositor, Device, Nv12Converter, Rect};
 use noobs::capture::audio::AudioDevice;
-use noobs::capture::pipeline::{AudioConfig, AudioInputSpec, Session, SessionConfig, SourceSpec, VideoTarget};
+use noobs::capture::pipeline::{AudioConfig, AudioInputSpec, MotionConfig, Session, SessionConfig, SourceSpec, VideoTarget};
 use noobs::probe;
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Graphics::Direct3D11::*;
@@ -244,6 +244,7 @@ fn s_monitor(dev_codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, lagged, ms) = record("monitor", 3.0, cfg)?;
     let v = r.video_stream().ok_or("sem vídeo")?;
@@ -282,6 +283,7 @@ fn s_dois_monitores(codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, lagged, ms) = record("dois-monitores", 2.0, cfg)?;
     let v = r.video_stream().ok_or("sem vídeo")?;
@@ -308,6 +310,7 @@ fn s_area(codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, lagged, ms) = record("area", 2.0, cfg)?;
     let v = r.video_stream().ok_or("sem vídeo")?;
@@ -328,6 +331,7 @@ fn s_software() -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, lagged, ms) = record("x264", 2.0, cfg)?;
     let v = r.video_stream().ok_or("sem vídeo")?;
@@ -359,6 +363,7 @@ fn s_janela(exe: &str, codec: &str) -> Result<String, String> {
             audio: None,
             replay: None,
             output_path: String::new(),
+            motion: None,
         };
         let (r, frames, _, _) = record("janela", 2.0, cfg)?;
         let v = r.video_stream().ok_or("sem vídeo")?;
@@ -396,6 +401,7 @@ fn s_janela_fecha(exe: &str, codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: path.clone(),
+        motion: None,
     };
     let s = Session::start(cfg)?;
     std::thread::sleep(Duration::from_millis(1000));
@@ -432,6 +438,7 @@ fn s_audio_faixas(codec: &str) -> Result<String, String> {
         }),
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, _, _) = record("audio-faixas", 3.0, cfg)?;
     let auds: Vec<_> = r.audio_streams().collect();
@@ -603,6 +610,7 @@ fn s_webcam(codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let r = match record("webcam", 2.0, cfg) {
         Ok(r) => r,
@@ -681,6 +689,7 @@ fn s_area_move(exe: &str, codec: &str) -> Result<String, String> {
             audio: None,
             replay: None,
             output_path: path.clone(),
+            motion: None,
         };
         let s = Session::start(cfg)?;
         std::thread::sleep(Duration::from_millis(1200));
@@ -781,6 +790,63 @@ fn luma_at(path: &str, t: f64, pts: &[(u32, u32)]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Timelapse: a janela fica preta 4 s, vira branca e fica parada mais 5 s.
+/// Só entram o 1º GOP e ~1 s antes/depois da troca: o arquivo sai com ~3 s
+/// (de 9), começando preto e terminando branco, e o áudio cortado junto.
+fn s_timelapse(exe: &str, codec: &str) -> Result<String, String> {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_USER};
+    let mut child = std::process::Command::new(exe).args(["--cor", "vira"]).spawn().map_err(|e| format!("helper: {e}"))?;
+    let r = (|| {
+        let h = find_window("NoOBS captura cor vira").ok_or("janela não apareceu")?;
+        let (w, hh) = (640u32, 360u32);
+        let path = out("timelapse");
+        let cfg = SessionConfig {
+            width: w,
+            height: hh,
+            fps: 30,
+            sources: vec![SourceSpec { name: "vira".into(), target: VideoTarget::Window { hwnd: h, client_area: true }, crop: None, dest: Some(Rect { x: 0.0, y: 0.0, w: w as f32, h: hh as f32 }) }],
+            encoder: VideoEncoderConfig { codec: codec.into(), width: w, height: hh, fps: 30, crf: 23, keyframe_sec: 1 },
+            audio: Some(AudioConfig {
+                inputs: vec![AudioInputSpec { name: "Sistema".into(), device: AudioDevice::Output(String::new()), tracks: vec![0] }],
+                track_titles: vec!["Mix".into()],
+                kbps: 128,
+            }),
+            replay: None,
+            output_path: path.clone(),
+            motion: Some(MotionConfig { area: (0, 0, w as i32, hh as i32), count_cursor: true }),
+        };
+        let s = Session::start(cfg)?;
+        sleep_s(4.0);
+        unsafe {
+            let _ = PostMessageW(Some(HWND(h as *mut _)), WM_USER, WPARAM(0), LPARAM(0));
+        }
+        sleep_s(5.0);
+        let end = s.stop();
+        if let Some(e) = end.error {
+            return Err(e);
+        }
+        let pk = first_packets(&path, 100_000);
+        let last = |video: bool| pk.iter().filter(|p| (p.0 == 0) == video).map(|p| p.1).fold(0.0f64, f64::max);
+        let (dv, da) = (last(true), last(false));
+        check(dv > 1.8 && dv < 4.6, format!("vídeo com {dv:.2} s (esperado ~3 s de 9 gravados)"))?;
+        check((da - dv).abs() < 0.35, format!("áudio com {da:.2} s e vídeo com {dv:.2} s: o áudio não seguiu o corte"))?;
+        let inicio = luma_at(&path, 0.1, &[(w / 2, hh / 2)])?[0];
+        let fim = luma_at(&path, dv - 0.1, &[(w / 2, hh / 2)])?[0];
+        check(inicio < 60, format!("começo com Y {inicio} (esperado preto)"))?;
+        check(fim > 180, format!("fim com Y {fim} (esperado branco)"))?;
+        // Sem buraco: nenhum intervalo grande entre quadros seguidos.
+        let mut vt: Vec<f64> = pk.iter().filter(|p| p.0 == 0).map(|p| p.1).collect();
+        vt.sort_by(|a, b| a.total_cmp(b));
+        let gap = vt.windows(2).map(|w| w[1] - w[0]).fold(0.0f64, f64::max);
+        check(gap < 0.2, format!("buraco de {gap:.2} s entre quadros"))?;
+        Ok(format!("9 s gravados → vídeo {dv:.2} s, áudio {da:.2} s; Y {inicio} → {fim}; maior intervalo {:.0} ms", gap * 1000.0))
+    })();
+    let _ = child.kill();
+    let _ = child.wait();
+    r
+}
+
 /// Monitores da esquerda pra direita — a ordem em que o app os põe lado a lado.
 fn monitors_by_x() -> Vec<(isize, i32, i32, u32, u32)> {
     let mut m = monitors();
@@ -827,6 +893,7 @@ fn s_monitores_conteudo(exe: &str, codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (_, frames, lagged, _) = record("monitores-conteudo", 1.5, cfg)?;
     drop(paineis);
@@ -881,6 +948,7 @@ fn s_area_entre_monitores(exe: &str, codec: &str) -> Result<String, String> {
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     record("area-entre-monitores", 1.5, cfg)?;
     let path = out_dir().join("area-entre-monitores.mkv").to_string_lossy().into_owned();
@@ -992,6 +1060,7 @@ fn cfg_fase4(codec: &str, replay: Option<(u32, u32)>, output_path: String) -> Re
         }),
         replay,
         output_path,
+        motion: None,
     })
 }
 
@@ -1213,6 +1282,7 @@ fn record_noise(name: &str, codec: &str, level: i32, secs: f64, hwnd: isize) -> 
         audio: None,
         replay: None,
         output_path: String::new(),
+        motion: None,
     };
     let (r, frames, lagged, ms) = record(name, secs, cfg)?;
     if std::env::var_os("NOOBS_KEEP").is_some() {
@@ -1374,6 +1444,7 @@ fn s_audio_sincronia(exe: &str, codec: &str) -> Result<String, String> {
             }),
             replay: None,
             output_path: String::new(),
+            motion: None,
         };
         // O helper pisca 2 s depois de abrir; a gravação cobre antes e depois.
         let (r, _, _, _) = record("sincronia", 4.0, cfg)?;
@@ -1664,6 +1735,9 @@ fn main() {
     }
     if quer("webcam") {
         rep.take("webcam", s_webcam(&codec));
+    }
+    if quer("timelapse") {
+        rep.take("timelapse", s_timelapse(&exe, &codec));
     }
     if quer("monitores-conteudo") {
         rep.take("monitores-conteudo", s_monitores_conteudo(&exe, &codec));

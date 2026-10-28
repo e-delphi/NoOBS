@@ -17,7 +17,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 
 use super::encode::StreamInfo;
-use super::output::{from_first_keyframe, Item, Meta, PauseGate, ReplayRing};
+use super::output::{from_first_keyframe, Item, Meta, PauseGate, ReplayRing, Timelapse};
 use super::sink::{MkvSink, PacketSink};
 use crate::ffi::ffmpeg::*;
 use crate::log;
@@ -43,6 +43,8 @@ pub enum Cmd {
 pub enum Msg {
     Pkt(usize, Packet),
     Cmd(Cmd),
+    /// Timelapse: o quadro do instante `ns` mudou (ou não) em relação ao anterior.
+    Activity { ns: i64, moving: bool },
 }
 
 /// O que o roteador conta pra fora.
@@ -64,12 +66,16 @@ struct Recording {
     /// arquivo com o áudio começando ~300 ms depois do vídeo.
     early: Vec<(Meta, Packet)>,
     last_ns: i64,
+    /// Timelapse: os pacotes passam por aqui antes (corta o que ficou parado).
+    timelapse: Option<Timelapse<Packet>>,
 }
 
 pub struct Router {
     infos: Vec<StreamInfo>,
     recording: Option<Recording>,
     replay: Option<ReplayRing<Packet>>,
+    /// As gravações desta sessão são Timelapse.
+    timelapse: bool,
     pending: HashMap<u64, (String, Sender<Result<FileDone, String>>)>,
     next_cut: u64,
     /// Força um keyframe no próximo quadro (a sessão e o roteador pedem).
@@ -100,12 +106,13 @@ fn shift(pkt: &mut Packet, shift_ns: i64, tb: AVRational) {
 }
 
 impl Router {
-    pub fn new(infos: Vec<StreamInfo>, replay: Option<(u32, u32)>, force_key: Arc<AtomicBool>, stats: Arc<RouterStats>) -> Self {
+    pub fn new(infos: Vec<StreamInfo>, replay: Option<(u32, u32)>, timelapse: bool, force_key: Arc<AtomicBool>, stats: Arc<RouterStats>) -> Self {
         let audio: Vec<usize> = (1..infos.len()).collect();
         Self {
             replay: replay.map(|(s, m)| ReplayRing::new(s, m, audio)),
             infos,
             recording: None,
+            timelapse,
             pending: HashMap::new(),
             next_cut: 1,
             force_key,
@@ -129,6 +136,7 @@ impl Router {
                     self.command(c);
                     Ok(())
                 }
+                Msg::Activity { ns, moving } => self.activity(ns, moving),
             };
             if let Err(e) = r {
                 log!("Captura: gravador: {e}");
@@ -136,6 +144,9 @@ impl Router {
             }
         }
         // Fim da sessão: fecha a gravação e o corte pendente.
+        if let Err(e) = self.timelapse_release(true) {
+            error.get_or_insert(e);
+        }
         if let Some(rec) = self.recording.take() {
             if let Err(e) = Self::finish_recording(rec) {
                 error.get_or_insert(e);
@@ -163,8 +174,32 @@ impl Router {
         if let Some((id, clip)) = done {
             self.spawn_clip(id, clip);
         }
+        if let Some(tl) = self.recording.as_mut().and_then(|r| r.timelapse.as_mut()) {
+            tl.push(Item { meta, data: pkt });
+            return self.timelapse_release(false);
+        }
         if self.recording.is_some() {
             self.record(meta, pkt)?;
+        }
+        Ok(())
+    }
+
+    fn activity(&mut self, ns: i64, moving: bool) -> Result<(), String> {
+        let Some(tl) = self.recording.as_mut().and_then(|r| r.timelapse.as_mut()) else { return Ok(()) };
+        tl.activity(ns, moving);
+        self.timelapse_release(false)
+    }
+
+    /// Passa pra gravação o que o Timelapse já decidiu, já no tempo emendado.
+    fn timelapse_release(&mut self, end: bool) -> Result<(), String> {
+        let Some(tl) = self.recording.as_mut().and_then(|r| r.timelapse.as_mut()) else { return Ok(()) };
+        let out = tl.release(end);
+        for (mut it, off) in out {
+            if off != 0 {
+                shift(&mut it.data, off, self.infos[it.meta.stream].time_base);
+                it.meta.ns -= off;
+            }
+            self.record(it.meta, it.data)?;
         }
         Ok(())
     }
@@ -216,10 +251,12 @@ impl Router {
                 let _ = reply.send(r);
             }
             Cmd::StopRecording { reply } => {
+                let flushed = self.timelapse_release(true);
                 let r = match self.recording.take() {
                     Some(rec) => Self::finish_recording(rec),
                     None => Err("não está gravando".into()),
                 };
+                let r = flushed.and(r);
                 let _ = reply.send(r);
             }
             Cmd::Pause { at_ns } => {
@@ -269,7 +306,8 @@ impl Router {
             return Err("um trecho do buffer ainda está sendo salvo".into());
         }
         let sink = MkvSink::create(path, &self.clone_infos()?)?;
-        self.recording = Some(Recording { sink, gate: PauseGate::default(), base: None, early: Vec::new(), last_ns: 0 });
+        let timelapse = self.timelapse.then(|| Timelapse::new(super::pipeline::TIMELAPSE_MARGIN_NS));
+        self.recording = Some(Recording { sink, gate: PauseGate::default(), base: None, early: Vec::new(), last_ns: 0, timelapse });
         if from_replay {
             // O que o buffer guardou vira o COMEÇO desta gravação; a fila recomeça.
             let held = self.replay.as_mut().map(|r| r.take_all()).unwrap_or_default();

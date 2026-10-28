@@ -706,10 +706,80 @@ fn m_area() -> Result<String, String> {
     let st = wait_msg("recording_state", 5_000, |v| v["active"] == true)?;
     check(st["window"].as_str().is_some_and(|w| w.contains("640")), format!("recording_state.window = {}", st["window"]))?;
     send(json!({ "type": "set_hotkeys", "items": [] }));
+    frame_volta_pro_topo(mon.position_x + 100, mon.position_y + 100)?;
     let (r, _) = msg_finish(1.5)?;
     let v = r.video_stream().ok_or("sem video")?;
     check(v.width == 640 && v.height == 352, format!("{}x{} (esperado 640x352)", v.width, v.height))?;
     Ok(format!("contagem 2 s → 640x360 → {}x{}", v.width, v.height))
+}
+
+/// Timelapse ligado nas Configurações: a gravação de área sobe com o detector
+/// e keyframe a cada 1 s (o corte é por GOP), e o arquivo nunca passa do
+/// tempo gravado. Quanto ele corta depende do que muda na tela de verdade —
+/// o corte em si é conferido no `captura -- timelapse`, com conteúdo controlado.
+fn m_timelapse() -> Result<String, String> {
+    let mon = win_preview::monitors_from_win_preview().into_iter().next().ok_or("sem monitor")?;
+    config::set_config_bool("areaTimelapse", true);
+    config::set_config_bool("areaTimelapseCursor", false);
+    let r = (|| {
+        send(json!({ "type": "set_hotkeys", "items": [
+            { "mode": "area", "hotkey": "", "area": { "x": mon.position_x + 100, "y": mon.position_y + 100, "w": 640, "h": 360 } },
+        ] }));
+        clear_sent();
+        passo("trigger_hotkey (area timelapse)");
+        send(json!({ "type": "trigger_hotkey", "index": 0 }));
+        wait_msg("recording_state", 5_000, |v| v["active"] == true)?;
+        send(json!({ "type": "set_hotkeys", "items": [] }));
+        let (r, path) = msg_finish(5.0)?;
+        let v = r.video_stream().ok_or("sem video")?;
+        check(v.width == 640 && v.height == 352, format!("{}x{} (esperado 640x352)", v.width, v.height))?;
+        check(r.duration > 0.8 && r.duration < 5.6, format!("duração {:.2} s (gravados 5 s)", r.duration))?;
+        // O card mostra a duração do ARQUIVO, não o tempo de relógio gravando.
+        let card = find_sent("recording_added", |v| v["item"]["id"] == path.as_str()).and_then(|v| v["item"]["duration"].as_i64()).unwrap_or(-1);
+        check((card as f64 - r.duration).abs() <= 1.0, format!("card com {card} s e arquivo com {:.2} s", r.duration))?;
+        let keys = noobs::ffmpeg_ops::list_video_keyframes(&path).map(|(k, _)| k).unwrap_or_default();
+        let gap = keys.windows(2).map(|w| w[1] - w[0]).fold(0.0f64, f64::max);
+        check(!keys.is_empty() && gap < 1.2, format!("keyframes a cada até {gap:.2} s (esperado 1 s)"))?;
+        Ok(format!("5 s gravados → {:.2} s no arquivo (card {card} s), {} keyframes (maior intervalo {gap:.2} s)", r.duration, keys.len()))
+    })();
+    config::set_config_bool("areaTimelapse", false);
+    config::set_config_bool("areaTimelapseCursor", true);
+    r
+}
+
+/// A moldura da área não pode ficar atrás de outra janela "sempre por cima"
+/// aberta depois dela (ela some atrás do programa gravado): uma janela
+/// intrusa nasce por cima, e em ~0,5 s a moldura tem que estar na frente.
+fn frame_volta_pro_topo(x: i32, y: i32) -> Result<(), String> {
+    use windows::core::w;
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    let frame = unsafe { FindWindowW(w!("TNoOBSAreaFrame"), None) }.map_err(|_| "moldura da área não existe")?;
+    // Com um jogo em tela cheia na frente a moldura some de propósito (#49):
+    // a checagem é da ordem, então a detecção sai durante ela.
+    noobs::rec_indicator::set_fullscreen_detect(false);
+    pump_for(600);
+    let intrusa = unsafe {
+        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, w!("STATIC"), w!("intrusa"), WS_POPUP | WS_VISIBLE, x + 20, y + 20, 60, 40, None, None, None, None)
+    }
+    .map_err(|e| format!("janela intrusa: {e}"))?;
+    let acima = |de: windows::Win32::Foundation::HWND, alvo: windows::Win32::Foundation::HWND| -> bool {
+        let mut h = de;
+        while let Ok(p) = unsafe { GetWindow(h, GW_HWNDPREV) } {
+            if p == alvo {
+                return true;
+            }
+            h = p;
+        }
+        false
+    };
+    let antes = acima(frame, intrusa);
+    pump_for(900);
+    let depois = acima(frame, intrusa);
+    unsafe {
+        let _ = DestroyWindow(intrusa);
+    }
+    noobs::rec_indicator::set_fullscreen_detect(true);
+    check(!depois, format!("moldura continua atrás da janela intrusa (antes: {antes})"))
 }
 
 fn replay_active_now() -> bool {
@@ -937,8 +1007,9 @@ fn run_messages(filtro: &str) -> i32 {
             rep.take(&format!("msg-janela#{i}"), m_janela(&exe));
             rep.take(&format!("msg-area#{i}"), m_area());
         }
-        let depois: [(&str, Cenario); 4] = [
+        let depois: [(&str, Cenario); 5] = [
             ("msg-area", m_area),
+            ("msg-timelapse", m_timelapse),
             ("msg-buffer", m_buffer),
             ("msg-buffer-apps", m_buffer_apps),
             ("msg-teste-video", m_teste_video),

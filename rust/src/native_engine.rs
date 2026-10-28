@@ -23,7 +23,7 @@ use crate::capture::audio::AudioDevice;
 use crate::capture::encode::VideoEncoderConfig;
 use crate::capture::gpu::{Device, Rect};
 use crate::capture::layout::{area_layout, DesktopRect};
-use crate::capture::pipeline::{AudioConfig, AudioInputSpec, Session, SessionConfig, SourceSpec, VideoTarget};
+use crate::capture::pipeline::{AudioConfig, AudioInputSpec, MotionConfig, Session, SessionConfig, SourceSpec, VideoTarget};
 use crate::engine::{AreaRect, CaptureEngine, CaptureInputs, Event, RecordRequest, StartJob, VideoStats};
 use crate::scene::{filter_enabled_monitors, CaptureMonitor};
 use crate::types::{EncoderCaps, AudioDev, RecordingLayout, RecordingRegion};
@@ -54,8 +54,12 @@ pub struct NativeEngine {
     encoder_id: String,
     fps: u32,
     area: Option<AreaState>,
+    /// A gravação em curso é Timelapse (sem pausa manual: o corte já é dela).
+    timelapse: bool,
     replay_dir: String,
     replay_saving: Arc<AtomicBool>,
+    /// `last_file_duration` (bits de f64), escrito pela thread que fecha o arquivo.
+    last_duration: Arc<std::sync::atomic::AtomicU64>,
     replay_save_start: Option<Instant>,
     /// Eventos produzidos nas threads de trabalho; o `with_engine` entrega.
     events: Arc<Mutex<Vec<Event>>>,
@@ -97,8 +101,10 @@ impl NativeEngine {
             encoder_id: String::new(),
             fps: 30,
             area: None,
+            timelapse: false,
             replay_dir: String::new(),
             replay_saving: Arc::new(AtomicBool::new(false)),
+            last_duration: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             replay_save_start: None,
             events: Arc::new(Mutex::new(Vec::new())),
         }
@@ -264,7 +270,17 @@ impl NativeEngine {
         }
         let audio = (asg.total_tracks > 0).then(|| AudioConfig { inputs: inputs_a, track_titles: titles, kbps: encoder::audio_bitrate_kbps() as u32 });
 
-        let keyframe = if replay.is_some() { REPLAY_KEYFRAME_SEC } else { config::get_config_int("recordingKeyframeSec", 2).clamp(1, 10) as u32 };
+        // Timelapse (só gravação de área): corta o que ficou parado. O corte é
+        // por GOP, então keyframe a cada 1 s, como o buffer.
+        let motion = area.filter(|_| replay.is_none() && config::get_config_bool("areaTimelapse", false)).map(|a| MotionConfig {
+            area: (a.x, a.y, a.w, a.h),
+            count_cursor: config::get_config_bool("areaTimelapseCursor", true),
+        });
+        self.timelapse = motion.is_some();
+        if let Some(m) = motion {
+            log!("Motor proprio: Timelapse ligado (cursor {}).", if m.count_cursor { "conta" } else { "ignorado" });
+        }
+        let keyframe = if replay.is_some() || motion.is_some() { REPLAY_KEYFRAME_SEC } else { config::get_config_int("recordingKeyframeSec", 2).clamp(1, 10) as u32 };
         let crf = encoder::quality_level_to_crf(encoder::capture_quality_level());
         self.encoder_id = codec.clone();
         self.fps = fps;
@@ -279,6 +295,7 @@ impl NativeEngine {
             audio,
             replay,
             output_path: req.output_path.clone(),
+            motion,
         };
         Ok((cfg, mutes))
     }
@@ -397,6 +414,7 @@ impl CaptureEngine for NativeEngine {
             };
             s.set_placement(i, c, d);
         }
+        s.set_motion_area((ar.x, ar.y, ar.w, ar.h));
         true
     }
     fn build_and_start_recording(&mut self, req: &RecordRequest, inputs: &CaptureInputs) -> Result<(), String> {
@@ -438,6 +456,7 @@ impl CaptureEngine for NativeEngine {
     }
     fn set_recording_paused(&mut self, pause: bool) -> bool {
         match &self.session {
+            Some(_) if self.timelapse => false,
             Some(s) if self.recording => {
                 s.set_paused(pause);
                 true
@@ -453,13 +472,16 @@ impl CaptureEngine for NativeEngine {
         self.stopping = Some(Instant::now());
         let path = self.output_path.clone();
         let events = self.events.clone();
+        let last_duration = self.last_duration.clone();
+        last_duration.store(0, Ordering::SeqCst);
         // Com o buffer ligado a sessão continua (só a gravação fecha); sem ele, a
         // sessão inteira para — fora da main, que o Drop espera as threads.
         let keep = self.replay_active;
         let Some(s) = (if keep { self.session.clone() } else { self.session.take() }) else { return };
         std::thread::spawn(move || {
-            if let Err(e) = s.stop_recording() {
-                log!("Motor proprio: parar a gravacao: {e}");
+            match s.stop_recording() {
+                Ok(d) => last_duration.store(d.duration_sec.to_bits(), Ordering::SeqCst),
+                Err(e) => log!("Motor proprio: parar a gravacao: {e}"),
             }
             // O arquivo já está completo: avisa ANTES de desmontar a sessão. A
             // desmontagem espera as threads das fontes (a webcam pode demorar,
@@ -480,7 +502,8 @@ impl CaptureEngine for NativeEngine {
         let path = self.output_path.clone();
         if self.recording {
             if let Some(s) = &self.session {
-                let _ = s.stop_recording();
+                let d = s.stop_recording().map(|d| d.duration_sec).unwrap_or(0.0);
+                self.last_duration.store(d.to_bits(), Ordering::SeqCst);
             }
             self.recording = false;
         }
@@ -488,6 +511,9 @@ impl CaptureEngine for NativeEngine {
             self.session = None;
         }
         path
+    }
+    fn last_file_duration(&self) -> f64 {
+        f64::from_bits(self.last_duration.load(Ordering::SeqCst))
     }
     fn is_replay_active(&self) -> bool {
         self.replay_active

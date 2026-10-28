@@ -106,6 +106,51 @@ component WindowCardView {
     }
 }
 
+// Opção liga/desliga em pílula (a do "Gravar o som do app").
+component OptionChip {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> text;
+    in property <string> hint;
+    callback toggled(bool);
+    width: row.preferred-width + 20px;
+    height: 30px;
+    opacity: root.enabled ? 1 : 0.45;
+    Rectangle {
+        border-radius: 7px;
+        border-width: 1px;
+        border-color: root.checked && root.enabled ? Theme.success : ta.has-hover && root.enabled ? Theme.text-3 : Theme.border-2;
+        background: root.checked && root.enabled ? Theme.accent-bg : Theme.panel-2;
+        animate border-color, background { duration: 120ms; }
+    }
+    row := HorizontalLayout {
+        x: 10px;
+        width: parent.width - 20px;
+        spacing: 6px;
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            CheckMark { checked: root.checked; }
+        }
+        Text {
+            text: root.text;
+            font-size: 12px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.toggled(!root.checked); }
+    }
+    HintTrigger {
+        hovered: ta.has-hover;
+        hint: root.hint;
+        layer: 1;
+    }
+}
+
 export component WindowPicker {
     visible: self.opacity > 0;
     opacity: Main.picker-open ? 1 : 0;
@@ -420,6 +465,24 @@ export component WindowPicker {
                                     line-height-factor: 1.55 / 1.33;
                                 }
                             }
+                        }
+                    }
+                    // Timelapse: só grava quando a área muda.
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        OptionChip {
+                            checked: Main.picker-timelapse;
+                            text: T.s("windowPicker.timelapse");
+                            hint: T.s("windowPicker.timelapseHint");
+                            toggled(on) => { Main.picker-timelapse-changed(on); }
+                        }
+                        OptionChip {
+                            checked: Main.picker-timelapse-cursor;
+                            enabled: Main.picker-timelapse;
+                            text: T.s("windowPicker.timelapseCursor");
+                            hint: T.s("windowPicker.timelapseCursorHint");
+                            toggled(on) => { Main.picker-timelapse-cursor-changed(on); }
                         }
                     }
                     HorizontalLayout {

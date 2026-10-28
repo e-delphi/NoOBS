@@ -252,6 +252,153 @@ impl PauseGate {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Timelapse (gravação de área)
+// ---------------------------------------------------------------------------
+
+/// Um trecho de vídeo (de um keyframe ao próximo) já decidido.
+#[derive(Debug, Clone, Copy)]
+struct Decided {
+    start: i64,
+    end: i64,
+    keep: bool,
+    /// Desconto aplicado a quem fica (o tempo cortado ANTES do trecho).
+    offset: i64,
+}
+
+/// "Só grava quando a imagem muda": a thread de vídeo diz, quadro a quadro,
+/// se houve mudança (`activity`); os pacotes ficam aqui até dar pra decidir
+/// cada GOP (keyframe a keyframe — corte só pode começar num keyframe).
+///
+/// Um GOP fica se algum movimento cai a menos de `margin` dele (1 s antes do
+/// movimento e 1 s depois). Dá pra decidir quando o detector já viu `margin`
+/// além do fim do GOP. Quem sai é cortado do arquivo e o tempo se emenda,
+/// como na pausa; o áudio segue o mesmo corte (pelo instante dele).
+///
+/// O 1º GOP sempre fica: o arquivo começa mostrando a área, e uma gravação
+/// sem movimento nenhum ainda é um arquivo válido.
+pub struct Timelapse<T> {
+    held: VecDeque<Item<T>>,
+    /// Corridas de quadros com mudança, `[início, fim]`.
+    motions: Vec<(i64, i64)>,
+    /// Até onde o detector já olhou.
+    seen: i64,
+    margin: i64,
+    removed: i64,
+    decided: Vec<Decided>,
+    decided_until: Option<i64>,
+}
+
+impl<T> Timelapse<T> {
+    pub fn new(margin_ns: i64) -> Self {
+        Self { held: VecDeque::new(), motions: Vec::new(), seen: i64::MIN, margin: margin_ns, removed: 0, decided: Vec::new(), decided_until: None }
+    }
+
+    /// Tempo cortado até agora.
+    pub fn removed(&self) -> i64 {
+        self.removed
+    }
+
+    pub fn activity(&mut self, ns: i64, moving: bool) {
+        self.seen = self.seen.max(ns);
+        if !moving {
+            return;
+        }
+        match self.motions.last_mut() {
+            // Quadros seguidos (ou quase): a mesma corrida.
+            Some(last) if ns <= last.1 + self.margin => last.1 = last.1.max(ns),
+            _ => self.motions.push((ns, ns)),
+        }
+    }
+
+    pub fn push(&mut self, item: Item<T>) {
+        self.held.push_back(item);
+    }
+
+    /// O que já dá pra soltar, com o desconto de cada um. `end` = a gravação
+    /// acabou: decide o resto com o que se sabe.
+    pub fn release(&mut self, end: bool) -> Vec<(Item<T>, i64)> {
+        let mut out = Vec::new();
+        // Áudio atrasado de um trecho já decidido segue a decisão dele.
+        if let Some(until) = self.decided_until {
+            let mut keep_held = VecDeque::new();
+            for it in self.held.drain(..) {
+                if !it.meta.video && it.meta.ns < until {
+                    if let Some(d) = self.decided.iter().rev().find(|d| it.meta.ns >= d.start && it.meta.ns < d.end).copied() {
+                        if d.keep {
+                            out.push((it, d.offset));
+                        }
+                    } else if self.decided.first().is_some_and(|d| it.meta.ns < d.start) {
+                        // De antes do 1º keyframe: o gravador descarta sozinho.
+                        out.push((it, 0));
+                    }
+                    continue;
+                }
+                keep_held.push_back(it);
+            }
+            self.held = keep_held;
+        }
+        loop {
+            let Some(k1) = self.held.iter().position(|i| i.meta.video && i.meta.key) else {
+                if end {
+                    let off = self.removed;
+                    out.extend(self.held.drain(..).map(|i| (i, off)));
+                }
+                break;
+            };
+            // Vídeo de antes do 1º keyframe (só no começo): o gravador segura.
+            if k1 > 0 && self.decided.is_empty() {
+                let mut rest = self.held.split_off(k1);
+                for it in self.held.drain(..) {
+                    if it.meta.video {
+                        out.push((it, 0));
+                    } else {
+                        rest.push_back(it);
+                    }
+                }
+                self.held = rest;
+                continue;
+            }
+            let start = self.held[k1].meta.ns;
+            let k2 = self.held.iter().enumerate().skip(k1 + 1).find(|(_, i)| i.meta.video && i.meta.key).map(|(p, i)| (p, i.meta.ns));
+            let (k2_pos, end_ns) = match k2 {
+                Some(k) => (k.0, k.1),
+                None if end => (self.held.len(), i64::MAX),
+                None => break,
+            };
+            if !end && self.seen < end_ns.saturating_add(self.margin) {
+                break;
+            }
+            let keep = self.decided.is_empty()
+                || self.motions.iter().any(|&(s, e)| s < end_ns.saturating_add(self.margin) && e > start - self.margin);
+            let offset = self.removed;
+            // O GOP: o vídeo de k1 até o próximo keyframe, e todo áudio de antes do fim dele.
+            let mut rest = VecDeque::new();
+            for (p, it) in self.held.drain(..).enumerate() {
+                let mine = if it.meta.video { p >= k1 && p < k2_pos } else { it.meta.ns < end_ns };
+                if !mine {
+                    rest.push_back(it);
+                } else if keep {
+                    out.push((it, offset));
+                }
+            }
+            self.held = rest;
+            if !keep && end_ns != i64::MAX {
+                self.removed += end_ns - start;
+            }
+            self.decided.push(Decided { start, end: end_ns, keep, offset });
+            self.decided_until = Some(end_ns);
+            // Corridas que já não alcançam nada pendente.
+            let horizon = end_ns - self.margin;
+            self.motions.retain(|&(_, e)| e >= horizon);
+            if self.decided.len() > 64 {
+                self.decided.remove(0);
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +501,89 @@ mod tests {
         // De dentro da pausa: fora.
         assert_eq!(g.admit(&a(1500).meta), None);
         assert_eq!(g.admit(&a(3100).meta), Some(2000 * MS));
+    }
+
+    fn tl_times(out: &[(Item<()>, i64)]) -> Vec<(bool, i64)> {
+        out.iter().map(|(i, off)| (i.meta.video, (i.meta.ns - off) / MS)).collect()
+    }
+
+    /// Quadros a cada 100 ms, keyframe a cada 1 s, áudio a cada 100 ms.
+    fn feed(tl: &mut Timelapse<()>, from_ms: i64, to_ms: i64, moving: impl Fn(i64) -> bool) -> Vec<(Item<()>, i64)> {
+        let mut out = Vec::new();
+        let mut t = from_ms;
+        while t < to_ms {
+            tl.activity(t * MS, moving(t));
+            tl.push(v(t, t % 1000 == 0));
+            tl.push(a(t));
+            out.extend(tl.release(false));
+            t += 100;
+        }
+        out
+    }
+
+    #[test]
+    fn timelapse_corta_o_parado_e_emenda() {
+        let mut tl = Timelapse::new(1000 * MS);
+        // Movimento só em 5,0..5,2 s.
+        let mut out = feed(&mut tl, 0, 12_000, |t| (5000..=5200).contains(&t));
+        out.extend(tl.release(true));
+        let vids: Vec<i64> = out.iter().filter(|(i, _)| i.meta.video).map(|(i, _)| i.meta.ns / MS).collect();
+        // 1º GOP (0..1 s) sempre; 4..7 s cobre 1 s antes e depois do movimento.
+        assert!(vids.contains(&0) && vids.contains(&900));
+        assert!(!vids.contains(&2000) && !vids.contains(&3500));
+        assert!(vids.contains(&4000) && vids.contains(&6900));
+        assert!(!vids.contains(&7000) && !vids.contains(&10_000));
+        // Sem buraco: depois do corte o tempo continua de onde parou.
+        let v = tl_times(&out);
+        let vt: Vec<i64> = v.iter().filter(|(vid, _)| *vid).map(|(_, t)| *t).collect();
+        assert_eq!(vt.iter().position(|&t| t == 1000), Some(10), "o GOP de 4 s entra emendado em 1 s");
+        assert_eq!(*vt.last().unwrap(), 3900, "1 s + 3 s mantidos");
+        // Áudio segue o mesmo corte.
+        let at: Vec<i64> = v.iter().filter(|(vid, _)| !*vid).map(|(_, t)| *t).collect();
+        assert_eq!(at.len(), vt.len(), "um bloco de áudio por quadro mantido");
+        assert_eq!(*at.last().unwrap(), 3900);
+    }
+
+    #[test]
+    fn timelapse_movimento_continuo_nao_corta() {
+        let mut tl = Timelapse::new(1000 * MS);
+        let mut out = feed(&mut tl, 0, 6000, |_| true);
+        out.extend(tl.release(true));
+        assert_eq!(out.iter().filter(|(i, _)| i.meta.video).count(), 60);
+        assert!(out.iter().all(|(_, off)| *off == 0));
+    }
+
+    #[test]
+    fn timelapse_espera_a_margem_antes_de_decidir() {
+        let mut tl = Timelapse::new(1000 * MS);
+        // Até 2,5 s sem movimento: o GOP 1..2 s ainda não pode sair (um
+        // movimento até 3 s o traria de volta).
+        let out = feed(&mut tl, 0, 2500, |_| false);
+        let vids: Vec<i64> = out.iter().filter(|(i, _)| i.meta.video).map(|(i, _)| i.meta.ns / MS).collect();
+        assert_eq!(vids.last(), Some(&900), "só o 1º GOP saiu");
+        // Movimento em 2,9 s: o GOP 1..2 s fica (1 s antes do movimento).
+        let mut out = feed(&mut tl, 2500, 5000, |t| t == 2900);
+        out.extend(tl.release(true));
+        let vids: Vec<i64> = out.iter().filter(|(i, _)| i.meta.video).map(|(i, _)| i.meta.ns / MS).collect();
+        assert!(vids.contains(&1000) && vids.contains(&3900));
+    }
+
+    #[test]
+    fn timelapse_audio_atrasado_segue_o_trecho() {
+        let mut tl = Timelapse::new(1000 * MS);
+        let mut out = Vec::new();
+        for t in (0..6000).step_by(100) {
+            tl.activity(t * MS, false);
+            tl.push(v(t, t % 1000 == 0));
+            // Áudio chega 300 ms atrasado.
+            if t >= 300 {
+                tl.push(a(t - 300));
+            }
+            out.extend(tl.release(false));
+        }
+        out.extend(tl.release(true));
+        // 1º GOP fica (vídeo e áudio de 0..1 s), o resto sai.
+        let audio: Vec<i64> = out.iter().filter(|(i, _)| !i.meta.video).map(|(i, _)| i.meta.ns / MS).collect();
+        assert_eq!(audio, (0..10).map(|k| k * 100).collect::<Vec<_>>());
     }
 }

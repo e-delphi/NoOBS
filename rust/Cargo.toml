@@ -59,6 +59,10 @@ windows = { version = "0.61", features = [
     "Foundation",
     "Graphics",
     "Graphics_Capture",
+    # Pedido de captura sem a borda amarela (`GraphicsCaptureAccess`).
+    "Security",
+    "Security_Authorization",
+    "Security_Authorization_AppCapabilityAccess",
     "Graphics_DirectX",
     "Graphics_DirectX_Direct3D11",
     "Win32_Graphics_Direct3D",

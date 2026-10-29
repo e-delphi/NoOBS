@@ -10,7 +10,8 @@
 //! quadro chegando enquanto a captura é desmontada.
 
 use windows::core::Interface;
-use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession};
+use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind, GraphicsCaptureItem, GraphicsCaptureSession};
+use windows::Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus;
 use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 use windows::Graphics::DirectX::DirectXPixelFormat;
 use windows::Graphics::SizeInt32;
@@ -65,6 +66,34 @@ pub struct WgcSource {
     ended: bool,
 }
 
+static BORDERLESS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static BORDER_FAIL_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn log_once(flag: &std::sync::atomic::AtomicBool, msg: &str) {
+    if !flag.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        crate::log!("{msg}");
+    }
+}
+
+/// Pede uma vez por processo a captura sem borda. Num app desktop comum o
+/// Windows concede na hora, sem perguntar ao usuário.
+fn borderless_allowed() -> bool {
+    *BORDERLESS.get_or_init(|| {
+        let r = GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless).and_then(|op| op.get());
+        match r {
+            Ok(s) => {
+                crate::log!("Captura: acesso sem borda = {}.", s.0);
+                s == AppCapabilityAccessStatus::Allowed
+            }
+            Err(e) => {
+                crate::log!("Captura: acesso sem borda indisponivel ({e}).");
+                // Windows antigo sem o pedido: tenta a chamada direta mesmo assim.
+                true
+            }
+        }
+    })
+}
+
 impl WgcSource {
     /// Precisa de apartamento WinRT na thread (o `pipeline` faz `RoInitialize`).
     pub fn new(dev: &Device, target: WgcTarget, name: &str) -> Result<Self, String> {
@@ -86,7 +115,14 @@ impl WgcSource {
         let session = pool.CreateCaptureSession(&item).map_err(|e| format!("CreateCaptureSession: {e}"))?;
         let _ = session.SetIsCursorCaptureEnabled(true);
         // Sem a borda amarela (Windows 11; no 10 a chamada falha e a borda fica).
-        let _ = session.SetIsBorderRequired(false);
+        // O "sem borda" só vale com o acesso pedido antes — sem ele o Windows
+        // aceita a chamada e desenha a borda assim mesmo (o OBS pede igual,
+        // `winrt-capture.cpp`).
+        if borderless_allowed() {
+            if let Err(e) = session.SetIsBorderRequired(false) {
+                log_once(&BORDER_FAIL_LOGGED, &format!("Captura: sem borda recusado ({e}) — a borda amarela aparece."));
+            }
+        }
         session.StartCapture().map_err(|e| format!("StartCapture: {e}"))?;
         Ok(Self { name: name.to_owned(), target, _item: item, pool, session, d3d, pool_size: size, image: None, ended: false })
     }

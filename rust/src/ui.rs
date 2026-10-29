@@ -729,7 +729,14 @@ pub fn run() {
     // Skia: o mesmo rasterizador do Chromium — texto e bordas como na versão web.
     // `NOOBS_RENDERER` troca a superfície (ex.: `skia-software`) pra comparar.
     let renderer = std::env::var("NOOBS_RENDERER").unwrap_or_else(|_| "skia".into());
-    log!("UI: renderer {renderer}");
+    // Apresentação pela DirectComposition (como o Chromium), não por uma
+    // swapchain presa direto no HWND: essa é a "cara de jogo" que faz o overlay
+    // da NVIDIA (Alt+Z) se anunciar quando o app abre. A variável é a do wgpu,
+    // lida quando o Slint cria a instância; quem já definiu, manda.
+    if std::env::var_os("WGPU_DX12_PRESENTATION_SYSTEM").is_none() {
+        std::env::set_var("WGPU_DX12_PRESENTATION_SYSTEM", "Visual");
+    }
+    log!("UI: renderer {renderer} (dx12 {})", std::env::var("WGPU_DX12_PRESENTATION_SYSTEM").unwrap_or_default());
     if let Err(e) = slint::BackendSelector::new().backend_name("winit".into()).renderer_name(renderer).select() {
         log!("UI: renderer skia indisponivel ({e}) — usando o padrao do Slint.");
     }

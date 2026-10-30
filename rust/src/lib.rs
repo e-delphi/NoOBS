@@ -56,6 +56,7 @@ modulos! {
     app_library,
     app_main,
     app_player,
+    app_settings,
     app_picker,
     app_view,
     forms,

@@ -1360,6 +1360,12 @@ pub fn setup(ui: &mut Ui) {
             key(ui, k);
             return;
         }
+        if crate::app_settings::is_open() {
+            if k.key == Key::Escape {
+                crate::app_settings::close(ui);
+            }
+            return;
+        }
         // Na biblioteca, menos com o cursor num campo (o Backspace é do texto).
         let typing = ui.focused(form_of(ui)).is_some_and(|f| ui.get::<Edit>(f).is_some());
         if !typing {

@@ -16,7 +16,7 @@ use crate::view::{
     AudioMeter, Device, ExportEncoderInfo, Library, LocalAsrInfo, MonitorThumb, PendingKind, QueueItem, RecItem, RecState, ReplayState,
     RootFolder, TranscribeState, Transcript, UpdateInfo, VideoInfo, VideoTestState, View, WindowItem, WindowMatches,
 };
-use crate::{app_main, lang, log};
+use crate::{app_main, app_settings, lang, log};
 
 /// Tempo de vida padrão de um aviso (o `ttl` do `Toast.show` da web).
 const TOAST_TTL_MS: u32 = 6000;
@@ -90,6 +90,7 @@ impl View for IronView {
     fn language_changed(&self, _language: &str, _pref: &str) {
         with_ui(app_main::on_language_changed);
         with_ui(crate::app_library::on_language_changed);
+        app_settings::on_language_changed();
     }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
         show_toast(title, msg, warn, if ttl_ms == 0 { TOAST_TTL_MS } else { ttl_ms });
@@ -98,7 +99,9 @@ impl View for IronView {
         let msg = if message.is_empty() { lang::t("toast.unknownError") } else { message.to_owned() };
         show_toast(&lang::t("toast.errorTitle"), &msg, true, 8000);
     }
-    fn open_settings(&self) {}
+    fn open_settings(&self) {
+        with_ui(|ui| app_settings::open(ui, None));
+    }
     fn window_hidden(&self) {
         // Reabrir o app começa limpo, sem um player fantasma.
         with_ui(|ui| {
@@ -109,12 +112,16 @@ impl View for IronView {
     }
 
     fn monitors(&self, list: &[Device], changes: &[String]) {
+        app_settings::on_devices("monitors", list);
         app_main::on_monitors(list, changes);
     }
     fn webcams(&self, list: &[Device], changes: &[String]) {
+        app_settings::on_devices("webcams", list);
         app_main::on_webcams(list, changes);
     }
     fn audio_sources(&self, mics: &[Device], speakers: &[Device], silent: bool, changes: &[String]) {
+        app_settings::on_devices("mics", mics);
+        app_settings::on_devices("speakers", speakers);
         app_main::on_audio_sources(mics, speakers, silent, changes);
     }
     fn audio_meters(&self, items: &[AudioMeter]) {
@@ -140,6 +147,7 @@ impl View for IronView {
         app_main::play_stop_sound();
     }
     fn replay_state(&self, st: &ReplayState) {
+        app_settings::on_replay_state(st);
         app_main::on_replay_state(st);
     }
     fn replay_saved(&self, _id: &str, name: &str, duration_sec: i32) {
@@ -202,21 +210,56 @@ impl View for IronView {
     fn transcript(&self, t: &Transcript) {
         crate::app_player::on_transcript(t);
     }
-    fn settings_changed(&self) {}
-    fn record_dir_picked(&self, _path: &str) {}
-    fn update_result(&self, _r: &UpdateInfo) {}
-    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, _export: &[ExportEncoderInfo]) {}
-    fn hotkeys_state(&self, _items: &[crate::hotkeys::Item], _status: &[&str], _delay_max: u32, _defining: Option<usize>) {}
-    fn video_test(&self, _st: &VideoTestState) {}
-    fn transcribe_state(&self, _st: &TranscribeState) {}
-    fn transcribe_pending(&self, _count: usize, _cloud: usize) {}
-    fn transcribe_queue(&self, _items: &[QueueItem]) {}
-    fn local_asr_state(&self, _st: &LocalAsrInfo) {}
-    fn root_folders(&self, _folders: &[RootFolder]) {}
+    fn settings_changed(&self) {
+        app_settings::on_settings_changed();
+    }
+    fn record_dir_picked(&self, path: &str) {
+        app_settings::on_record_dir_picked(path);
+    }
+    fn update_result(&self, r: &UpdateInfo) {
+        app_settings::on_update_result(r);
+    }
+    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, _export: &[ExportEncoderInfo]) {
+        app_settings::on_encoder_caps();
+    }
+    fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>) {
+        let status: Vec<&'static str> = status.iter().map(|s| static_status(s)).collect();
+        app_settings::on_hotkeys_state(items, &status, delay_max, defining);
+    }
+    fn video_test(&self, st: &VideoTestState) {
+        app_settings::on_video_test(st);
+    }
+    fn transcribe_state(&self, st: &TranscribeState) {
+        app_settings::on_transcribe_state(st);
+    }
+    fn transcribe_pending(&self, count: usize, cloud: usize) {
+        app_settings::on_transcribe_pending(count, cloud);
+    }
+    fn transcribe_queue(&self, items: &[QueueItem]) {
+        app_settings::on_transcribe_queue(items);
+    }
+    fn local_asr_state(&self, st: &LocalAsrInfo) {
+        app_settings::on_local_asr_state(st);
+    }
+    fn root_folders(&self, folders: &[RootFolder]) {
+        app_settings::on_root_folders(folders);
+    }
     fn export_progress(&self, _pct: f64, _source: &str) {}
     fn export_done(&self, _ok: bool, _canceled: bool, _path: &str, _source: &str) {}
     fn export_preview_progress(&self, _pct: f64) {}
     fn export_preview_done(&self, _ok: bool, _canceled: bool, _path: &str) {}
+}
+
+fn static_status(s: &str) -> &'static str {
+    match s {
+        "empty" => "empty",
+        "duplicate" => "duplicate",
+        "invalid" => "invalid",
+        "reserved" => "reserved",
+        "inactive" => "inactive",
+        "busy" => "busy",
+        _ => "",
+    }
 }
 
 /// Abre o projeto iron (forms e temas embutidos no exe), registra os

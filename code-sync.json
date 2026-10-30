@@ -21,6 +21,19 @@
     "frmMain.picker_select_area": 1,
     "frmMain.picker_timelapse": 1,
     "frmMain.picker_timelapse_cursor": 1,
+    "frmMain.player_captions": 1,
+    "frmMain.player_close": 1,
+    "frmMain.player_fullscreen": 1,
+    "frmMain.player_info": 1,
+    "frmMain.player_mute": 1,
+    "frmMain.player_play": 1,
+    "frmMain.player_seek": 1,
+    "frmMain.player_side_close": 1,
+    "frmMain.player_speed": 1,
+    "frmMain.player_stage_resize": 1,
+    "frmMain.player_tr_search": 1,
+    "frmMain.player_transcript": 1,
+    "frmMain.player_volume": 1,
     "frmMain.record_click": 1,
     "frmMain.replay_click": 1,
     "frmMain.replay_save_click": 1,
@@ -49,10 +62,13 @@
         "frmMain/btnRecord.on_click": "record_click",
         "frmMain/btnReplaySave.on_click": "replay_save_click",
         "frmMain/btnSelectArea.on_click": "picker_select_area",
+        "frmMain/btnSetClose.on_click": "settings_close",
         "frmMain/btnSettings.on_click": "settings_click",
         "frmMain/btnSideClose.on_click": "player_side_close",
         "frmMain/btnSpeed.on_click": "player_speed",
         "frmMain/btnTranscript.on_click": "player_transcript",
+        "frmMain/btnUpdClose.on_click": "update_close",
+        "frmMain/btnUpdOpen.on_click": "update_open",
         "frmMain/chipAppAudio.on_change": "picker_audio",
         "frmMain/chipTimelapse.on_change": "picker_timelapse",
         "frmMain/chipTimelapseCursor.on_change": "picker_timelapse_cursor",
@@ -63,6 +79,7 @@
         "frmMain/frmVideo.on_resize": "player_stage_resize",
         "frmMain/lyLibContent.on_click": "library_background",
         "frmMain/lyLibrary.on_resize": "library_resize",
+        "frmMain/lySettings.on_resize": "settings_resize",
         "frmMain/pnlPicker.on_click": "picker_close",
         "frmMain/pnlReplay.on_click": "replay_click",
         "frmMain/scrDisplays.on_change": "display_change",
@@ -157,56 +174,56 @@
           "seen": 1
         },
         "frmMain.player_captions": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "1b91d6455cf660c4",
+          "seen": 1
         },
         "frmMain.player_close": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "6c0d91b96834b90a",
+          "seen": 1
         },
         "frmMain.player_fullscreen": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "67ec24624a1aae1a",
+          "seen": 1
         },
         "frmMain.player_info": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "9146ec43a6bab671",
+          "seen": 1
         },
         "frmMain.player_mute": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "fb5c323c04a4ddce",
+          "seen": 1
         },
         "frmMain.player_play": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "124d1e0cbda988c7",
+          "seen": 1
         },
         "frmMain.player_seek": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "7dc5fb8de09a4fe8",
+          "seen": 1
         },
         "frmMain.player_side_close": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "0436017997fbd5f0",
+          "seen": 1
         },
         "frmMain.player_speed": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "abfa0c4c5e5511c8",
+          "seen": 1
         },
         "frmMain.player_stage_resize": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "284e7f81e06a654d",
+          "seen": 1
         },
         "frmMain.player_tr_search": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "ae5142b3b5717242",
+          "seen": 1
         },
         "frmMain.player_transcript": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "37db6f18f4f551ef",
+          "seen": 1
         },
         "frmMain.player_volume": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "49189d5f3da254c9",
+          "seen": 1
         },
         "frmMain.record_click": {
           "hash": "bf973dea75636543",
@@ -227,6 +244,22 @@
         "frmMain.settings_click": {
           "hash": "2eef57d62fbfe241",
           "seen": 1
+        },
+        "frmMain.settings_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.settings_resize": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.update_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.update_open": {
+          "hash": "76ea002342292b66",
+          "seen": 0
         }
       }
     }
@@ -251,10 +284,13 @@
     "btnRecord",
     "btnReplaySave",
     "btnSelectArea",
+    "btnSetClose",
     "btnSettings",
     "btnSideClose",
     "btnSpeed",
     "btnTranscript",
+    "btnUpdClose",
+    "btnUpdOpen",
     "chipAppAudio",
     "chipTimelapse",
     "chipTimelapseCursor",
@@ -289,6 +325,8 @@
     "lblScreens",
     "lblScreensCount",
     "lblScreensMeta",
+    "lblSetTab",
+    "lblSetTitle",
     "lblSideTitle",
     "lblSize",
     "lblSpeakersCount",
@@ -296,9 +334,13 @@
     "lblStatus",
     "lblTimer",
     "lblTimerMs",
+    "lblTrChip",
+    "lblUpdBody",
+    "lblUpdTitle",
     "lnCard",
     "lnLegend",
     "lnPicker",
+    "lnSetSide",
     "lnSources",
     "lnSourcesEdge",
     "lyAreaButtons",
@@ -323,6 +365,9 @@
     "lyPlayerSideHead",
     "lyRecord",
     "lyReplayText",
+    "lySetHead",
+    "lySetTabs",
+    "lySettings",
     "lySide",
     "lySources",
     "lySpeakers",
@@ -338,11 +383,15 @@
     "pnlRecordCard",
     "pnlRecordings",
     "pnlReplay",
+    "pnlSetSide",
+    "pnlSettings",
     "pnlSources",
+    "pnlUpdate",
     "scrDisplays",
     "scrPickerGrid",
     "scrPlayerSide",
     "scrRecordings",
+    "scrSettings",
     "scrSources",
     "segPickerMode",
     "swReplay",

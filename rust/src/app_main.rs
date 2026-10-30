@@ -947,3 +947,39 @@ pub fn on_language_changed(ui: &mut Ui) {
     rebuild_displays(ui);
     render_replay(ui);
 }
+
+thread_local! {
+    /// Página da versão nova (o "Abrir página" do aviso).
+    static UPDATE_URL: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Versão nova: o aviso no topo da coluna (dispensar vale só pra sessão).
+pub fn show_update_banner(ui: &mut Ui, latest: &str, url: &str) {
+    UPDATE_URL.with(|u| *u.borrow_mut() = url.to_owned());
+    set(ui, "lblUpdTitle", "text", lang::t("banner.updateTitle"));
+    set(ui, "lblUpdBody", "text", lang::t_with("banner.updateBody", &[("version", latest)]));
+    set(ui, "btnUpdOpen", "visible", !url.is_empty());
+    set(ui, "pnlUpdate", "visible", true);
+}
+
+pub fn hide_update_banner(ui: &mut Ui) {
+    set(ui, "pnlUpdate", "visible", false);
+}
+
+pub fn open_update_page(ui: &mut Ui) {
+    let url = UPDATE_URL.with(|u| u.borrow().clone());
+    if !url.is_empty() {
+        bridge::handle_open_url(&url);
+    }
+    hide_update_banner(ui);
+}
+
+/// Selo da transcrição no cabeçalho do cartão: (mostrar, rodando, número, dica).
+pub fn on_transcribe_chip(chip: (bool, bool, i32, String)) {
+    with_ui(move |ui| {
+        let text = format!("{} {}", if chip.1 { "◌" } else { "≡" }, chip.2);
+        set(ui, "lblTrChip", "text", text);
+        set(ui, "lblTrChip", "hint", chip.3.as_str());
+        set(ui, "lblTrChip", "visible", chip.0);
+    });
+}

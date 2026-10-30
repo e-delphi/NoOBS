@@ -78,8 +78,18 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   "Visualização" por região e o de transcrição com busca e legenda.
   Conferido tocando uma gravação de verdade. **Falta**: renomear o falante na
   transcrição e o indicador de pausa no meio do palco.
-- **Fase 4.** Configurações: as 11 abas, atalhos, dispositivos, transcrição,
-  atualizações, "Sobre".
+- **Fase 4 — feita.** Configurações (`pnlSettings` no `forms/main.json`,
+  presenter `app_settings.rs`): a barra lateral e o cabeçalho vêm do form; as
+  linhas das 11 abas (Geral, Gravação, Arquivos, Vídeo, Áudio, Buffer,
+  Atalhos, Dispositivos, Transcrição, Atualizações, Sobre) são montadas no
+  código por um construtor de linha (título, dica quebrada medida com a fonte
+  do estilo, controle à direita). Cada mudança vai direto pro core, sem
+  Salvar; sliders e o campo de programas do buffer com envio adiado. Teste de
+  qualidade de vídeo, fila e motor de transcrição, atalhos com validação de
+  combinação, "Restaurar padrões" pelo `confirm` do iron. Na tela principal
+  entraram o aviso de versão nova (`pnlUpdate`) e o selo da fila de
+  transcrição (`lblTrChip`). Esc fecha. No iron: `Ui::measure_text_wrapped` e
+  o `font_of` com a fonte do estilo.
 - **Fase 5.** Exportação: prévia, recorte, linha do tempo com cortes, faixas,
   codificador, progresso.
 - **Fase 6.** Limpeza: avisos de código morto, README, instalador, memória

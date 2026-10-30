@@ -2031,6 +2031,236 @@ impl Form {
     }
 }
 
+/// Um FrameView de um form.
+pub struct FrameView {
+    pub target: &'static str,
+}
+
+impl FrameView {
+    pub fn background(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "background"))
+    }
+    pub fn set_background(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "background", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
 /// Um Label de um form.
 pub struct Label {
     pub target: &'static str,
@@ -4849,6 +5079,8 @@ impl FrmMainComponents {
     /// O Button deste form com o nome (`None` se não há um Button com ele).
     pub fn find_button(&'static self, name: &str) -> Option<&'static Button> {
         match name {
+            "btnUpdClose" => Some(&self.btnUpdClose),
+            "btnUpdOpen" => Some(&self.btnUpdOpen),
             "btnSettings" => Some(&self.btnSettings),
             "btnPause" => Some(&self.btnPause),
             "btnCapture" => Some(&self.btnCapture),
@@ -4861,6 +5093,7 @@ impl FrmMainComponents {
             "btnPickerClose" => Some(&self.btnPickerClose),
             "btnPickerRefresh" => Some(&self.btnPickerRefresh),
             "btnSelectArea" => Some(&self.btnSelectArea),
+            "btnSetClose" => Some(&self.btnSetClose),
             "btnSideClose" => Some(&self.btnSideClose),
             "btnPlayerClose" => Some(&self.btnPlayerClose),
             "btnPlay" => Some(&self.btnPlay),
@@ -4930,9 +5163,23 @@ impl FrmMainComponents {
     pub fn sender_as_flow_layout(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static FlowLayout> {
         self.find_flow_layout(ui.name(sender)?)
     }
+    /// O FrameView deste form com o nome (`None` se não há um FrameView com ele).
+    pub fn find_frame_view(&'static self, name: &str) -> Option<&'static FrameView> {
+        match name {
+            "frmVideo" => Some(&self.frmVideo),
+            _ => None,
+        }
+    }
+    /// O FrameView que disparou o evento (`None` se o `sender` não é um FrameView deste form).
+    pub fn sender_as_frame_view(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static FrameView> {
+        self.find_frame_view(ui.name(sender)?)
+    }
     /// O Label deste form com o nome (`None` se não há um Label com ele).
     pub fn find_label(&'static self, name: &str) -> Option<&'static Label> {
         match name {
+            "lblUpdTitle" => Some(&self.lblUpdTitle),
+            "lblUpdBody" => Some(&self.lblUpdBody),
+            "lblTrChip" => Some(&self.lblTrChip),
             "lblStatus" => Some(&self.lblStatus),
             "lblTimer" => Some(&self.lblTimer),
             "lblTimerMs" => Some(&self.lblTimerMs),
@@ -4956,6 +5203,8 @@ impl FrmMainComponents {
             "lblPickerEmpty" => Some(&self.lblPickerEmpty),
             "lblAreaStep1" => Some(&self.lblAreaStep1),
             "lblAreaStep2" => Some(&self.lblAreaStep2),
+            "lblSetTitle" => Some(&self.lblSetTitle),
+            "lblSetTab" => Some(&self.lblSetTab),
             "lblSideTitle" => Some(&self.lblSideTitle),
             "lblPlayerPaused" => Some(&self.lblPlayerPaused),
             "lblPlayerTitle" => Some(&self.lblPlayerTitle),
@@ -4994,6 +5243,9 @@ impl FrmMainComponents {
             "lyPickerWindow" => Some(&self.lyPickerWindow),
             "lyPickerTools" => Some(&self.lyPickerTools),
             "lyPickerArea" => Some(&self.lyPickerArea),
+            "lySetTabs" => Some(&self.lySetTabs),
+            "lySetHead" => Some(&self.lySetHead),
+            "lySettings" => Some(&self.lySettings),
             "lyPlayerSideHead" => Some(&self.lyPlayerSideHead),
             "lySide" => Some(&self.lySide),
             _ => None,
@@ -5007,12 +5259,15 @@ impl FrmMainComponents {
     pub fn find_panel(&'static self, name: &str) -> Option<&'static Panel> {
         match name {
             "pnlSources" => Some(&self.pnlSources),
+            "pnlUpdate" => Some(&self.pnlUpdate),
             "pnlRecordCard" => Some(&self.pnlRecordCard),
             "pnlReplay" => Some(&self.pnlReplay),
             "pnlLegend" => Some(&self.pnlLegend),
             "pnlRecordings" => Some(&self.pnlRecordings),
             "pnlPicker" => Some(&self.pnlPicker),
             "pnlPickerDialog" => Some(&self.pnlPickerDialog),
+            "pnlSettings" => Some(&self.pnlSettings),
+            "pnlSetSide" => Some(&self.pnlSetSide),
             "pnlPlayer" => Some(&self.pnlPlayer),
             "pnlPlayerSide" => Some(&self.pnlPlayerSide),
             "pnlPlayerHead" => Some(&self.pnlPlayerHead),
@@ -5043,6 +5298,7 @@ impl FrmMainComponents {
             "lnSources" => Some(&self.lnSources),
             "lnLegend" => Some(&self.lnLegend),
             "lnPicker" => Some(&self.lnPicker),
+            "lnSetSide" => Some(&self.lnSetSide),
             _ => None,
         }
     }
@@ -5067,6 +5323,7 @@ impl FrmMainComponents {
             "scrSources" => Some(&self.scrSources),
             "scrRecordings" => Some(&self.scrRecordings),
             "scrPickerGrid" => Some(&self.scrPickerGrid),
+            "scrSettings" => Some(&self.scrSettings),
             "scrPlayerSide" => Some(&self.scrPlayerSide),
             _ => None,
         }
@@ -5126,10 +5383,16 @@ pub struct FrmMainComponents {
     pub form: Form,
     pub pnlSources: Panel,
     pub lnSourcesEdge: Rectangle,
+    pub pnlUpdate: Panel,
+    pub btnUpdClose: Button,
+    pub btnUpdOpen: Button,
+    pub lblUpdTitle: Label,
+    pub lblUpdBody: Label,
     pub pnlRecordCard: Panel,
     pub lyCardHeader: Layout,
     pub dotStatus: Circle,
     pub btnSettings: Button,
+    pub lblTrChip: Label,
     pub lblStatus: Label,
     pub lyTimer: FlowLayout,
     pub lblTimer: Label,
@@ -5212,6 +5475,16 @@ pub struct FrmMainComponents {
     pub chipTimelapseCursor: Chip,
     pub lyAreaButtons: FlowLayout,
     pub btnSelectArea: Button,
+    pub pnlSettings: Panel,
+    pub pnlSetSide: Panel,
+    pub lnSetSide: Rectangle,
+    pub lblSetTitle: Label,
+    pub lySetTabs: Layout,
+    pub lySetHead: Layout,
+    pub btnSetClose: Button,
+    pub lblSetTab: Label,
+    pub scrSettings: ScrollBox,
+    pub lySettings: Layout,
     pub pnlPlayer: Panel,
     pub pnlPlayerSide: Panel,
     pub lyPlayerSideHead: Layout,
@@ -5236,6 +5509,7 @@ pub struct FrmMainComponents {
     pub btnMute: Button,
     pub lblPlayerClock: Label,
     pub wavPlayer: Waveform,
+    pub frmVideo: FrameView,
     pub lblPlayerLoading: Label,
     pub lblCaption: Label,
 }
@@ -5251,10 +5525,16 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     form: Form { target: "frmMain" },
     pnlSources: Panel { target: "frmMain.pnlSources" },
     lnSourcesEdge: Rectangle { target: "frmMain.lnSourcesEdge" },
+    pnlUpdate: Panel { target: "frmMain.pnlUpdate" },
+    btnUpdClose: Button { target: "frmMain.btnUpdClose" },
+    btnUpdOpen: Button { target: "frmMain.btnUpdOpen" },
+    lblUpdTitle: Label { target: "frmMain.lblUpdTitle" },
+    lblUpdBody: Label { target: "frmMain.lblUpdBody" },
     pnlRecordCard: Panel { target: "frmMain.pnlRecordCard" },
     lyCardHeader: Layout { target: "frmMain.lyCardHeader" },
     dotStatus: Circle { target: "frmMain.dotStatus" },
     btnSettings: Button { target: "frmMain.btnSettings" },
+    lblTrChip: Label { target: "frmMain.lblTrChip" },
     lblStatus: Label { target: "frmMain.lblStatus" },
     lyTimer: FlowLayout { target: "frmMain.lyTimer" },
     lblTimer: Label { target: "frmMain.lblTimer" },
@@ -5337,6 +5617,16 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     chipTimelapseCursor: Chip { target: "frmMain.chipTimelapseCursor" },
     lyAreaButtons: FlowLayout { target: "frmMain.lyAreaButtons" },
     btnSelectArea: Button { target: "frmMain.btnSelectArea" },
+    pnlSettings: Panel { target: "frmMain.pnlSettings" },
+    pnlSetSide: Panel { target: "frmMain.pnlSetSide" },
+    lnSetSide: Rectangle { target: "frmMain.lnSetSide" },
+    lblSetTitle: Label { target: "frmMain.lblSetTitle" },
+    lySetTabs: Layout { target: "frmMain.lySetTabs" },
+    lySetHead: Layout { target: "frmMain.lySetHead" },
+    btnSetClose: Button { target: "frmMain.btnSetClose" },
+    lblSetTab: Label { target: "frmMain.lblSetTab" },
+    scrSettings: ScrollBox { target: "frmMain.scrSettings" },
+    lySettings: Layout { target: "frmMain.lySettings" },
     pnlPlayer: Panel { target: "frmMain.pnlPlayer" },
     pnlPlayerSide: Panel { target: "frmMain.pnlPlayerSide" },
     lyPlayerSideHead: Layout { target: "frmMain.lyPlayerSideHead" },
@@ -5361,6 +5651,7 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     btnMute: Button { target: "frmMain.btnMute" },
     lblPlayerClock: Label { target: "frmMain.lblPlayerClock" },
     wavPlayer: Waveform { target: "frmMain.wavPlayer" },
+    frmVideo: FrameView { target: "frmMain.frmVideo" },
     lblPlayerLoading: Label { target: "frmMain.lblPlayerLoading" },
     lblCaption: Label { target: "frmMain.lblCaption" },
 };

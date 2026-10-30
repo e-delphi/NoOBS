@@ -9,6 +9,8 @@ use super::components::frmMain;
 pub fn register(ui: &mut Ui) {
     // iron-ide:register-begin (gerado pela IDE; não edite este bloco)
     ui.register_handler("frmMain.close_query", close_query);
+    ui.register_handler("frmMain.update_close", update_close);
+    ui.register_handler("frmMain.update_open", update_open);
     ui.register_handler("frmMain.settings_click", settings_click);
     ui.register_handler("frmMain.record_click", record_click);
     ui.register_handler("frmMain.replay_click", replay_click);
@@ -34,6 +36,8 @@ pub fn register(ui: &mut Ui) {
     ui.register_handler("frmMain.picker_timelapse", picker_timelapse);
     ui.register_handler("frmMain.picker_timelapse_cursor", picker_timelapse_cursor);
     ui.register_handler("frmMain.picker_select_area", picker_select_area);
+    ui.register_handler("frmMain.settings_close", settings_close);
+    ui.register_handler("frmMain.settings_resize", settings_resize);
     ui.register_handler("frmMain.player_side_close", player_side_close);
     ui.register_handler("frmMain.player_tr_search", player_tr_search);
     ui.register_handler("frmMain.player_close", player_close);
@@ -57,7 +61,7 @@ pub fn close_query(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
 
 /// A engrenagem do cartão: as Configurações (entram na fase delas).
 pub fn settings_click(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
-    let _ = ui;
+    crate::app_settings::open(ui, None);
 }
 
 pub fn record_click(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
@@ -237,4 +241,20 @@ pub fn player_seek(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
 pub fn player_stage_resize(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
     let _ = (&sender, &args);
     crate::app_player::stage_resized(ui);
+}
+
+pub fn settings_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_settings::close(ui);
+}
+
+pub fn settings_resize(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_settings::resized(ui);
+}
+
+pub fn update_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_main::hide_update_banner(ui);
+}
+
+pub fn update_open(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_main::open_update_page(ui);
 }

@@ -188,7 +188,46 @@
                   },
                   { "class": "ScreenLayout", "name": "scrDisplays", "align": "top", "height": 250, "margins": [0, 8, 0, 0], "on_change": "display_change" }
                 ]
+              },
+              {
+                "class": "Layout",
+                "name": "lyLibrary",
+                "align": "top",
+                "height": 400,
+                "padding": [22, 26, 22, 30],
+                "on_resize": "library_resize",
+                "children": [
+                  {
+                    "class": "Layout",
+                    "name": "lyLibHeader",
+                    "align": "top",
+                    "height": 28,
+                    "children": [
+                      { "class": "Label", "name": "lblRecordings", "style": "h2", "align": "left", "width": 110, "v_align": "trailing", "text": "Gravações" },
+                      { "class": "Label", "name": "lblLibMeta", "style": "meta", "align": "client", "margins": [8, 0, 0, 2], "v_align": "trailing", "text": "" }
+                    ]
+                  },
+                  {
+                    "class": "Layout",
+                    "name": "lyLibTools",
+                    "align": "top",
+                    "height": 34,
+                    "margins": [0, 14, 0, 0],
+                    "children": [
+                      { "class": "Edit", "name": "edLibSearch", "align": "left", "width": 220, "placeholder": "Buscar...", "on_change": "library_search" },
+                      { "class": "Button", "name": "btnLibOpenDir", "style": "tool", "icon": "folder", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_open_dir" },
+                      { "class": "Button", "name": "btnLibNewFolder", "style": "tool", "icon": "plus", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_new_folder" },
+                      { "class": "Button", "name": "btnLibMerge", "style": "tool", "icon": "swap", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_merge" },
+                      { "class": "Button", "name": "btnLibExport", "style": "tool", "icon": "download", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_export" },
+                      { "class": "Button", "name": "btnLibDelete", "style": "tool", "icon": "trash", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_delete" }
+                    ]
+                  },
+                  { "class": "Breadcrumb", "name": "brdLib", "align": "top", "height": 28, "margins": [0, 14, 0, 0], "visible": false, "items": "", "on_change": "library_crumb" },
+                  { "class": "Label", "name": "lblLibEmpty", "style": "body", "align": "top", "height": 60, "h_align": "center", "visible": false, "text": "" },
+                  { "class": "Layout", "name": "lyLibContent", "align": "top", "height": 0, "on_click": "library_background" }
+                ]
               }
+
             ]
           }
         ]

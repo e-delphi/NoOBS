@@ -1,9 +1,17 @@
 {
   "revisions": {
-    "frmMain.capture_click": 1,
+    "frmMain.capture_click": 2,
     "frmMain.close_query": 1,
     "frmMain.display_change": 1,
     "frmMain.pause_click": 1,
+    "frmMain.picker_audio": 1,
+    "frmMain.picker_close": 1,
+    "frmMain.picker_mode": 1,
+    "frmMain.picker_refresh": 1,
+    "frmMain.picker_search": 1,
+    "frmMain.picker_select_area": 1,
+    "frmMain.picker_timelapse": 1,
+    "frmMain.picker_timelapse_cursor": 1,
     "frmMain.record_click": 1,
     "frmMain.replay_click": 1,
     "frmMain.replay_save_click": 1,
@@ -13,7 +21,13 @@
   "languages": {
     "rust": {
       "bindings": {
+        "frmMain/brdLib.on_change": "library_crumb",
         "frmMain/btnCapture.on_click": "capture_click",
+        "frmMain/btnLibDelete.on_click": "library_delete",
+        "frmMain/btnLibExport.on_click": "library_export",
+        "frmMain/btnLibMerge.on_click": "library_merge",
+        "frmMain/btnLibNewFolder.on_click": "library_new_folder",
+        "frmMain/btnLibOpenDir.on_click": "library_open_dir",
         "frmMain/btnPause.on_click": "pause_click",
         "frmMain/btnPickerClose.on_click": "picker_close",
         "frmMain/btnPickerRefresh.on_click": "picker_refresh",
@@ -24,8 +38,11 @@
         "frmMain/chipAppAudio.on_change": "picker_audio",
         "frmMain/chipTimelapse.on_change": "picker_timelapse",
         "frmMain/chipTimelapseCursor.on_change": "picker_timelapse_cursor",
+        "frmMain/edLibSearch.on_change": "library_search",
         "frmMain/edPickerSearch.on_change": "picker_search",
         "frmMain/frmMain.on_close_query": "close_query",
+        "frmMain/lyLibContent.on_click": "library_background",
+        "frmMain/lyLibrary.on_resize": "library_resize",
         "frmMain/pnlPicker.on_click": "picker_close",
         "frmMain/pnlReplay.on_click": "replay_click",
         "frmMain/scrDisplays.on_change": "display_change",
@@ -34,8 +51,8 @@
       },
       "handlers": {
         "frmMain.capture_click": {
-          "hash": "2eef57d62fbfe241",
-          "seen": 1
+          "hash": "5e2bdc9e2a5da238",
+          "seen": 2
         },
         "frmMain.close_query": {
           "hash": "dac8061b1618a5eb",
@@ -45,41 +62,77 @@
           "hash": "16b05fedd99a72ea",
           "seen": 1
         },
+        "frmMain.library_background": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_crumb": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_delete": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_export": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_merge": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_new_folder": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_open_dir": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_resize": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.library_search": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
         "frmMain.pause_click": {
           "hash": "e474d6610f3030c4",
           "seen": 1
         },
         "frmMain.picker_audio": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "b003f5245f7b2b45",
+          "seen": 1
         },
         "frmMain.picker_close": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "bd466bb31dd45918",
+          "seen": 1
         },
         "frmMain.picker_mode": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "26aacdbb477e7228",
+          "seen": 1
         },
         "frmMain.picker_refresh": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "4db610bdaefae07d",
+          "seen": 1
         },
         "frmMain.picker_search": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "47a1007d74d3570f",
+          "seen": 1
         },
         "frmMain.picker_select_area": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "6ea93481205fb91a",
+          "seen": 1
         },
         "frmMain.picker_timelapse": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "6fdc186ab54034d1",
+          "seen": 1
         },
         "frmMain.picker_timelapse_cursor": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "9226b61cea03a6d6",
+          "seen": 1
         },
         "frmMain.record_click": {
           "hash": "bf973dea75636543",
@@ -105,7 +158,13 @@
     }
   },
   "components": [
+    "brdLib",
     "btnCapture",
+    "btnLibDelete",
+    "btnLibExport",
+    "btnLibMerge",
+    "btnLibNewFolder",
+    "btnLibOpenDir",
     "btnPause",
     "btnPickerClose",
     "btnPickerRefresh",
@@ -118,18 +177,22 @@
     "chipTimelapseCursor",
     "dotReplay",
     "dotStatus",
+    "edLibSearch",
     "edPickerSearch",
     "flowPickerGrid",
     "frmMain",
     "lblAreaStep1",
     "lblAreaStep2",
     "lblLegendTitle",
+    "lblLibEmpty",
+    "lblLibMeta",
     "lblMicsCount",
     "lblMicsTitle",
     "lblPickerEmpty",
     "lblPickerSubtitle",
     "lblPickerTitle",
     "lblRecordAction",
+    "lblRecordings",
     "lblReplay",
     "lblReplayStatus",
     "lblScreens",
@@ -153,6 +216,10 @@
     "lyDisplaysTitle",
     "lyLegend",
     "lyLegendTitle",
+    "lyLibContent",
+    "lyLibHeader",
+    "lyLibTools",
+    "lyLibrary",
     "lyMics",
     "lyMicsTitle",
     "lyPickerArea",

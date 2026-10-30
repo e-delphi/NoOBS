@@ -61,8 +61,14 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   `Label`. **Falta**: a onda vermelha ao começar a gravar, o aviso de versão
   nova e o selo da transcrição (entram com as Configurações), o Esc fechando
   o seletor e a conferência gravando de verdade (cores, cronômetro, pausa).
-- **Fase 2.** Biblioteca: pastas, caminho, grupos por período, busca, seleção,
-  menu de contexto, renomear no card, arrastar, excluir, unir.
+- **Fase 2 — feita.** Biblioteca (`lyLibrary` no `forms/main.json`, presenter
+  `app_library.rs`): cabeçalho com contagem e espaço (aviso de pouco espaço),
+  busca (também na transcrição), pastas, caminho (`Breadcrumb`), grupos por
+  período com "selecionar o grupo", cartões `MediaCard` com miniatura, duração
+  e selos, seleção na ordem da união, menu de contexto, recortar/colar
+  (Ctrl+X/Ctrl+V), renomear no cartão, excluir e unir com `confirm`.
+  Conferido gravando de verdade (a gravação nova entra em "Hoje"). **Falta**:
+  arrastar pra pasta/lixeira e o menu do fundo (pasta nova, colar, voltar).
 - **Fase 3.** Player: quadro do motor próprio (`playback`, agora em
   `RgbaBuffer`) num controle do iron, forma de onda, volume, velocidade, zoom,
   tela cheia, painéis de informações e transcrição, legenda.

@@ -29,6 +29,236 @@ fn text(ui: &Ui, value: Option<PropValue>) -> String {
     }
 }
 
+/// Um Breadcrumb de um form.
+pub struct Breadcrumb {
+    pub target: &'static str,
+}
+
+impl Breadcrumb {
+    pub fn items(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "items"))
+    }
+    pub fn set_items(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "items", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
 /// Um Button de um form.
 pub struct Button {
     pub target: &'static str,
@@ -1855,6 +2085,18 @@ impl Label {
     pub fn set_highlight(&self, ui: &mut Ui, value: impl Into<String>) {
         set(ui, self.target, "highlight", Into::<String>::into(value))
     }
+    pub fn letter_spacing(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "letter_spacing").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_letter_spacing(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "letter_spacing", value)
+    }
+    pub fn text_case(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_case"))
+    }
+    pub fn set_text_case(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_case", Into::<String>::into(value))
+    }
     pub fn focus_control(&self, ui: &Ui) -> String {
         text(ui, get(ui, self.target, "focus_control"))
     }
@@ -2640,6 +2882,12 @@ impl RecordButton {
     }
     pub fn set_countdown_fraction(&self, ui: &mut Ui, value: f64) {
         set(ui, self.target, "countdown_fraction", value)
+    }
+    pub fn glow(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "glow").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_glow(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "glow", value)
     }
     pub fn left(&self, ui: &Ui) -> f64 {
         get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
@@ -4094,6 +4342,17 @@ impl Switch {
 }
 
 impl FrmMainComponents {
+    /// O Breadcrumb deste form com o nome (`None` se não há um Breadcrumb com ele).
+    pub fn find_breadcrumb(&'static self, name: &str) -> Option<&'static Breadcrumb> {
+        match name {
+            "brdLib" => Some(&self.brdLib),
+            _ => None,
+        }
+    }
+    /// O Breadcrumb que disparou o evento (`None` se o `sender` não é um Breadcrumb deste form).
+    pub fn sender_as_breadcrumb(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Breadcrumb> {
+        self.find_breadcrumb(ui.name(sender)?)
+    }
     /// O Button deste form com o nome (`None` se não há um Button com ele).
     pub fn find_button(&'static self, name: &str) -> Option<&'static Button> {
         match name {
@@ -4101,6 +4360,11 @@ impl FrmMainComponents {
             "btnPause" => Some(&self.btnPause),
             "btnCapture" => Some(&self.btnCapture),
             "btnReplaySave" => Some(&self.btnReplaySave),
+            "btnLibOpenDir" => Some(&self.btnLibOpenDir),
+            "btnLibNewFolder" => Some(&self.btnLibNewFolder),
+            "btnLibMerge" => Some(&self.btnLibMerge),
+            "btnLibExport" => Some(&self.btnLibExport),
+            "btnLibDelete" => Some(&self.btnLibDelete),
             "btnPickerClose" => Some(&self.btnPickerClose),
             "btnPickerRefresh" => Some(&self.btnPickerRefresh),
             "btnSelectArea" => Some(&self.btnSelectArea),
@@ -4139,6 +4403,7 @@ impl FrmMainComponents {
     /// O Edit deste form com o nome (`None` se não há um Edit com ele).
     pub fn find_edit(&'static self, name: &str) -> Option<&'static Edit> {
         match name {
+            "edLibSearch" => Some(&self.edLibSearch),
             "edPickerSearch" => Some(&self.edPickerSearch),
             _ => None,
         }
@@ -4180,6 +4445,9 @@ impl FrmMainComponents {
             "lblScreens" => Some(&self.lblScreens),
             "lblScreensCount" => Some(&self.lblScreensCount),
             "lblScreensMeta" => Some(&self.lblScreensMeta),
+            "lblRecordings" => Some(&self.lblRecordings),
+            "lblLibMeta" => Some(&self.lblLibMeta),
+            "lblLibEmpty" => Some(&self.lblLibEmpty),
             "lblPickerTitle" => Some(&self.lblPickerTitle),
             "lblPickerSubtitle" => Some(&self.lblPickerSubtitle),
             "lblPickerEmpty" => Some(&self.lblPickerEmpty),
@@ -4206,6 +4474,10 @@ impl FrmMainComponents {
             "lySpeakers" => Some(&self.lySpeakers),
             "lyDisplays" => Some(&self.lyDisplays),
             "lyDisplaysTitle" => Some(&self.lyDisplaysTitle),
+            "lyLibrary" => Some(&self.lyLibrary),
+            "lyLibHeader" => Some(&self.lyLibHeader),
+            "lyLibTools" => Some(&self.lyLibTools),
+            "lyLibContent" => Some(&self.lyLibContent),
             "lyPickerHeader" => Some(&self.lyPickerHeader),
             "lyPickerTitles" => Some(&self.lyPickerTitles),
             "lyPickerMode" => Some(&self.lyPickerMode),
@@ -4361,6 +4633,20 @@ pub struct FrmMainComponents {
     pub lblScreensCount: Label,
     pub lblScreensMeta: Label,
     pub scrDisplays: ScreenLayout,
+    pub lyLibrary: Layout,
+    pub lyLibHeader: Layout,
+    pub lblRecordings: Label,
+    pub lblLibMeta: Label,
+    pub lyLibTools: Layout,
+    pub edLibSearch: Edit,
+    pub btnLibOpenDir: Button,
+    pub btnLibNewFolder: Button,
+    pub btnLibMerge: Button,
+    pub btnLibExport: Button,
+    pub btnLibDelete: Button,
+    pub brdLib: Breadcrumb,
+    pub lblLibEmpty: Label,
+    pub lyLibContent: Layout,
     pub pnlPicker: Panel,
     pub pnlPickerDialog: Panel,
     pub lyPickerHeader: Layout,
@@ -4446,6 +4732,20 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     lblScreensCount: Label { target: "frmMain.lblScreensCount" },
     lblScreensMeta: Label { target: "frmMain.lblScreensMeta" },
     scrDisplays: ScreenLayout { target: "frmMain.scrDisplays" },
+    lyLibrary: Layout { target: "frmMain.lyLibrary" },
+    lyLibHeader: Layout { target: "frmMain.lyLibHeader" },
+    lblRecordings: Label { target: "frmMain.lblRecordings" },
+    lblLibMeta: Label { target: "frmMain.lblLibMeta" },
+    lyLibTools: Layout { target: "frmMain.lyLibTools" },
+    edLibSearch: Edit { target: "frmMain.edLibSearch" },
+    btnLibOpenDir: Button { target: "frmMain.btnLibOpenDir" },
+    btnLibNewFolder: Button { target: "frmMain.btnLibNewFolder" },
+    btnLibMerge: Button { target: "frmMain.btnLibMerge" },
+    btnLibExport: Button { target: "frmMain.btnLibExport" },
+    btnLibDelete: Button { target: "frmMain.btnLibDelete" },
+    brdLib: Breadcrumb { target: "frmMain.brdLib" },
+    lblLibEmpty: Label { target: "frmMain.lblLibEmpty" },
+    lyLibContent: Layout { target: "frmMain.lyLibContent" },
     pnlPicker: Panel { target: "frmMain.pnlPicker" },
     pnlPickerDialog: Panel { target: "frmMain.pnlPickerDialog" },
     lyPickerHeader: Layout { target: "frmMain.lyPickerHeader" },

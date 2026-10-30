@@ -89,6 +89,7 @@ impl View for IronView {
     }
     fn language_changed(&self, _language: &str, _pref: &str) {
         with_ui(app_main::on_language_changed);
+        with_ui(crate::app_library::on_language_changed);
     }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
         show_toast(title, msg, warn, if ttl_ms == 0 { TOAST_TTL_MS } else { ttl_ms });
@@ -155,15 +156,33 @@ impl View for IronView {
     fn record_countdown(&self, sec: u32, total: u32) {
         app_main::on_record_countdown(sec, total);
     }
-    fn library(&self, _lib: &Library) {}
-    fn recording_added(&self, _item: &RecItem, _free_bytes: i64) {}
-    fn recording_meta(&self, _id: &str, _duration: i32, _thumb: &str) {}
-    fn recording_renamed(&self, _old_id: &str, _new_id: &str, _new_name: &str) {}
-    fn recording_removed(&self, _id: &str, _free_bytes: i64) {}
-    fn folder_created(&self, _id: &str) {}
-    fn transcript_search(&self, _query: &str, _ids: &[String]) {}
-    fn merge_pending(&self) {}
-    fn merge_done(&self, _ok: bool) {}
+    fn library(&self, lib: &Library) {
+        crate::app_library::on_library(lib);
+    }
+    fn recording_added(&self, item: &RecItem, free_bytes: i64) {
+        crate::app_library::on_recording_added(item, free_bytes);
+    }
+    fn recording_meta(&self, id: &str, duration: i32, thumb: &str) {
+        crate::app_library::on_recording_meta(id, duration, thumb);
+    }
+    fn recording_renamed(&self, old_id: &str, new_id: &str, new_name: &str) {
+        crate::app_library::on_recording_renamed(old_id, new_id, new_name);
+    }
+    fn recording_removed(&self, id: &str, free_bytes: i64) {
+        crate::app_library::on_recording_removed(id, free_bytes);
+    }
+    fn folder_created(&self, id: &str) {
+        crate::app_library::on_folder_created(id);
+    }
+    fn transcript_search(&self, query: &str, ids: &[String]) {
+        crate::app_library::on_transcript_search(query, ids);
+    }
+    fn merge_pending(&self) {
+        crate::app_library::on_merge_pending();
+    }
+    fn merge_done(&self, ok: bool) {
+        crate::app_library::on_merge_done(ok);
+    }
     fn waveform(&self, _id: &str, _peaks: &[f32], _hi: bool) {}
     fn video_info(&self, _info: &VideoInfo) {}
     fn transcript(&self, _t: &Transcript) {}
@@ -194,5 +213,6 @@ pub fn create() -> Result<iron::Application, iron::Error> {
     apply_theme(&mut app.ui, crate::bridge::resolved_theme() == "dark");
     crate::view::set(Rc::new(IronView));
     with_ui(app_main::setup);
+    with_ui(crate::app_library::apply_texts);
     Ok(app)
 }

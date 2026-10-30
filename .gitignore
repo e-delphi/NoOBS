@@ -1,33 +1,3 @@
-dcu/*
-__history/
-*.identcache
-*.local
+# Configuracoes locais do Claude Code.
 .claude/
-*.dcu
-*.xml
-*.exe
-
-# exe/ contem o OBS bundled (gigante) + build output. Ignora tudo,
-# mas mantem NoOBS.exe (build pronto pra quem nao quer compilar) e
-# WebView2Loader.dll (dependencia necessaria pra rodar).
-exe/*
-!exe/bin/
-exe/bin/*
-!exe/bin/64bit/
-exe/bin/64bit/*
-!exe/bin/64bit/WebView2Loader.dll
-# Traducoes — fonte de verdade do projeto vive aqui (sem duplicata na
-# raiz). Precisa un-ignorar a pasta ANTES dos JSONs: git nao desce em
-# diretorio ignorado, entao !lang/*.json sozinho nao funciona.
-!exe/bin/64bit/lang/
-!exe/bin/64bit/lang/*.json
-# UI (HTML/CSS/JS + logos de GPU) — fonte de verdade aqui, servida do disco
-# via virtual host (nao mais embutida em resource). Mesma cascata do lang\:
-# un-ignora a pasta ANTES dos arquivos.
-!exe/bin/64bit/ui/
-!exe/bin/64bit/ui/*
-obs-studio-master/
-
-# Gerado pelo gen-version.bat (pre-build) a partir da tag do git.
-# Nao versionado: em build de dev o valor muda a cada commit.
-src/Version.inc
+.agents/

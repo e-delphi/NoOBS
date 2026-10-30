@@ -7,8 +7,7 @@
 ; Geral
 ;--------------------------------
 Name "NoOBS"
-; Instalador da versao RUST. Independente do projeto Delphi da raiz: tudo
-; que ele empacota sai desta pasta (rust\exe\, rust\icon.ico). O makensis
+; Instalador do NoOBS: tudo que ele empacota sai desta pasta (rust\exe\, rust\icon.ico). O makensis
 ; resolve os caminhos relativos a partir da pasta deste .nsi.
 ;
 ; O nome do arquivo de saida vem do make-installer-rust.bat via /DOUTFILE (que

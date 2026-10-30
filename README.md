@@ -5,8 +5,9 @@
   <img src="app-white.png" alt="NoOBS — tema claro" width="49%">
 </p>
 
-Gravador de tela com o OBS Studio embarcado. Toda a potência do OBS, sem
-instalar nem configurar nada — só abrir e gravar.
+Gravador de tela com motor de captura próprio, em Rust, e interface no
+[iron](https://github.com/e-rust/iron). Sem instalar nem configurar nada —
+só abrir e gravar.
 
 ---
 
@@ -121,6 +122,4 @@ abre nas Configurações pra você escolher a pasta de gravação e o atalho.
 
 Este software utiliza os seguintes componentes open-source:
 
-- **OBS Studio** — GPL v2+ — https://github.com/obsproject/obs-studio
 - **FFmpeg** — LGPL v2.1+ / GPL v2+ — https://ffmpeg.org
-- **WebView2** — Microsoft Software License — UI HTML embutida via runtime do Edge

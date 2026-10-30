@@ -8,7 +8,7 @@ REM      make-installer-rust.bat v0.22.0.0-beta   versao explicita
 REM
 REM  Saida: NoOBS-<versao>-rust.exe nesta pasta (rust\).
 REM
-REM  Independente do projeto Delphi da raiz: compila (build.bat), empacota
+REM  Compila (build.bat) e empacota
 REM  o exe\ DESTA pasta com o installer.nsi DESTA pasta.
 REM
 REM  A versao vem do git describe - a mesma que o build.rs compila no exe.

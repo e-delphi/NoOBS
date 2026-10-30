@@ -1,6 +1,6 @@
 # NoOBS em Rust (sem Tauri, sem OBS)
 
-Porte do projeto Delphi (`../src/*.pas`) para Rust, com motor de captura
+Gravador de tela em Rust, com motor de captura
 PRÓPRIO no lugar da libobs: Direct3D 11 + Windows Graphics Capture (telas,
 janela, área), Media Foundation (webcam), WASAPI (microfones, som do
 sistema, som de um app) e os encoders do libavcodec — `docs/motor-proprio.md`.
@@ -16,8 +16,9 @@ WebView2 — `docs/ui-iron.md`. As telas são forms do projeto iron
 
 ## Compilar, rodar e empacotar
 
-Esta pasta é um projeto **independente** do Delphi da raiz: nada aqui lê
-arquivos de fora de `rust\`, e o Delphi não lê nada daqui.
+Esta pasta é o código Rust do projeto iron da raiz (`../NoOBS.ironproj`,
+`../forms/`, `../themes/`), no layout do iron: o projeto na raiz e o código
+de cada linguagem numa subpasta.
 
 ```
 rust\
@@ -50,8 +51,6 @@ exe\NoOBS.exe
   janela Win32 oculta (`ui.rs`) segura a fila da main, timers, atalhos,
   bandeja e a 2ª instância.
 - **No git**: código, `lang\`, scripts, `installer.nsi`, `icon.ico`.
-  A UI e as traduções são uma cópia própria: mudança feita na UI do Delphi
-  não chega aqui sozinha (e vice-versa).
 - **Fora do git**: `exe\` inteiro. Numa máquina nova, copie as 9 DLLs do
   `bin\64bit\` do OBS portátil 32.1.2 pra `exe\` (o `build.bat` avisa).
 - **Instalado**: o app fica em `%LOCALAPPDATA%\NoOBS\bin\` (só o exe e as

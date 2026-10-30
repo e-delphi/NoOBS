@@ -299,6 +299,15 @@ Section "NoOBS" SecMain
     File "exe\zlib.dll"
     File "exe\srt.dll"
     File "exe\librist.dll"
+    ; O runtime do C++ (Visual C++ 2015-2022) que o exe e as DLLs acima usam: sem ele
+    ; numa maquina sem o Visual C++ Redistributable instalado, o NoOBS nao abria.
+    File "exe\vcruntime140.dll"
+    File "exe\vcruntime140_1.dll"
+    File "exe\msvcp140.dll"
+    File "exe\msvcp140_1.dll"
+    File "exe\msvcp140_2.dll"
+    File "exe\msvcp140_atomic_wait.dll"
+    File "exe\msvcp140_codecvt_ids.dll"
 
     WriteUninstaller "$INSTDIR\uninstall.exe"
 

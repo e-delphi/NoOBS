@@ -1,9 +1,14 @@
 target/
 
 # rust\exe\ e o runtime de desenvolvimento: o NoOBS.exe compilado e as DLLs
-# do FFmpeg, nada versionado. A UI (ui\) e as traducoes (lang\) sao
+# do FFmpeg, nao versionados. A UI (ui\) e as traducoes (lang\) sao
 # versionadas na raiz desta pasta e vao dentro do exe (build.rs).
-exe/
+# Versionado ali so o runtime do C++ (Visual C++ 2015-2022, da pasta Redist do
+# Visual Studio 14.44): vai no instalador ao lado do exe, para o NoOBS abrir numa
+# maquina sem o Visual C++ Redistributable instalado.
+exe/*
+!exe/vcruntime140*.dll
+!exe/msvcp140*.dll
 
 # Instaladores gerados pelo make-installer-rust.bat.
 NoOBS-*.exe

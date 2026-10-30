@@ -1,22 +1,184 @@
 {
-  "revisions": {},
+  "revisions": {
+    "frmMain.capture_click": 1,
+    "frmMain.close_query": 1,
+    "frmMain.display_change": 1,
+    "frmMain.pause_click": 1,
+    "frmMain.record_click": 1,
+    "frmMain.replay_click": 1,
+    "frmMain.replay_save_click": 1,
+    "frmMain.replay_switch": 1,
+    "frmMain.settings_click": 1
+  },
   "languages": {
     "rust": {
       "bindings": {
-        "frmMain/frmMain.on_close_query": "close_query"
+        "frmMain/btnCapture.on_click": "capture_click",
+        "frmMain/btnPause.on_click": "pause_click",
+        "frmMain/btnPickerClose.on_click": "picker_close",
+        "frmMain/btnPickerRefresh.on_click": "picker_refresh",
+        "frmMain/btnRecord.on_click": "record_click",
+        "frmMain/btnReplaySave.on_click": "replay_save_click",
+        "frmMain/btnSelectArea.on_click": "picker_select_area",
+        "frmMain/btnSettings.on_click": "settings_click",
+        "frmMain/chipAppAudio.on_change": "picker_audio",
+        "frmMain/chipTimelapse.on_change": "picker_timelapse",
+        "frmMain/chipTimelapseCursor.on_change": "picker_timelapse_cursor",
+        "frmMain/edPickerSearch.on_change": "picker_search",
+        "frmMain/frmMain.on_close_query": "close_query",
+        "frmMain/pnlPicker.on_click": "picker_close",
+        "frmMain/pnlReplay.on_click": "replay_click",
+        "frmMain/scrDisplays.on_change": "display_change",
+        "frmMain/segPickerMode.on_change": "picker_mode",
+        "frmMain/swReplay.on_change": "replay_switch"
       },
       "handlers": {
+        "frmMain.capture_click": {
+          "hash": "2eef57d62fbfe241",
+          "seen": 1
+        },
         "frmMain.close_query": {
+          "hash": "dac8061b1618a5eb",
+          "seen": 1
+        },
+        "frmMain.display_change": {
+          "hash": "16b05fedd99a72ea",
+          "seen": 1
+        },
+        "frmMain.pause_click": {
+          "hash": "e474d6610f3030c4",
+          "seen": 1
+        },
+        "frmMain.picker_audio": {
           "hash": "76ea002342292b66",
           "seen": 0
+        },
+        "frmMain.picker_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_mode": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_refresh": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_search": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_select_area": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_timelapse": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.picker_timelapse_cursor": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.record_click": {
+          "hash": "bf973dea75636543",
+          "seen": 1
+        },
+        "frmMain.replay_click": {
+          "hash": "327cdbe78ea717bb",
+          "seen": 1
+        },
+        "frmMain.replay_save_click": {
+          "hash": "878fba6a885510a0",
+          "seen": 1
+        },
+        "frmMain.replay_switch": {
+          "hash": "5626bf83175866b4",
+          "seen": 1
+        },
+        "frmMain.settings_click": {
+          "hash": "2eef57d62fbfe241",
+          "seen": 1
         }
       }
     }
   },
   "components": [
+    "btnCapture",
+    "btnPause",
+    "btnPickerClose",
+    "btnPickerRefresh",
+    "btnRecord",
+    "btnReplaySave",
+    "btnSelectArea",
+    "btnSettings",
+    "chipAppAudio",
+    "chipTimelapse",
+    "chipTimelapseCursor",
+    "dotReplay",
+    "dotStatus",
+    "edPickerSearch",
+    "flowPickerGrid",
     "frmMain",
+    "lblAreaStep1",
+    "lblAreaStep2",
+    "lblLegendTitle",
+    "lblMicsCount",
+    "lblMicsTitle",
+    "lblPickerEmpty",
+    "lblPickerSubtitle",
+    "lblPickerTitle",
+    "lblRecordAction",
+    "lblReplay",
+    "lblReplayStatus",
+    "lblScreens",
+    "lblScreensCount",
+    "lblScreensMeta",
+    "lblSize",
+    "lblSpeakersCount",
+    "lblSpeakersTitle",
+    "lblStatus",
+    "lblTimer",
+    "lblTimerMs",
+    "lnCard",
+    "lnLegend",
+    "lnPicker",
+    "lnSources",
     "lnSourcesEdge",
+    "lyAreaButtons",
+    "lyAreaOptions",
+    "lyCardHeader",
+    "lyDisplays",
+    "lyDisplaysTitle",
+    "lyLegend",
+    "lyLegendTitle",
+    "lyMics",
+    "lyMicsTitle",
+    "lyPickerArea",
+    "lyPickerHeader",
+    "lyPickerMode",
+    "lyPickerTitles",
+    "lyPickerTools",
+    "lyPickerWindow",
+    "lyRecord",
+    "lyReplayText",
+    "lySources",
+    "lySpeakers",
+    "lySpeakersTitle",
+    "lyTimer",
+    "pnlLegend",
+    "pnlPicker",
+    "pnlPickerDialog",
+    "pnlRecordCard",
     "pnlRecordings",
-    "pnlSources"
+    "pnlReplay",
+    "pnlSources",
+    "scrDisplays",
+    "scrPickerGrid",
+    "scrRecordings",
+    "scrSources",
+    "segPickerMode",
+    "swReplay"
   ]
 }

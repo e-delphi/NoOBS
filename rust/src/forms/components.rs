@@ -29,6 +29,1447 @@ fn text(ui: &Ui, value: Option<PropValue>) -> String {
     }
 }
 
+/// Um Button de um form.
+pub struct Button {
+    pub target: &'static str,
+}
+
+impl Button {
+    pub fn text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text"))
+    }
+    pub fn set_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text", Into::<String>::into(value))
+    }
+    pub fn icon(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "icon"))
+    }
+    pub fn set_icon(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "icon", Into::<String>::into(value))
+    }
+    pub fn checked_icon(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "checked_icon"))
+    }
+    pub fn set_checked_icon(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "checked_icon", Into::<String>::into(value))
+    }
+    pub fn icon_position(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "icon_position"))
+    }
+    pub fn set_icon_position(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "icon_position", Into::<String>::into(value))
+    }
+    pub fn icon_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "icon_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_icon_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "icon_size", value)
+    }
+    pub fn checkable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "checkable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_checkable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "checkable", value)
+    }
+    pub fn checked(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "checked").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_checked(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "checked", value)
+    }
+    pub fn modal_result(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "modal_result"))
+    }
+    pub fn set_modal_result(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "modal_result", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+    pub fn set_focus(&self, ui: &mut Ui) -> bool {
+        ui.find_path(self.target).is_some_and(|id| ui.set_focus(id))
+    }
+}
+
+/// Um Chip de um form.
+pub struct Chip {
+    pub target: &'static str,
+}
+
+impl Chip {
+    pub fn text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text"))
+    }
+    pub fn set_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text", Into::<String>::into(value))
+    }
+    pub fn icon(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "icon"))
+    }
+    pub fn set_icon(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "icon", Into::<String>::into(value))
+    }
+    pub fn closable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "closable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_closable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "closable", value)
+    }
+    pub fn checkable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "checkable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_checkable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "checkable", value)
+    }
+    pub fn checked(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "checked").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_checked(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "checked", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+    pub fn set_focus(&self, ui: &mut Ui) -> bool {
+        ui.find_path(self.target).is_some_and(|id| ui.set_focus(id))
+    }
+}
+
+/// Um Circle de um form.
+pub struct Circle {
+    pub target: &'static str,
+}
+
+impl Circle {
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn stroke(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "stroke"))
+    }
+    pub fn set_stroke(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "stroke", Into::<String>::into(value))
+    }
+    pub fn stroke_width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "stroke_width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_stroke_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "stroke_width", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
+/// Um Edit de um form.
+pub struct Edit {
+    pub target: &'static str,
+}
+
+impl Edit {
+    pub fn text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text"))
+    }
+    pub fn set_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text", Into::<String>::into(value))
+    }
+    pub fn placeholder(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "placeholder"))
+    }
+    pub fn set_placeholder(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "placeholder", Into::<String>::into(value))
+    }
+    pub fn border(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "border").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_border(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "border", value)
+    }
+    pub fn max_length(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "max_length").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_max_length(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "max_length", value)
+    }
+    pub fn allowed_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "allowed_chars"))
+    }
+    pub fn set_allowed_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "allowed_chars", Into::<String>::into(value))
+    }
+    pub fn blocked_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "blocked_chars"))
+    }
+    pub fn set_blocked_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "blocked_chars", Into::<String>::into(value))
+    }
+    pub fn only_allowed(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "only_allowed").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_only_allowed(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "only_allowed", value)
+    }
+    pub fn read_only(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "read_only").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_read_only(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "read_only", value)
+    }
+    pub fn password(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "password").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_password(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "password", value)
+    }
+    pub fn h_align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "h_align"))
+    }
+    pub fn set_h_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "h_align", Into::<String>::into(value))
+    }
+    pub fn v_align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "v_align"))
+    }
+    pub fn set_v_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "v_align", Into::<String>::into(value))
+    }
+    pub fn wrap(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "wrap").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_wrap(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "wrap", value)
+    }
+    pub fn trimming(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "trimming"))
+    }
+    pub fn set_trimming(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "trimming", Into::<String>::into(value))
+    }
+    pub fn icon(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "icon"))
+    }
+    pub fn set_icon(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "icon", Into::<String>::into(value))
+    }
+    pub fn clear_button(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clear_button").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clear_button(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clear_button", value)
+    }
+    pub fn label(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "label"))
+    }
+    pub fn set_label(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "label", Into::<String>::into(value))
+    }
+    pub fn helper(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "helper"))
+    }
+    pub fn set_helper(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "helper", Into::<String>::into(value))
+    }
+    pub fn error(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "error"))
+    }
+    pub fn set_error(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "error", Into::<String>::into(value))
+    }
+    pub fn counter(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "counter").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_counter(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "counter", value)
+    }
+    pub fn prefix(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "prefix"))
+    }
+    pub fn set_prefix(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "prefix", Into::<String>::into(value))
+    }
+    pub fn suffix(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "suffix"))
+    }
+    pub fn set_suffix(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "suffix", Into::<String>::into(value))
+    }
+    pub fn mask(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "mask"))
+    }
+    pub fn set_mask(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "mask", Into::<String>::into(value))
+    }
+    pub fn rules(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "rules"))
+    }
+    pub fn set_rules(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "rules", Into::<String>::into(value))
+    }
+    pub fn spellcheck(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "spellcheck").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_spellcheck(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "spellcheck", value)
+    }
+    pub fn autocomplete(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "autocomplete").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_autocomplete(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "autocomplete", value)
+    }
+    pub fn language(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "language"))
+    }
+    pub fn set_language(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "language", Into::<String>::into(value))
+    }
+    pub fn keyboard_suggestions(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "keyboard_suggestions").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_keyboard_suggestions(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "keyboard_suggestions", value)
+    }
+    pub fn caret_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "caret_color"))
+    }
+    pub fn set_caret_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "caret_color", Into::<String>::into(value))
+    }
+    pub fn caret_width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "caret_width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_caret_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "caret_width", value)
+    }
+    pub fn caret_style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "caret_style"))
+    }
+    pub fn set_caret_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "caret_style", Into::<String>::into(value))
+    }
+    pub fn caret_blink(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "caret_blink").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_caret_blink(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "caret_blink", value)
+    }
+    pub fn sel_start(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "sel_start").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_sel_start(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "sel_start", value)
+    }
+    pub fn sel_length(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "sel_length").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_sel_length(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "sel_length", value)
+    }
+    pub fn sel_text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "sel_text"))
+    }
+    pub fn set_sel_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "sel_text", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+    pub fn set_focus(&self, ui: &mut Ui) -> bool {
+        ui.find_path(self.target).is_some_and(|id| ui.set_focus(id))
+    }
+}
+
+/// Um FlowLayout de um form.
+pub struct FlowLayout {
+    pub target: &'static str,
+}
+
+impl FlowLayout {
+    pub fn gap(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "gap").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_gap(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "gap", value)
+    }
+    pub fn line_gap(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "line_gap").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_line_gap(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "line_gap", value)
+    }
+    pub fn h_align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "h_align"))
+    }
+    pub fn set_h_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "h_align", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
 /// Um Form de um form.
 pub struct Form {
     pub target: &'static str,
@@ -360,6 +1801,532 @@ impl Form {
     }
 }
 
+/// Um Label de um form.
+pub struct Label {
+    pub target: &'static str,
+}
+
+impl Label {
+    pub fn text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text"))
+    }
+    pub fn set_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text", Into::<String>::into(value))
+    }
+    pub fn h_align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "h_align"))
+    }
+    pub fn set_h_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "h_align", Into::<String>::into(value))
+    }
+    pub fn v_align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "v_align"))
+    }
+    pub fn set_v_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "v_align", Into::<String>::into(value))
+    }
+    pub fn wrap(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "wrap").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_wrap(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "wrap", value)
+    }
+    pub fn trimming(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "trimming"))
+    }
+    pub fn set_trimming(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "trimming", Into::<String>::into(value))
+    }
+    pub fn bold(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "bold").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_bold(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "bold", value)
+    }
+    pub fn color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "color"))
+    }
+    pub fn set_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "color", Into::<String>::into(value))
+    }
+    pub fn highlight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "highlight"))
+    }
+    pub fn set_highlight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "highlight", Into::<String>::into(value))
+    }
+    pub fn focus_control(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "focus_control"))
+    }
+    pub fn set_focus_control(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "focus_control", Into::<String>::into(value))
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
+/// Um Layout de um form.
+pub struct Layout {
+    pub target: &'static str,
+}
+
+impl Layout {
+    pub fn allowed_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "allowed_chars"))
+    }
+    pub fn set_allowed_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "allowed_chars", Into::<String>::into(value))
+    }
+    pub fn blocked_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "blocked_chars"))
+    }
+    pub fn set_blocked_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "blocked_chars", Into::<String>::into(value))
+    }
+    pub fn only_allowed(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "only_allowed").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_only_allowed(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "only_allowed", value)
+    }
+    pub fn chars_override(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "chars_override").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_chars_override(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "chars_override", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
 /// Um Panel de um form.
 pub struct Panel {
     pub target: &'static str,
@@ -545,6 +2512,260 @@ impl Panel {
     }
     pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
         set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
+/// Um RecordButton de um form.
+pub struct RecordButton {
+    pub target: &'static str,
+}
+
+impl RecordButton {
+    pub fn recording(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "recording").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_recording(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "recording", value)
+    }
+    pub fn paused(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "paused").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_paused(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "paused", value)
+    }
+    pub fn finalizing(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "finalizing").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_finalizing(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "finalizing", value)
+    }
+    pub fn countdown(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "countdown").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_countdown(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "countdown", value)
+    }
+    pub fn countdown_fraction(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "countdown_fraction").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_countdown_fraction(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "countdown_fraction", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
     }
     pub fn border_color(&self, ui: &Ui) -> String {
         text(ui, get(ui, self.target, "border_color"))
@@ -892,12 +3113,1122 @@ impl Rectangle {
     }
 }
 
+/// Um ScreenLayout de um form.
+pub struct ScreenLayout {
+    pub target: &'static str,
+}
+
+impl ScreenLayout {
+    pub fn locked(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "locked").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_locked(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "locked", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
+/// Um ScrollBox de um form.
+pub struct ScrollBox {
+    pub target: &'static str,
+}
+
+impl ScrollBox {
+    pub fn horizontal(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "horizontal").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_horizontal(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "horizontal", value)
+    }
+    pub fn pull_to_refresh(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "pull_to_refresh").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_pull_to_refresh(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "pull_to_refresh", value)
+    }
+    pub fn refreshing(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "refreshing").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_refreshing(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "refreshing", value)
+    }
+    pub fn allowed_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "allowed_chars"))
+    }
+    pub fn set_allowed_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "allowed_chars", Into::<String>::into(value))
+    }
+    pub fn blocked_chars(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "blocked_chars"))
+    }
+    pub fn set_blocked_chars(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "blocked_chars", Into::<String>::into(value))
+    }
+    pub fn only_allowed(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "only_allowed").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_only_allowed(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "only_allowed", value)
+    }
+    pub fn chars_override(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "chars_override").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_chars_override(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "chars_override", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
+/// Um SegmentedControl de um form.
+pub struct SegmentedControl {
+    pub target: &'static str,
+}
+
+impl SegmentedControl {
+    pub fn items(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "items"))
+    }
+    pub fn set_items(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "items", Into::<String>::into(value))
+    }
+    pub fn icons(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "icons"))
+    }
+    pub fn set_icons(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "icons", Into::<String>::into(value))
+    }
+    pub fn item_index(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "item_index").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_item_index(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "item_index", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+    pub fn set_focus(&self, ui: &mut Ui) -> bool {
+        ui.find_path(self.target).is_some_and(|id| ui.set_focus(id))
+    }
+}
+
+/// Um Switch de um form.
+pub struct Switch {
+    pub target: &'static str,
+}
+
+impl Switch {
+    pub fn text(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text"))
+    }
+    pub fn set_text(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text", Into::<String>::into(value))
+    }
+    pub fn checked(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "checked").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_checked(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "checked", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+    pub fn set_focus(&self, ui: &mut Ui) -> bool {
+        ui.find_path(self.target).is_some_and(|id| ui.set_focus(id))
+    }
+}
+
 impl FrmMainComponents {
+    /// O Button deste form com o nome (`None` se não há um Button com ele).
+    pub fn find_button(&'static self, name: &str) -> Option<&'static Button> {
+        match name {
+            "btnSettings" => Some(&self.btnSettings),
+            "btnPause" => Some(&self.btnPause),
+            "btnCapture" => Some(&self.btnCapture),
+            "btnReplaySave" => Some(&self.btnReplaySave),
+            "btnPickerClose" => Some(&self.btnPickerClose),
+            "btnPickerRefresh" => Some(&self.btnPickerRefresh),
+            "btnSelectArea" => Some(&self.btnSelectArea),
+            _ => None,
+        }
+    }
+    /// O Button que disparou o evento (`None` se o `sender` não é um Button deste form).
+    pub fn sender_as_button(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Button> {
+        self.find_button(ui.name(sender)?)
+    }
+    /// O Chip deste form com o nome (`None` se não há um Chip com ele).
+    pub fn find_chip(&'static self, name: &str) -> Option<&'static Chip> {
+        match name {
+            "chipAppAudio" => Some(&self.chipAppAudio),
+            "chipTimelapse" => Some(&self.chipTimelapse),
+            "chipTimelapseCursor" => Some(&self.chipTimelapseCursor),
+            _ => None,
+        }
+    }
+    /// O Chip que disparou o evento (`None` se o `sender` não é um Chip deste form).
+    pub fn sender_as_chip(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Chip> {
+        self.find_chip(ui.name(sender)?)
+    }
+    /// O Circle deste form com o nome (`None` se não há um Circle com ele).
+    pub fn find_circle(&'static self, name: &str) -> Option<&'static Circle> {
+        match name {
+            "dotStatus" => Some(&self.dotStatus),
+            "dotReplay" => Some(&self.dotReplay),
+            _ => None,
+        }
+    }
+    /// O Circle que disparou o evento (`None` se o `sender` não é um Circle deste form).
+    pub fn sender_as_circle(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Circle> {
+        self.find_circle(ui.name(sender)?)
+    }
+    /// O Edit deste form com o nome (`None` se não há um Edit com ele).
+    pub fn find_edit(&'static self, name: &str) -> Option<&'static Edit> {
+        match name {
+            "edPickerSearch" => Some(&self.edPickerSearch),
+            _ => None,
+        }
+    }
+    /// O Edit que disparou o evento (`None` se o `sender` não é um Edit deste form).
+    pub fn sender_as_edit(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Edit> {
+        self.find_edit(ui.name(sender)?)
+    }
+    /// O FlowLayout deste form com o nome (`None` se não há um FlowLayout com ele).
+    pub fn find_flow_layout(&'static self, name: &str) -> Option<&'static FlowLayout> {
+        match name {
+            "lyTimer" => Some(&self.lyTimer),
+            "lyRecord" => Some(&self.lyRecord),
+            "flowPickerGrid" => Some(&self.flowPickerGrid),
+            "lyAreaOptions" => Some(&self.lyAreaOptions),
+            "lyAreaButtons" => Some(&self.lyAreaButtons),
+            _ => None,
+        }
+    }
+    /// O FlowLayout que disparou o evento (`None` se o `sender` não é um FlowLayout deste form).
+    pub fn sender_as_flow_layout(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static FlowLayout> {
+        self.find_flow_layout(ui.name(sender)?)
+    }
+    /// O Label deste form com o nome (`None` se não há um Label com ele).
+    pub fn find_label(&'static self, name: &str) -> Option<&'static Label> {
+        match name {
+            "lblStatus" => Some(&self.lblStatus),
+            "lblTimer" => Some(&self.lblTimer),
+            "lblTimerMs" => Some(&self.lblTimerMs),
+            "lblSize" => Some(&self.lblSize),
+            "lblRecordAction" => Some(&self.lblRecordAction),
+            "lblReplay" => Some(&self.lblReplay),
+            "lblReplayStatus" => Some(&self.lblReplayStatus),
+            "lblLegendTitle" => Some(&self.lblLegendTitle),
+            "lblMicsCount" => Some(&self.lblMicsCount),
+            "lblMicsTitle" => Some(&self.lblMicsTitle),
+            "lblSpeakersCount" => Some(&self.lblSpeakersCount),
+            "lblSpeakersTitle" => Some(&self.lblSpeakersTitle),
+            "lblScreens" => Some(&self.lblScreens),
+            "lblScreensCount" => Some(&self.lblScreensCount),
+            "lblScreensMeta" => Some(&self.lblScreensMeta),
+            "lblPickerTitle" => Some(&self.lblPickerTitle),
+            "lblPickerSubtitle" => Some(&self.lblPickerSubtitle),
+            "lblPickerEmpty" => Some(&self.lblPickerEmpty),
+            "lblAreaStep1" => Some(&self.lblAreaStep1),
+            "lblAreaStep2" => Some(&self.lblAreaStep2),
+            _ => None,
+        }
+    }
+    /// O Label que disparou o evento (`None` se o `sender` não é um Label deste form).
+    pub fn sender_as_label(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Label> {
+        self.find_label(ui.name(sender)?)
+    }
+    /// O Layout deste form com o nome (`None` se não há um Layout com ele).
+    pub fn find_layout(&'static self, name: &str) -> Option<&'static Layout> {
+        match name {
+            "lyCardHeader" => Some(&self.lyCardHeader),
+            "lyReplayText" => Some(&self.lyReplayText),
+            "lyLegendTitle" => Some(&self.lyLegendTitle),
+            "lyLegend" => Some(&self.lyLegend),
+            "lySources" => Some(&self.lySources),
+            "lyMicsTitle" => Some(&self.lyMicsTitle),
+            "lyMics" => Some(&self.lyMics),
+            "lySpeakersTitle" => Some(&self.lySpeakersTitle),
+            "lySpeakers" => Some(&self.lySpeakers),
+            "lyDisplays" => Some(&self.lyDisplays),
+            "lyDisplaysTitle" => Some(&self.lyDisplaysTitle),
+            "lyPickerHeader" => Some(&self.lyPickerHeader),
+            "lyPickerTitles" => Some(&self.lyPickerTitles),
+            "lyPickerMode" => Some(&self.lyPickerMode),
+            "lyPickerWindow" => Some(&self.lyPickerWindow),
+            "lyPickerTools" => Some(&self.lyPickerTools),
+            "lyPickerArea" => Some(&self.lyPickerArea),
+            _ => None,
+        }
+    }
+    /// O Layout que disparou o evento (`None` se o `sender` não é um Layout deste form).
+    pub fn sender_as_layout(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Layout> {
+        self.find_layout(ui.name(sender)?)
+    }
     /// O Panel deste form com o nome (`None` se não há um Panel com ele).
     pub fn find_panel(&'static self, name: &str) -> Option<&'static Panel> {
         match name {
             "pnlSources" => Some(&self.pnlSources),
+            "pnlRecordCard" => Some(&self.pnlRecordCard),
+            "pnlReplay" => Some(&self.pnlReplay),
+            "pnlLegend" => Some(&self.pnlLegend),
             "pnlRecordings" => Some(&self.pnlRecordings),
+            "pnlPicker" => Some(&self.pnlPicker),
+            "pnlPickerDialog" => Some(&self.pnlPickerDialog),
             _ => None,
         }
     }
@@ -905,16 +4236,77 @@ impl FrmMainComponents {
     pub fn sender_as_panel(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Panel> {
         self.find_panel(ui.name(sender)?)
     }
+    /// O RecordButton deste form com o nome (`None` se não há um RecordButton com ele).
+    pub fn find_record_button(&'static self, name: &str) -> Option<&'static RecordButton> {
+        match name {
+            "btnRecord" => Some(&self.btnRecord),
+            _ => None,
+        }
+    }
+    /// O RecordButton que disparou o evento (`None` se o `sender` não é um RecordButton deste form).
+    pub fn sender_as_record_button(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static RecordButton> {
+        self.find_record_button(ui.name(sender)?)
+    }
     /// O Rectangle deste form com o nome (`None` se não há um Rectangle com ele).
     pub fn find_rectangle(&'static self, name: &str) -> Option<&'static Rectangle> {
         match name {
             "lnSourcesEdge" => Some(&self.lnSourcesEdge),
+            "lnCard" => Some(&self.lnCard),
+            "lnSources" => Some(&self.lnSources),
+            "lnLegend" => Some(&self.lnLegend),
+            "lnPicker" => Some(&self.lnPicker),
             _ => None,
         }
     }
     /// O Rectangle que disparou o evento (`None` se o `sender` não é um Rectangle deste form).
     pub fn sender_as_rectangle(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Rectangle> {
         self.find_rectangle(ui.name(sender)?)
+    }
+    /// O ScreenLayout deste form com o nome (`None` se não há um ScreenLayout com ele).
+    pub fn find_screen_layout(&'static self, name: &str) -> Option<&'static ScreenLayout> {
+        match name {
+            "scrDisplays" => Some(&self.scrDisplays),
+            _ => None,
+        }
+    }
+    /// O ScreenLayout que disparou o evento (`None` se o `sender` não é um ScreenLayout deste form).
+    pub fn sender_as_screen_layout(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static ScreenLayout> {
+        self.find_screen_layout(ui.name(sender)?)
+    }
+    /// O ScrollBox deste form com o nome (`None` se não há um ScrollBox com ele).
+    pub fn find_scroll_box(&'static self, name: &str) -> Option<&'static ScrollBox> {
+        match name {
+            "scrSources" => Some(&self.scrSources),
+            "scrRecordings" => Some(&self.scrRecordings),
+            "scrPickerGrid" => Some(&self.scrPickerGrid),
+            _ => None,
+        }
+    }
+    /// O ScrollBox que disparou o evento (`None` se o `sender` não é um ScrollBox deste form).
+    pub fn sender_as_scroll_box(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static ScrollBox> {
+        self.find_scroll_box(ui.name(sender)?)
+    }
+    /// O SegmentedControl deste form com o nome (`None` se não há um SegmentedControl com ele).
+    pub fn find_segmented_control(&'static self, name: &str) -> Option<&'static SegmentedControl> {
+        match name {
+            "segPickerMode" => Some(&self.segPickerMode),
+            _ => None,
+        }
+    }
+    /// O SegmentedControl que disparou o evento (`None` se o `sender` não é um SegmentedControl deste form).
+    pub fn sender_as_segmented_control(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static SegmentedControl> {
+        self.find_segmented_control(ui.name(sender)?)
+    }
+    /// O Switch deste form com o nome (`None` se não há um Switch com ele).
+    pub fn find_switch(&'static self, name: &str) -> Option<&'static Switch> {
+        match name {
+            "swReplay" => Some(&self.swReplay),
+            _ => None,
+        }
+    }
+    /// O Switch que disparou o evento (`None` se o `sender` não é um Switch deste form).
+    pub fn sender_as_switch(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static Switch> {
+        self.find_switch(ui.name(sender)?)
     }
 }
 
@@ -923,7 +4315,78 @@ pub struct FrmMainComponents {
     pub form: Form,
     pub pnlSources: Panel,
     pub lnSourcesEdge: Rectangle,
+    pub pnlRecordCard: Panel,
+    pub lyCardHeader: Layout,
+    pub dotStatus: Circle,
+    pub btnSettings: Button,
+    pub lblStatus: Label,
+    pub lyTimer: FlowLayout,
+    pub lblTimer: Label,
+    pub lblTimerMs: Label,
+    pub lblSize: Label,
+    pub lyRecord: FlowLayout,
+    pub btnRecord: RecordButton,
+    pub lblRecordAction: Label,
+    pub lnCard: Rectangle,
+    pub pnlReplay: Panel,
+    pub dotReplay: Circle,
+    pub btnPause: Button,
+    pub btnCapture: Button,
+    pub swReplay: Switch,
+    pub btnReplaySave: Button,
+    pub lyReplayText: Layout,
+    pub lblReplay: Label,
+    pub lblReplayStatus: Label,
+    pub lnSources: Rectangle,
+    pub pnlLegend: Panel,
+    pub lnLegend: Rectangle,
+    pub lyLegendTitle: Layout,
+    pub lblLegendTitle: Label,
+    pub lyLegend: Layout,
+    pub scrSources: ScrollBox,
+    pub lySources: Layout,
+    pub lyMicsTitle: Layout,
+    pub lblMicsCount: Label,
+    pub lblMicsTitle: Label,
+    pub lyMics: Layout,
+    pub lySpeakersTitle: Layout,
+    pub lblSpeakersCount: Label,
+    pub lblSpeakersTitle: Label,
+    pub lySpeakers: Layout,
     pub pnlRecordings: Panel,
+    pub scrRecordings: ScrollBox,
+    pub lyDisplays: Layout,
+    pub lyDisplaysTitle: Layout,
+    pub lblScreens: Label,
+    pub lblScreensCount: Label,
+    pub lblScreensMeta: Label,
+    pub scrDisplays: ScreenLayout,
+    pub pnlPicker: Panel,
+    pub pnlPickerDialog: Panel,
+    pub lyPickerHeader: Layout,
+    pub btnPickerClose: Button,
+    pub btnPickerRefresh: Button,
+    pub lyPickerTitles: Layout,
+    pub lblPickerTitle: Label,
+    pub lblPickerSubtitle: Label,
+    pub lnPicker: Rectangle,
+    pub lyPickerMode: Layout,
+    pub segPickerMode: SegmentedControl,
+    pub lyPickerWindow: Layout,
+    pub lyPickerTools: Layout,
+    pub chipAppAudio: Chip,
+    pub edPickerSearch: Edit,
+    pub lblPickerEmpty: Label,
+    pub scrPickerGrid: ScrollBox,
+    pub flowPickerGrid: FlowLayout,
+    pub lyPickerArea: Layout,
+    pub lblAreaStep1: Label,
+    pub lblAreaStep2: Label,
+    pub lyAreaOptions: FlowLayout,
+    pub chipTimelapse: Chip,
+    pub chipTimelapseCursor: Chip,
+    pub lyAreaButtons: FlowLayout,
+    pub btnSelectArea: Button,
 }
 
 impl std::ops::Deref for FrmMainComponents {
@@ -937,5 +4400,76 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     form: Form { target: "frmMain" },
     pnlSources: Panel { target: "frmMain.pnlSources" },
     lnSourcesEdge: Rectangle { target: "frmMain.lnSourcesEdge" },
+    pnlRecordCard: Panel { target: "frmMain.pnlRecordCard" },
+    lyCardHeader: Layout { target: "frmMain.lyCardHeader" },
+    dotStatus: Circle { target: "frmMain.dotStatus" },
+    btnSettings: Button { target: "frmMain.btnSettings" },
+    lblStatus: Label { target: "frmMain.lblStatus" },
+    lyTimer: FlowLayout { target: "frmMain.lyTimer" },
+    lblTimer: Label { target: "frmMain.lblTimer" },
+    lblTimerMs: Label { target: "frmMain.lblTimerMs" },
+    lblSize: Label { target: "frmMain.lblSize" },
+    lyRecord: FlowLayout { target: "frmMain.lyRecord" },
+    btnRecord: RecordButton { target: "frmMain.btnRecord" },
+    lblRecordAction: Label { target: "frmMain.lblRecordAction" },
+    lnCard: Rectangle { target: "frmMain.lnCard" },
+    pnlReplay: Panel { target: "frmMain.pnlReplay" },
+    dotReplay: Circle { target: "frmMain.dotReplay" },
+    btnPause: Button { target: "frmMain.btnPause" },
+    btnCapture: Button { target: "frmMain.btnCapture" },
+    swReplay: Switch { target: "frmMain.swReplay" },
+    btnReplaySave: Button { target: "frmMain.btnReplaySave" },
+    lyReplayText: Layout { target: "frmMain.lyReplayText" },
+    lblReplay: Label { target: "frmMain.lblReplay" },
+    lblReplayStatus: Label { target: "frmMain.lblReplayStatus" },
+    lnSources: Rectangle { target: "frmMain.lnSources" },
+    pnlLegend: Panel { target: "frmMain.pnlLegend" },
+    lnLegend: Rectangle { target: "frmMain.lnLegend" },
+    lyLegendTitle: Layout { target: "frmMain.lyLegendTitle" },
+    lblLegendTitle: Label { target: "frmMain.lblLegendTitle" },
+    lyLegend: Layout { target: "frmMain.lyLegend" },
+    scrSources: ScrollBox { target: "frmMain.scrSources" },
+    lySources: Layout { target: "frmMain.lySources" },
+    lyMicsTitle: Layout { target: "frmMain.lyMicsTitle" },
+    lblMicsCount: Label { target: "frmMain.lblMicsCount" },
+    lblMicsTitle: Label { target: "frmMain.lblMicsTitle" },
+    lyMics: Layout { target: "frmMain.lyMics" },
+    lySpeakersTitle: Layout { target: "frmMain.lySpeakersTitle" },
+    lblSpeakersCount: Label { target: "frmMain.lblSpeakersCount" },
+    lblSpeakersTitle: Label { target: "frmMain.lblSpeakersTitle" },
+    lySpeakers: Layout { target: "frmMain.lySpeakers" },
     pnlRecordings: Panel { target: "frmMain.pnlRecordings" },
+    scrRecordings: ScrollBox { target: "frmMain.scrRecordings" },
+    lyDisplays: Layout { target: "frmMain.lyDisplays" },
+    lyDisplaysTitle: Layout { target: "frmMain.lyDisplaysTitle" },
+    lblScreens: Label { target: "frmMain.lblScreens" },
+    lblScreensCount: Label { target: "frmMain.lblScreensCount" },
+    lblScreensMeta: Label { target: "frmMain.lblScreensMeta" },
+    scrDisplays: ScreenLayout { target: "frmMain.scrDisplays" },
+    pnlPicker: Panel { target: "frmMain.pnlPicker" },
+    pnlPickerDialog: Panel { target: "frmMain.pnlPickerDialog" },
+    lyPickerHeader: Layout { target: "frmMain.lyPickerHeader" },
+    btnPickerClose: Button { target: "frmMain.btnPickerClose" },
+    btnPickerRefresh: Button { target: "frmMain.btnPickerRefresh" },
+    lyPickerTitles: Layout { target: "frmMain.lyPickerTitles" },
+    lblPickerTitle: Label { target: "frmMain.lblPickerTitle" },
+    lblPickerSubtitle: Label { target: "frmMain.lblPickerSubtitle" },
+    lnPicker: Rectangle { target: "frmMain.lnPicker" },
+    lyPickerMode: Layout { target: "frmMain.lyPickerMode" },
+    segPickerMode: SegmentedControl { target: "frmMain.segPickerMode" },
+    lyPickerWindow: Layout { target: "frmMain.lyPickerWindow" },
+    lyPickerTools: Layout { target: "frmMain.lyPickerTools" },
+    chipAppAudio: Chip { target: "frmMain.chipAppAudio" },
+    edPickerSearch: Edit { target: "frmMain.edPickerSearch" },
+    lblPickerEmpty: Label { target: "frmMain.lblPickerEmpty" },
+    scrPickerGrid: ScrollBox { target: "frmMain.scrPickerGrid" },
+    flowPickerGrid: FlowLayout { target: "frmMain.flowPickerGrid" },
+    lyPickerArea: Layout { target: "frmMain.lyPickerArea" },
+    lblAreaStep1: Label { target: "frmMain.lblAreaStep1" },
+    lblAreaStep2: Label { target: "frmMain.lblAreaStep2" },
+    lyAreaOptions: FlowLayout { target: "frmMain.lyAreaOptions" },
+    chipTimelapse: Chip { target: "frmMain.chipTimelapse" },
+    chipTimelapseCursor: Chip { target: "frmMain.chipTimelapseCursor" },
+    lyAreaButtons: FlowLayout { target: "frmMain.lyAreaButtons" },
+    btnSelectArea: Button { target: "frmMain.btnSelectArea" },
 };

@@ -16,7 +16,7 @@ use crate::view::{
     AudioMeter, Device, ExportEncoderInfo, Library, LocalAsrInfo, MonitorThumb, PendingKind, QueueItem, RecItem, RecState, ReplayState,
     RootFolder, TranscribeState, Transcript, UpdateInfo, VideoInfo, VideoTestState, View, WindowItem, WindowMatches,
 };
-use crate::{lang, log};
+use crate::{app_main, lang, log};
 
 /// Tempo de vida padrão de um aviso (o `ttl` do `Toast.show` da web).
 const TOAST_TTL_MS: u32 = 6000;
@@ -70,12 +70,14 @@ fn apply_theme(ui: &mut Ui, dark: bool) {
     }
 }
 
-/// Um aviso na tela. Por enquanto o snackbar do iron; o empilhado no canto
-/// (título, mensagem, âmbar nos avisos) entra com a tela principal.
-pub fn show_toast(title: &str, msg: &str, _warn: bool, _ttl_ms: u32) {
-    let text = if msg.is_empty() { title.to_owned() } else { format!("{title} — {msg}") };
+/// Um aviso no canto de cima à direita (âmbar nos avisos). Um aviso com o
+/// MESMO título já na tela só renova o prazo (o hot-plug de USB dispara o
+/// refresh de áudio e o de webcam juntos).
+pub fn show_toast(title: &str, msg: &str, warn: bool, ttl_ms: u32) {
+    let (title, msg) = (title.to_owned(), msg.to_owned());
+    let ttl = if ttl_ms == 0 { TOAST_TTL_MS } else { ttl_ms };
     with_ui(move |ui| {
-        iron::prelude::snackbar(ui, &text, "", |_| {});
+        notify(ui, &title, &msg, if warn { ToastKind::Warning } else { ToastKind::Info }, ttl);
     });
 }
 
@@ -85,7 +87,9 @@ impl View for IronView {
     fn theme(&self, dark: bool, _pref: &str) {
         with_ui(move |ui| apply_theme(ui, dark));
     }
-    fn language_changed(&self, _language: &str, _pref: &str) {}
+    fn language_changed(&self, _language: &str, _pref: &str) {
+        with_ui(app_main::on_language_changed);
+    }
     fn toast(&self, title: &str, msg: &str, warn: bool, ttl_ms: u32) {
         show_toast(title, msg, warn, if ttl_ms == 0 { TOAST_TTL_MS } else { ttl_ms });
     }
@@ -96,25 +100,61 @@ impl View for IronView {
     fn open_settings(&self) {}
     fn window_hidden(&self) {}
 
+    fn monitors(&self, list: &[Device], changes: &[String]) {
+        app_main::on_monitors(list, changes);
+    }
+    fn webcams(&self, list: &[Device], changes: &[String]) {
+        app_main::on_webcams(list, changes);
+    }
+    fn audio_sources(&self, mics: &[Device], speakers: &[Device], silent: bool, changes: &[String]) {
+        app_main::on_audio_sources(mics, speakers, silent, changes);
+    }
+    fn audio_meters(&self, items: &[AudioMeter]) {
+        app_main::on_audio_meters(items);
+    }
+    fn monitor_thumbs(&self, items: &[MonitorThumb]) {
+        app_main::on_monitor_thumbs(items);
+    }
+    fn device_change_pending(&self, kind: PendingKind, pending: bool) {
+        app_main::on_device_change_pending(kind, pending);
+    }
+    fn refresh_busy(&self, busy: bool, what: &str) {
+        app_main::on_refresh_busy(busy, what);
+    }
+    fn recording_state(&self, st: &RecState) {
+        app_main::on_recording_state(st);
+    }
+    fn recording_finalizing(&self, active: bool) {
+        app_main::on_recording_finalizing(active);
+    }
+    fn recording_stopping(&self) {
+        // Atalho/bandeja: o clique na tela já tocou (o debounce evita o 2º).
+        app_main::play_stop_sound();
+    }
+    fn replay_state(&self, st: &ReplayState) {
+        app_main::on_replay_state(st);
+    }
+    fn replay_saved(&self, _id: &str, name: &str, duration_sec: i32) {
+        app_main::on_replay_saved(name, duration_sec);
+    }
+    fn replay_restarted(&self) {
+        app_main::on_replay_restarted();
+    }
+
     // As telas entram por fase (docs/ui-iron.md); até lá, o que é delas não
     // aparece.
-    fn monitors(&self, _list: &[Device], _changes: &[String]) {}
-    fn webcams(&self, _list: &[Device], _changes: &[String]) {}
-    fn audio_sources(&self, _mics: &[Device], _speakers: &[Device], _silent: bool, _changes: &[String]) {}
-    fn audio_meters(&self, _items: &[AudioMeter]) {}
-    fn monitor_thumbs(&self, _items: &[MonitorThumb]) {}
-    fn device_change_pending(&self, _kind: PendingKind, _pending: bool) {}
-    fn refresh_busy(&self, _busy: bool, _what: &str) {}
-    fn recording_state(&self, _st: &RecState) {}
-    fn recording_finalizing(&self, _active: bool) {}
-    fn recording_stopping(&self) {}
-    fn replay_state(&self, _st: &ReplayState) {}
-    fn replay_saved(&self, _id: &str, _name: &str, _duration_sec: i32) {}
-    fn replay_restarted(&self) {}
-    fn capture_windows(&self, _seq: u32, _items: &[WindowItem], _app_audio: bool) {}
-    fn capture_window_thumb(&self, _seq: u32, _id: &str, _width: u32, _height: u32, _rgb: &[u8]) {}
-    fn window_picker_matches(&self, _m: &WindowMatches) {}
-    fn record_countdown(&self, _sec: u32, _total: u32) {}
+    fn capture_windows(&self, seq: u32, items: &[WindowItem], app_audio: bool) {
+        crate::app_picker::on_capture_windows(seq, items, app_audio);
+    }
+    fn capture_window_thumb(&self, seq: u32, id: &str, width: u32, height: u32, rgb: &[u8]) {
+        crate::app_picker::on_capture_window_thumb(seq, id, width, height, rgb);
+    }
+    fn window_picker_matches(&self, m: &WindowMatches) {
+        crate::app_picker::on_window_picker_matches(m);
+    }
+    fn record_countdown(&self, sec: u32, total: u32) {
+        app_main::on_record_countdown(sec, total);
+    }
     fn library(&self, _lib: &Library) {}
     fn recording_added(&self, _item: &RecItem, _free_bytes: i64) {}
     fn recording_meta(&self, _id: &str, _duration: i32, _thumb: &str) {}
@@ -153,5 +193,6 @@ pub fn create() -> Result<iron::Application, iron::Error> {
     MAIN_FORM.with(|m| m.set(Some(app.main_form)));
     apply_theme(&mut app.ui, crate::bridge::resolved_theme() == "dark");
     crate::view::set(Rc::new(IronView));
+    with_ui(app_main::setup);
     Ok(app)
 }

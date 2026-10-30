@@ -49,10 +49,18 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   iron entraram: `WindowCommand::Hide`/`Show`/`SetFullscreen`,
   `set_start_hidden`, `win::hwnd`, `Ui::set_timeout` e o `"base"` dos temas
   em JSON.
-- **Fase 1.** Tela principal: cartão de gravar (botão com anéis, pulso,
-  contagem, onda), pausa, buffer, microfones/saídas com medidor, telas com
-  prévia ao vivo, seletor "Capturar...". Widgets: aviso empilhado (toast),
-  dica, diálogo de confirmação.
+- **Fase 1 — feita.** Tela principal (`forms/main.json`, presenters
+  `app_main.rs` e `app_picker.rs`): cartão de gravar (`RecordButton`:
+  pulso, pausa, contagem, finalizando), cronômetro, buffer em memória,
+  microfones/saídas com faixa colorida e medidor estéreo, legenda das faixas,
+  bloco "Telas" com a prévia ao vivo (`ScreenLayout`), avisos empilhados
+  (`notify`) e o seletor "Capturar..." (abas Janela/Área, busca, miniaturas,
+  som do app, áreas salvas, timelapse). Conferido por captura contra a versão
+  Slint. No iron entraram `RecordButton`, `ScreenLayout`, `notify`, o
+  `LevelMeter` estéreo com degradê e o `letter_spacing`/`text_case` do
+  `Label`. **Falta**: a onda vermelha ao começar a gravar, o aviso de versão
+  nova e o selo da transcrição (entram com as Configurações), o Esc fechando
+  o seletor e a conferência gravando de verdade (cores, cronômetro, pausa).
 - **Fase 2.** Biblioteca: pastas, caminho, grupos por período, busca, seleção,
   menu de contexto, renomear no card, arrastar, excluir, unir.
 - **Fase 3.** Player: quadro do motor próprio (`playback`, agora em

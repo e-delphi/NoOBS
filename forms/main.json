@@ -344,6 +344,88 @@
           }
         ]
       }
+      ,
+      {
+        "class": "Panel",
+        "name": "pnlPlayer",
+        "style": "player",
+        "align": "contents",
+        "visible": false,
+        "children": [
+          {
+            "class": "Panel",
+            "name": "pnlPlayerSide",
+            "style": "plside",
+            "align": "right",
+            "width": 380,
+            "visible": false,
+            "children": [
+              {
+                "class": "Layout",
+                "name": "lyPlayerSideHead",
+                "align": "top",
+                "height": 52,
+                "padding": [18, 14, 12, 0],
+                "children": [
+                  { "class": "Button", "name": "btnSideClose", "style": "tool", "icon": "close", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [0, 0, 0, 10], "on_click": "player_side_close" },
+                  { "class": "Label", "name": "lblSideTitle", "style": "title", "align": "client", "text": "" }
+                ]
+              },
+              { "class": "Edit", "name": "edTrSearch", "align": "top", "height": 32, "margins": [18, 0, 18, 10], "visible": false, "placeholder": "Buscar na transcrição...", "on_change": "player_tr_search" },
+              {
+                "class": "ScrollBox",
+                "name": "scrPlayerSide",
+                "align": "client",
+                "children": [
+                  { "class": "Layout", "name": "lySide", "align": "top", "height": 100, "padding": [18, 0, 18, 18] }
+                ]
+              }
+            ]
+          },
+          {
+            "class": "Panel",
+            "name": "pnlPlayerHead",
+            "style": "plbar",
+            "align": "top",
+            "height": 56,
+            "padding": [20, 0, 12, 0],
+            "children": [
+              { "class": "Button", "name": "btnPlayerClose", "style": "pl", "icon": "close", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [0, 10, 0, 10], "on_click": "player_close" },
+              { "class": "Label", "name": "lblPlayerPaused", "style": "pl_badge", "align": "right", "width": 90, "margins": [0, 16, 12, 16], "h_align": "center", "visible": false, "text": "PAUSADO", "letter_spacing": 1 },
+              { "class": "Label", "name": "lblPlayerTitle", "style": "pl_title", "align": "client", "text": "" }
+            ]
+          },
+          {
+            "class": "Panel",
+            "name": "pnlPlayerBar",
+            "style": "plbar",
+            "align": "bottom",
+            "height": 60,
+            "padding": [14, 0, 14, 0],
+            "children": [
+              { "class": "Button", "name": "btnPlay", "style": "pl", "icon": "pause", "icon_size": 20, "text": "", "align": "left", "width": 40, "margins": [0, 10, 10, 10], "on_click": "player_play" },
+              { "class": "Label", "name": "lblPlayerTime", "style": "pl_time", "align": "left", "width": 120, "text": "00:00 / 00:00" },
+              { "class": "Button", "name": "btnFullscreen", "style": "pl", "icon": "fullscreen", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_fullscreen" },
+              { "class": "Button", "name": "btnTranscript", "style": "pl", "icon": "chat", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_transcript" },
+              { "class": "Button", "name": "btnInfo", "style": "pl", "icon": "info", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_info" },
+              { "class": "Button", "name": "btnCaptions", "style": "pl", "text": "CC", "align": "right", "width": 40, "margins": [6, 12, 0, 12], "on_click": "player_captions" },
+              { "class": "Button", "name": "btnSpeed", "style": "pl", "text": "1×", "align": "right", "width": 54, "margins": [6, 12, 0, 12], "on_click": "player_speed" },
+              { "class": "TrackBar", "name": "trkVolume", "align": "right", "width": 90, "margins": [4, 18, 6, 18], "min": 0, "max": 200, "value": 100, "on_change": "player_volume" },
+              { "class": "Button", "name": "btnMute", "style": "pl", "icon": "volume", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_mute" },
+              { "class": "Label", "name": "lblPlayerClock", "style": "pl_time", "align": "right", "width": 80, "margins": [10, 0, 6, 0], "h_align": "trailing", "text": "" },
+              { "class": "Waveform", "name": "wavPlayer", "align": "client", "margins": [8, 14, 8, 14], "on_seek": "player_seek" }
+            ]
+          },
+          {
+            "class": "FrameView",
+            "name": "frmVideo",
+            "align": "client",
+            "on_resize": "player_stage_resize"
+          },
+          { "class": "Label", "name": "lblPlayerLoading", "style": "pl_time", "align": "center", "width": 400, "height": 40, "h_align": "center", "hit_test": false, "text": "" },
+          { "class": "Label", "name": "lblCaption", "style": "pl_caption", "align": "bottom", "height": 60, "margins": [80, 0, 80, 90], "h_align": "center", "wrap": true, "hit_test": false, "visible": false, "text": "" }
+        ]
+      }
     ]
   }
 }

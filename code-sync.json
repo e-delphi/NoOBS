@@ -3,6 +3,15 @@
     "frmMain.capture_click": 2,
     "frmMain.close_query": 1,
     "frmMain.display_change": 1,
+    "frmMain.library_background": 1,
+    "frmMain.library_crumb": 1,
+    "frmMain.library_delete": 1,
+    "frmMain.library_export": 1,
+    "frmMain.library_merge": 1,
+    "frmMain.library_new_folder": 1,
+    "frmMain.library_open_dir": 1,
+    "frmMain.library_resize": 1,
+    "frmMain.library_search": 1,
     "frmMain.pause_click": 1,
     "frmMain.picker_audio": 1,
     "frmMain.picker_close": 1,
@@ -22,32 +31,45 @@
     "rust": {
       "bindings": {
         "frmMain/brdLib.on_change": "library_crumb",
+        "frmMain/btnCaptions.on_click": "player_captions",
         "frmMain/btnCapture.on_click": "capture_click",
+        "frmMain/btnFullscreen.on_click": "player_fullscreen",
+        "frmMain/btnInfo.on_click": "player_info",
         "frmMain/btnLibDelete.on_click": "library_delete",
         "frmMain/btnLibExport.on_click": "library_export",
         "frmMain/btnLibMerge.on_click": "library_merge",
         "frmMain/btnLibNewFolder.on_click": "library_new_folder",
         "frmMain/btnLibOpenDir.on_click": "library_open_dir",
+        "frmMain/btnMute.on_click": "player_mute",
         "frmMain/btnPause.on_click": "pause_click",
         "frmMain/btnPickerClose.on_click": "picker_close",
         "frmMain/btnPickerRefresh.on_click": "picker_refresh",
+        "frmMain/btnPlay.on_click": "player_play",
+        "frmMain/btnPlayerClose.on_click": "player_close",
         "frmMain/btnRecord.on_click": "record_click",
         "frmMain/btnReplaySave.on_click": "replay_save_click",
         "frmMain/btnSelectArea.on_click": "picker_select_area",
         "frmMain/btnSettings.on_click": "settings_click",
+        "frmMain/btnSideClose.on_click": "player_side_close",
+        "frmMain/btnSpeed.on_click": "player_speed",
+        "frmMain/btnTranscript.on_click": "player_transcript",
         "frmMain/chipAppAudio.on_change": "picker_audio",
         "frmMain/chipTimelapse.on_change": "picker_timelapse",
         "frmMain/chipTimelapseCursor.on_change": "picker_timelapse_cursor",
         "frmMain/edLibSearch.on_change": "library_search",
         "frmMain/edPickerSearch.on_change": "picker_search",
+        "frmMain/edTrSearch.on_change": "player_tr_search",
         "frmMain/frmMain.on_close_query": "close_query",
+        "frmMain/frmVideo.on_resize": "player_stage_resize",
         "frmMain/lyLibContent.on_click": "library_background",
         "frmMain/lyLibrary.on_resize": "library_resize",
         "frmMain/pnlPicker.on_click": "picker_close",
         "frmMain/pnlReplay.on_click": "replay_click",
         "frmMain/scrDisplays.on_change": "display_change",
         "frmMain/segPickerMode.on_change": "picker_mode",
-        "frmMain/swReplay.on_change": "replay_switch"
+        "frmMain/swReplay.on_change": "replay_switch",
+        "frmMain/trkVolume.on_change": "player_volume",
+        "frmMain/wavPlayer.on_seek": "player_seek"
       },
       "handlers": {
         "frmMain.capture_click": {
@@ -63,40 +85,40 @@
           "seen": 1
         },
         "frmMain.library_background": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "1b88962adc1d67f8",
+          "seen": 1
         },
         "frmMain.library_crumb": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "f90918603ec51fe8",
+          "seen": 1
         },
         "frmMain.library_delete": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "00d642ec690b76a5",
+          "seen": 1
         },
         "frmMain.library_export": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "3971159c0ac8bdc0",
+          "seen": 1
         },
         "frmMain.library_merge": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "3088f9b2f23f59fe",
+          "seen": 1
         },
         "frmMain.library_new_folder": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "96e0372a1b05dc8f",
+          "seen": 1
         },
         "frmMain.library_open_dir": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "29224a76a65a7df3",
+          "seen": 1
         },
         "frmMain.library_resize": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "73e90264f879e3fa",
+          "seen": 1
         },
         "frmMain.library_search": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "d3fdd847c6d9c2cf",
+          "seen": 1
         },
         "frmMain.pause_click": {
           "hash": "e474d6610f3030c4",
@@ -134,6 +156,58 @@
           "hash": "9226b61cea03a6d6",
           "seen": 1
         },
+        "frmMain.player_captions": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_fullscreen": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_info": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_mute": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_play": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_seek": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_side_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_speed": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_stage_resize": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_tr_search": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_transcript": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.player_volume": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
         "frmMain.record_click": {
           "hash": "bf973dea75636543",
           "seen": 1
@@ -159,19 +233,28 @@
   },
   "components": [
     "brdLib",
+    "btnCaptions",
     "btnCapture",
+    "btnFullscreen",
+    "btnInfo",
     "btnLibDelete",
     "btnLibExport",
     "btnLibMerge",
     "btnLibNewFolder",
     "btnLibOpenDir",
+    "btnMute",
     "btnPause",
     "btnPickerClose",
     "btnPickerRefresh",
+    "btnPlay",
+    "btnPlayerClose",
     "btnRecord",
     "btnReplaySave",
     "btnSelectArea",
     "btnSettings",
+    "btnSideClose",
+    "btnSpeed",
+    "btnTranscript",
     "chipAppAudio",
     "chipTimelapse",
     "chipTimelapseCursor",
@@ -179,10 +262,13 @@
     "dotStatus",
     "edLibSearch",
     "edPickerSearch",
+    "edTrSearch",
     "flowPickerGrid",
     "frmMain",
+    "frmVideo",
     "lblAreaStep1",
     "lblAreaStep2",
+    "lblCaption",
     "lblLegendTitle",
     "lblLibEmpty",
     "lblLibMeta",
@@ -191,6 +277,11 @@
     "lblPickerEmpty",
     "lblPickerSubtitle",
     "lblPickerTitle",
+    "lblPlayerClock",
+    "lblPlayerLoading",
+    "lblPlayerPaused",
+    "lblPlayerTime",
+    "lblPlayerTitle",
     "lblRecordAction",
     "lblRecordings",
     "lblReplay",
@@ -198,6 +289,7 @@
     "lblScreens",
     "lblScreensCount",
     "lblScreensMeta",
+    "lblSideTitle",
     "lblSize",
     "lblSpeakersCount",
     "lblSpeakersTitle",
@@ -228,8 +320,10 @@
     "lyPickerTitles",
     "lyPickerTools",
     "lyPickerWindow",
+    "lyPlayerSideHead",
     "lyRecord",
     "lyReplayText",
+    "lySide",
     "lySources",
     "lySpeakers",
     "lySpeakersTitle",
@@ -237,15 +331,22 @@
     "pnlLegend",
     "pnlPicker",
     "pnlPickerDialog",
+    "pnlPlayer",
+    "pnlPlayerBar",
+    "pnlPlayerHead",
+    "pnlPlayerSide",
     "pnlRecordCard",
     "pnlRecordings",
     "pnlReplay",
     "pnlSources",
     "scrDisplays",
     "scrPickerGrid",
+    "scrPlayerSide",
     "scrRecordings",
     "scrSources",
     "segPickerMode",
-    "swReplay"
+    "swReplay",
+    "trkVolume",
+    "wavPlayer"
   ]
 }

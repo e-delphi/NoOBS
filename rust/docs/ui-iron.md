@@ -69,9 +69,15 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   (Ctrl+X/Ctrl+V), renomear no cartão, excluir e unir com `confirm`.
   Conferido gravando de verdade (a gravação nova entra em "Hoje"). **Falta**:
   arrastar pra pasta/lixeira e o menu do fundo (pasta nova, colar, voltar).
-- **Fase 3.** Player: quadro do motor próprio (`playback`, agora em
-  `RgbaBuffer`) num controle do iron, forma de onda, volume, velocidade, zoom,
-  tela cheia, painéis de informações e transcrição, legenda.
+- **Fase 3 — feita.** Player (`pnlPlayer` no `forms/main.json`, presenter
+  `app_player.rs`): o quadro do motor próprio no `FrameView`, forma de onda
+  com a parte tocada e busca, tempo e relógio, volume geral e por faixa,
+  velocidade (com os saltos de keyframe), zoom pela roda e arrasto, tela
+  cheia, controles que somem com o mouse parado (e o cursor junto), teclado
+  (Esc, espaço, setas, M, F, 0, C), painel de informações com a
+  "Visualização" por região e o de transcrição com busca e legenda.
+  Conferido tocando uma gravação de verdade. **Falta**: renomear o falante na
+  transcrição e o indicador de pausa no meio do palco.
 - **Fase 4.** Configurações: as 11 abas, atalhos, dispositivos, transcrição,
   atualizações, "Sobre".
 - **Fase 5.** Exportação: prévia, recorte, linha do tempo com cortes, faixas,

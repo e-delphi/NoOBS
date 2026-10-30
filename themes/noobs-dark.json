@@ -44,6 +44,7 @@
     "Panel.card": { "fill": "surface_2", "border": ["border", 1], "radius": 12 },
     "Panel.box": { "fill": "surface_2", "border": ["border", 1], "radius": 8 },
     "Panel.row": { "fill": "#00000000", "border": ["border", 0], "radius": 7, "hover": { "fill": "row_hover" } },
+    "Panel.row_active": { "fill": "primary_soft", "border": ["primary_border", 1], "radius": 7 },
     "Panel.flat": { "fill": "#00000000", "border": ["border", 0], "radius": 0, "hover": { "fill": "row_hover" } },
     "Switch": { "fill": "border_2", "border": ["border", 0], "checked": { "fill": "success" }, "disabled": { "opacity": 0.5 } },
     "Panel.scrim": { "fill": "#0000008C", "border": ["border", 0], "radius": 0 },
@@ -51,6 +52,16 @@
     "Panel.wcard": { "fill": "surface_2", "border": ["border", 1], "radius": 9, "hover": { "fill": "surface_3", "border": ["border_2", 1] } },
     "Label.title": { "text": "text", "font": "title" },
     "Label.body": { "text": "text_muted", "font": "body" },
+    "Panel.player": { "fill": "#000000", "border": ["border", 0], "radius": 0 },
+    "Panel.plbar": { "fill": "#0A0A0CD9", "border": ["border", 0], "radius": 0 },
+    "Panel.plside": { "fill": "surface", "border": ["border", 0], "radius": 0 },
+    "Button.pl": { "fill": "#00000000", "text": "#FFFFFFE6", "border": ["border", 0], "radius": 8, "padding": [0, 0], "hover": { "fill": "#FFFFFF1F", "text": "#FFFFFF" }, "pressed": { "fill": "#FFFFFF33" }, "checked": { "fill": "#FFFFFF26", "text": "#FFFFFF" } },
+    "Label.pl_title": { "text": "#FFFFFF", "font": "title" },
+    "Label.pl_time": { "text": "#FFFFFFD9", "font": "pl_time" },
+    "Label.pl_badge": { "text": "#F59E0B", "font": "caption" },
+    "Label.pl_caption": { "text": "#FFFFFF", "font": "pl_caption" },
+    "Label.key": { "text": "text_3", "font": "body" },
+    "Label.val": { "text": "text", "font": "body" },
     "LevelMeter": { "fill": "surface_3", "border": ["border", 0], "radius": 1.5 },
     "Rectangle.stripe": { "fill": "border", "border": ["border", 0], "radius": 0 },
     "Rectangle.edge": { "fill": "border", "border": ["border", 0], "radius": 0 },
@@ -91,6 +102,8 @@
     "h2": { "family": "Segoe UI", "size": 16, "weight": "semi_bold" },
     "meta": { "family": "Segoe UI", "size": 11 },
     "title": { "family": "Segoe UI", "size": 14, "weight": "semi_bold" },
-    "body": { "family": "Segoe UI", "size": 12 }
+    "body": { "family": "Segoe UI", "size": 12 },
+    "pl_time": { "family": "Segoe UI", "size": 13 },
+    "pl_caption": { "family": "Segoe UI", "size": 22, "weight": "semi_bold" }
   }
 }

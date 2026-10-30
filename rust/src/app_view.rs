@@ -99,7 +99,14 @@ impl View for IronView {
         show_toast(&lang::t("toast.errorTitle"), &msg, true, 8000);
     }
     fn open_settings(&self) {}
-    fn window_hidden(&self) {}
+    fn window_hidden(&self) {
+        // Reabrir o app começa limpo, sem um player fantasma.
+        with_ui(|ui| {
+            if crate::app_player::is_open() {
+                crate::app_player::close(ui);
+            }
+        });
+    }
 
     fn monitors(&self, list: &[Device], changes: &[String]) {
         app_main::on_monitors(list, changes);
@@ -183,9 +190,18 @@ impl View for IronView {
     fn merge_done(&self, ok: bool) {
         crate::app_library::on_merge_done(ok);
     }
-    fn waveform(&self, _id: &str, _peaks: &[f32], _hi: bool) {}
-    fn video_info(&self, _info: &VideoInfo) {}
-    fn transcript(&self, _t: &Transcript) {}
+    fn waveform(&self, id: &str, peaks: &[f32], hi: bool) {
+        // A de alta resolução é da linha do tempo da exportação.
+        if !hi {
+            crate::app_player::on_waveform(id, peaks);
+        }
+    }
+    fn video_info(&self, info: &VideoInfo) {
+        crate::app_player::on_video_info(info);
+    }
+    fn transcript(&self, t: &Transcript) {
+        crate::app_player::on_transcript(t);
+    }
     fn settings_changed(&self) {}
     fn record_dir_picked(&self, _path: &str) {}
     fn update_result(&self, _r: &UpdateInfo) {}
@@ -214,5 +230,6 @@ pub fn create() -> Result<iron::Application, iron::Error> {
     crate::view::set(Rc::new(IronView));
     with_ui(app_main::setup);
     with_ui(crate::app_library::apply_texts);
+    with_ui(crate::app_player::setup);
     Ok(app)
 }

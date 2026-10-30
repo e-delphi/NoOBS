@@ -1,0 +1,45 @@
+{
+  "name": "NoOBS Light",
+  "base": "Iron Light",
+  "family": "NoOBS",
+  "dark": false,
+  "colors": {
+    "background": "#F4F4F5",
+    "surface": "#FFFFFF",
+    "surface_2": "#FAFAFA",
+    "surface_3": "#F4F4F5",
+    "border": "#E4E4E7",
+    "border_2": "#D4D4D8",
+    "text": "#18181B",
+    "text_muted": "#52525B",
+    "text_3": "#71717A",
+    "primary": "#2563EB",
+    "primary_hover": "#3B82F6",
+    "primary_pressed": "#1D4ED8",
+    "on_primary": "#FFFFFF",
+    "primary_soft": "#2563EB12",
+    "primary_border": "#2563EB2E",
+    "focus_ring": "#2563EB",
+    "selection": "#2563EB33",
+    "danger": "#DC2626",
+    "danger_hover": "#EF4444",
+    "success": "#059669",
+    "warning": "#FACC15",
+    "warning_border": "#CA8A04",
+    "warning_text": "#1C1917",
+    "warning_text_2": "#44403C",
+    "thumb_fg": "#00000038",
+    "shadow": "#00000014",
+    "track": "#D4D4D8",
+    "hover_overlay": "#0000000A"
+  },
+  "styles": {
+    "Panel.column": { "fill": "surface", "border": ["border", 0], "radius": 0 },
+    "Panel.pane": { "fill": "background", "border": ["border", 0], "radius": 0 },
+    "Rectangle.edge": { "fill": "border", "border": ["border", 0], "radius": 0 }
+  },
+  "fonts": {
+    "default": { "family": "Segoe UI", "size": 13 },
+    "mono": { "family": "Cascadia Code", "size": 12 }
+  }
+}

@@ -1,4 +1,4 @@
-//! Player nativo (docs/ui-slint.md, fase 3): o que o `<video>` do WebView2
+//! Player nativo (docs/ui-iron.md, fase 3): o que o `<video>` do WebView2
 //! fazia, sem o Chromium.
 //!
 //! Duas threads leem o MESMO arquivo, cada uma com o próprio demuxer:
@@ -22,7 +22,6 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use slint::{Rgba8Pixel, SharedPixelBuffer};
 
 /// Acima disto não há som (o Chromium também silencia acima de 4×) e o relógio
 /// passa a ser o de parede.
@@ -275,11 +274,28 @@ pub struct Info {
     pub duration: f64,
 }
 
+/// Um quadro RGBA pronto pra tela (4 bytes por pixel, linha a linha).
+pub struct RgbaBuffer {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl RgbaBuffer {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self { width, height, pixels: vec![0; width as usize * height as usize * 4] }
+    }
+
+    pub fn make_mut_bytes(&mut self) -> &mut [u8] {
+        &mut self.pixels
+    }
+}
+
 pub enum Out {
     Info(Info),
     /// Quadro pronto, já no tamanho e na posição do palco (pixels físicos).
     /// `view` = (zoom, pan_x, pan_y) da vista que gerou o quadro (px físicos).
-    Frame { buf: SharedPixelBuffer<Rgba8Pixel>, x: i32, y: i32, view: (f64, f64, f64) },
+    Frame { buf: RgbaBuffer, x: i32, y: i32, view: (f64, f64, f64) },
     /// Chegou ao fim (a reprodução parou sozinha).
     Ended,
     Error(String),

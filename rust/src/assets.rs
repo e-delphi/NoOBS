@@ -1,6 +1,6 @@
 //! Traduções EMBUTIDAS no exe (geradas pelo `build.rs` a partir de
 //! `rust\lang\`): o runtime é só o NoOBS.exe e as DLLs do FFmpeg. Nada é
-//! extraído pro disco. A interface (Slint) é compilada no exe pelo próprio
+//! extraído pro disco. A interface (iron) é compilada no exe pelo próprio
 //! `build.rs`.
 
 use std::path::Path;
@@ -27,8 +27,8 @@ pub fn lang_codes() -> Vec<String> {
 ///
 /// Os dados do WebView2 (`%LOCALAPPDATA%\TNoOBS\`) NÃO saem daqui: enquanto a
 /// versão web estiver instalada na mesma máquina ela depende deles, e apagar
-/// a pasta deixou o WebView2 dela sem subir (docs/ui-slint.md). Quem remove é
-/// o instalador da versão Slint (fase 6).
+/// a pasta deixou o WebView2 dela sem subir (docs/ui-iron.md). Quem remove é
+/// o instalador.
 pub fn remove_old_ui_folders() {
     let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
     if base.is_empty() {

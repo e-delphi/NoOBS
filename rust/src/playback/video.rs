@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use slint::{Rgba8Pixel, SharedPixelBuffer};
+use super::RgbaBuffer;
 
 use super::{gpu::GpuConv, layout, Info, Layout, Out, Shared, VCmd, ViewSpec, TRICK_MIN_RATE};
 use crate::ffi::ffmpeg::*;
@@ -238,13 +238,13 @@ impl Dec {
     }
 
     /// Converte o quadro `f` pros pedaços do layout.
-    fn render(&mut self, f_held: bool, lay: &Layout) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
+    fn render(&mut self, f_held: bool, lay: &Layout) -> Option<RgbaBuffer> {
         if lay.w <= 0 || lay.h <= 0 || lay.w as i64 * lay.h as i64 > MAX_OUT_PIXELS {
             return None;
         }
         let fptr = if f_held { self.held.ptr() } else { self.frame.ptr() };
         let f = unsafe { &*fptr };
-        let mut buf = SharedPixelBuffer::<Rgba8Pixel>::new(lay.w as u32, lay.h as u32);
+        let mut buf = RgbaBuffer::new(lay.w as u32, lay.h as u32);
         if f.format == AV_PIX_FMT_D3D11 {
             if let Some(g) = self.gpu.as_mut() {
                 match g.render(f, lay.w, lay.h, &lay.pieces, buf.make_mut_bytes()) {
@@ -268,8 +268,8 @@ impl Dec {
         };
         let s = unsafe { &*src };
         // Preto onde nenhum pedaço cobre (tarja entre monitores de alturas diferentes).
-        for px in buf.make_mut_slice() {
-            *px = Rgba8Pixel { r: 0, g: 0, b: 0, a: 255 };
+        for px in buf.pixels.chunks_exact_mut(4) {
+            px.copy_from_slice(&[0, 0, 0, 255]);
         }
         let stride = lay.w as usize * 4;
         for (i, p) in lay.pieces.iter().enumerate() {

@@ -248,7 +248,7 @@ pub fn localize_decimal(s: &str) -> String {
 }
 
 /// Largura do texto em px (Segoe UI no tamanho `px`), pra quebrar linhas de
-/// pílulas como o `flex-wrap` da web (o Slint não mede texto do lado do Rust).
+/// pílulas como o `flex-wrap` da web (medido do lado do Rust, sem a tela).
 pub fn text_width(text: &str, px: i32, weight: i32) -> i32 {
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{

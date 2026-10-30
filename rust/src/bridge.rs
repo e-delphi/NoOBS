@@ -3,8 +3,8 @@
 //! dispositivos, biblioteca, pastas, exportação, transcrição, buffer, janela,
 //! área, teste de vídeo, shell, settings).
 //!
-//! ## Interface (docs/ui-slint.md)
-//! A interface Slint chama os handlers DIRETO e recebe os eventos pelo
+//! ## Interface (docs/ui-iron.md)
+//! A interface (iron) chama os handlers DIRETO e recebe os eventos pelo
 //! [`crate::view::View`], sem JSON. Do protocolo da versão web sobrou só o
 //! que os testes usam:
 //! * `dispatch` — a entrada por JSON (só com `test`/`app-tests`);
@@ -134,7 +134,7 @@ fn on_timer_other(id: usize) {
 }
 
 /// Evento no formato da página antiga. Só os testes recebem; no app, é de uma
-/// tela ainda não portada pra Slint e não tem destino (some com a fase dela).
+/// tela ainda não portada pro iron e não tem destino (some com a fase dela).
 pub fn post_json(value: Value) {
     #[cfg(test)]
     {
@@ -189,7 +189,7 @@ fn int_field(obj: &Value, key: &str, default: i32) -> i32 {
 }
 
 /// Entrada por JSON (o protocolo da versão web). Só os testes a usam: o app
-/// chama os handlers direto da interface Slint.
+/// chama os handlers direto da interface (iron).
 /// Uma falha num handler não derruba o app: registra e segue, como o
 /// `try/except` do `Dispatch` do Delphi ("excecao no handler").
 #[cfg(any(test, feature = "app-tests"))]

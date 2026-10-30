@@ -1,5 +1,5 @@
 //! NoOBS — gravador de tela com motor de captura próprio (D3D11 + WGC +
-//! WASAPI + libavcodec) e UI nativa em Slint (docs/ui-slint.md). Porte do
+//! WASAPI + libavcodec) e UI nativa no iron (docs/ui-iron.md). Porte do
 //! projeto Delphi para Rust. Sem libobs: o runtime é o exe e as
 //! DLLs do FFmpeg.
 //!
@@ -8,7 +8,8 @@
 //! 2. captura e mídia — [`capture`], `ffmpeg_ops`, `ffmpeg_export`
 //! 3. domínio — `native_engine`, `encoder`, `probe`, `config`, `lang`, `types`
 //! 4. orquestração — `bridge` (handlers), `view` (core → interface),
-//!    `app_view` (a janela Slint), `ui` (host: janela oculta, bandeja, laço)
+//!    `app_view` (a janela do iron), `forms` (os eventos dos forms), `ui`
+//!    (host: janela oculta, bandeja, laço)
 //!
 //! Biblioteca + binário: o `main.rs` só chama [`run_app`]. Os testes rodam
 //! sempre FORA do app: `#[cfg(test)]` (só no `cargo test`) e os executáveis
@@ -51,12 +52,8 @@ pub mod ffi;
 pub mod capture;
 
 modulos! {
-    app_library,
-    app_main,
-    app_player,
-    app_export,
-    app_settings,
     app_view,
+    forms,
     sounds,
     view,
     assets,

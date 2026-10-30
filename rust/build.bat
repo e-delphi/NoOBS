@@ -7,7 +7,7 @@ REM      build.bat           cargo build --release
 REM      build.bat debug     cargo build (mais rapido, sem otimizacao)
 REM
 REM  Saida: exe\NoOBS.exe (desta pasta rust\), ao lado das DLLs do FFmpeg -
-REM  e de la que o app roda. O runtime e SO isso: a interface (ui\, Slint) e
+REM  e de la que o app roda. O runtime e SO isso: a interface (forms do iron) e
 REM  as traducoes (lang\) vao compiladas dentro do exe.
 REM ---------------------------------------------------------------------
 setlocal

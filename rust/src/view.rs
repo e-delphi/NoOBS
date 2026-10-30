@@ -1,9 +1,9 @@
-//! Core → interface, por chamada tipada (docs/ui-slint.md). Substitui o
+//! Core → interface, por chamada tipada (docs/ui-iron.md). Substitui o
 //! `post_json` + `Bridge.handlers[type]` da versão web: cada evento que a
 //! página recebia vira um método do [`View`].
 //!
 //! Quem implementa:
-//! * na janela, `app_view::SlintView` (atualiza propriedades e modelos);
+//! * na janela, `app_view::IronView` (atualiza os forms do iron);
 //! * nos testes (`cargo test` e o executável `tests/mensagens.rs`), o
 //!   [`Recorder`], que guarda cada chamada no MESMO formato das mensagens
 //!   antigas — assim as conferências por `type` dos testes continuam valendo

@@ -1,0 +1,29 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "frmMain",
+    "caption": "NoOBS",
+    "width": 1700,
+    "height": 1200,
+    "on_close_query": "close_query",
+    "children": [
+      {
+        "class": "Panel",
+        "name": "pnlSources",
+        "style": "column",
+        "align": "left",
+        "width": 400,
+        "children": [
+          { "class": "Rectangle", "name": "lnSourcesEdge", "style": "edge", "align": "right", "width": 1 }
+        ]
+      },
+      {
+        "class": "Panel",
+        "name": "pnlRecordings",
+        "style": "pane",
+        "align": "client"
+      }
+    ]
+  }
+}

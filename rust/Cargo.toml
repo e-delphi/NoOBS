@@ -3,13 +3,13 @@ name = "noobs"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
-description = "NoOBS: gravador de tela com motor de captura próprio e UI nativa em Slint"
+description = "NoOBS: gravador de tela com motor de captura próprio e UI nativa no iron"
 
 [dependencies]
-# UI nativa (docs/ui-slint.md). Skia: o mesmo rasterizador do Chromium, pra o
-# texto e as bordas saírem como na versão web. winit-030: o HWND da janela
-# (selo da taskbar, barra de título escura).
-slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-skia", "unstable-winit-030"] }
+# UI nativa (docs/ui-iron.md): o projeto iron fica na pasta de cima (`NoOBS.ironproj`,
+# `forms/`, `themes/`). As features são as que os forms usam; a IDE atualiza a lista a
+# cada "Gerar código".
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libloading = "0.8"
@@ -18,8 +18,7 @@ sha1 = "0.10"
 # O `#[implement]` expande para `windows_core::...`; precisa estar na raiz.
 windows-core = "0.61"
 jpeg-encoder = "0.6"
-# Miniaturas da biblioteca (JPG do cache) decodificadas numa worker. Já vem
-# pelo Slint; aqui só pede o JPEG.
+# Miniaturas da biblioteca (JPG do cache) decodificadas numa worker.
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 windows = { version = "0.61", features = [
@@ -86,6 +85,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 #   cargo test --release --features app-tests --test mensagens [-- filtro]
 #   cargo test --release --features app-tests --test captura [-- filtro]
 app-tests = []
+inspect = ["iron/remote"]
 
 # As mensagens da página pelo dispatch, com o motor de captura de verdade.
 [[test]]
@@ -104,7 +104,31 @@ required-features = ["app-tests"]
 [build-dependencies]
 # Embute o MAINICON (icon.ico) no exe — bandeja, janela e taskbar usam.
 embed-resource = "3"
-slint-build = "1.18"
+# Embute o projeto iron (forms, temas) no executável.
+iron-build = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron-build" }
+
+# iron:render: o renderizador de cada plataforma (Projeto → Opções; a IDE reescreve este bloco)
+# Windows: Direct2D
+[target.'cfg(windows)'.dependencies]
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = ["d2d"] }
+
+# Linux: Automático (Skia GPU, senão CPU)
+[target.'cfg(target_os = "linux")'.dependencies]
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = ["skia-gpu", "skia-cpu"] }
+
+# macOS: Automático (Skia GPU, senão CPU)
+[target.'cfg(target_os = "macos")'.dependencies]
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = ["skia-gpu", "skia-cpu"] }
+
+# Android: Automático (Skia GPU, senão CPU)
+[target.'cfg(target_os = "android")'.dependencies]
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = ["skia-gpu", "skia-cpu"] }
+
+# iOS: Skia CPU
+[target.'cfg(target_os = "ios")'.dependencies]
+iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", default-features = false, features = ["skia-cpu"] }
+
+# iron:render-end
 
 [profile.release]
 opt-level = 3
@@ -116,8 +140,3 @@ strip = true
 # qualquer falha fecha o app sem deixar nada no log. O Delphi trata a mesma
 # falha com try/except e segue; o unwind é o que permite o equivalente.
 
-# wgpu-hal com uma linha trocada: a swapchain da janela sem DXGI_SCALING_STRETCH,
-# pra o Windows não esticar o quadro antigo enquanto a janela é redimensionada
-# (vendor/wgpu-hal/src/dx12/mod.rs, procure "NoOBS").
-[patch.crates-io]
-wgpu-hal = { path = "vendor/wgpu-hal" }

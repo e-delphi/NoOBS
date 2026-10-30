@@ -6,7 +6,7 @@
 > `tests/mensagens.rs`) descrevem código que não existe mais. As tabelas do
 > FFmpeg e das mensagens continuam úteis como ponto de partida.
 >
-> E a página saiu também (`ui-slint.md`): a interface é Slint e chama os
+> E a página saiu também (`ui-iron.md`): a interface é nativa (iron) e chama os
 > handlers direto. As "mensagens" das tabelas são a entrada JSON que sobrou
 > só pros testes (`bridge::dispatch`); as que só a página web usava (tocar
 > por URL, transcodificar, faixas em M4A, keyframes, validar atalho, abrir

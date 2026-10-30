@@ -142,7 +142,7 @@ pub fn handle_set_items(items: Vec<Item>) {
     replay::push_replay_state();
 }
 
-/// `set_hotkeys` dos testes (a tela Slint chama `handle_set_items`).
+/// `set_hotkeys` dos testes (a tela de Configurações chama `handle_set_items`).
 #[cfg(any(test, feature = "app-tests"))]
 pub fn handle_set_hotkeys(items: &Value) {
     handle_set_items(hotkeys::list_from_json(items));

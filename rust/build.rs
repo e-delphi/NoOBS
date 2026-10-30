@@ -8,7 +8,7 @@
 // 3. Embute as traduções (`lang\`) no exe: o runtime é só o NoOBS.exe e as
 //    DLLs do FFmpeg. Gera `assets.rs` no OUT_DIR com a lista (caminho
 //    relativo, bytes); o app lê da memória (`assets.rs`).
-// 4. Compila a interface Slint (`ui\app.slint` e o que ela importa).
+// 4. Embute o projeto iron da pasta de cima (`NoOBS.ironproj`, forms, temas).
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -46,10 +46,7 @@ fn embed_assets() {
 
 fn main() {
     embed_assets();
-    // Os controles são desenhados à mão (iguais aos da versão web); o estilo
-    // só vale pro que sobrar dos widgets padrão do Slint.
-    let cfg = slint_build::CompilerConfiguration::new().with_style("fluent".into());
-    slint_build::compile_with_config("ui/app.slint", cfg).expect("falha ao compilar ui/app.slint");
+    iron_build::project();
     println!("cargo:rerun-if-changed=noobs.rc");
     println!("cargo:rerun-if-changed=icon.ico");
     embed_resource::compile("noobs.rc", embed_resource::NONE)

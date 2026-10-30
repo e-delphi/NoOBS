@@ -1,7 +1,7 @@
 //! Conversão NA PLACA do quadro decodificado (D3D11, NV12) pra RGBA no tamanho
 //! da tela, pelo D3D11 Video Processor: só a imagem pequena volta pra memória.
 //! No caminho de CPU (cópia do 4K inteiro + swscale) um quadro 4K custava
-//! ~20 ms, teto de ~48 fps (medido na prova de conceito, docs/ui-slint.md).
+//! ~20 ms, teto de ~48 fps (medido na prova de conceito do player).
 //!
 //! Um quadro de saída pode ter VÁRIOS pedaços: cada um é um retângulo da
 //! origem desenhado num retângulo da saída. É assim que saem o zoom (o pedaço

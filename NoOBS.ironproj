@@ -1,0 +1,22 @@
+{
+  "iron_project": 1,
+  "name": "NoOBS",
+  "theme": "themes/noobs-dark.json",
+  "language": "rust",
+  "main_form": "frmMain",
+  "forms": [
+    {
+      "name": "frmMain",
+      "file": "forms/main.json",
+      "auto_create": true
+    }
+  ],
+  "locale": "pt-BR",
+  "render": {
+    "windows": "d2d",
+    "linux": "auto",
+    "macos": "auto",
+    "android": "auto",
+    "ios": "cpu"
+  }
+}

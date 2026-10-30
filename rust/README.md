@@ -4,13 +4,14 @@ Porte do projeto Delphi (`../src/*.pas`) para Rust, com motor de captura
 PRÓPRIO no lugar da libobs: Direct3D 11 + Windows Graphics Capture (telas,
 janela, área), Media Foundation (webcam), WASAPI (microfones, som do
 sistema, som de um app) e os encoders do libavcodec — `docs/motor-proprio.md`.
-Interface em **Slint** (renderer Skia), com o mesmo visual da versão web
-que ela substituiu: a tela chama o core direto e o core avisa a tela por
-métodos tipados (`view::View`), sem JSON nem WebView2 — `docs/ui-slint.md`.
+Interface no **iron** (Direct2D no Windows): a tela chama o core direto e
+o core avisa a tela por métodos tipados (`view::View`), sem JSON nem
+WebView2 — `docs/ui-iron.md`. As telas são forms do projeto iron
+(`../NoOBS.ironproj`, `../forms/`, `../themes/`), editáveis na IDE do iron.
 
 > Compila no Windows (`cargo build` em `rust/`; o `build.rs` usa o `rc.exe`
-> do Windows SDK para embutir o ícone; a interface `.slint` e as traduções
-> são compiladas pra dentro do exe).
+> do Windows SDK para embutir o ícone; os forms, os temas e as traduções
+> vão pra dentro do exe).
 > `cargo test` cobre o que não grava a tela.
 
 ## Compilar, rodar e empacotar
@@ -21,7 +22,6 @@ arquivos de fora de `rust\`, e o Delphi não lê nada daqui.
 ```
 rust\
   src\                 código Rust
-  ui\                  a interface (Slint) — compilada DENTRO do exe
   lang\                traduções (pt-BR/en/es) — vão DENTRO do exe
   exe\                 runtime de desenvolvimento: NoOBS.exe + DLLs do FFmpeg
   build.bat            compila e põe o exe em exe\NoOBS.exe
@@ -45,10 +45,10 @@ exe\NoOBS.exe
   `uipp.slint` (Slint → Rust) e embute os `lang\*.json`. Editar a UI pede
   `cargo build` (o `build.rs` vigia `ui\` e `lang\`).
 - **Sem WebView2**: nem runtime, nem `WebView2Loader.dll`, nem pasta de dados
-  do navegador. A janela é do Slint (winit + Skia sobre Direct3D 12); uma
+  do navegador. A janela é do iron (winit + Direct2D); uma
   janela Win32 oculta (`ui.rs`) segura a fila da main, timers, atalhos,
   bandeja e a 2ª instância.
-- **No git**: código, `ui\`, `lang\`, scripts, `installer.nsi`, `icon.ico`.
+- **No git**: código, `lang\`, scripts, `installer.nsi`, `icon.ico`.
   A UI e as traduções são uma cópia própria: mudança feita na UI do Delphi
   não chega aqui sozinha (e vice-versa).
 - **Fora do git**: `exe\` inteiro. Numa máquina nova, copie as 9 DLLs do
@@ -93,7 +93,7 @@ A feature `app-tests` só torna os módulos públicos pros executáveis de
 | `FFmpegLib`           | `ffi/ffmpeg.rs`           | portado inteiro: bindings de avformat/avcodec/avutil/swscale, structs/offsets (#26/#40), fallbacks de duração/bitrate/fps, RAII (`Input`/`Packet`/`Frame`/`CodecCtx`/`Sws`/`Dict`) |
 | `OBSProbe`            | `probe.rs`                | portado |
 | `OBSStartupCheck`     | `startup_check.rs`        | confere as 9 DLLs do FFmpeg |
-| `OBSUI`               | `ui.rs` + `mainthread.rs` + `app_*.rs` (presenters) + `ui\*.slint` | janela Slint + janela Win32 oculta: fechar pra bandeja, restaurar contornando o anti-roubo de foco, overlay de gravando na taskbar (`ITaskbarList3`), menus no tema, tela cheia, título ao vivo. Telas: principal (`app_main`), biblioteca (`app_library`), player (`app_player` + `playback\`), Configurações (`app_settings`), exportação (`app_export`) |
+| `OBSUI`               | `ui.rs` + `mainthread.rs` + `app_*.rs` (presenters) + forms do iron (`../forms/`) | janela do iron + janela Win32 oculta: fechar pra bandeja, restaurar contornando o anti-roubo de foco, overlay de gravando na taskbar (`ITaskbarList3`), menus no tema, tela cheia, título ao vivo. Telas: principal (`app_main`), biblioteca (`app_library`), player (`app_player` + `playback\`), Configurações (`app_settings`), exportação (`app_export`) |
 | `OBSBridge`           | `bridge.rs` + `bridge/recording.rs` + `bridge/devices.rs` + `bridge/library.rs` + `bridge/shell.rs` (bandeja, janela, autostart, elevação) + `bridge/settings.rs` (`get_settings` e os `set_*` de gravação, pasta, biblioteca, auto-gravação por mic e atualização) + `bridge/folders.rs` (abrir/criar/renomear/excluir/mover pastas com migração do cache — #55 — e união de gravações) | portado (a galeria — listar, navegar, scan de miniaturas, info, waveform, renomear, excluir — está em `library.rs`): init + warmup, tema, idioma, open_url; **gravação** (`record_start`/`record_stop`/`record_pause`, stop assíncrono #41, pausa com o relógio descontando a pausa, tique de 1 s, nome por modelo, caps de encoder, hotkey padrão); **tela inicial** (`init` com monitores/mics/saídas/webcams, `audio_sources_refreshed`, refresh por hot-plug com diff e dedup por assinatura, medidores de nível, mudo do endpoint, prévias dos monitores, toggles/ocultar/perfil automático). A tela chama os handlers direto; o `dispatch` por JSON sobrou só pros testes |
 | `OBSEngine`           | `engine.rs` (interface `CaptureEngine`), `native_engine.rs`, `capture/*` | motor próprio: telas, janela (#66), área, webcams, áudio (inclusive o de UM app), gravação, pausa, buffer em memória com trecho salvo sem buraco nem repetição — `docs/motor-proprio.md` |
 | `OBSAudioTracks`      | `audio_tracks.rs` (+ testes) | atribuição de faixas SEM o teto de 6 da libobs (cada dispositivo marcado na sua faixa), nomes |
@@ -186,8 +186,7 @@ abas: **Janela** (o de sempre) e **Área**.
 
 A hibernação existia por causa do WebView2: hibernar (fechar o navegador
 depois de 1 min na bandeja) levava o app de 7 processos pra 1, com ~1 MB de
-working set. Com a interface em Slint ela saiu (decisão da migração —
-`docs/ui-slint.md`): o app é um processo só, e fechar pra bandeja apenas
+working set. Com a interface nativa ela saiu: o app é um processo só, e fechar pra bandeja apenas
 esconde a janela — sem relançar nada, sem `/hibernate`, sem flags de
 promoção. O backend (atalhos, vigias de mic e de programas, fila de
 transcrição, metadados, indicador, bloqueio de tela, atualização) sobe uma
@@ -199,10 +198,9 @@ Medido nesta máquina (AMD, 1 monitor 4K, tela principal aberta):
 |---|---|---|---|
 | Web (WebView2), interface aberta | 7 | ~470 MB | ~330 MB |
 | Web, hibernando | 1 | ~1 MB | 3–43 MB |
-| Slint, interface aberta | 1 | ~290 MB | ~380 MB |
+| Slint (versão anterior), interface aberta | 1 | ~290 MB | ~380 MB |
 
-Na bandeja o Slint segura a mesma memória da janela aberta: o custo da
-saída da hibernação é esse.
+A do iron se mede quando as telas estiverem todas portadas (docs/ui-iron.md).
 
 ## Como o Rust mudou o desenho
 

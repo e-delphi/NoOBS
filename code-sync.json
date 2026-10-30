@@ -1,0 +1,22 @@
+{
+  "revisions": {},
+  "languages": {
+    "rust": {
+      "bindings": {
+        "frmMain/frmMain.on_close_query": "close_query"
+      },
+      "handlers": {
+        "frmMain.close_query": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        }
+      }
+    }
+  },
+  "components": [
+    "frmMain",
+    "lnSourcesEdge",
+    "pnlRecordings",
+    "pnlSources"
+  ]
+}

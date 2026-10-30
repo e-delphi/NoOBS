@@ -17,17 +17,16 @@ use crate::view::{AudioMeter, Device, MonitorThumb, PendingKind, RecState, Repla
 use crate::{bridge, config, lang};
 
 /// Cor de cada faixa isolada (2, 3, …), em ciclo. Sem verde/vermelho (a bolinha
-/// de padrão, gravar/parar).
-const TRACK_PALETTE: [u32; 10] = [
-    0x3b82f6, 0x06b6d4, 0xf59e0b, 0xa855f7, 0xf472b6, 0x6366f1, 0x14b8a6, 0xc2410c, 0x0ea5e9, 0x8b5cf6,
-];
+/// de padrão, gravar/parar). As dez ficam na paleta do projeto (`track_1`…`track_10`).
+const TRACK_COLORS: usize = 10;
 
-fn rgb(hex: u32) -> Color {
-    Color::rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
+/// Uma cor da paleta do projeto (`NoOBS.ironproj`) ou do tema, pelo nome.
+fn pal(ui: &Ui, name: &str) -> Color {
+    ui.theme().color(name)
 }
 
-fn track_color(t: i32) -> Color {
-    rgb(TRACK_PALETTE[((t - 2).max(0) as usize) % TRACK_PALETTE.len()])
+fn track_color(ui: &Ui, t: i32) -> Color {
+    pal(ui, &format!("track_{}", (t - 2).max(0) as usize % TRACK_COLORS + 1))
 }
 
 /// Amplitude linear 0..1 → largura 0..1 em dB (−60 dB = 0, 0 dB = 1).
@@ -38,9 +37,6 @@ fn amp_to_bar(v: f32) -> f32 {
     ((20.0 * v.log10() + 60.0) / 60.0).clamp(0.0, 1.0)
 }
 
-const GREEN: u32 = 0x10b981;
-const RED: u32 = 0xef4444;
-const AMBER: u32 = 0xf59e0b;
 /// Altura de uma linha de dispositivo e de uma da legenda.
 const SOURCE_ROW: f32 = 45.0;
 const LEGEND_ROW: f32 = 22.0;
@@ -69,6 +65,9 @@ struct State {
     countdown_end: Option<Instant>,
     countdown_total: f32,
     countdown_job: Option<u64>,
+    /// A onda vermelha: o anel e o brilho dele, o tique e o tempo já mostrado.
+    ripple: Option<(ComponentId, ComponentId)>,
+    ripple_job: Option<u64>,
 }
 
 thread_local! {
@@ -156,7 +155,7 @@ fn add_source_row(ui: &mut Ui, parent: ComponentId, d: &Device, locked: bool, me
     // Faixa de 3 px colada na borda da janela (12 px pra fora da linha).
     if let Ok(stripe) = ui.create("Rectangle", Some(row)) {
         let color = if d.enabled && d.track > 1 {
-            Some(track_color(d.track))
+            Some(track_color(ui, d.track))
         } else if d.enabled {
             None
         } else {
@@ -172,14 +171,14 @@ fn add_source_row(ui: &mut Ui, parent: ComponentId, d: &Device, locked: bool, me
             }
         }
         if let Some(cb) = ui.control_mut(stripe) {
-            cb.set_rect(-22.0, 0.0, 3.0, SOURCE_ROW).set_hit_test(false);
+            cb.set_rect(-12.0, 0.0, 3.0, SOURCE_ROW).set_hit_test(false);
         }
     }
     if let Ok(sw) = ui.create("Switch", Some(row)) {
         let _ = ui.set_prop(sw, "checked", d.enabled);
         let _ = ui.set_prop(sw, "enabled", !locked);
         if let Some(cb) = ui.control_mut(sw) {
-            cb.set_align(Align::Right).set_width(46.0).set_margins([10.0, 4.0, 0.0, 4.0]);
+            cb.set_align(Align::Right).set_width(36.0).set_margins([10.0, 4.0, 0.0, 4.0]);
         }
         let id = d.id.clone();
         ui.on(sw, "on_change", move |ui, sender, _| {
@@ -197,7 +196,7 @@ fn add_source_row(ui: &mut Ui, parent: ComponentId, d: &Device, locked: bool, me
         }
         if d.is_default {
             if let Ok(dot) = ui.create("Circle", Some(line)) {
-                let _ = ui.set_prop(dot, "fill", rgb(0x22c55e));
+                let _ = ui.set_prop(dot, "fill", "device_default");
                 let _ = ui.set_prop(dot, "stroke_width", 0.0);
                 let _ = ui.set_prop(dot, "hint", lang::t("sources.defaultDevice"));
                 if let Some(cb) = ui.control_mut(dot) {
@@ -208,7 +207,7 @@ fn add_source_row(ui: &mut Ui, parent: ComponentId, d: &Device, locked: bool, me
         if d.is_bluetooth {
             if let Ok(bt) = ui.create("IconView", Some(line)) {
                 let _ = ui.set_prop(bt, "icon", "warning");
-                let _ = ui.set_prop(bt, "color", rgb(AMBER));
+                let _ = ui.set_prop(bt, "color", "amber");
                 let hint = if meters_is_mic(d) { "sources.btMicWarn" } else { "sources.btSpeakerWarn" };
                 let _ = ui.set_prop(bt, "hint", lang::t(hint));
                 if let Some(cb) = ui.control_mut(bt) {
@@ -230,6 +229,8 @@ fn add_source_row(ui: &mut Ui, parent: ComponentId, d: &Device, locked: bool, me
         }
         let _ = ui.set_prop(meter, "mid", 0.6);
         let _ = ui.set_prop(meter, "high", 0.75);
+        // Os níveis chegam a cada 100 ms: a barra desliza até o novo (como no original).
+        let _ = ui.set_prop(meter, "smoothing", 90.0);
         if let Some(cb) = ui.control_mut(meter) {
             cb.set_align(Align::Top).set_height(7.0).set_margins([0.0, 4.0, 0.0, 0.0]);
         }
@@ -271,7 +272,8 @@ fn refresh_sources(ui: &mut Ui) {
     set(ui, "lblMicsCount", "text", mc);
     set(ui, "lblSpeakersCount", "text", sc);
     // A coluna rola: a altura do conteúdo é a soma das seções.
-    let content = 2.0 * (22.0 + 15.0 + 12.0) + (mics.len() + speakers.len()) as f32 * SOURCE_ROW + 12.0;
+    // 14 + título 15 + 6, as linhas, 18 + título 15 + 6, as linhas e 14 embaixo.
+    let content = 14.0 + 15.0 + 6.0 + 18.0 + 15.0 + 6.0 + (mics.len() + speakers.len()) as f32 * SOURCE_ROW + 14.0;
     set_height(ui, "lySources", content);
     render_legend(ui);
     ui.layout();
@@ -288,7 +290,7 @@ struct LegendItem {
 
 /// Legenda das faixas: Padrão, Faixa 1 (mix), faixas com o dispositivo
 /// padrão, de microfone, de saída, e "sem faixa".
-fn legend_items(s: &State) -> Vec<LegendItem> {
+fn legend_items(ui: &Ui, s: &State) -> Vec<LegendItem> {
     struct Info {
         names: Vec<String>,
         has_default: bool,
@@ -332,7 +334,7 @@ fn legend_items(s: &State) -> Vec<LegendItem> {
             2 => info.names.join(", "),
             n => lang::t_with("tracks.devicesGrouped_other", &[("count", &n.to_string())]),
         };
-        item("track", lang::t_with("tracks.track", &[("n", &t.to_string())]), label, info.names.join(", "), track_color(t))
+        item("track", lang::t_with("tracks.track", &[("n", &t.to_string())]), label, info.names.join(", "), track_color(ui, t))
     };
     for (t, info) in tracks.iter().filter(|(_, i)| i.has_default) {
         out.push(render(*t, info));
@@ -355,7 +357,7 @@ fn legend_items(s: &State) -> Vec<LegendItem> {
 }
 
 fn render_legend(ui: &mut Ui) {
-    let items = with(|s| legend_items(s));
+    let items = with(|s| legend_items(ui, s));
     let Some(parent) = c(ui, "lyLegend") else { return };
     clear(ui, parent);
     let muted = ui.theme().color("text_muted");
@@ -370,7 +372,7 @@ fn render_legend(ui: &mut Ui) {
         let marker = if it.kind == "default" { ui.create("Circle", Some(row)) } else { ui.create("Rectangle", Some(row)) };
         if let Ok(m) = marker {
             let (fill, w, margins) = match it.kind {
-                "default" => (rgb(0x22c55e), 8.0, (0.0, 7.0, 10.0, 7.0)),
+                "default" => (pal(ui, "device_default"), 8.0, (0.0, 7.0, 10.0, 7.0)),
                 "mix" => (muted, 3.0, (2.0, 4.0, 13.0, 4.0)),
                 "off" => (off, 3.0, (2.0, 4.0, 13.0, 4.0)),
                 _ => (it.color, 3.0, (2.0, 4.0, 13.0, 4.0)),
@@ -396,7 +398,8 @@ fn render_legend(ui: &mut Ui) {
             }
         }
     }
-    let h = if items.is_empty() { 0.0 } else { 1.0 + 16.0 + 20.0 + 6.0 + items.len() as f32 * LEGEND_ROW + 12.0 };
+    // Linha, 14, o título (13), 8, as linhas, 4 + os 14 do fim da lista.
+    let h = if items.is_empty() { 0.0 } else { 1.0 + 14.0 + 13.0 + 8.0 + items.len() as f32 * LEGEND_ROW + 18.0 };
     set_height(ui, "pnlLegend", h);
     set(ui, "pnlLegend", "visible", !items.is_empty());
 }
@@ -681,18 +684,18 @@ fn render_recording(ui: &mut Ui) {
     };
     set(ui, "lblStatus", "text", status);
     let (dot, status_color) = if active && paused {
-        (rgb(AMBER), Some(rgb(AMBER)))
+        (pal(ui, "amber"), Some(pal(ui, "amber")))
     } else if active {
-        (rgb(RED), Some(rgb(RED)))
+        (pal(ui, "red"), Some(pal(ui, "red")))
     } else {
-        (rgb(GREEN), None)
+        (pal(ui, "green"), None)
     };
     set(ui, "dotStatus", "fill", dot);
     set(ui, "lblStatus", "color", status_color.map_or(PropValue::Null, PropValue::Color));
     set(ui, "lblStatus", "font_weight", if active { "semibold" } else { "default" });
-    set(ui, "lblTimer", "color", if active && paused { PropValue::Color(rgb(AMBER)) } else { PropValue::Null });
+    set(ui, "lblTimer", "color", if active && paused { "amber" } else { "" });
     set(ui, "lblRecordAction", "text", lang::t(if active { "record.stop" } else { "record.start" }));
-    set(ui, "pnlRecordCard", "border_color", if active { PropValue::Color(rgb(RED)) } else { PropValue::Null });
+    set(ui, "pnlRecordCard", "border_color", if active { "red" } else { "" });
     set(ui, "btnPause", "enabled", active);
     set(ui, "btnPause", "icon", if paused { "play" } else { "pause" });
     set(ui, "btnPause", "hint", lang::t(if paused { "record.resume" } else { "record.pause" }));
@@ -765,7 +768,7 @@ pub fn play_stop_sound() {
     }
 }
 
-pub fn record_click(_ui: &mut Ui) {
+pub fn record_click(ui: &mut Ui) {
     let recording = with(|s| s.rec.active);
     if recording {
         // Som de parada AGORA (o arquivo pode levar centenas de ms pra fechar).
@@ -774,8 +777,99 @@ pub fn record_click(_ui: &mut Ui) {
         }
         bridge::handle_record_stop();
     } else {
+        // A onda só no começo: parar já se vê pelo fim do pulso vermelho.
+        if with(|s| s.countdown_sec) == 0 {
+            start_ripple(ui);
+        }
         bridge::handle_record_start_button();
     }
+}
+
+/// `cubic-bezier(x1, y1, x2, y2)` em `t` (0..1): acha o parâmetro da curva
+/// cujo x é `t` (bissecção) e devolve o y.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+    let b = |a: f32, c: f32, u: f32| 3.0 * a * u * (1.0 - u).powi(2) + 3.0 * c * u * u * (1.0 - u) + u.powi(3);
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..30 {
+        let mid = (lo + hi) / 2.0;
+        if b(x1, x2, mid) < t {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    b(y1, y2, (lo + hi) / 2.0)
+}
+
+/// Onda vermelha que sai do botão de gravar: um anel de 4 px no raio 98
+/// crescendo até cobrir a janela e sumindo, 1,8 s com
+/// `cubic-bezier(0.16, 1, 0.3, 1)`, e um brilho largo e fraco junto.
+///
+/// O relógio só anda o que a tela pôde mostrar (no máximo 50 ms por tique):
+/// com a main travada montando a captura, um relógio de parede pularia o
+/// começo da curva — onde está quase toda a expansão.
+pub fn start_ripple(ui: &mut Ui) {
+    let (Some(form), Some(btn)) = (main_form(), c(ui, "btnRecord")) else { return };
+    let Some(b) = ui.absolute_rect(btn) else { return };
+    let Some(f) = ui.bounds(form) else { return };
+    let (cx, cy) = (b.x + b.width / 2.0, b.y + b.height / 2.0);
+    let max_r = (cx.max(f.width - cx).powi(2) + cy.max(f.height - cy).powi(2)).sqrt();
+    if let Some(job) = with(|s| s.ripple_job.take()) {
+        ui.clear_timeout(job);
+    }
+    // O anel e o brilho: círculos só de contorno, por cima de tudo e sem clique.
+    let (ring, glow) = match with(|s| s.ripple).filter(|(r, g)| ui.contains(*r) && ui.contains(*g)) {
+        Some(p) => p,
+        None => {
+            let mut make = |alpha: f32| {
+                let id = ui.create("Circle", Some(form)).ok()?;
+                let _ = ui.set_prop(id, "fill", Color::TRANSPARENT);
+                let red = pal(ui, "red");
+                let _ = ui.set_prop(id, "stroke", red.with_opacity(alpha));
+                if let Some(cb) = ui.control_mut(id) {
+                    cb.set_hit_test(false);
+                }
+                Some(id)
+            };
+            let (Some(glow), Some(ring)) = (make(0.18), make(1.0)) else { return };
+            with(|s| s.ripple = Some((ring, glow)));
+            (ring, glow)
+        }
+    };
+    let (last, played) = (Instant::now(), 0.0f32);
+    fn step(ui: &mut Ui, ring: ComponentId, glow: ComponentId, (cx, cy, max_r): (f32, f32, f32), e: f32) {
+        let s = e * (max_r / 94.0 + 1.0);
+        for (id, w) in [(ring, 4.0 * s), (glow, 24.0 * s)] {
+            let r = 98.0 * s;
+            let _ = ui.set_prop(id, "stroke_width", w.max(0.5) as f64);
+            let _ = ui.set_prop(id, "opacity", (1.0 - e) as f64);
+            if let Some(cb) = ui.control_mut(id) {
+                cb.set_rect(cx - r, cy - r, 2.0 * r, 2.0 * r).set_visible(s > 0.0);
+            }
+        }
+    }
+    let geo = (cx, cy, max_r);
+    step(ui, ring, glow, geo, 0.0);
+    fn tick(ui: &mut Ui, ring: ComponentId, glow: ComponentId, geo: (f32, f32, f32), mut last: Instant, mut played: f32) {
+        let now = Instant::now();
+        played += now.duration_since(last).as_secs_f32().min(0.05);
+        last = now;
+        let k = (played / 1.8).min(1.0);
+        if k >= 1.0 {
+            for id in [ring, glow] {
+                if let Some(cb) = ui.control_mut(id) {
+                    cb.set_visible(false);
+                }
+            }
+            with(|s| s.ripple_job = None);
+            return;
+        }
+        step(ui, ring, glow, geo, cubic_bezier(0.16, 1.0, 0.3, 1.0, k));
+        let job = ui.set_timeout(16, move |ui| tick(ui, ring, glow, geo, last, played));
+        with(|s| s.ripple_job = Some(job));
+    }
+    let job = ui.set_timeout(16, move |ui| tick(ui, ring, glow, geo, last, played));
+    with(|s| s.ripple_job = Some(job));
 }
 
 /// "Capturar...": o seletor (gravando, não abre).
@@ -875,7 +969,7 @@ fn render_replay(ui: &mut Ui) {
     let hint = if st.hotkey.is_empty() { lang::t("replay.saveHintNoKey") } else { lang::t_with("replay.saveHint", &[("spec", &st.hotkey)]) };
     set(ui, "btnReplaySave", "hint", hint);
     let border2 = ui.theme().colors.get("border_2").copied().unwrap_or(ui.theme().color("border"));
-    set(ui, "dotReplay", "fill", if st.active { rgb(GREEN) } else { border2 });
+    set(ui, "dotReplay", "fill", if st.active { pal(ui, "green") } else { border2 });
 }
 
 pub fn on_replay_state(st: &ReplayState) {

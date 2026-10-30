@@ -20,14 +20,15 @@ pub fn register(ui: &mut Ui) {
     ui.register_handler("frmMain.replay_save_click", replay_save_click);
     ui.register_handler("frmMain.display_change", display_change);
     ui.register_handler("frmMain.library_resize", library_resize);
+    ui.register_handler("frmMain.library_background", library_background);
     ui.register_handler("frmMain.library_search", library_search);
     ui.register_handler("frmMain.library_open_dir", library_open_dir);
     ui.register_handler("frmMain.library_new_folder", library_new_folder);
     ui.register_handler("frmMain.library_merge", library_merge);
     ui.register_handler("frmMain.library_export", library_export);
     ui.register_handler("frmMain.library_delete", library_delete);
+    ui.register_handler("frmMain.library_trash_drop", library_trash_drop);
     ui.register_handler("frmMain.library_crumb", library_crumb);
-    ui.register_handler("frmMain.library_background", library_background);
     ui.register_handler("frmMain.picker_close", picker_close);
     ui.register_handler("frmMain.picker_refresh", picker_refresh);
     ui.register_handler("frmMain.picker_mode", picker_mode);
@@ -42,17 +43,17 @@ pub fn register(ui: &mut Ui) {
     ui.register_handler("frmMain.export_resize", export_resize);
     ui.register_handler("frmMain.player_side_close", player_side_close);
     ui.register_handler("frmMain.player_tr_search", player_tr_search);
+    ui.register_handler("frmMain.player_stage_resize", player_stage_resize);
     ui.register_handler("frmMain.player_close", player_close);
     ui.register_handler("frmMain.player_play", player_play);
     ui.register_handler("frmMain.player_fullscreen", player_fullscreen);
-    ui.register_handler("frmMain.player_transcript", player_transcript);
     ui.register_handler("frmMain.player_info", player_info);
     ui.register_handler("frmMain.player_captions", player_captions);
     ui.register_handler("frmMain.player_speed", player_speed);
-    ui.register_handler("frmMain.player_volume", player_volume);
     ui.register_handler("frmMain.player_mute", player_mute);
     ui.register_handler("frmMain.player_seek", player_seek);
-    ui.register_handler("frmMain.player_stage_resize", player_stage_resize);
+    ui.register_handler("frmMain.player_volume", player_volume);
+    ui.register_handler("frmMain.player_transcript", player_transcript);
     // iron-ide:register-end
 }
 
@@ -267,4 +268,8 @@ pub fn export_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
 
 pub fn export_resize(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
     crate::app_export::resized(ui);
+}
+
+pub fn library_trash_drop(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_library::drop_on_trash(ui);
 }

@@ -427,9 +427,9 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
     let present = |d: &mut Dec, held: bool, lay: &Option<Layout>, pts: f64| {
         shared.set_position(pts);
         let Some(l) = lay else { return };
-        if shared.ui_pending.swap(true, Ordering::AcqRel) {
-            return;
-        }
+        // A interface guarda só o mais recente (ver `app_view::frame_sink`): entregar
+        // sempre não empilha nada, e o quadro não se perde por ela estar pintando.
+        shared.ui_pending.store(true, Ordering::Release);
         match d.render(held, l) {
             Some(buf) => out(Out::Frame { buf, x: l.x, y: l.y, view: (l.zoom, l.pan_x, l.pan_y) }),
             None => shared.ui_pending.store(false, Ordering::Release),

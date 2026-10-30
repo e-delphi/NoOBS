@@ -20,7 +20,7 @@ use crate::app_view::{main_form, with_ui};
 use crate::bridge::export::{self as bexp, ExportRequest};
 use crate::playback::{Out, Playback, Region, ViewSpec};
 use crate::view::{ExportEncoderInfo, StreamInfo, Transcript, Turn, VideoInfo, VideoLayout};
-use crate::{bridge, config, lang, log, mainthread};
+use crate::{bridge, config, lang, log};
 
 /// Menor recorte útil, em pixels da origem.
 const CROP_MIN: i32 = 32;
@@ -271,10 +271,7 @@ pub fn open_for(ui: &mut Ui, rec: &str) {
     // Prévia: o motor do player, parado no começo.
     let view = with(|st| view_spec(st));
     let id_out = rec.to_owned();
-    let out: Arc<dyn Fn(Out) + Send + Sync> = Arc::new(move |o| {
-        let id = id_out.clone();
-        mainthread::queue(move || with_ui(move |ui| on_out(ui, &id, o)));
-    });
+    let out: Arc<dyn Fn(Out) + Send + Sync> = crate::app_view::frame_sink(id_out, on_out);
     let pb = Playback::open_paused(rec, view, out);
     with(|st| st.pb = Some(pb));
     push_volumes();
@@ -1784,13 +1781,13 @@ fn render_timeline(ui: &mut Ui) {
         }
     }
     let mut marks = Vec::new();
-    let accent = Color::rgb(0xf5, 0x9e, 0x0b);
+    let accent = ui.theme().color("amber");
     for (x, target) in m.cuts {
         if !(-2.0..=m.view + 2.0).contains(&x) {
             continue;
         }
         if let Ok(r) = ui.create("Rectangle", Some(tl)) {
-            let _ = ui.set_prop(r, "fill", if target { accent } else { Color::rgb(0x71, 0x71, 0x7a) });
+            let _ = ui.set_prop(r, "fill", if target { accent } else { ui.theme().color("text_3") });
             let _ = ui.set_prop(r, "stroke_width", 0.0);
             if let Some(cb) = ui.control_mut(r) {
                 cb.set_rect(x - 1.0, 0.0, 2.0, TL_H).set_hit_test(false);
@@ -2513,7 +2510,7 @@ fn render_speed(ui: &mut Ui) {
             let _ = ui.set_prop(e, "text", text.as_str());
         }
         // Sem a cor própria (texto vazio), volta a do tema.
-        let _ = ui.set_prop(e, "border_color", if invalid { PropValue::Color(Color::rgb(0xef, 0x44, 0x44)) } else { PropValue::String(String::new()) });
+        let _ = ui.set_prop(e, "border_color", PropValue::String(if invalid { "red" } else { "" }.into()));
     }
     render_tlbar(ui);
 }
@@ -2558,7 +2555,7 @@ fn render_quality(ui: &mut Ui) {
         _ => None,
     });
     put(ui, "q_hint", "text", hint.as_str());
-    put(ui, "q_hint", "text_color", if warn { PropValue::Color(Color::rgb(0xf5, 0x9e, 0x0b)) } else { PropValue::String(String::new()) });
+    put(ui, "q_hint", "text_color", PropValue::String(if warn { "amber" } else { "" }.into()));
     if old.as_deref() != Some(hint.as_str()) {
         relayout_hint(ui, "q_hint");
     }

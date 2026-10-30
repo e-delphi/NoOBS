@@ -29,7 +29,11 @@ const CARD_H: f32 = 148.0;
 const FOLDER_H: f32 = 54.0;
 const GAP: f32 = 12.0;
 /// A altura do título de um grupo (com a linha embaixo e o respiro).
-const GROUP_HEAD: f32 = 46.0;
+/// Título de grupo: 6 + 15,4 + 6 + 1 de linha, e 8 até os cartões.
+const GROUP_HEAD: f32 = 28.4 + 8.0;
+/// O vão antes de um grupo: 14 depois do cabeçalho, 18 entre grupos.
+const FIRST_GAP: f32 = 14.0;
+const GROUP_GAP: f32 = 18.0;
 
 #[derive(Default)]
 struct State {
@@ -58,6 +62,8 @@ struct State {
     menu: Option<ComponentId>,
     /// Quantas colunas cabem (a altura das grades sai daí).
     cols: usize,
+    /// O que está sendo arrastado (gravações e/ou pastas).
+    drag: Vec<String>,
 }
 
 thread_local! {
@@ -163,7 +169,8 @@ fn search_text(it: &RecItem) -> String {
 fn badges(it: &RecItem) -> String {
     let mut out = Vec::new();
     if !it.codec.is_empty() {
-        out.push(if it.codec_hw { format!("*{}", it.codec) } else { it.codec.clone() });
+        // Âmbar quando a codificação foi por software (como no original).
+        out.push(if it.codec_hw { it.codec.clone() } else { format!("*{}", it.codec) });
     }
     if it.fps > 0 {
         out.push(format!("{}{}", it.fps, lang::t("recordings.badge.fpsSuffix")));
@@ -204,10 +211,10 @@ fn grid_height(n: usize, cols: usize, h: f32) -> f32 {
 
 /// O título de um grupo: o rótulo em caixa-alta, a linha e (nas gravações) a
 /// caixa de selecionar o grupo todo.
-fn add_group_head(ui: &mut Ui, parent: ComponentId, label: &str, check: Option<(bool, Vec<String>)>) -> Option<ComponentId> {
+fn add_group_head(ui: &mut Ui, parent: ComponentId, label: &str, check: Option<(bool, Vec<String>)>, gap: f32) -> Option<ComponentId> {
     let head = ui.create("Layout", Some(parent)).ok()?;
     if let Some(cb) = ui.control_mut(head) {
-        cb.set_align(Align::Top).set_height(GROUP_HEAD - 12.0).set_margins([0.0, 12.0, 0.0, 12.0]);
+        cb.set_align(Align::Top).set_height(28.4).set_margins([0.0, gap, 0.0, 8.0]).set_hit_test(false);
     }
     let line = ui.create("Rectangle", Some(head)).ok()?;
     let _ = ui.set_prop(line, "style", "sep");
@@ -220,7 +227,7 @@ fn add_group_head(ui: &mut Ui, parent: ComponentId, label: &str, check: Option<(
             let _ = ui.set_prop(b, "checked", all);
             let _ = ui.set_prop(b, "hint", lang::t("recordings.selectAllInGroup"));
             if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_width(22.0).set_margins([0.0, 2.0, 2.0, 8.0]);
+                cb.set_align(Align::Right).set_width(16.0).set_margins([0.0, 5.7, 0.0, 6.7]);
             }
             let ids2 = ids.clone();
             ui.on(b, "on_change", move |ui, _, _| group_toggle(ui, &ids2));
@@ -232,9 +239,9 @@ fn add_group_head(ui: &mut Ui, parent: ComponentId, label: &str, check: Option<(
         let _ = ui.set_prop(l, "style", "section");
         let _ = ui.set_prop(l, "text", label);
         let _ = ui.set_prop(l, "text_case", "upper");
-        let _ = ui.set_prop(l, "letter_spacing", 1.0);
+        let _ = ui.set_prop(l, "letter_spacing", 0.66);
         if let Some(cb) = ui.control_mut(l) {
-            cb.set_align(Align::Client).set_margins([0.0, 0.0, 0.0, 8.0]);
+            cb.set_align(Align::Client).set_margins([0.0, 6.0, 0.0, 7.0]);
         }
     }
     let _ = boxed;
@@ -246,7 +253,8 @@ fn add_grid(ui: &mut Ui, parent: ComponentId, n: usize, cols: usize, h: f32) -> 
     let _ = ui.set_prop(grid, "gap", GAP);
     let _ = ui.set_prop(grid, "line_gap", GAP);
     if let Some(cb) = ui.control_mut(grid) {
-        cb.set_align(Align::Top).set_height(grid_height(n, cols, h)).set_clip_children(false);
+        // Os vãos entre os cartões são do fundo (o menu do botão direito).
+        cb.set_align(Align::Top).set_height(grid_height(n, cols, h)).set_clip_children(false).set_hit_test(false);
     }
     Some(grid)
 }
@@ -310,7 +318,7 @@ fn render(ui: &mut Ui) {
     });
     let _ = items;
     set(ui, "lblLibMeta", "text", meta.join("   |   "));
-    set(ui, "lblLibMeta", "color", if low_disk { PropValue::Color(Color::rgb(0xf5, 0x9e, 0x0b)) } else { PropValue::Null });
+    set(ui, "lblLibMeta", "color", if low_disk { "amber" } else { "" });
     set(ui, "lblLibMeta", "hint", if low_disk { lang::t("recordings.lowSpaceHint") } else { String::new() });
     // O caminho, fora da raiz.
     set(ui, "brdLib", "visible", !at_root);
@@ -328,27 +336,30 @@ fn render(ui: &mut Ui) {
         st.groups.clear();
     });
     let mut height = 0.0;
+    let mut gap = FIRST_GAP;
     if !folders.is_empty() {
-        add_group_head(ui, content, &lang::t("recordings.foldersGroup"), None);
-        height += GROUP_HEAD;
+        add_group_head(ui, content, &lang::t("recordings.foldersGroup"), None, gap);
+        height += gap + GROUP_HEAD;
         if let Some(grid) = add_grid(ui, content, folders.len(), cols, FOLDER_H) {
             for (id, name, meta, up) in &folders {
                 add_folder_card(ui, grid, id, name, meta, *up);
             }
-            height += grid_height(folders.len(), cols, FOLDER_H) + 8.0;
+            height += grid_height(folders.len(), cols, FOLDER_H);
         }
+        gap = GROUP_GAP;
     }
     for (label, list) in &groups {
         let ids: Vec<String> = list.iter().map(|it| it.id.clone()).collect();
         let all = with(|st| ids.iter().all(|id| st.selection.contains(id)));
-        add_group_head(ui, content, label, Some((all, ids)));
-        height += GROUP_HEAD;
+        add_group_head(ui, content, label, Some((all, ids)), gap);
+        height += gap + GROUP_HEAD;
         if let Some(grid) = add_grid(ui, content, list.len(), cols, CARD_H) {
             for it in list {
                 add_rec_card(ui, grid, it);
             }
-            height += grid_height(list.len(), cols, CARD_H) + 8.0;
+            height += grid_height(list.len(), cols, CARD_H);
         }
+        gap = GROUP_GAP;
     }
     if let Some(cb) = ui.control_mut(content) {
         cb.set_height(height);
@@ -356,7 +367,8 @@ fn render(ui: &mut Ui) {
     let crumb_h = if at_root { 0.0 } else { 42.0 };
     let empty_h = if empty { 60.0 } else { 0.0 };
     if let Some(cb) = c(ui, "lyLibrary").and_then(|id| ui.control_mut(id)) {
-        cb.set_height(26.0 + 28.0 + 48.0 + crumb_h + empty_h + height + 30.0);
+        // 20 + título 22 + 10 + ações 30, o caminho, o aviso, os grupos e 30 embaixo.
+        cb.set_height(20.0 + 22.0 + 10.0 + 30.0 + crumb_h + empty_h + height + 30.0);
     }
     sync_bar(ui);
     ui.layout();
@@ -377,8 +389,11 @@ fn add_rec_card(ui: &mut Ui, grid: ComponentId, it: &RecItem) {
     let _ = ui.set_prop(card, "dimmed", cut);
     let _ = ui.set_prop(card, "selection_mode", selection_mode);
     if let Some(cb) = ui.control_mut(card) {
-        cb.set_rect(0.0, 0.0, CARD_W, CARD_H);
+        cb.set_rect(0.0, 0.0, CARD_W, CARD_H).set_draggable(true);
     }
+    let id = it.id.clone();
+    ui.on(card, "on_drag_start", move |ui, _, _| drag_start(ui, &id));
+    ui.on(card, "on_drag_end", |ui, _, _| drag_end(ui));
     if let Some(image) = thumb_for(&it.id, &it.thumb) {
         if let Some(mc) = ui.get_mut::<MediaCard>(card) {
             mc.set_image(Some(image));
@@ -407,7 +422,22 @@ fn add_folder_card(ui: &mut Ui, grid: ComponentId, id: &str, name: &str, meta: &
     let cut = with(|st| st.clipboard.iter().any(|c| c == id));
     let _ = ui.set_prop(card, "dimmed", cut && !up);
     if let Some(cb) = ui.control_mut(card) {
-        cb.set_rect(0.0, 0.0, CARD_W, FOLDER_H);
+        // Pasta recebe o que é solto nela (o ".." manda para a de cima); as outras
+        // também se arrastam.
+        cb.set_rect(0.0, 0.0, CARD_W, FOLDER_H).set_accepts_drops(true).set_draggable(!up);
+    }
+    let target = id.to_owned();
+    ui.on(card, "on_drag_over", move |ui, _, _| {
+        if !can_drop(&target) {
+            ui.reject_drop();
+        }
+    });
+    let target = id.to_owned();
+    ui.on(card, "on_drag_drop", move |ui, _, _| drop_on_folder(ui, &target));
+    if !up {
+        let source = id.to_owned();
+        ui.on(card, "on_drag_start", move |ui, _, _| drag_start(ui, &source));
+        ui.on(card, "on_drag_end", |ui, _, _| drag_end(ui));
     }
     let target = id.to_owned();
     ui.on(card, "on_click", move |ui, _, _| {
@@ -685,6 +715,87 @@ fn target_ids(id: &str) -> Vec<String> {
     with(|st| if st.selection.len() > 1 && st.selection.iter().any(|s| s == id) { st.selection.clone() } else { vec![id.to_owned()] })
 }
 
+fn is_folder(id: &str) -> bool {
+    with(|st| st.lib.folders.iter().any(|f| f.id.eq_ignore_ascii_case(id)))
+}
+
+// ----- arrastar -----
+
+/// Começa a arrastar o cartão (com a seleção, se ele estiver nela). A lixeira acende.
+fn drag_start(ui: &mut Ui, id: &str) {
+    if with(|st| st.editing.is_some()) {
+        return;
+    }
+    let ids = target_ids(id);
+    let label = with(|st| {
+        let name_of = |id: &str| {
+            st.lib
+                .recordings
+                .iter()
+                .find(|r| r.id == id)
+                .map(|r| r.name.clone())
+                .or_else(|| st.lib.folders.iter().find(|f| f.id == id).map(|f| f.name.clone()))
+                .unwrap_or_default()
+        };
+        let first = name_of(&ids[0]);
+        if ids.len() > 1 { format!("{first} +{}", ids.len() - 1) } else { first }
+    });
+    with(|st| st.drag = ids.clone());
+    ui.begin_drag(ids.join("\n"), label);
+    set(ui, "btnLibDelete", "enabled", true);
+    set(ui, "btnLibDelete", "text_color", "red");
+}
+
+/// Acabou (solto ou cancelado): a barra volta ao normal.
+fn drag_end(ui: &mut Ui) {
+    with(|st| st.drag.clear());
+    set(ui, "btnLibDelete", "text_color", "");
+    sync_bar(ui);
+}
+
+/// Nem a própria pasta, nem pasta dentro dela mesma, nem onde já está.
+fn can_drop(target: &str) -> bool {
+    let t = target.to_lowercase();
+    if t.is_empty() {
+        return false;
+    }
+    with(|st| {
+        !st.drag.is_empty()
+            && st.drag.iter().all(|s| {
+                let s = s.to_lowercase();
+                if s == t || t.starts_with(&format!("{s}\\")) {
+                    return false;
+                }
+                !matches!(s.rfind('\\'), Some(cut) if cut > 0 && s[..cut] == t)
+            })
+    })
+}
+
+fn drop_on_folder(ui: &mut Ui, target: &str) {
+    let ids = with(|st| st.drag.clone());
+    if ids.is_empty() || !can_drop(target) || export_blocked(&ids) {
+        return;
+    }
+    // Solto: a seleção não descreve mais o que está na tela.
+    with(|st| st.selection.clear());
+    refresh_marks(ui);
+    bridge::handle_move_items(&ids, target);
+}
+
+/// Solto na lixeira: pasta tem confirmação própria (avisa quantas gravações vão
+/// junto); arrastar uma pasta leva só ela.
+pub fn drop_on_trash(ui: &mut Ui) {
+    let ids = with(|st| st.drag.clone());
+    if ids.is_empty() {
+        return;
+    }
+    if ids.len() == 1 && is_folder(&ids[0]) {
+        delete_folder(ui, &ids[0]);
+    } else {
+        delete_recordings(ui, ids.into_iter().filter(|x| !is_folder(x)).collect());
+    }
+}
+
 fn export_blocked(ids: &[String]) -> bool {
     if ids.iter().any(|id| bridge::export_in_use(id)) {
         crate::app_view::show_toast(&lang::t("toast.errorTitle"), &lang::t("error.exportBusyFile"), true, 6000);
@@ -778,11 +889,8 @@ fn paste(ui: &mut Ui, target: &str) {
 
 /// O diálogo de confirmação (o `confirm` do iron); `on_ok` roda no OK.
 fn confirm(ui: &mut Ui, title: String, message: String, ok: String, danger: bool, on_ok: impl FnOnce(&mut Ui) + 'static) {
-    iron::prelude::confirm(ui, &title, &message, &ok, danger, move |ui, yes| {
-        if yes {
-            on_ok(ui);
-        }
-    });
+    let icon = if danger { crate::app_view::ConfirmIcon::Delete } else { crate::app_view::ConfirmIcon::Merge };
+    crate::app_view::confirm(ui, &title, &message, &ok, danger, icon, on_ok);
 }
 
 fn do_delete(ui: &mut Ui, ids: Vec<String>) {
@@ -1063,7 +1171,9 @@ fn ctx_run(ui: &mut Ui, action: &str) {
 /// O fundo da biblioteca: o menu de pasta nova, colar e voltar.
 pub fn background_context(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
     if let EventArgs::Pointer(e) = args {
-        open_context(ui, sender, "empty", "", e.position);
+        if e.button == PointerButton::Secondary {
+            open_context(ui, sender, "empty", "", e.position);
+        }
     }
 }
 

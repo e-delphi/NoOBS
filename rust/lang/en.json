@@ -737,9 +737,9 @@
       "Rust — native Win64 target",
       "Direct3D 11 + Windows Graphics Capture + WASAPI — screen, window, webcam and audio capture",
       "FFmpeg — encoders, MKV/MP4, remux, track extraction and thumbnails",
-      "Slint — native interface (Skia renderer)"
+      "iron — native interface (Direct2D renderer)"
     ],
-    "footer": "Uses FFmpeg (LGPL/GPL) and Slint (royalty-free license).",
+    "footer": "Uses FFmpeg (LGPL/GPL) and iron.",
     "close": "Close"
   },
   "player": {

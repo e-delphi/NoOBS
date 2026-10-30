@@ -29,6 +29,248 @@ fn text(ui: &Ui, value: Option<PropValue>) -> String {
     }
 }
 
+/// Um ActivityIndicator de um form.
+pub struct ActivityIndicator {
+    pub target: &'static str,
+}
+
+impl ActivityIndicator {
+    pub fn active(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "active").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_active(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "active", value)
+    }
+    pub fn left(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_left(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "left", value)
+    }
+    pub fn top(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "top").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_top(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "top", value)
+    }
+    pub fn width(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "width").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_width(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "width", value)
+    }
+    pub fn height(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "height").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_height(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "height", value)
+    }
+    pub fn align(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "align"))
+    }
+    pub fn set_align(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "align", Into::<String>::into(value))
+    }
+    pub fn visible(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "visible").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_visible(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "visible", value)
+    }
+    pub fn enabled(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "enabled").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_enabled(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "enabled", value)
+    }
+    pub fn hit_test(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "hit_test").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_hit_test(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "hit_test", value)
+    }
+    pub fn clip_children(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "clip_children").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_clip_children(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "clip_children", value)
+    }
+    pub fn can_focus(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "can_focus").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
+    pub fn tab_stop(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_tab_stop(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "tab_stop", value)
+    }
+    pub fn cursor(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "cursor"))
+    }
+    pub fn set_cursor(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "cursor", Into::<String>::into(value))
+    }
+    pub fn opacity(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "opacity").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_opacity(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "opacity", value)
+    }
+    pub fn rotation(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "rotation").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_rotation(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "rotation", value)
+    }
+    pub fn translate_x(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_x").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_x(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_x", value)
+    }
+    pub fn translate_y(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "translate_y").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_translate_y(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "translate_y", value)
+    }
+    pub fn aspect_ratio(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "aspect_ratio").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_aspect_ratio(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "aspect_ratio", value)
+    }
+    pub fn shadow(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "shadow"))
+    }
+    pub fn set_shadow(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "shadow", Into::<String>::into(value))
+    }
+    pub fn style(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "style"))
+    }
+    pub fn set_style(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "style", Into::<String>::into(value))
+    }
+    pub fn theme(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "theme"))
+    }
+    pub fn set_theme(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "theme", Into::<String>::into(value))
+    }
+    pub fn fill(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "fill"))
+    }
+    pub fn set_fill(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "fill", Into::<String>::into(value))
+    }
+    pub fn border_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "border_color"))
+    }
+    pub fn set_border_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "border_color", Into::<String>::into(value))
+    }
+    pub fn text_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "text_color"))
+    }
+    pub fn set_text_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "text_color", Into::<String>::into(value))
+    }
+    pub fn accent_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "accent_color"))
+    }
+    pub fn set_accent_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "accent_color", Into::<String>::into(value))
+    }
+    pub fn success_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "success_color"))
+    }
+    pub fn set_success_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "success_color", Into::<String>::into(value))
+    }
+    pub fn warning_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "warning_color"))
+    }
+    pub fn set_warning_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "warning_color", Into::<String>::into(value))
+    }
+    pub fn danger_color(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "danger_color"))
+    }
+    pub fn set_danger_color(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "danger_color", Into::<String>::into(value))
+    }
+    pub fn font_family(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_family"))
+    }
+    pub fn set_font_family(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_family", Into::<String>::into(value))
+    }
+    pub fn font_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "font_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_font_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "font_size", value)
+    }
+    pub fn font_weight(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "font_weight"))
+    }
+    pub fn set_font_weight(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "font_weight", Into::<String>::into(value))
+    }
+    pub fn font_italic(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_italic").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_italic(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_italic", value)
+    }
+    pub fn font_underline(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_underline").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_underline(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_underline", value)
+    }
+    pub fn font_strikeout(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "font_strikeout").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_font_strikeout(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "font_strikeout", value)
+    }
+    pub fn hint(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "hint"))
+    }
+    pub fn set_hint(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "hint", Into::<String>::into(value))
+    }
+    pub fn tag(&self, ui: &Ui) -> i64 {
+        get(ui, self.target, "tag").and_then(|v| v.to_i64().ok()).unwrap_or_default()
+    }
+    pub fn set_tag(&self, ui: &mut Ui, value: i64) {
+        set(ui, self.target, "tag", value)
+    }
+    pub fn popup_menu(&self, ui: &Ui) -> String {
+        text(ui, get(ui, self.target, "popup_menu"))
+    }
+    pub fn set_popup_menu(&self, ui: &mut Ui, value: impl Into<String>) {
+        set(ui, self.target, "popup_menu", Into::<String>::into(value))
+    }
+}
+
 /// Um Breadcrumb de um form.
 pub struct Breadcrumb {
     pub target: &'static str,
@@ -100,6 +342,18 @@ impl Breadcrumb {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -373,6 +627,18 @@ impl Button {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -630,6 +896,18 @@ impl Chip {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -874,6 +1152,18 @@ impl Circle {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -1297,6 +1587,18 @@ impl Edit {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -1541,6 +1843,18 @@ impl FlowLayout {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -1850,6 +2164,18 @@ impl Form {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -2103,6 +2429,18 @@ impl FrameView {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -2327,6 +2665,12 @@ impl Label {
     pub fn set_text_case(&self, ui: &mut Ui, value: impl Into<String>) {
         set(ui, self.target, "text_case", Into::<String>::into(value))
     }
+    pub fn markup(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "markup").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_markup(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "markup", value)
+    }
     pub fn focus_control(&self, ui: &Ui) -> String {
         text(ui, get(ui, self.target, "focus_control"))
     }
@@ -2392,6 +2736,18 @@ impl Label {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -2640,6 +2996,18 @@ impl Layout {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -2925,6 +3293,18 @@ impl Panel {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -3178,6 +3558,18 @@ impl RecordButton {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -3439,6 +3831,18 @@ impl Rectangle {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -3662,6 +4066,18 @@ impl ScreenLayout {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -3929,6 +4345,18 @@ impl ScrollBox {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -4171,6 +4599,18 @@ impl SegmentedControl {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -4410,6 +4850,18 @@ impl Switch {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -4607,6 +5059,24 @@ impl TrackBar {
     pub fn set_vertical(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "vertical", value)
     }
+    pub fn thumb_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "thumb_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_thumb_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "thumb_size", value)
+    }
+    pub fn track_size(&self, ui: &Ui) -> f64 {
+        get(ui, self.target, "track_size").and_then(|v| v.to_f64().ok()).unwrap_or_default()
+    }
+    pub fn set_track_size(&self, ui: &mut Ui, value: f64) {
+        set(ui, self.target, "track_size", value)
+    }
+    pub fn solid_thumb(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "solid_thumb").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_solid_thumb(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "solid_thumb", value)
+    }
     pub fn left(&self, ui: &Ui) -> f64 {
         get(ui, self.target, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
     }
@@ -4666,6 +5136,18 @@ impl TrackBar {
     }
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
+    }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
     }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -4906,6 +5388,18 @@ impl Waveform {
     pub fn set_can_focus(&self, ui: &mut Ui, value: bool) {
         set(ui, self.target, "can_focus", value)
     }
+    pub fn draggable(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "draggable").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_draggable(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "draggable", value)
+    }
+    pub fn accepts_drops(&self, ui: &Ui) -> bool {
+        get(ui, self.target, "accepts_drops").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_accepts_drops(&self, ui: &mut Ui, value: bool) {
+        set(ui, self.target, "accepts_drops", value)
+    }
     pub fn tab_stop(&self, ui: &Ui) -> bool {
         get(ui, self.target, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -5065,6 +5559,17 @@ impl Waveform {
 }
 
 impl FrmMainComponents {
+    /// O ActivityIndicator deste form com o nome (`None` se não há um ActivityIndicator com ele).
+    pub fn find_activity_indicator(&'static self, name: &str) -> Option<&'static ActivityIndicator> {
+        match name {
+            "aniPlayerLoading" => Some(&self.aniPlayerLoading),
+            _ => None,
+        }
+    }
+    /// O ActivityIndicator que disparou o evento (`None` se o `sender` não é um ActivityIndicator deste form).
+    pub fn sender_as_activity_indicator(&'static self, ui: &Ui, sender: ComponentId) -> Option<&'static ActivityIndicator> {
+        self.find_activity_indicator(ui.name(sender)?)
+    }
     /// O Breadcrumb deste form com o nome (`None` se não há um Breadcrumb com ele).
     pub fn find_breadcrumb(&'static self, name: &str) -> Option<&'static Breadcrumb> {
         match name {
@@ -5093,13 +5598,13 @@ impl FrmMainComponents {
             "btnPickerClose" => Some(&self.btnPickerClose),
             "btnPickerRefresh" => Some(&self.btnPickerRefresh),
             "btnSelectArea" => Some(&self.btnSelectArea),
-            "btnSetClose" => Some(&self.btnSetClose),
+            "btnSetBack" => Some(&self.btnSetBack),
             "btnExClose" => Some(&self.btnExClose),
             "btnSideClose" => Some(&self.btnSideClose),
             "btnPlayerClose" => Some(&self.btnPlayerClose),
             "btnPlay" => Some(&self.btnPlay),
+            "btnClockIcon" => Some(&self.btnClockIcon),
             "btnFullscreen" => Some(&self.btnFullscreen),
-            "btnTranscript" => Some(&self.btnTranscript),
             "btnInfo" => Some(&self.btnInfo),
             "btnCaptions" => Some(&self.btnCaptions),
             "btnSpeed" => Some(&self.btnSpeed),
@@ -5129,6 +5634,7 @@ impl FrmMainComponents {
         match name {
             "dotStatus" => Some(&self.dotStatus),
             "dotReplay" => Some(&self.dotReplay),
+            "cirPauseFlash" => Some(&self.cirPauseFlash),
             _ => None,
         }
     }
@@ -5205,15 +5711,21 @@ impl FrmMainComponents {
             "lblAreaStep1" => Some(&self.lblAreaStep1),
             "lblAreaStep2" => Some(&self.lblAreaStep2),
             "lblSetTitle" => Some(&self.lblSetTitle),
-            "lblSetTab" => Some(&self.lblSetTab),
             "lblExTitle" => Some(&self.lblExTitle),
             "lblSideTitle" => Some(&self.lblSideTitle),
+            "lblCaption" => Some(&self.lblCaption),
+            "lblPlayerZoom" => Some(&self.lblPlayerZoom),
+            "lblPlayerLoading" => Some(&self.lblPlayerLoading),
             "lblPlayerPaused" => Some(&self.lblPlayerPaused),
             "lblPlayerTitle" => Some(&self.lblPlayerTitle),
             "lblPlayerTime" => Some(&self.lblPlayerTime),
             "lblPlayerClock" => Some(&self.lblPlayerClock),
-            "lblPlayerLoading" => Some(&self.lblPlayerLoading),
-            "lblCaption" => Some(&self.lblCaption),
+            "lblVolPct" => Some(&self.lblVolPct),
+            "lblCcCheck1" => Some(&self.lblCcCheck1),
+            "lblCcKey1" => Some(&self.lblCcKey1),
+            "lblCcCaptions" => Some(&self.lblCcCaptions),
+            "lblCcCheck2" => Some(&self.lblCcCheck2),
+            "lblCcTranscript" => Some(&self.lblCcTranscript),
             _ => None,
         }
     }
@@ -5245,14 +5757,22 @@ impl FrmMainComponents {
             "lyPickerWindow" => Some(&self.lyPickerWindow),
             "lyPickerTools" => Some(&self.lyPickerTools),
             "lyPickerArea" => Some(&self.lyPickerArea),
-            "lySetTabs" => Some(&self.lySetTabs),
-            "lySetMain" => Some(&self.lySetMain),
             "lySetHead" => Some(&self.lySetHead),
+            "lySetTabs" => Some(&self.lySetTabs),
             "lySettings" => Some(&self.lySettings),
             "lyExHead" => Some(&self.lyExHead),
             "lyExport" => Some(&self.lyExport),
+            "lySideBody" => Some(&self.lySideBody),
             "lyPlayerSideHead" => Some(&self.lyPlayerSideHead),
+            "lyTrSearch" => Some(&self.lyTrSearch),
             "lySide" => Some(&self.lySide),
+            "lyStage" => Some(&self.lyStage),
+            "lyPlayerLoading" => Some(&self.lyPlayerLoading),
+            "lyChrome" => Some(&self.lyChrome),
+            "lyPlayerClock" => Some(&self.lyPlayerClock),
+            "lyVolPop" => Some(&self.lyVolPop),
+            "lyCcPop" => Some(&self.lyCcPop),
+            "lySpeedItems" => Some(&self.lySpeedItems),
             _ => None,
         }
     }
@@ -5276,8 +5796,16 @@ impl FrmMainComponents {
             "pnlExport" => Some(&self.pnlExport),
             "pnlPlayer" => Some(&self.pnlPlayer),
             "pnlPlayerSide" => Some(&self.pnlPlayerSide),
+            "pnlPauseFlash" => Some(&self.pnlPauseFlash),
+            "pnlPlayerLoading" => Some(&self.pnlPlayerLoading),
             "pnlPlayerHead" => Some(&self.pnlPlayerHead),
+            "pnlPlayerPaused" => Some(&self.pnlPlayerPaused),
             "pnlPlayerBar" => Some(&self.pnlPlayerBar),
+            "pnlVolPop" => Some(&self.pnlVolPop),
+            "pnlCcPop" => Some(&self.pnlCcPop),
+            "pnlCcCaptions" => Some(&self.pnlCcCaptions),
+            "pnlCcTranscript" => Some(&self.pnlCcTranscript),
+            "pnlSpeedPop" => Some(&self.pnlSpeedPop),
             _ => None,
         }
     }
@@ -5304,8 +5832,16 @@ impl FrmMainComponents {
             "lnSources" => Some(&self.lnSources),
             "lnLegend" => Some(&self.lnLegend),
             "lnPicker" => Some(&self.lnPicker),
+            "lnSetHead" => Some(&self.lnSetHead),
             "lnSetSide" => Some(&self.lnSetSide),
             "lnExHead" => Some(&self.lnExHead),
+            "recSideEdge" => Some(&self.recSideEdge),
+            "recSideHeadLine" => Some(&self.recSideHeadLine),
+            "recTrSearchLine" => Some(&self.recTrSearchLine),
+            "recPauseFlash1" => Some(&self.recPauseFlash1),
+            "recPauseFlash2" => Some(&self.recPauseFlash2),
+            "recPaused1" => Some(&self.recPaused1),
+            "recPaused2" => Some(&self.recPaused2),
             _ => None,
         }
     }
@@ -5484,14 +6020,13 @@ pub struct FrmMainComponents {
     pub lyAreaButtons: FlowLayout,
     pub btnSelectArea: Button,
     pub pnlSettings: Panel,
+    pub lySetHead: Layout,
+    pub lnSetHead: Rectangle,
+    pub btnSetBack: Button,
+    pub lblSetTitle: Label,
     pub pnlSetSide: Panel,
     pub lnSetSide: Rectangle,
-    pub lblSetTitle: Label,
     pub lySetTabs: Layout,
-    pub lySetMain: Layout,
-    pub lySetHead: Layout,
-    pub btnSetClose: Button,
-    pub lblSetTab: Label,
     pub scrSettings: ScrollBox,
     pub lySettings: Layout,
     pub pnlExport: Panel,
@@ -5503,31 +6038,64 @@ pub struct FrmMainComponents {
     pub lyExport: Layout,
     pub pnlPlayer: Panel,
     pub pnlPlayerSide: Panel,
+    pub recSideEdge: Rectangle,
+    pub lySideBody: Layout,
     pub lyPlayerSideHead: Layout,
+    pub recSideHeadLine: Rectangle,
     pub btnSideClose: Button,
     pub lblSideTitle: Label,
+    pub lyTrSearch: Layout,
+    pub recTrSearchLine: Rectangle,
     pub edTrSearch: Edit,
     pub scrPlayerSide: ScrollBox,
     pub lySide: Layout,
+    pub lyStage: Layout,
+    pub frmVideo: FrameView,
+    pub lblCaption: Label,
+    pub lblPlayerZoom: Label,
+    pub pnlPauseFlash: Panel,
+    pub cirPauseFlash: Circle,
+    pub recPauseFlash1: Rectangle,
+    pub recPauseFlash2: Rectangle,
+    pub pnlPlayerLoading: Panel,
+    pub lyPlayerLoading: Layout,
+    pub aniPlayerLoading: ActivityIndicator,
+    pub lblPlayerLoading: Label,
+    pub lyChrome: Layout,
     pub pnlPlayerHead: Panel,
     pub btnPlayerClose: Button,
+    pub pnlPlayerPaused: Panel,
+    pub recPaused1: Rectangle,
+    pub recPaused2: Rectangle,
     pub lblPlayerPaused: Label,
     pub lblPlayerTitle: Label,
     pub pnlPlayerBar: Panel,
     pub btnPlay: Button,
     pub lblPlayerTime: Label,
+    pub lyPlayerClock: Layout,
+    pub btnClockIcon: Button,
+    pub lblPlayerClock: Label,
     pub btnFullscreen: Button,
-    pub btnTranscript: Button,
     pub btnInfo: Button,
     pub btnCaptions: Button,
     pub btnSpeed: Button,
-    pub trkVolume: TrackBar,
     pub btnMute: Button,
-    pub lblPlayerClock: Label,
     pub wavPlayer: Waveform,
-    pub frmVideo: FrameView,
-    pub lblPlayerLoading: Label,
-    pub lblCaption: Label,
+    pub lyVolPop: Layout,
+    pub pnlVolPop: Panel,
+    pub lblVolPct: Label,
+    pub trkVolume: TrackBar,
+    pub lyCcPop: Layout,
+    pub pnlCcPop: Panel,
+    pub pnlCcCaptions: Panel,
+    pub lblCcCheck1: Label,
+    pub lblCcKey1: Label,
+    pub lblCcCaptions: Label,
+    pub pnlCcTranscript: Panel,
+    pub lblCcCheck2: Label,
+    pub lblCcTranscript: Label,
+    pub pnlSpeedPop: Panel,
+    pub lySpeedItems: Layout,
 }
 
 impl std::ops::Deref for FrmMainComponents {
@@ -5634,14 +6202,13 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     lyAreaButtons: FlowLayout { target: "frmMain.lyAreaButtons" },
     btnSelectArea: Button { target: "frmMain.btnSelectArea" },
     pnlSettings: Panel { target: "frmMain.pnlSettings" },
+    lySetHead: Layout { target: "frmMain.lySetHead" },
+    lnSetHead: Rectangle { target: "frmMain.lnSetHead" },
+    btnSetBack: Button { target: "frmMain.btnSetBack" },
+    lblSetTitle: Label { target: "frmMain.lblSetTitle" },
     pnlSetSide: Panel { target: "frmMain.pnlSetSide" },
     lnSetSide: Rectangle { target: "frmMain.lnSetSide" },
-    lblSetTitle: Label { target: "frmMain.lblSetTitle" },
     lySetTabs: Layout { target: "frmMain.lySetTabs" },
-    lySetMain: Layout { target: "frmMain.lySetMain" },
-    lySetHead: Layout { target: "frmMain.lySetHead" },
-    btnSetClose: Button { target: "frmMain.btnSetClose" },
-    lblSetTab: Label { target: "frmMain.lblSetTab" },
     scrSettings: ScrollBox { target: "frmMain.scrSettings" },
     lySettings: Layout { target: "frmMain.lySettings" },
     pnlExport: Panel { target: "frmMain.pnlExport" },
@@ -5653,29 +6220,62 @@ pub static frmMain: FrmMainComponents = FrmMainComponents {
     lyExport: Layout { target: "frmMain.lyExport" },
     pnlPlayer: Panel { target: "frmMain.pnlPlayer" },
     pnlPlayerSide: Panel { target: "frmMain.pnlPlayerSide" },
+    recSideEdge: Rectangle { target: "frmMain.recSideEdge" },
+    lySideBody: Layout { target: "frmMain.lySideBody" },
     lyPlayerSideHead: Layout { target: "frmMain.lyPlayerSideHead" },
+    recSideHeadLine: Rectangle { target: "frmMain.recSideHeadLine" },
     btnSideClose: Button { target: "frmMain.btnSideClose" },
     lblSideTitle: Label { target: "frmMain.lblSideTitle" },
+    lyTrSearch: Layout { target: "frmMain.lyTrSearch" },
+    recTrSearchLine: Rectangle { target: "frmMain.recTrSearchLine" },
     edTrSearch: Edit { target: "frmMain.edTrSearch" },
     scrPlayerSide: ScrollBox { target: "frmMain.scrPlayerSide" },
     lySide: Layout { target: "frmMain.lySide" },
+    lyStage: Layout { target: "frmMain.lyStage" },
+    frmVideo: FrameView { target: "frmMain.frmVideo" },
+    lblCaption: Label { target: "frmMain.lblCaption" },
+    lblPlayerZoom: Label { target: "frmMain.lblPlayerZoom" },
+    pnlPauseFlash: Panel { target: "frmMain.pnlPauseFlash" },
+    cirPauseFlash: Circle { target: "frmMain.cirPauseFlash" },
+    recPauseFlash1: Rectangle { target: "frmMain.recPauseFlash1" },
+    recPauseFlash2: Rectangle { target: "frmMain.recPauseFlash2" },
+    pnlPlayerLoading: Panel { target: "frmMain.pnlPlayerLoading" },
+    lyPlayerLoading: Layout { target: "frmMain.lyPlayerLoading" },
+    aniPlayerLoading: ActivityIndicator { target: "frmMain.aniPlayerLoading" },
+    lblPlayerLoading: Label { target: "frmMain.lblPlayerLoading" },
+    lyChrome: Layout { target: "frmMain.lyChrome" },
     pnlPlayerHead: Panel { target: "frmMain.pnlPlayerHead" },
     btnPlayerClose: Button { target: "frmMain.btnPlayerClose" },
+    pnlPlayerPaused: Panel { target: "frmMain.pnlPlayerPaused" },
+    recPaused1: Rectangle { target: "frmMain.recPaused1" },
+    recPaused2: Rectangle { target: "frmMain.recPaused2" },
     lblPlayerPaused: Label { target: "frmMain.lblPlayerPaused" },
     lblPlayerTitle: Label { target: "frmMain.lblPlayerTitle" },
     pnlPlayerBar: Panel { target: "frmMain.pnlPlayerBar" },
     btnPlay: Button { target: "frmMain.btnPlay" },
     lblPlayerTime: Label { target: "frmMain.lblPlayerTime" },
+    lyPlayerClock: Layout { target: "frmMain.lyPlayerClock" },
+    btnClockIcon: Button { target: "frmMain.btnClockIcon" },
+    lblPlayerClock: Label { target: "frmMain.lblPlayerClock" },
     btnFullscreen: Button { target: "frmMain.btnFullscreen" },
-    btnTranscript: Button { target: "frmMain.btnTranscript" },
     btnInfo: Button { target: "frmMain.btnInfo" },
     btnCaptions: Button { target: "frmMain.btnCaptions" },
     btnSpeed: Button { target: "frmMain.btnSpeed" },
-    trkVolume: TrackBar { target: "frmMain.trkVolume" },
     btnMute: Button { target: "frmMain.btnMute" },
-    lblPlayerClock: Label { target: "frmMain.lblPlayerClock" },
     wavPlayer: Waveform { target: "frmMain.wavPlayer" },
-    frmVideo: FrameView { target: "frmMain.frmVideo" },
-    lblPlayerLoading: Label { target: "frmMain.lblPlayerLoading" },
-    lblCaption: Label { target: "frmMain.lblCaption" },
+    lyVolPop: Layout { target: "frmMain.lyVolPop" },
+    pnlVolPop: Panel { target: "frmMain.pnlVolPop" },
+    lblVolPct: Label { target: "frmMain.lblVolPct" },
+    trkVolume: TrackBar { target: "frmMain.trkVolume" },
+    lyCcPop: Layout { target: "frmMain.lyCcPop" },
+    pnlCcPop: Panel { target: "frmMain.pnlCcPop" },
+    pnlCcCaptions: Panel { target: "frmMain.pnlCcCaptions" },
+    lblCcCheck1: Label { target: "frmMain.lblCcCheck1" },
+    lblCcKey1: Label { target: "frmMain.lblCcKey1" },
+    lblCcCaptions: Label { target: "frmMain.lblCcCaptions" },
+    pnlCcTranscript: Panel { target: "frmMain.pnlCcTranscript" },
+    lblCcCheck2: Label { target: "frmMain.lblCcCheck2" },
+    lblCcTranscript: Label { target: "frmMain.lblCcTranscript" },
+    pnlSpeedPop: Panel { target: "frmMain.pnlSpeedPop" },
+    lySpeedItems: Layout { target: "frmMain.lySpeedItems" },
 };

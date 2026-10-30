@@ -37,8 +37,8 @@
             "name": "pnlRecordCard",
             "style": "card",
             "align": "top",
-            "height": 300,
-            "margins": [13, 15, 13, 15],
+            "height": 286,
+            "margins": [13, 15, 13, 14],
             "padding": [14, 14, 14, 10],
             "children": [
               {
@@ -47,7 +47,7 @@
                 "align": "top",
                 "height": 28,
                 "children": [
-                  { "class": "Circle", "name": "dotStatus", "align": "left", "width": 8, "height": 8, "margins": [0, 10, 9, 10], "fill": "#10B981", "stroke_width": 0 },
+                  { "class": "Circle", "name": "dotStatus", "align": "left", "width": 8, "height": 8, "margins": [0, 10, 9, 10], "fill": "green", "stroke_width": 0 },
                   { "class": "Button", "name": "btnSettings", "style": "tool", "icon": "settings", "icon_size": 16, "text": "", "align": "right", "width": 28, "on_click": "settings_click" },
               { "class": "Label", "name": "lblTrChip", "style": "count", "align": "right", "width": 64, "margins": [0, 0, 8, 0], "h_align": "trailing", "visible": false, "text": "" },
                   { "class": "Label", "name": "lblStatus", "style": "status", "align": "client", "text": "Pronto para gravar", "text_case": "upper", "letter_spacing": 1.8 }
@@ -71,30 +71,30 @@
                 "class": "FlowLayout",
                 "name": "lyRecord",
                 "align": "top",
-                "height": 84,
+                "height": 72,
                 "margins": [0, 6, 0, 0],
                 "h_align": "center",
                 "children": [
-                  { "class": "RecordButton", "name": "btnRecord", "width": 72, "height": 72, "margins": [0, 6, 0, 6], "on_click": "record_click" }
+                  { "class": "RecordButton", "name": "btnRecord", "width": 72, "height": 72, "on_click": "record_click" }
                 ]
               },
-              { "class": "Label", "name": "lblRecordAction", "style": "action", "align": "top", "height": 16, "margins": [0, 12, 0, 0], "h_align": "center", "text": "Iniciar gravação", "text_case": "upper", "letter_spacing": 2.4 },
-              { "class": "Rectangle", "name": "lnCard", "style": "sep", "align": "top", "height": 1, "margins": [-6, 14, -6, 0] },
+              { "class": "Label", "name": "lblRecordAction", "style": "action", "align": "top", "height": 15, "margins": [0, 12, 0, 0], "h_align": "center", "text": "Iniciar gravação", "text_case": "upper", "letter_spacing": 2.4 },
+              { "class": "Rectangle", "name": "lnCard", "style": "sep", "align": "top", "height": 1, "margins": [-6, 13, -6, 0] },
               {
                 "class": "Panel",
                 "name": "pnlReplay",
                 "style": "flat",
                 "align": "top",
                 "height": 49,
-                "margins": [-14, 0, -14, 0],
-                "padding": [10, 7, 10, 7],
+                "margins": [-6, 0, -6, 0],
+                "padding": [10, 7, 6, 7],
                 "cursor": "pointer",
                 "on_click": "replay_click",
                 "children": [
-                  { "class": "Circle", "name": "dotReplay", "align": "left", "width": 7, "height": 7, "margins": [0, 14, 10, 14], "fill": "#36363C", "stroke_width": 0, "hit_test": false },
+                  { "class": "Circle", "name": "dotReplay", "align": "left", "width": 7, "height": 7, "margins": [0, 14, 10, 14], "fill": "border_2", "stroke_width": 0, "hit_test": false },
                   { "class": "Button", "name": "btnPause", "style": "tool", "icon": "pause", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [6, 3, 0, 4], "on_click": "pause_click" },
                   { "class": "Button", "name": "btnCapture", "style": "tool", "icon": "window", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [6, 3, 0, 4], "on_click": "capture_click" },
-                  { "class": "Switch", "name": "swReplay", "align": "right", "width": 46, "margins": [10, 0, 0, 0], "on_change": "replay_switch" },
+                  { "class": "Switch", "name": "swReplay", "align": "right", "width": 36, "margins": [10, 0, 10, 0], "on_change": "replay_switch" },
                   { "class": "Button", "name": "btnReplaySave", "style": "tool", "icon": "download", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [6, 3, 0, 4], "visible": false, "on_click": "replay_save_click" },
                   {
                     "class": "Layout",
@@ -117,15 +117,15 @@
             "style": "column",
             "align": "bottom",
             "height": 0,
-            "padding": [20, 0, 20, 12],
+            "padding": [12, 0, 12, 18],
             "children": [
               { "class": "Rectangle", "name": "lnLegend", "style": "sep", "align": "top", "height": 1, "margins": [0, 0, 0, 0] },
               {
                 "class": "Layout",
                 "name": "lyLegendTitle",
                 "align": "top",
-                "height": 20,
-                "margins": [6, 16, 6, 6],
+                "height": 13,
+                "margins": [6, 14, 6, 8],
                 "children": [
                   { "class": "Label", "name": "lblLegendTitle", "style": "section", "align": "client", "text": "Faixas de áudio", "text_case": "upper", "letter_spacing": 1 }
                 ]
@@ -137,6 +137,7 @@
             "class": "ScrollBox",
             "name": "scrSources",
             "align": "client",
+            "padding": [0, 0, 0, 0],
             "children": [
               {
                 "class": "Layout",
@@ -149,25 +150,25 @@
                     "name": "lyMicsTitle",
                     "align": "top",
                     "height": 15,
-                    "margins": [26, 22, 26, 12],
+                    "margins": [18, 14, 18, 6],
                     "children": [
                       { "class": "Label", "name": "lblMicsCount", "style": "count", "align": "right", "width": 60, "h_align": "trailing", "text": "— / —" },
                       { "class": "Label", "name": "lblMicsTitle", "style": "section", "align": "client", "text": "Microfones", "text_case": "upper", "letter_spacing": 1 }
                     ]
                   },
-                  { "class": "Layout", "name": "lyMics", "align": "top", "height": 0, "margins": [20, 0, 20, 0] },
+                  { "class": "Layout", "name": "lyMics", "align": "top", "height": 0, "margins": [12, 0, 12, 0] },
                   {
                     "class": "Layout",
                     "name": "lySpeakersTitle",
                     "align": "top",
                     "height": 15,
-                    "margins": [26, 22, 26, 12],
+                    "margins": [18, 18, 18, 6],
                     "children": [
                       { "class": "Label", "name": "lblSpeakersCount", "style": "count", "align": "right", "width": 60, "h_align": "trailing", "text": "— / —" },
                       { "class": "Label", "name": "lblSpeakersTitle", "style": "section", "align": "client", "text": "Alto-falantes", "text_case": "upper", "letter_spacing": 1 }
                     ]
                   },
-                  { "class": "Layout", "name": "lySpeakers", "align": "top", "height": 0, "margins": [20, 0, 20, 0] }
+                  { "class": "Layout", "name": "lySpeakers", "align": "top", "height": 0, "margins": [12, 0, 12, 0] }
                 ]
               }
             ]
@@ -189,14 +190,14 @@
                 "class": "Layout",
                 "name": "lyDisplays",
                 "align": "top",
-                "height": 300,
+                "height": 293,
                 "padding": [22, 14, 22, 0],
                 "children": [
                   {
                     "class": "Layout",
                     "name": "lyDisplaysTitle",
                     "align": "top",
-                    "height": 28,
+                    "height": 21,
                     "children": [
                       { "class": "Label", "name": "lblScreens", "style": "h2", "align": "left", "width": 50, "v_align": "trailing", "text": "Telas" },
                       { "class": "Label", "name": "lblScreensCount", "style": "count", "align": "right", "width": 60, "h_align": "trailing", "text": "— / —" },
@@ -211,14 +212,14 @@
                 "name": "lyLibrary",
                 "align": "top",
                 "height": 400,
-                "padding": [22, 26, 22, 30],
-                "on_resize": "library_resize",
+                "padding": [22, 20, 22, 30],
+                "on_resize": "library_resize", "on_pointer_up": "library_background", "hit_test": true,
                 "children": [
                   {
                     "class": "Layout",
                     "name": "lyLibHeader",
                     "align": "top",
-                    "height": 28,
+                    "height": 22,
                     "children": [
                       { "class": "Label", "name": "lblRecordings", "style": "h2", "align": "left", "width": 110, "v_align": "trailing", "text": "Gravações" },
                       { "class": "Label", "name": "lblLibMeta", "style": "meta", "align": "client", "margins": [8, 0, 0, 2], "v_align": "trailing", "text": "" }
@@ -228,20 +229,20 @@
                     "class": "Layout",
                     "name": "lyLibTools",
                     "align": "top",
-                    "height": 34,
-                    "margins": [0, 14, 0, 0],
+                    "height": 30,
+                    "margins": [0, 10, 0, 0],
                     "children": [
                       { "class": "Edit", "name": "edLibSearch", "align": "left", "width": 220, "placeholder": "Buscar...", "on_change": "library_search" },
-                      { "class": "Button", "name": "btnLibOpenDir", "style": "tool", "icon": "folder", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_open_dir" },
-                      { "class": "Button", "name": "btnLibNewFolder", "style": "tool", "icon": "plus", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_new_folder" },
-                      { "class": "Button", "name": "btnLibMerge", "style": "tool", "icon": "swap", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_merge" },
-                      { "class": "Button", "name": "btnLibExport", "style": "tool", "icon": "download", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_export" },
-                      { "class": "Button", "name": "btnLibDelete", "style": "tool", "icon": "trash", "icon_size": 16, "text": "", "align": "left", "width": 34, "margins": [14, 0, 0, 0], "on_click": "library_delete" }
+                      { "class": "Button", "name": "btnLibOpenDir", "style": "tool", "icon": "lib-folder", "icon_size": 16, "text": "", "align": "left", "width": 30, "margins": [8, 0, 0, 0], "on_click": "library_open_dir" },
+                      { "class": "Button", "name": "btnLibNewFolder", "style": "tool", "icon": "lib-folder-plus", "icon_size": 16, "text": "", "align": "left", "width": 30, "margins": [8, 0, 0, 0], "on_click": "library_new_folder" },
+                      { "class": "Button", "name": "btnLibMerge", "style": "tool", "icon": "lib-merge", "icon_size": 15, "text": "", "align": "left", "width": 30, "margins": [8, 0, 0, 0], "on_click": "library_merge" },
+                      { "class": "Button", "name": "btnLibExport", "style": "tool", "icon": "lib-download", "icon_size": 16, "text": "", "align": "left", "width": 30, "margins": [8, 0, 0, 0], "on_click": "library_export" },
+                      { "class": "Button", "name": "btnLibDelete", "style": "tool", "icon": "lib-trash", "icon_size": 16, "text": "", "align": "left", "width": 30, "margins": [8, 0, 0, 0], "on_click": "library_delete", "accepts_drops": true, "on_drag_drop": "library_trash_drop" }
                     ]
                   },
-                  { "class": "Breadcrumb", "name": "brdLib", "align": "top", "height": 28, "margins": [0, 14, 0, 0], "visible": false, "items": "", "on_change": "library_crumb" },
+                  { "class": "Breadcrumb", "name": "brdLib", "align": "top", "height": 28, "margins": [0, 16, 0, 0], "visible": false, "items": "", "on_change": "library_crumb" },
                   { "class": "Label", "name": "lblLibEmpty", "style": "body", "align": "top", "height": 60, "h_align": "center", "visible": false, "text": "" },
-                  { "class": "Layout", "name": "lyLibContent", "align": "top", "height": 0, "on_click": "library_background" }
+                  { "class": "Layout", "name": "lyLibContent", "align": "top", "height": 0, "on_pointer_up": "library_background", "hit_test": true }
                 ]
               }
 
@@ -365,37 +366,30 @@
       {
         "class": "Panel",
         "name": "pnlSettings",
-        "style": "pane",
+        "style": "column",
         "align": "contents",
         "visible": false,
         "children": [
           {
-            "class": "Panel",
-            "name": "pnlSetSide",
-            "style": "column",
-            "align": "left",
-            "width": 230,
-            "padding": [14, 18, 14, 14],
-            "children": [
-              { "class": "Rectangle", "name": "lnSetSide", "style": "edge", "align": "right", "width": 1, "margins": [0, -18, -14, -14] },
-              { "class": "Label", "name": "lblSetTitle", "style": "h2", "align": "top", "height": 30, "margins": [8, 0, 0, 14], "text": "Configurações" },
-              { "class": "Layout", "name": "lySetTabs", "align": "client" }
-            ]
-          },
-          {
-            "class": "Layout",
-            "name": "lySetMain",
-            "align": "client",
-            "children": [
-          {
             "class": "Layout",
             "name": "lySetHead",
             "align": "top",
-            "height": 56,
-            "padding": [32, 14, 20, 0],
+            "height": 49,
             "children": [
-              { "class": "Button", "name": "btnSetClose", "style": "tool", "icon": "close", "icon_size": 14, "text": "", "align": "right", "width": 32, "margins": [0, 0, 0, 10], "on_click": "settings_close" },
-              { "class": "Label", "name": "lblSetTab", "style": "h2", "align": "client", "text": "" }
+              { "class": "Rectangle", "name": "lnSetHead", "style": "edge", "align": "bottom", "height": 1 },
+              { "class": "Button", "name": "btnSetBack", "style": "s_back", "icon": "arrow-left", "icon_size": 18, "text": "", "align": "left", "width": 28, "margins": [18, 10, 10, 10], "on_click": "settings_close" },
+              { "class": "Label", "name": "lblSetTitle", "style": "s_title", "align": "client", "text": "Configurações" }
+            ]
+          },
+          {
+            "class": "Panel",
+            "name": "pnlSetSide",
+            "style": "s_side",
+            "align": "left",
+            "width": 190,
+            "children": [
+              { "class": "Rectangle", "name": "lnSetSide", "style": "edge", "align": "right", "width": 1 },
+              { "class": "Layout", "name": "lySetTabs", "align": "client", "padding": [8, 12, 9, 0] }
             ]
           },
           {
@@ -403,9 +397,7 @@
             "name": "scrSettings",
             "align": "client",
             "children": [
-              { "class": "Layout", "name": "lySettings", "align": "top", "height": 100, "padding": [32, 4, 40, 40], "on_resize": "settings_resize" }
-            ]
-          }
+              { "class": "Layout", "name": "lySettings", "align": "top", "height": 100, "padding": [18, 14, 18, 14], "on_resize": "settings_resize" }
             ]
           }
         ]
@@ -452,73 +444,264 @@
             "name": "pnlPlayerSide",
             "style": "plside",
             "align": "right",
-            "width": 380,
+            "width": 360,
             "visible": false,
             "children": [
+              { "class": "Rectangle", "name": "recSideEdge", "style": "pl_line", "align": "left", "width": 1, "hit_test": false },
+              {
+                "class": "Layout",
+                "name": "lySideBody",
+                "align": "client",
+                "padding": [0, 56, 0, 60],
+                "children": [
               {
                 "class": "Layout",
                 "name": "lyPlayerSideHead",
                 "align": "top",
-                "height": 52,
-                "padding": [18, 14, 12, 0],
+                "height": 45,
                 "children": [
-                  { "class": "Button", "name": "btnSideClose", "style": "tool", "icon": "close", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [0, 0, 0, 10], "on_click": "player_side_close" },
-                  { "class": "Label", "name": "lblSideTitle", "style": "title", "align": "client", "text": "" }
+                  { "class": "Rectangle", "name": "recSideHeadLine", "style": "pl_line", "align": "bottom", "height": 1, "hit_test": false },
+                  { "class": "Button", "name": "btnSideClose", "style": "pl_side_x", "text": "×", "align": "right", "width": 24, "margins": [0, 10, 14, 10], "on_click": "player_side_close" },
+                  { "class": "Label", "name": "lblSideTitle", "style": "pl_side_title", "align": "client", "margins": [14, 0, 0, 0], "text_case": "upper", "letter_spacing": 0.36, "text": "" }
                 ]
               },
-              { "class": "Edit", "name": "edTrSearch", "align": "top", "height": 32, "margins": [18, 0, 18, 10], "visible": false, "placeholder": "Buscar na transcrição...", "on_change": "player_tr_search" },
+              {
+                "class": "Layout",
+                "name": "lyTrSearch",
+                "align": "top",
+                "height": 47,
+                "visible": false,
+                "children": [
+                  { "class": "Rectangle", "name": "recTrSearchLine", "style": "pl_line", "align": "bottom", "height": 1, "hit_test": false },
+                  { "class": "Edit", "name": "edTrSearch", "style": "pl_search", "align": "client", "margins": [12, 8, 12, 8], "placeholder": "Buscar na transcrição...", "on_change": "player_tr_search" }
+                ]
+              },
               {
                 "class": "ScrollBox",
                 "name": "scrPlayerSide",
                 "align": "client",
+                "padding": [0, 0, 0, 0],
                 "children": [
-                  { "class": "Layout", "name": "lySide", "align": "top", "height": 100, "padding": [18, 0, 18, 18] }
+                  { "class": "Layout", "name": "lySide", "align": "top", "height": 100, "padding": [14, 14, 14, 14] }
+                ]
+              }
                 ]
               }
             ]
           },
           {
-            "class": "Panel",
-            "name": "pnlPlayerHead",
-            "style": "plbar",
-            "align": "top",
-            "height": 56,
-            "padding": [20, 0, 12, 0],
-            "children": [
-              { "class": "Button", "name": "btnPlayerClose", "style": "pl", "icon": "close", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [0, 10, 0, 10], "on_click": "player_close" },
-              { "class": "Label", "name": "lblPlayerPaused", "style": "pl_badge", "align": "right", "width": 90, "margins": [0, 16, 12, 16], "h_align": "center", "visible": false, "text": "PAUSADO", "letter_spacing": 1 },
-              { "class": "Label", "name": "lblPlayerTitle", "style": "pl_title", "align": "client", "text": "" }
-            ]
-          },
-          {
-            "class": "Panel",
-            "name": "pnlPlayerBar",
-            "style": "plbar",
-            "align": "bottom",
-            "height": 60,
-            "padding": [14, 0, 14, 0],
-            "children": [
-              { "class": "Button", "name": "btnPlay", "style": "pl", "icon": "pause", "icon_size": 20, "text": "", "align": "left", "width": 40, "margins": [0, 10, 10, 10], "on_click": "player_play" },
-              { "class": "Label", "name": "lblPlayerTime", "style": "pl_time", "align": "left", "width": 120, "text": "00:00 / 00:00" },
-              { "class": "Button", "name": "btnFullscreen", "style": "pl", "icon": "fullscreen", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_fullscreen" },
-              { "class": "Button", "name": "btnTranscript", "style": "pl", "icon": "chat", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_transcript" },
-              { "class": "Button", "name": "btnInfo", "style": "pl", "icon": "info", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_info" },
-              { "class": "Button", "name": "btnCaptions", "style": "pl", "text": "CC", "align": "right", "width": 40, "margins": [6, 12, 0, 12], "on_click": "player_captions" },
-              { "class": "Button", "name": "btnSpeed", "style": "pl", "text": "1×", "align": "right", "width": 54, "margins": [6, 12, 0, 12], "on_click": "player_speed" },
-              { "class": "TrackBar", "name": "trkVolume", "align": "right", "width": 90, "margins": [4, 18, 6, 18], "min": 0, "max": 200, "value": 100, "on_change": "player_volume" },
-              { "class": "Button", "name": "btnMute", "style": "pl", "icon": "volume", "icon_size": 18, "text": "", "align": "right", "width": 36, "margins": [6, 12, 0, 12], "on_click": "player_mute" },
-              { "class": "Label", "name": "lblPlayerClock", "style": "pl_time", "align": "right", "width": 80, "margins": [10, 0, 6, 0], "h_align": "trailing", "text": "" },
-              { "class": "Waveform", "name": "wavPlayer", "align": "client", "margins": [8, 14, 8, 14], "on_seek": "player_seek" }
-            ]
-          },
-          {
-            "class": "FrameView",
-            "name": "frmVideo",
+            "class": "Layout",
+            "name": "lyStage",
             "align": "client",
-            "on_resize": "player_stage_resize"
+            "clip_children": true,
+            "children": [
+              { "class": "FrameView", "name": "frmVideo", "align": "contents", "on_resize": "player_stage_resize" },
+              { "class": "Label", "name": "lblCaption", "style": "pl_caption", "align": "bottom", "height": 60, "margins": [80, 0, 80, 92], "h_align": "center", "v_align": "trailing", "wrap": true, "outline": "black/90", "outline_width": 3, "hit_test": false, "visible": false, "text": "" },
+              { "class": "Label", "name": "lblPlayerZoom", "style": "pl_zoom", "align": "none", "width": 50, "height": 22, "h_align": "center", "hit_test": false, "visible": false, "text": "" },
+              {
+                "class": "Panel",
+                "name": "pnlPauseFlash",
+                "style": "pl_flash",
+                "align": "center",
+                "width": 180,
+                "height": 180,
+                "fill": "black/45",
+                "fill_mid": "black/30",
+                "fill_mid_at": 0.49,
+                "fill2": "black/0",
+                "gradient_radial": true,
+                "hit_test": false,
+                "visible": false,
+                "children": [
+                  { "class": "Circle", "name": "cirPauseFlash", "align": "center", "width": 90, "height": 90, "fill": "black/55", "stroke": "white/95", "stroke_width": 4, "hit_test": false },
+                  { "class": "Rectangle", "name": "recPauseFlash1", "align": "none", "left": 76, "top": 70, "width": 9, "height": 40, "fill": "white/95", "stroke_width": 0, "radius": 2, "hit_test": false },
+                  { "class": "Rectangle", "name": "recPauseFlash2", "align": "none", "left": 95, "top": 70, "width": 9, "height": 40, "fill": "white/95", "stroke_width": 0, "radius": 2, "hit_test": false }
+                ]
+              },
+              {
+                "class": "Panel",
+                "name": "pnlPlayerLoading",
+                "style": "pl_loading",
+                "align": "contents",
+                "hit_test": false,
+                "visible": false,
+                "children": [
+                  {
+                    "class": "Layout",
+                    "name": "lyPlayerLoading",
+                    "align": "center",
+                    "width": 400,
+                    "height": 70,
+                    "children": [
+                      { "class": "ActivityIndicator", "name": "aniPlayerLoading", "align": "top", "height": 36, "active": true, "accent_color": "green", "hit_test": false },
+                      { "class": "Label", "name": "lblPlayerLoading", "style": "pl_loading", "align": "top", "height": 20, "margins": [0, 14, 0, 0], "h_align": "center", "hit_test": false, "text": "" }
+                    ]
+                  }
+                ]
+              }
+            ]
           },
-          { "class": "Label", "name": "lblPlayerLoading", "style": "pl_time", "align": "center", "width": 400, "height": 40, "h_align": "center", "hit_test": false, "text": "" },
-          { "class": "Label", "name": "lblCaption", "style": "pl_caption", "align": "bottom", "height": 60, "margins": [80, 0, 80, 90], "h_align": "center", "wrap": true, "hit_test": false, "visible": false, "text": "" }
+              {
+                "class": "Layout",
+                "name": "lyChrome",
+                "align": "contents",
+                "children": [
+              {
+                "class": "Panel",
+                "name": "pnlPlayerHead",
+                "style": "pl_head",
+                "align": "top",
+                "height": 62,
+                "padding": [16, 12, 16, 18],
+                "fill": "black/70",
+                "fill_mid": "black/40",
+                "fill_mid_at": 0.6,
+                "fill2": "black/0",
+                "gradient_angle": 180,
+                "children": [
+                  { "class": "Button", "name": "btnPlayerClose", "style": "pl_close", "text": "×", "align": "right", "width": 32, "on_click": "player_close" },
+                  {
+                    "class": "Panel",
+                    "name": "pnlPlayerPaused",
+                    "style": "pl_badge",
+                    "align": "right",
+                    "width": 90,
+                    "margins": [12, 4, 12, 4],
+                    "hit_test": false,
+                    "visible": false,
+                    "children": [
+                      { "class": "Rectangle", "name": "recPaused1", "align": "none", "left": 8, "top": 8, "width": 2.5, "height": 8, "fill": "white/95", "stroke_width": 0, "radius": 0.5, "hit_test": false },
+                      { "class": "Rectangle", "name": "recPaused2", "align": "none", "left": 13.5, "top": 8, "width": 2.5, "height": 8, "fill": "white/95", "stroke_width": 0, "radius": 0.5, "hit_test": false },
+                      { "class": "Label", "name": "lblPlayerPaused", "style": "pl_badge", "align": "client", "margins": [23, 0, 0, 0], "hit_test": false, "letter_spacing": 0.44, "text": "PAUSADO" }
+                    ]
+                  },
+                  { "class": "Label", "name": "lblPlayerTitle", "style": "pl_title", "align": "client", "text": "" }
+                ]
+              },
+              {
+                "class": "Panel",
+                "name": "pnlPlayerBar",
+                "style": "pl_head",
+                "align": "bottom",
+                "height": 64,
+                "padding": [16, 18, 16, 14],
+                "fill": "black/75",
+                "fill_mid": "black/40",
+                "fill_mid_at": 0.6,
+                "fill2": "black/0",
+                "gradient_angle": 0,
+                "children": [
+                  { "class": "Button", "name": "btnPlay", "style": "pl", "icon": "pl-pause", "icon_size": 18, "text": "", "align": "left", "width": 32, "on_click": "player_play" },
+                  { "class": "Label", "name": "lblPlayerTime", "style": "pl_time", "align": "left", "width": 90, "margins": [12, 0, 0, 0], "h_align": "center", "text": "00:00 / 00:00" },
+                  {
+                    "class": "Layout",
+                    "name": "lyPlayerClock",
+                    "align": "left",
+                    "width": 62,
+                    "margins": [12, 0, 0, 0],
+                    "hit_test": true,
+                    "visible": false,
+                    "children": [
+                      { "class": "Button", "name": "btnClockIcon", "style": "pl_clock", "icon": "pl-clock", "icon_size": 13, "text": "", "align": "left", "width": 13, "hit_test": false },
+                      { "class": "Label", "name": "lblPlayerClock", "style": "pl_clock", "align": "client", "margins": [4, 0, 0, 0], "hit_test": false, "text": "" }
+                    ]
+                  },
+                  { "class": "Button", "name": "btnFullscreen", "style": "pl", "icon": "pl-fs-enter", "icon_size": 18, "text": "", "align": "right", "width": 32, "margins": [12, 0, 0, 0], "on_click": "player_fullscreen" },
+                  { "class": "Button", "name": "btnInfo", "style": "pl_dim", "icon": "pl-info", "icon_size": 18, "text": "", "align": "right", "width": 32, "margins": [12, 0, 0, 0], "on_click": "player_info" },
+                  { "class": "Button", "name": "btnCaptions", "style": "pl_dim", "icon": "pl-cc", "icon_size": 18, "text": "", "align": "right", "width": 32, "margins": [12, 0, 0, 0], "on_click": "player_captions" },
+                  { "class": "Button", "name": "btnSpeed", "style": "pl_speed", "text": "1×", "align": "right", "width": 42, "margins": [12, 0, 0, 0], "on_click": "player_speed" },
+                  { "class": "Button", "name": "btnMute", "style": "pl", "icon": "pl-vol-high", "icon_size": 18, "text": "", "align": "right", "width": 32, "margins": [12, 0, 0, 0], "on_click": "player_mute" },
+                  { "class": "Waveform", "name": "wavPlayer", "align": "client", "margins": [12, 0, 0, 0], "seek_bar": true, "on_seek": "player_seek" }
+                ]
+              }
+                ]
+              },
+              {
+                "class": "Layout",
+                "name": "lyVolPop",
+                "align": "none",
+                "width": 52,
+                "height": 166,
+                "padding": [0, 0, 0, 10],
+                "hit_test": true,
+                "visible": false,
+                "children": [
+                  {
+                    "class": "Panel",
+                    "name": "pnlVolPop",
+                    "style": "pl_pop",
+                    "align": "client",
+                    "children": [
+                      { "class": "Label", "name": "lblVolPct", "style": "pl_vol", "align": "top", "height": 16, "margins": [0, 9, 0, 0], "h_align": "center", "hit_test": false, "text": "100%" },
+                      { "class": "TrackBar", "name": "trkVolume", "style": "pl_vol", "align": "top", "height": 110, "margins": [15, 8, 15, 0], "vertical": true, "min": 0, "max": 200, "frequency": 1, "value": 100, "thumb_size": 11, "track_size": 4, "solid_thumb": true, "limit": 100, "accent_color": "white/85", "danger_color": "danger_2", "on_change": "player_volume" }
+                    ]
+                  }
+                ]
+              },
+              {
+                "class": "Layout",
+                "name": "lyCcPop",
+                "align": "none",
+                "width": 190,
+                "height": 79,
+                "padding": [0, 0, 0, 10],
+                "hit_test": true,
+                "visible": false,
+                "children": [
+                  {
+                    "class": "Panel",
+                    "name": "pnlCcPop",
+                    "style": "pl_pop",
+                    "align": "client",
+                    "padding": [4, 4, 4, 4],
+                    "children": [
+                      {
+                        "class": "Panel",
+                        "name": "pnlCcCaptions",
+                        "style": "pl_opt",
+                        "align": "top",
+                        "height": 29.5,
+                        "padding": [12, 0, 12, 0],
+                        "cursor": "pointer",
+                        "on_click": "player_captions",
+                        "children": [
+                          { "class": "Label", "name": "lblCcCheck1", "style": "pl_opt", "align": "left", "width": 14, "h_align": "center", "hit_test": false, "text": "" },
+                          { "class": "Label", "name": "lblCcKey1", "style": "pl_key", "align": "right", "width": 12, "h_align": "trailing", "hit_test": false, "text": "C" },
+                          { "class": "Label", "name": "lblCcCaptions", "style": "pl_opt", "align": "client", "margins": [8, 0, 8, 0], "hit_test": false, "text": "Legenda sobre o vídeo" }
+                        ]
+                      },
+                      {
+                        "class": "Panel",
+                        "name": "pnlCcTranscript",
+                        "style": "pl_opt",
+                        "align": "top",
+                        "height": 29.5,
+                        "margins": [0, 2, 0, 0],
+                        "padding": [12, 0, 12, 0],
+                        "cursor": "pointer",
+                        "on_click": "player_transcript",
+                        "children": [
+                          { "class": "Label", "name": "lblCcCheck2", "style": "pl_opt", "align": "left", "width": 14, "h_align": "center", "hit_test": false, "text": "" },
+                          { "class": "Label", "name": "lblCcTranscript", "style": "pl_opt", "align": "client", "margins": [8, 0, 0, 0], "hit_test": false, "text": "Painel de transcrição" }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "class": "Panel",
+                "name": "pnlSpeedPop",
+                "style": "pl_pop",
+                "align": "none",
+                "width": 84,
+                "height": 287.5,
+                "padding": [4, 4, 4, 4],
+                "visible": false,
+                "children": [
+                  { "class": "Layout", "name": "lySpeedItems", "align": "client" }
+                ]
+              }
         ]
       }
     ]

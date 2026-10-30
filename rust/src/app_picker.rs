@@ -166,7 +166,7 @@ fn add_card(ui: &mut Ui, grid: ComponentId, it: &WindowItem) -> Option<Component
     let view = ui.create("Image", Some(card)).ok()?;
     let _ = ui.set_prop(view, "fit", "contain");
     let _ = ui.set_prop(view, "radius", 6.0);
-    let _ = ui.set_prop(view, "fill", Color::rgb(0x0b, 0x0b, 0x0d));
+    let _ = ui.set_prop(view, "fill", "thumb_bg");
     if let Some(cb) = ui.control_mut(view) {
         cb.set_align(Align::Top).set_height(CARD_THUMB_H - 8.0).set_hit_test(false);
     }
@@ -297,6 +297,7 @@ fn pick(ui: &mut Ui, id: &str) {
     }
     let (delay, supported) = with(|p| (p.matches.as_ref().map_or(0, |m| m.1), p.audio_supported));
     close(ui);
+    crate::app_main::start_ripple(ui);
     let app_audio = supported && config::get_config_bool("windowPickerAppAudio", false);
     bridge::handle_record_window(id, app_audio, delay);
 }

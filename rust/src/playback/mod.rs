@@ -306,8 +306,8 @@ pub struct Shared {
     pub clock: Clock,
     /// Instante do último quadro mostrado (bits de f64).
     pos: AtomicU64,
-    /// Quadro entregue à interface e ainda não aplicado: o próximo é
-    /// descartado em vez de empilhar no laço de eventos.
+    /// Quadro entregue à interface e ainda não aplicado (a interface guarda só o
+    /// mais recente: nada empilha no laço de eventos).
     pub ui_pending: AtomicBool,
     duration: AtomicU64,
 }

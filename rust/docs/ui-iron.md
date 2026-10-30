@@ -90,8 +90,19 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   entraram o aviso de versão nova (`pnlUpdate`) e o selo da fila de
   transcrição (`lblTrChip`). Esc fecha. No iron: `Ui::measure_text_wrapped` e
   o `font_of` com a fonte do estilo.
-- **Fase 5.** Exportação: prévia, recorte, linha do tempo com cortes, faixas,
-  codificador, progresso.
+- **Fase 5 — feita.** Exportação (`pnlExport` no `forms/main.json`, presenter
+  `app_export.rs`): o formulário é montado no código numa coluna de até
+  880 px. Telas (pílulas `Chip` num `FlowLayout`), a prévia com o motor do
+  player parado num `FrameView` e o `CropBox` do iron por cima (recorte em
+  pixels da origem, pares; zoom pela roda e pelos botões, arrasto com zoom),
+  tocar/volume/legenda, a linha do tempo desenhada aqui (trechos mantidos e
+  tirados, forma de onda de alta resolução, divisões, cursor, régua, barra
+  de rolagem; roda aproxima, Ctrl + + / − / 0), dividir, remover divisão,
+  tirar trecho, tempo digitado, faixas de áudio, resolução, codificador,
+  redimensionamento, velocidade, quadros por segundo, qualidade, legenda
+  gravada, nome e formato, exportar/cancelar com progresso e a prévia
+  gerada (abre no player). O progresso também aparece no cartão da gravação
+  de origem. No iron entrou o `CropBox`.
 - **Fase 6.** Limpeza: avisos de código morto, README, instalador, memória
   medida.
 

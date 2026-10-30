@@ -413,6 +413,35 @@
       ,
       {
         "class": "Panel",
+        "name": "pnlExport",
+        "style": "pane",
+        "align": "contents",
+        "visible": false,
+        "children": [
+          {
+            "class": "Layout",
+            "name": "lyExHead",
+            "align": "top",
+            "height": 56,
+            "padding": [18, 12, 18, 0],
+            "children": [
+              { "class": "Button", "name": "btnExClose", "style": "tool", "icon": "close", "icon_size": 14, "text": "", "align": "right", "width": 32, "margins": [10, 0, 0, 12], "on_click": "export_close" },
+              { "class": "Label", "name": "lblExTitle", "style": "h2", "align": "client", "text": "Exportar gravação" }
+            ]
+          },
+          { "class": "Rectangle", "name": "lnExHead", "style": "sep", "align": "top", "height": 1 },
+          {
+            "class": "ScrollBox",
+            "name": "scrExport",
+            "align": "client",
+            "children": [
+              { "class": "Layout", "name": "lyExport", "align": "top", "height": 100, "padding": [18, 18, 18, 40], "on_resize": "export_resize" }
+            ]
+          }
+        ]
+      },
+      {
+        "class": "Panel",
         "name": "pnlPlayer",
         "style": "player",
         "align": "contents",

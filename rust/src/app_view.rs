@@ -200,15 +200,21 @@ impl View for IronView {
     }
     fn waveform(&self, id: &str, peaks: &[f32], hi: bool) {
         // A de alta resolução é da linha do tempo da exportação.
-        if !hi {
+        if hi {
+            crate::app_export::on_waveform(id, peaks);
+        } else {
             crate::app_player::on_waveform(id, peaks);
         }
     }
     fn video_info(&self, info: &VideoInfo) {
-        crate::app_player::on_video_info(info);
+        if !crate::app_export::on_video_info(info) {
+            crate::app_player::on_video_info(info);
+        }
     }
     fn transcript(&self, t: &Transcript) {
-        crate::app_player::on_transcript(t);
+        if !crate::app_export::on_transcript(t) {
+            crate::app_player::on_transcript(t);
+        }
     }
     fn settings_changed(&self) {
         app_settings::on_settings_changed();
@@ -219,8 +225,9 @@ impl View for IronView {
     fn update_result(&self, r: &UpdateInfo) {
         app_settings::on_update_result(r);
     }
-    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, _export: &[ExportEncoderInfo]) {
+    fn encoder_caps(&self, _caps: &crate::types::EncoderCaps, export: &[ExportEncoderInfo]) {
         app_settings::on_encoder_caps();
+        crate::app_export::set_encoders(export);
     }
     fn hotkeys_state(&self, items: &[crate::hotkeys::Item], status: &[&str], delay_max: u32, defining: Option<usize>) {
         let status: Vec<&'static str> = status.iter().map(|s| static_status(s)).collect();
@@ -244,10 +251,18 @@ impl View for IronView {
     fn root_folders(&self, folders: &[RootFolder]) {
         app_settings::on_root_folders(folders);
     }
-    fn export_progress(&self, _pct: f64, _source: &str) {}
-    fn export_done(&self, _ok: bool, _canceled: bool, _path: &str, _source: &str) {}
-    fn export_preview_progress(&self, _pct: f64) {}
-    fn export_preview_done(&self, _ok: bool, _canceled: bool, _path: &str) {}
+    fn export_progress(&self, pct: f64, source: &str) {
+        crate::app_export::on_progress(pct, source);
+    }
+    fn export_done(&self, ok: bool, canceled: bool, path: &str, _source: &str) {
+        crate::app_export::on_done(ok, canceled, path);
+    }
+    fn export_preview_progress(&self, pct: f64) {
+        crate::app_export::on_preview_progress(pct);
+    }
+    fn export_preview_done(&self, ok: bool, canceled: bool, path: &str) {
+        crate::app_export::on_preview_done(ok, canceled, path);
+    }
 }
 
 fn static_status(s: &str) -> &'static str {

@@ -38,6 +38,8 @@ pub fn register(ui: &mut Ui) {
     ui.register_handler("frmMain.picker_select_area", picker_select_area);
     ui.register_handler("frmMain.settings_close", settings_close);
     ui.register_handler("frmMain.settings_resize", settings_resize);
+    ui.register_handler("frmMain.export_close", export_close);
+    ui.register_handler("frmMain.export_resize", export_resize);
     ui.register_handler("frmMain.player_side_close", player_side_close);
     ui.register_handler("frmMain.player_tr_search", player_tr_search);
     ui.register_handler("frmMain.player_close", player_close);
@@ -257,4 +259,12 @@ pub fn update_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
 
 pub fn update_open(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
     crate::app_main::open_update_page(ui);
+}
+
+pub fn export_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_export::close(ui);
+}
+
+pub fn export_resize(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+    crate::app_export::resized(ui);
 }

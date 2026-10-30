@@ -38,7 +38,11 @@
     "frmMain.replay_click": 1,
     "frmMain.replay_save_click": 1,
     "frmMain.replay_switch": 1,
-    "frmMain.settings_click": 1
+    "frmMain.settings_click": 2,
+    "frmMain.settings_close": 1,
+    "frmMain.settings_resize": 1,
+    "frmMain.update_close": 1,
+    "frmMain.update_open": 1
   },
   "languages": {
     "rust": {
@@ -46,6 +50,7 @@
         "frmMain/brdLib.on_change": "library_crumb",
         "frmMain/btnCaptions.on_click": "player_captions",
         "frmMain/btnCapture.on_click": "capture_click",
+        "frmMain/btnExClose.on_click": "export_close",
         "frmMain/btnFullscreen.on_click": "player_fullscreen",
         "frmMain/btnInfo.on_click": "player_info",
         "frmMain/btnLibDelete.on_click": "library_delete",
@@ -77,6 +82,7 @@
         "frmMain/edTrSearch.on_change": "player_tr_search",
         "frmMain/frmMain.on_close_query": "close_query",
         "frmMain/frmVideo.on_resize": "player_stage_resize",
+        "frmMain/lyExport.on_resize": "export_resize",
         "frmMain/lyLibContent.on_click": "library_background",
         "frmMain/lyLibrary.on_resize": "library_resize",
         "frmMain/lySettings.on_resize": "settings_resize",
@@ -100,6 +106,14 @@
         "frmMain.display_change": {
           "hash": "16b05fedd99a72ea",
           "seen": 1
+        },
+        "frmMain.export_close": {
+          "hash": "76ea002342292b66",
+          "seen": 0
+        },
+        "frmMain.export_resize": {
+          "hash": "76ea002342292b66",
+          "seen": 0
         },
         "frmMain.library_background": {
           "hash": "1b88962adc1d67f8",
@@ -242,24 +256,24 @@
           "seen": 1
         },
         "frmMain.settings_click": {
-          "hash": "2eef57d62fbfe241",
-          "seen": 1
+          "hash": "4389b197a28acad9",
+          "seen": 2
         },
         "frmMain.settings_close": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "4edf9ad0bf8cad93",
+          "seen": 1
         },
         "frmMain.settings_resize": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "4094af0014d053df",
+          "seen": 1
         },
         "frmMain.update_close": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "a96583fd6597c0dc",
+          "seen": 1
         },
         "frmMain.update_open": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "b27be4ef384a4947",
+          "seen": 1
         }
       }
     }
@@ -268,6 +282,7 @@
     "brdLib",
     "btnCaptions",
     "btnCapture",
+    "btnExClose",
     "btnFullscreen",
     "btnInfo",
     "btnLibDelete",
@@ -305,6 +320,7 @@
     "lblAreaStep1",
     "lblAreaStep2",
     "lblCaption",
+    "lblExTitle",
     "lblLegendTitle",
     "lblLibEmpty",
     "lblLibMeta",
@@ -338,6 +354,7 @@
     "lblUpdBody",
     "lblUpdTitle",
     "lnCard",
+    "lnExHead",
     "lnLegend",
     "lnPicker",
     "lnSetSide",
@@ -348,6 +365,8 @@
     "lyCardHeader",
     "lyDisplays",
     "lyDisplaysTitle",
+    "lyExHead",
+    "lyExport",
     "lyLegend",
     "lyLegendTitle",
     "lyLibContent",
@@ -366,6 +385,7 @@
     "lyRecord",
     "lyReplayText",
     "lySetHead",
+    "lySetMain",
     "lySetTabs",
     "lySettings",
     "lySide",
@@ -373,6 +393,7 @@
     "lySpeakers",
     "lySpeakersTitle",
     "lyTimer",
+    "pnlExport",
     "pnlLegend",
     "pnlPicker",
     "pnlPickerDialog",
@@ -388,6 +409,7 @@
     "pnlSources",
     "pnlUpdate",
     "scrDisplays",
+    "scrExport",
     "scrPickerGrid",
     "scrPlayerSide",
     "scrRecordings",

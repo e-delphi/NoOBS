@@ -96,7 +96,7 @@ fn set(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
 }
 
 /// A escala da janela (DPI / 96): o motor trabalha em pixels físicos.
-fn window_scale() -> f32 {
+pub(crate) fn window_scale() -> f32 {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::HiDpi::GetDpiForWindow;
     let Some(h) = main_form().and_then(iron::platform::win::hwnd) else { return 1.0 };
@@ -1358,6 +1358,11 @@ pub fn setup(ui: &mut Ui) {
         let EventArgs::Key(k) = args else { return };
         if is_open() {
             key(ui, k);
+            return;
+        }
+        if crate::app_export::is_open() {
+            let typing = ui.focused(form_of(ui)).is_some_and(|f| ui.get::<Edit>(f).is_some());
+            crate::app_export::key(ui, k, typing);
             return;
         }
         if crate::app_settings::is_open() {

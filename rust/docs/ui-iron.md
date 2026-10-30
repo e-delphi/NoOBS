@@ -58,9 +58,9 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   som do app, áreas salvas, timelapse). Conferido por captura contra a versão
   Slint. No iron entraram `RecordButton`, `ScreenLayout`, `notify`, o
   `LevelMeter` estéreo com degradê e o `letter_spacing`/`text_case` do
-  `Label`. **Falta**: a onda vermelha ao começar a gravar, o aviso de versão
-  nova e o selo da transcrição (entram com as Configurações), o Esc fechando
-  o seletor e a conferência gravando de verdade (cores, cronômetro, pausa).
+  `Label`. O aviso de versão nova e o selo da fila de
+  transcrição entraram com as Configurações; Esc fecha o seletor. Conferido
+  gravando de verdade. **Falta**: a onda vermelha ao começar a gravar.
 - **Fase 2 — feita.** Biblioteca (`lyLibrary` no `forms/main.json`, presenter
   `app_library.rs`): cabeçalho com contagem e espaço (aviso de pouco espaço),
   busca (também na transcrição), pastas, caminho (`Breadcrumb`), grupos por
@@ -103,8 +103,9 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   gravada, nome e formato, exportar/cancelar com progresso e a prévia
   gerada (abre no player). O progresso também aparece no cartão da gravação
   de origem. No iron entrou o `CropBox`.
-- **Fase 6.** Limpeza: avisos de código morto, README, instalador, memória
-  medida.
+- **Fase 6 — feita.** Limpeza: sem avisos de código morto (o que sobrou da
+  fila de transcrição virou o "↑" de subir na espera), README, os logos das
+  placas de vídeo (`assets/gpu/`) ao lado do codec, memória medida (README).
 
 O Slint saiu inteiro na fase 0: `slint`, `slint-build`, `ui/`, os presenters,
 a prova de conceito `poc-slint/`, o `vendor/wgpu-hal` e o `docs/ui-slint.md`.

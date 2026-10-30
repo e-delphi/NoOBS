@@ -278,6 +278,10 @@ pub fn refresh(ui: &mut Ui) {
     bridge::handle_list_capture_windows();
 }
 
+pub fn is_open() -> bool {
+    with(|p| p.open)
+}
+
 pub fn close(ui: &mut Ui) {
     with(|p| {
         p.open = false;

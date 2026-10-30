@@ -976,10 +976,28 @@ fn keyframe_hint(kf: i32) -> String {
 fn tab_video(ui: &mut Ui, page: ComponentId) {
     let codec = config::get_config_str("codec", "auto");
     let ci = CODECS.iter().position(|c| c.eq_ignore_ascii_case(&codec)).unwrap_or(0);
-    if let Some(ctl) = field(ui, page, &lang::t("settings.codec.label"), &codec_hint(), 32.0, 360.0) {
+    if let Some(ctl) = field(ui, page, &lang::t("settings.codec.label"), &codec_hint(), 32.0, 400.0) {
+        // O logo da placa de vídeo ao lado (o encoder de hardware é dela).
+        let logo: Option<&'static [u8]> = match bridge::last_encoder_caps().map(|c| c.vendor) {
+            Some(GpuVendor::Amd) => Some(include_bytes!("../assets/gpu/amd.png")),
+            Some(GpuVendor::Nvidia) => Some(include_bytes!("../assets/gpu/nvidia.png")),
+            Some(GpuVendor::Intel) => Some(include_bytes!("../assets/gpu/intel.png")),
+            _ => None,
+        };
+        if let Some(bytes) = logo {
+            if let Ok(v) = ui.create("Image", Some(ctl)) {
+                let _ = ui.set_prop(v, "fit", "contain");
+                if let Some(iv) = ui.get_mut::<ImageView>(v) {
+                    iv.set_picture(Some(Image::encoded(bytes.to_vec())));
+                }
+                if let Some(cb) = ui.control_mut(v) {
+                    cb.set_align(Align::Right).set_width(32.0).set_margins([8.0, 0.0, 0.0, 0.0]);
+                }
+            }
+        }
         let opts = codec_options();
         let labels: Vec<String> = opts.iter().map(|(t, _)| t.clone()).collect();
-        combo(ui, ctl, &labels, ci, move |ui, i| {
+        let codec_box = combo(ui, ctl, &labels, ci, move |ui, i| {
             if !opts.get(i).is_some_and(|(_, ok)| *ok) {
                 ui.set_timeout(0, render_tab);
                 return;
@@ -987,6 +1005,10 @@ fn tab_video(ui: &mut Ui, page: ComponentId) {
             settings::handle_set_codec(CODECS.get(i).copied().unwrap_or("auto"));
             ui.set_timeout(0, render_tab);
         });
+        // Ao lado do logo: o combo fica com o que sobra.
+        if let Some(cb) = codec_box.and_then(|b| ui.control_mut(b)) {
+            cb.set_align(Align::Client);
+        }
     }
     let (q, fps, kf, presets) = with(|s| (s.quality, s.fps, s.keyframe, s.fps_presets.clone()));
     if let Some(ctl) = field(ui, page, &tw("settings.quality.label", &[]), &quality_hint(q), 30.0, 380.0) {
@@ -1946,6 +1968,8 @@ fn tab_transcribe(ui: &mut Ui, page: ComponentId) {
             let _ = ui.set_prop(l, "color", Color::rgb(0xef, 0x44, 0x44));
         }
     }
+    // A espera (sem o item em curso): o "↑" sobe uma posição, o × tira da fila.
+    let mut waiting = 0i32;
     for q in &queue {
         let dur = if q.duration > 0 { fmt_dur(q.duration as i64) } else { "—".into() };
         if let Some(ctl) = field(ui, page, &q.name, &dur, 28.0, 80.0) {
@@ -1957,6 +1981,15 @@ fn tab_transcribe(ui: &mut Ui, page: ComponentId) {
                         cb.set_width(28.0).set_height(28.0);
                     }
                 }
+                if waiting > 0 {
+                    let (id, to) = (q.id.clone(), waiting - 1);
+                    if let Some(b) = button(ui, ctl, "↑", "tool", Align::Right, move |_| btr::handle_move_transcribe_item(&id, to)) {
+                        if let Some(cb) = ui.control_mut(b) {
+                            cb.set_width(28.0).set_height(28.0).set_margins([0.0, 0.0, 6.0, 0.0]);
+                        }
+                    }
+                }
+                waiting += 1;
             }
         }
     }

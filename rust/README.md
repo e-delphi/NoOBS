@@ -41,9 +41,10 @@ exe\NoOBS.exe
   `avformat-61`, `avutil-59`, `swscale-8` e as dependências delas
   (`swresample-5`, `libx264-164`, `zlib`, `srt`, `librist`). Nada de
   `obs.dll`, plugins, `data\` ou pastas ao lado (47 MB, eram 81).
-- **A UI e as traduções vão dentro do exe**: o `build.rs` compila
-  `uipp.slint` (Slint → Rust) e embute os `lang\*.json`. Editar a UI pede
-  `cargo build` (o `build.rs` vigia `ui\` e `lang\`).
+- **A UI e as traduções vão dentro do exe**: o `build.rs` embute o projeto
+  iron (`../NoOBS.ironproj`, `../forms/`, `../themes/`) e os `lang\*.json`.
+  Em debug os forms e os temas são lidos do disco e recarregam ao salvar na
+  IDE do iron; o release usa a cópia embutida.
 - **Sem WebView2**: nem runtime, nem `WebView2Loader.dll`, nem pasta de dados
   do navegador. A janela é do iron (winit + Direct2D); uma
   janela Win32 oculta (`ui.rs`) segura a fila da main, timers, atalhos,
@@ -199,8 +200,10 @@ Medido nesta máquina (AMD, 1 monitor 4K, tela principal aberta):
 | Web (WebView2), interface aberta | 7 | ~470 MB | ~330 MB |
 | Web, hibernando | 1 | ~1 MB | 3–43 MB |
 | Slint (versão anterior), interface aberta | 1 | ~290 MB | ~380 MB |
+| iron (Direct2D), interface aberta | 1 | ~135 MB | ~130 MB |
 
-A do iron se mede quando as telas estiverem todas portadas (docs/ui-iron.md).
+A do iron é o release, medido com a tela principal aberta (prévias e medidores
+rodando), 20 s depois de abrir.
 
 ## Como o Rust mudou o desenho
 

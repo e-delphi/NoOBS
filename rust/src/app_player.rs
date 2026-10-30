@@ -1365,6 +1365,12 @@ pub fn setup(ui: &mut Ui) {
             crate::app_export::key(ui, k, typing);
             return;
         }
+        if crate::app_picker::is_open() {
+            if k.key == Key::Escape {
+                crate::app_picker::close(ui);
+            }
+            return;
+        }
         if crate::app_settings::is_open() {
             if k.key == Key::Escape {
                 crate::app_settings::close(ui);

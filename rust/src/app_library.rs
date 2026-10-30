@@ -685,10 +685,6 @@ fn target_ids(id: &str) -> Vec<String> {
     with(|st| if st.selection.len() > 1 && st.selection.iter().any(|s| s == id) { st.selection.clone() } else { vec![id.to_owned()] })
 }
 
-fn is_folder(id: &str) -> bool {
-    with(|st| st.lib.folders.iter().any(|f| f.id.eq_ignore_ascii_case(id)))
-}
-
 fn export_blocked(ids: &[String]) -> bool {
     if ids.iter().any(|id| bridge::export_in_use(id)) {
         crate::app_view::show_toast(&lang::t("toast.errorTitle"), &lang::t("error.exportBusyFile"), true, 6000);

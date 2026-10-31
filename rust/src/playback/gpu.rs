@@ -93,12 +93,13 @@ impl GpuConv {
                 Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
             };
             let en = self.vdev.CreateVideoProcessorEnumerator(&desc)?;
-            let rgba_ok = en
-                .CheckVideoProcessorFormat(DXGI_FORMAT_R8G8B8A8_UNORM)
+            // A saída é BGRA (a ordem da tela); sem suporte, RGBA e a troca na cópia.
+            let bgra_ok = en
+                .CheckVideoProcessorFormat(DXGI_FORMAT_B8G8R8A8_UNORM)
                 .map(|f| f & D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT.0 as u32 != 0)
                 .unwrap_or(false);
-            self.swap_rb = !rgba_ok;
-            let fmt = if rgba_ok { DXGI_FORMAT_R8G8B8A8_UNORM } else { DXGI_FORMAT_B8G8R8A8_UNORM };
+            self.swap_rb = !bgra_ok;
+            let fmt = if bgra_ok { DXGI_FORMAT_B8G8R8A8_UNORM } else { DXGI_FORMAT_R8G8B8A8_UNORM };
             let vp = self.vdev.CreateVideoProcessor(&en, 0)?;
             let mut td = D3D11_TEXTURE2D_DESC {
                 Width: ow as u32,
@@ -204,9 +205,14 @@ impl GpuConv {
             let mut m = D3D11_MAPPED_SUBRESOURCE::default();
             self.ctx.Map(&t.staging, 0, D3D11_MAP_READ, 0, Some(&mut m))?;
             let row = (ow * 4) as usize;
-            for y in 0..oh as usize {
-                let s = std::slice::from_raw_parts((m.pData as *const u8).add(y * m.RowPitch as usize), row);
-                dst[y * row..(y + 1) * row].copy_from_slice(s);
+            if m.RowPitch as usize == row {
+                // Sem folga no fim das linhas: uma cópia só.
+                dst[..row * oh as usize].copy_from_slice(std::slice::from_raw_parts(m.pData as *const u8, row * oh as usize));
+            } else {
+                for y in 0..oh as usize {
+                    let s = std::slice::from_raw_parts((m.pData as *const u8).add(y * m.RowPitch as usize), row);
+                    dst[y * row..(y + 1) * row].copy_from_slice(s);
+                }
             }
             self.ctx.Unmap(&t.staging, 0);
         }

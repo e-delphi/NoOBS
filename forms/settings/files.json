@@ -1,0 +1,28 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraFiles",
+    "caption": "Configurações: Arquivos",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblRecordDir", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Pasta de saída das gravações" },
+      { "class": "Layout", "name": "lyRecordDir", "align": "top", "height": 33, "children": [ { "class": "Button", "name": "btnRecordDir", "style": "s", "align": "right", "width": 100, "margins": [8, 0, 0, 0], "text": "Procurar…", "on_click": "files_browse" }, { "class": "Edit", "name": "edtRecordDir", "align": "client", "margins": [0, 0.5, 0, 0.5], "placeholder": "C:\\Users\\...\\Videos", "on_exit": "files_record_dir", "on_key_down": "files_record_dir" } ] },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblFilename", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Nome do arquivo de saída" },
+      { "margins": [0, 6, 0, 0], "class": "Edit", "name": "edtFilename", "align": "top", "height": 32, "placeholder": "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}", "on_change": "files_filename_edit", "on_exit": "files_filename", "on_key_down": "files_filename" },
+      { "class": "Label", "name": "lblFilenameHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "markup": true, "margins": [0, 6, 0, 0], "text": "Use códigos entre chaves: <code>{AAAA}</code> ano, <code>{MM}</code> mês, <code>{DD}</code> dia, <code>{HH}</code> hora, <code>{NN}</code> minuto, <code>{SS}</code> segundo, <code>{ZZZ}</code> milésimo, <code>{CODEC}</code> codec (AV1, HEVC, H.264), <code>{FPS}</code> quadros por segundo, <code>{QUALIDADE}</code> nível de qualidade (0 a 10). O restante é texto fixo." },
+      { "class": "Label", "name": "lblFilenamePreview", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Exemplo: {{name}}" },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblLibrary", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Prévias e duração da biblioteca" },
+      { "class": "ComboBox", "name": "cmbLibrary", "arrow": "triangle", "align": "top", "height": 32, "margins": [0, 6, 0, 0], "on_change": "files_library" },
+      { "class": "Label", "name": "lblLibraryHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Gera prévia e duração só dos vídeos disponíveis no computador; pula os que estão só na nuvem (OneDrive) para não baixá-los." },
+      { "class": "Rectangle", "name": "lnRule3", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblHiddenFolders", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Pastas ocultas" },
+      { "class": "Label", "name": "lblHiddenFoldersHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Marque as pastas da pasta de gravação que não devem aparecer no NoOBS, como as que o Windows, a NVIDIA ou a AMD criam para os vídeos delas. Nada é apagado nem movido: a pasta só some da biblioteca e do \"Transcrever pendentes\"." },
+      { "class": "Layout", "name": "lyHiddenFolders", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0] }
+    ]
+  }
+}

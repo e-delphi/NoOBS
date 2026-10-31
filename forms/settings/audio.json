@@ -1,0 +1,19 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraAudio",
+    "caption": "Configurações: Áudio",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblAudioBitrate", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Qualidade do áudio" },
+      { "class": "ComboBox", "name": "cmbAudioBitrate", "arrow": "triangle", "align": "top", "height": 32, "margins": [0, 6, 0, 0], "on_change": "audio_bitrate" },
+      { "class": "Label", "name": "lblAudioBitrateHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Padrão — transparente para quase tudo." },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkMuteWhenMuted", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Silenciar a faixa quando o microfone estiver mudo no Windows", "on_change": "audio_mute_when_muted" },
+      { "class": "Label", "name": "lblMuteWhenMutedHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Enquanto o microfone estiver mudo no Windows, a faixa dele sai em silêncio na gravação. Vale para o botão de mudo do fone, o mudo do sistema e os aplicativos de chamada que avisam o Windows ao mutar. O mudo feito só dentro do aplicativo, sem avisar o Windows, não é detectável — nesses casos o microfone continua sendo gravado." }
+    ]
+  }
+}

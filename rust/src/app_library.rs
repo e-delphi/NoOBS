@@ -1125,6 +1125,8 @@ fn open_context(ui: &mut Ui, card: ComponentId, kind: &str, id: &str, local: Poi
         let Ok(item) = ui.create("MenuItem", Some(menu)) else { continue };
         let _ = ui.set_prop(item, "text", if action.is_empty() { "-".to_string() } else { text });
         let _ = ui.set_prop(item, "enabled", enabled);
+        // Apagar é destrutivo: vermelho, como no original.
+        let _ = ui.set_prop(item, "danger", action.starts_with("delete"));
         if !action.is_empty() {
             ui.on(item, "on_click", move |ui, _, _| ctx_run(ui, action));
         }

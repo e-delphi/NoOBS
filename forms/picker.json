@@ -1,0 +1,121 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "frmPicker",
+    "width": 1600,
+    "height": 900,
+    "children": [
+      {
+        "class": "Panel",
+        "name": "pnlPicker",
+        "style": "scrim",
+        "align": "client",
+        "on_click": "picker_close",
+        "children": [
+          {
+            "class": "Panel",
+            "name": "pnlPickerDialog",
+            "style": "dialog",
+            "align": "center",
+            "width": 680,
+            "height": 560,
+            "padding": [20, 16, 20, 20],
+            "children": [
+              {
+                "class": "Layout",
+                "name": "lyPickerHeader",
+                "align": "top",
+                "height": 52,
+                "children": [
+                  { "class": "Button", "name": "btnPickerClose", "style": "tool", "icon": "close", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [6, 2, 0, 22], "on_click": "picker_close" },
+                  { "class": "Button", "name": "btnPickerRefresh", "style": "tool", "icon": "refresh", "icon_size": 14, "text": "", "align": "right", "width": 28, "margins": [6, 2, 0, 22], "on_click": "picker_refresh" },
+                  {
+                    "class": "Layout",
+                    "name": "lyPickerTitles",
+                    "align": "client",
+                    "children": [
+                      { "class": "Label", "name": "lblPickerTitle", "style": "title", "align": "top", "height": 20, "text": "Capturar" },
+                      { "class": "Label", "name": "lblPickerSubtitle", "style": "body", "align": "client", "wrap": true, "v_align": "leading", "text": "" }
+                    ]
+                  }
+                ]
+              },
+              { "class": "Rectangle", "name": "lnPicker", "style": "sep", "align": "top", "height": 1, "margins": [-20, 8, -20, 14] },
+              {
+                "class": "Layout",
+                "name": "lyPickerMode",
+                "align": "top",
+                "height": 34,
+                "margins": [0, 0, 0, 14],
+                "children": [
+                  { "class": "SegmentedControl", "name": "segPickerMode", "align": "left", "width": 220, "items": "Janela;Área", "icons": "window;crop", "on_change": "picker_mode" }
+                ]
+              },
+              {
+                "class": "Layout",
+                "name": "lyPickerWindow",
+                "align": "client",
+                "children": [
+                  {
+                    "class": "Layout",
+                    "name": "lyPickerTools",
+                    "align": "top",
+                    "height": 32,
+                    "margins": [0, 0, 0, 12],
+                    "children": [
+                      { "class": "Chip", "name": "chipAppAudio", "align": "right", "width": 190, "margins": [10, 1, 0, 1], "checkable": true, "icon": "volume", "text": "Gravar o som do app", "on_change": "picker_audio" },
+                      { "class": "Edit", "name": "edPickerSearch", "align": "client", "placeholder": "Filtrar janelas...", "on_change": "picker_search" }
+                    ]
+                  },
+                  { "class": "Label", "name": "lblPickerEmpty", "style": "body", "align": "top", "height": 93, "h_align": "center", "visible": false, "text": "" },
+                  {
+                    "class": "ScrollBox",
+                    "name": "scrPickerGrid",
+                    "align": "client",
+                    "children": [
+                      { "class": "FlowLayout", "name": "flowPickerGrid", "align": "top", "height": 100, "gap": 12, "line_gap": 12 }
+                    ]
+                  }
+                ]
+              },
+              {
+                "class": "Layout",
+                "name": "lyPickerArea",
+                "align": "client",
+                "visible": false,
+                "children": [
+                  { "class": "Label", "name": "lblAreaStep1", "style": "body", "align": "top", "height": 36, "wrap": true, "v_align": "leading", "text": "" },
+                  { "class": "Label", "name": "lblAreaStep2", "style": "body", "align": "top", "height": 36, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "" },
+                  {
+                    "class": "FlowLayout",
+                    "name": "lyAreaOptions",
+                    "align": "top",
+                    "height": 32,
+                    "margins": [0, 14, 0, 0],
+                    "gap": 8,
+                    "children": [
+                      { "class": "Chip", "name": "chipTimelapse", "width": 120, "height": 30, "checkable": true, "icon": "clock", "text": "Timelapse", "on_change": "picker_timelapse" },
+                      { "class": "Chip", "name": "chipTimelapseCursor", "width": 230, "height": 30, "checkable": true, "text": "Cursor conta como movimento", "on_change": "picker_timelapse_cursor" }
+                    ]
+                  },
+                  {
+                    "class": "FlowLayout",
+                    "name": "lyAreaButtons",
+                    "align": "top",
+                    "height": 36,
+                    "margins": [0, 16, 0, 0],
+                    "gap": 8,
+                    "children": [
+                      { "class": "Button", "name": "btnSelectArea", "icon": "crop", "text": "Selecionar área", "width": 170, "height": 34, "on_click": "picker_select_area" }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

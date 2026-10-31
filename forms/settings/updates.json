@@ -1,0 +1,23 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraUpdates",
+    "caption": "Configurações: Atualizações",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblVersion", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Versão instalada" },
+      { "class": "Label", "name": "lblVersionValue", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "0.0.0" },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkCheckUpdates", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Verificar atualizações automaticamente", "on_change": "updates_auto" },
+      { "class": "Label", "name": "lblCheckUpdatesHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Consulta a página de releases do GitHub uma vez por dia, a partir das 6h da manhã, em segundo plano. Nada é baixado nem instalado — apenas um aviso quando houver versão nova." },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Layout", "name": "lyCheckNow", "align": "top", "height": 33, "margins": [0, 10, 0, 0], "children": [
+          { "class": "Button", "name": "btnCheckNow", "style": "s", "align": "left", "width": 142, "margins": [0, 0, 8, 0], "text": "Verificar agora", "on_click": "updates_check_now" }
+        ] },
+      { "margins": [0, 6, 0, 0], "class": "Layout", "name": "lyUpdateStatus", "align": "top", "height": 16, "children": [ { "class": "Label", "name": "lblUpdateStatus", "style": "s_hint", "align": "left", "width": 200, "text": "" }, { "class": "Label", "name": "lblUpdateOpen", "style": "s_ok", "align": "client", "cursor": "pointer", "text": "Abrir página", "on_click": "updates_open_page" } ] }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraAbout",
+    "caption": "Configurações: Sobre",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "margins": [0, 0, 0, 0], "class": "Image", "name": "imgAbout", "fit": "contain", "align": "top", "height": 48 },
+      { "class": "Label", "name": "lblAboutName", "style": "s_big", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "h_align": "center", "margins": [0, 8, 0, 0], "text": "NoOBS" },
+      { "class": "Label", "name": "lblAboutTagline", "style": "s_about_l", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "h_align": "center", "margins": [0, 2, 0, 0], "text": "Gravador de tela leve, sem OBS" },
+      { "class": "Label", "name": "lblAboutIntro1", "style": "s_desc", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 16, 0, 0], "text": "O NoOBS nasceu da frustração com a complexidade do OBS Studio — configurar cenas, fontes e dispositivos a cada gravação." },
+      { "class": "Label", "name": "lblAboutIntro2", "style": "s_desc", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 8, 0, 0], "text": "A ideia aqui é <b>simplicidade</b>: abriu, clicou em Gravar, está gravando. Telas, webcam, microfones e áudio do sistema são detectados e ficam prontos automaticamente." },
+      { "class": "Label", "name": "lblAboutIntro3", "style": "s_desc", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 8, 0, 0], "text": "<b>Leve, rápido, intuitivo</b> — um produto premium pensado pra que sua gravação sempre funcione." },
+      { "class": "Layout", "name": "lyAboutAuthor", "align": "top", "height": 18, "children": [ { "class": "Label", "name": "lblAboutAuthor", "style": "s_about_l", "align": "left", "width": 96, "margins": [0, 0, 12, 0], "text": "Autor" }, { "class": "Label", "name": "lblAboutAuthorValue", "style": "s_about_v", "align": "client", "text": "Eduardo Rodrigues" } ] },
+      { "class": "Layout", "name": "lyAboutCoAuthor", "align": "top", "height": 18, "children": [ { "class": "Label", "name": "lblAboutCoAuthor", "style": "s_about_l", "align": "left", "width": 96, "margins": [0, 0, 12, 0], "text": "Coautor" }, { "class": "Label", "name": "lblAboutCoAuthorValue", "style": "s_about_v", "align": "left", "width": 260, "margins": [0, 0, 12, 0], "text": "Claude (Anthropic) - Max 5X · Opus 5.5" }, { "class": "Label", "name": "lblAboutCoAuthorTag", "style": "s_tag", "align": "client", "text": "1M" } ] },
+      { "class": "Layout", "name": "lyAboutRepository", "align": "top", "height": 18, "children": [ { "class": "Label", "name": "lblAboutRepository", "style": "s_about_l", "align": "left", "width": 96, "margins": [0, 0, 12, 0], "text": "Repositório" }, { "class": "Label", "name": "lblAboutRepositoryValue", "style": "s_link", "align": "client", "cursor": "pointer", "text": "github.com/e-delphi/NoOBS", "on_click": "about_repository" } ] },
+      { "class": "Layout", "name": "lyAboutLists", "align": "top", "auto_size": true, "margins": [0, 12, 0, 0] },
+      { "class": "Label", "name": "lblAboutFooter", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 8, 0, 0], "text": "Usa o FFmpeg (LGPL/GPL) e o iron." }
+    ]
+  }
+}

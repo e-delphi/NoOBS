@@ -130,6 +130,15 @@ iron = { path = "C:/Users/Eduar/OneDrive/Documentos/git/iron/crates/iron", defau
 
 # iron:render-end
 
+# Em desenvolvimento (o Executar e a depuração da IDE do iron): o NoOBS e as dependências
+# otimizados. Sem otimização, a captura, a mixagem de áudio e a conversão de vídeo não
+# acompanham o tempo real e o app fica inutilizável. O depurador continua com as linhas.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = true

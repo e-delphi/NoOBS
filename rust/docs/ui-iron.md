@@ -60,15 +60,18 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   `LevelMeter` estéreo com degradê e o `letter_spacing`/`text_case` do
   `Label`. O aviso de versão nova e o selo da fila de
   transcrição entraram com as Configurações; Esc fecha o seletor. Conferido
-  gravando de verdade. **Falta**: a onda vermelha ao começar a gravar.
+  gravando de verdade. A onda vermelha ao começar a gravar (`start_ripple`)
+  também.
 - **Fase 2 — feita.** Biblioteca (`lyLibrary` no `forms/main.json`, presenter
   `app_library.rs`): cabeçalho com contagem e espaço (aviso de pouco espaço),
   busca (também na transcrição), pastas, caminho (`Breadcrumb`), grupos por
   período com "selecionar o grupo", cartões `MediaCard` com miniatura, duração
   e selos, seleção na ordem da união, menu de contexto, recortar/colar
   (Ctrl+X/Ctrl+V), renomear no cartão, excluir e unir com `confirm`.
-  Conferido gravando de verdade (a gravação nova entra em "Hoje"). **Falta**:
-  arrastar pra pasta/lixeira e o menu do fundo (pasta nova, colar, voltar).
+  Conferido gravando de verdade (a gravação nova entra em "Hoje"). Arrastar
+  pra pasta/lixeira usa o arrastar e soltar do iron (`draggable`,
+  `accepts_drops`, `on_drag_*`); o botão direito no fundo abre o menu (pasta
+  nova, colar, voltar).
 - **Fase 3 — feita.** Player (`pnlPlayer` no `forms/main.json`, presenter
   `app_player.rs`): o quadro do motor próprio no `FrameView`, forma de onda
   com a parte tocada e busca, tempo e relógio, volume geral e por faixa,
@@ -76,8 +79,8 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   cheia, controles que somem com o mouse parado (e o cursor junto), teclado
   (Esc, espaço, setas, M, F, 0, C), painel de informações com a
   "Visualização" por região e o de transcrição com busca e legenda.
-  Conferido tocando uma gravação de verdade. **Falta**: renomear o falante na
-  transcrição e o indicador de pausa no meio do palco.
+  Conferido tocando uma gravação de verdade. O falante se renomeia clicando
+  no nome (Enter grava, Esc desiste) e a pausa pulsa no meio do palco.
 - **Fase 4 — feita.** Configurações (`pnlSettings` no `forms/main.json`,
   presenter `app_settings.rs`): a barra lateral e o cabeçalho vêm do form; as
   linhas das 11 abas (Geral, Gravação, Arquivos, Vídeo, Áudio, Buffer,
@@ -92,7 +95,7 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
   o `font_of` com a fonte do estilo.
 - **Fase 5 — feita.** Exportação (`pnlExport` no `forms/main.json`, presenter
   `app_export.rs`): o formulário é montado no código numa coluna de até
-  880 px. Telas (pílulas `Chip` num `FlowLayout`), a prévia com o motor do
+  880 px. Telas (caixas de marcar em pílula num `FlowLayout`), a prévia com o motor do
   player parado num `FrameView` e o `CropBox` do iron por cima (recorte em
   pixels da origem, pares; zoom pela roda e pelos botões, arrasto com zoom),
   tocar/volume/legenda, a linha do tempo desenhada aqui (trechos mantidos e
@@ -106,6 +109,34 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
 - **Fase 6 — feita.** Limpeza: sem avisos de código morto (o que sobrou da
   fila de transcrição virou o "↑" de subir na espera), README, os logos das
   placas de vídeo (`assets/gpu/`) ao lado do codec, memória medida (README).
+
+- **Igual ao original (30/10/2026).** Tudo comparado lado a lado com a
+  versão Slint, por captura:
+  - verde em toda a interface (o azul do Slint era erro; só o progresso da
+    exportação no cartão segue o destaque);
+  - Configurações com o botão de voltar, a barra de 190 px e a coluna de
+    760 px; Sobre cita o iron;
+  - confirmação dentro da janela (`app_view::confirm`);
+  - player com o vídeo na área toda e os controles por cima com degradê,
+    barra de busca fina com a onda (`Waveform.seek_bar`), um botão CC só com
+    menu, volume e velocidade em popups, legenda proporcional com contorno
+    (`Label.outline`) e os painéis no formato original;
+  - tela principal, biblioteca (cartões, selos, menu de contexto pelo estilo
+    `PopupMenu` do tema) e exportação (`CropBox.framed`, caixas de marcar,
+    linha do tempo em caixa) nas medidas do original;
+  - vídeo a 60 fps e acelerado sem perder quadros: o motor decodifica numa thread
+    e converte noutra (só o quadro mais recente), entrega BGRA que o Direct2D usa
+    sem converter, e mede o atraso em tempo real. Medido em release: 4K a 60
+    (1×), ~110 (2×), ~170 (3×), ~210 (8×); 1080p ~250 (8×) e ~120 (16×). Os saltos
+    entre keyframes ficaram para a decodificação por software (e quando a placa não
+    acompanha: 4K a 16×, 1080p a 32×);
+  - medidores suaves (`LevelMeter.smoothing`);
+  - roda do mouse com 100 pontos por dente e deslize (`scroll` no `NoOBS.ironproj`).
+- **Cores do projeto.** As cores com nome ficam em `colors` no
+  `NoOBS.ironproj` (verde, vermelho, âmbar, as faixas `track_1`…`track_10`,
+  os falantes `speaker_1`…`speaker_6`, os painéis do player `side_*`, uma por
+  modo quando muda entre escuro e claro). Form, temas e código citam os
+  nomes (`"green"`, `"white/85"`, `"side_bg"`), não hex.
 
 O Slint saiu inteiro na fase 0: `slint`, `slint-build`, `ui/`, os presenters,
 a prova de conceito `poc-slint/`, o `vendor/wgpu-hal` e o `docs/ui-slint.md`.

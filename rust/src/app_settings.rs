@@ -1,8 +1,9 @@
-//! Presenter das Configurações: a camada `pnlSettings` do `forms/main.json`
-//! (barra lateral com as abas, cabeçalho, área rolável) e as linhas de cada
-//! aba, montadas aqui com um construtor de linhas (título, dica e o controle
-//! à direita), porque os textos e as listas saem do idioma e do estado do
-//! core.
+//! Presenter das Configurações: o form `frmSettings` (`forms/settings.json`:
+//! cabeçalho, barra lateral com as abas e a área rolável) e um frame por aba
+//! (`forms/settings/*.json`: `fraGeneral`, `fraVideo`...). As linhas de cada aba
+//! são montadas aqui dentro do frame dela, com um construtor de linhas (título,
+//! dica e o controle à direita), porque os textos e as listas saem do idioma e
+//! do estado do core.
 //!
 //! Lê o estado direto do core (config, caps, filas) e cada mudança chama o
 //! handler do core na hora — sem botão Salvar. Os dados que o core empurra
@@ -14,7 +15,7 @@ use std::collections::HashMap;
 
 use iron::prelude::*;
 
-use crate::app_view::{main_form, with_ui};
+use crate::app_view::with_ui;
 use crate::bridge::{self, hotkeys as bhk, recording, replay, settings, shell, transcribe as btr, video_test};
 use crate::hotkeys::{Item, Mode};
 use crate::types::GpuVendor;
@@ -31,6 +32,13 @@ const CORNERS: [&str; 4] = ["top-left", "top-right", "bottom-left", "bottom-righ
 const CODECS: [&str; 6] = ["auto", "h264-hw", "h264-sw", "av1-hw", "av1-sw", "hevc-hw"];
 const LIBRARY_MODES: [&str; 3] = ["auto", "always", "off"];
 const TABS: [&str; 11] = ["general", "onrecord", "files", "recording", "audio", "replay", "hotkeys", "devices", "transcribe", "updates", "about"];
+/// O nome de cada aba nos forms (na ordem de `TABS`): o frame `fr<Nome>` mostra o form
+/// `fra<Nome>`, e a linha da barra lateral é `pnlTab<Nome>` (com o `lblTab<Nome>`).
+const TAB_NAMES: [&str; 11] = ["General", "OnRecord", "Files", "Video", "Audio", "Replay", "Hotkeys", "Devices", "Transcribe", "Updates", "About"];
+
+fn tab_name(tab: &str) -> &'static str {
+    TABS.iter().position(|t| *t == tab).map_or("General", |i| TAB_NAMES[i])
+}
 /// Idiomas oferecidos pra transcrição (o nome no próprio idioma).
 const TRANSCRIBE_LANGS: [(&str, &str); 16] = [
     ("pt", "Português"),
@@ -172,8 +180,9 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
     STATE.with(|s| f(&mut s.borrow_mut()))
 }
 
+/// Um componente do `frmSettings` pelo nome.
 fn c(ui: &Ui, name: &str) -> Option<ComponentId> {
-    ui.find_in(main_form()?, name)
+    ui.find_in(crate::app_view::form(ui, "frmSettings")?, name)
 }
 
 fn set(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
@@ -214,7 +223,7 @@ pub fn open(ui: &mut Ui, tab: Option<&str>) {
     }
     with(|s| s.open = true);
     load_values();
-    set(ui, "pnlSettings", "visible", true);
+    crate::app_view::show_screen(ui, "frmSettings", true);
     set(ui, "lblSetTitle", "text", lang::t("settings.title"));
     let tab = with(|s| s.tab.clone());
     show_tab(ui, &tab);
@@ -226,7 +235,7 @@ pub fn is_open() -> bool {
 
 pub fn close(ui: &mut Ui) {
     with(|s| s.open = false);
-    set(ui, "pnlSettings", "visible", false);
+    crate::app_view::show_screen(ui, "frmSettings", false);
 }
 
 /// Os valores do core que as abas mostram (lidos ao abrir).
@@ -499,9 +508,13 @@ pub fn on_video_test(d: &VideoTestState) {
             }
         }
         if is_open() && with(|s| s.tab == "recording") {
-            if d.state == "encoding" {
+            // Gerando: só o texto e a barra mudam; vindo da captura (sem a barra, texto em
+            // vermelho), a aba é refeita.
+            let has_bar = with(|s| s.slots.get("vt_bar").copied()).is_some_and(|id| ui.contains(id));
+            if d.state == "encoding" && has_bar {
                 let status = tw("settings.videoTest.encoding", &[("n", &d.level.to_string()), ("pct", &d.pct.to_string())]);
                 set_slot(ui, "vt_status", "text", status);
+                set_slot(ui, "vt_bar", "value", d.pct.clamp(0, 100) as f64);
             } else {
                 render_tab(ui);
             }
@@ -1176,13 +1189,87 @@ fn place(ui: &mut Ui, id: ComponentId, h: f32) {
     }
 }
 
+/// A página da aba aberta: o form do frame dela (`fraGeneral`...), mostrada no
+/// `tbcSettings`.
 fn clear_page(ui: &mut Ui) -> Option<ComponentId> {
-    let p = c(ui, "lySettings")?;
-    for child in ui.children(p).to_vec() {
-        ui.free(child);
-    }
+    let tab = with(|s| s.tab.clone());
+    let current = tab_name(&tab);
+    // Cada aba é uma página do `tbcSettings` (sem a barra: a navegação é a lateral).
+    let index = TABS.iter().position(|t| *t == tab).unwrap_or(0);
+    set(ui, "tbcSettings", "tab_index", index as i64);
+    let p = crate::app_view::form(ui, &format!("fra{current}"))?;
     with(|s| s.slots.clear());
     Some(p)
+}
+
+// ----- os frames das abas -----
+
+/// Um componente do frame de uma aba (`fraGeneral`...) pelo nome.
+fn fc(ui: &Ui, frame: &str, name: &str) -> Option<ComponentId> {
+    ui.find_in(crate::app_view::form(ui, frame)?, name)
+}
+
+fn fset(ui: &mut Ui, frame: &str, name: &str, prop: &str, value: impl Into<PropValue>) {
+    if let Some(id) = fc(ui, frame, name) {
+        let _ = ui.set_prop(id, prop, value);
+    }
+}
+
+fn fshow(ui: &mut Ui, frame: &str, name: &str, on: bool) {
+    fset(ui, frame, name, "visible", on);
+}
+
+/// Os textos do frame no idioma: (componente, chave); `nome.placeholder` é o placeholder.
+fn ftexts(ui: &mut Ui, frame: &str, texts: &[(&str, &str)]) {
+    for (name, key) in texts {
+        match name.split_once('.') {
+            Some((n, prop)) => fset(ui, frame, n, prop, lang::t(key)),
+            None => fset(ui, frame, name, "text", lang::t(key)),
+        }
+    }
+}
+
+/// O botão do tamanho do texto dele (os textos mudam com o idioma).
+fn fit_button(ui: &mut Ui, frame: &str, name: &str) {
+    let Some(b) = fc(ui, frame, name) else { return };
+    let text = match ui.get_prop(b, "text") {
+        Ok(PropValue::String(t)) => t,
+        _ => return,
+    };
+    let w = text_width(ui, b, &text) + 30.0;
+    if let Some(cb) = ui.control_mut(b) {
+        cb.set_width(w);
+    }
+}
+
+/// O valor de uma caixa de marcação (no `on_change`).
+pub fn checked(ui: &Ui, sender: ComponentId) -> bool {
+    matches!(ui.get_prop(sender, "checked"), Ok(PropValue::Bool(true)))
+}
+
+/// O item escolhido num combo (no `on_change`).
+pub fn chosen(ui: &Ui, sender: ComponentId) -> usize {
+    ui.get_prop(sender, "item_index").ok().and_then(|v| v.to_i64().ok()).unwrap_or(0).max(0) as usize
+}
+
+/// O texto de um campo quando ele é confirmado: ao sair dele (`on_exit`) ou no Enter
+/// (`on_key_down`); as outras teclas não confirmam.
+pub fn committed(ui: &Ui, sender: ComponentId, args: &EventArgs) -> Option<String> {
+    if let EventArgs::Key(k) = args {
+        if k.key != Key::Enter {
+            return None;
+        }
+    }
+    match ui.get_prop(sender, "text") {
+        Ok(PropValue::String(t)) => Some(t.trim().to_owned()),
+        _ => None,
+    }
+}
+
+/// Os itens de um combo (`;` separa; um `;` no texto vira `,`).
+fn fitems(ui: &mut Ui, frame: &str, name: &str, items: &[String], index: usize) {
+    fset(ui, frame, name, "items", items.iter().map(|s| s.replace(';', ",")).collect::<Vec<_>>().join(";"));
+    fset(ui, frame, name, "item_index", index as i64);
 }
 
 /// Altura do texto do rótulo `l` quebrado na largura `w` (com a fonte do estilo dele).
@@ -1251,68 +1338,9 @@ fn md_lines(ui: &Ui, l: ComponentId, html: &str, w: f32) -> f32 {
     (wrapped_height(ui, l, &plain, w * 0.97) / one).round().max(1.0)
 }
 
-/// Texto com `<b>` e `<code>` (os textos do idioma com HTML simples), quebrado.
-fn text_in_md(ui: &mut Ui, page: ComponentId, html: &str, style: &str, w: f32) -> Option<ComponentId> {
-    if html.is_empty() {
-        return None;
-    }
-    let l = ui.create("Label", Some(page)).ok()?;
-    let _ = ui.set_prop(l, "style", style);
-    let _ = ui.set_prop(l, "markup", true);
-    let _ = ui.set_prop(l, "v_align", "leading");
-    let _ = ui.set_prop(l, "text", html);
-    // O negrito é um pouco mais largo: mede com uma folga.
-    let h = wrapped_height(ui, l, &iron::controls::markup_plain(html), w * 0.97);
-    place(ui, l, h);
-    if let Some(cb) = ui.control_mut(l) {
-        let m = cb.margins();
-        cb.set_margins([0.0, m.top, (col_w() - w).max(0.0), 0.0]);
-    }
-    Some(l)
-}
-
-/// `.settings-field label`: 12 px, seminegrito, `text_2`.
-fn s_label(ui: &mut Ui, page: ComponentId, text: &str) -> Option<ComponentId> {
-    text_in(ui, page, text, "s_label", col_w())
-}
-
 /// `.settings-hint`: 11 px, `text_3`.
 fn s_hint(ui: &mut Ui, page: ComponentId, text: &str) -> Option<ComponentId> {
     text_in(ui, page, text, "s_hint", col_w())
-}
-
-/// `.settings-warn`: âmbar com a barra à esquerda.
-fn s_warn(ui: &mut Ui, page: ComponentId, text: &str) {
-    let Ok(box_) = ui.create("Layout", Some(page)) else { return };
-    let Some(l) = label(ui, box_, text, "s_warn", Align::Client, 0.0, 0.0) else { return };
-    let _ = ui.set_prop(l, "wrap", true);
-    let _ = ui.set_prop(l, "v_align", "leading");
-    let h = wrapped_height(ui, l, text, col_w() - 10.0);
-    if let Some(cb) = ui.control_mut(l) {
-        cb.set_margins([10.0, 0.0, 0.0, 0.0]);
-    }
-    if let Ok(bar) = ui.create("Rectangle", Some(box_)) {
-        let _ = ui.set_prop(bar, "fill", "amber");
-        let _ = ui.set_prop(bar, "stroke_width", 0.0);
-        if let Some(cb) = ui.control_mut(bar) {
-            cb.set_rect(0.0, 0.0, 2.0, h).set_hit_test(false);
-        }
-    }
-    place(ui, box_, h);
-}
-
-/// A divisória entre campos (`<hr>`), até a borda do corpo.
-fn rule(ui: &mut Ui, page: ComponentId) {
-    let Ok(r) = ui.create("Rectangle", Some(page)) else { return };
-    let _ = ui.set_prop(r, "style", "sep");
-    gap(TAB_GAP);
-    place(ui, r, 1.0);
-    let (col, rule) = WIDTHS.with(|w| w.get());
-    if let Some(cb) = ui.control_mut(r) {
-        let m = cb.margins();
-        cb.set_margins([0.0, m.top, -(rule - col).max(0.0), 0.0]);
-    }
-    gap(TAB_GAP);
 }
 
 /// Uma linha da coluna (para os controles lado a lado).
@@ -1320,22 +1348,6 @@ fn row(ui: &mut Ui, page: ComponentId, h: f32) -> Option<ComponentId> {
     let r = ui.create("Layout", Some(page)).ok()?;
     place(ui, r, h);
     Some(r)
-}
-
-/// `.settings-check-row`: a caixa e o texto (12 px, seminegrito), clicável inteiro.
-fn s_check(ui: &mut Ui, page: ComponentId, on: bool, text: &str, f: impl Fn(&mut Ui, bool) + 'static) -> Option<ComponentId> {
-    let b = ui.create("CheckBox", Some(page)).ok()?;
-    let _ = ui.set_prop(b, "text", text);
-    let _ = ui.set_prop(b, "box_size", 16.0);
-    let _ = ui.set_prop(b, "style", "web");
-    let _ = ui.set_prop(b, "checked", on);
-    let h = wrapped_height(ui, b, text, col_w() - 24.0).max(16.0);
-    place(ui, b, h);
-    ui.on(b, "on_change", move |ui, sender, _| {
-        let on = matches!(ui.get_prop(sender, "checked"), Ok(PropValue::Bool(true)));
-        f(ui, on);
-    });
-    Some(b)
 }
 
 /// `.settings-input`: 32 px; `on_edit` a cada tecla, `on_commit` no Enter ou ao sair.
@@ -1376,33 +1388,6 @@ fn s_input(
     Some(e)
 }
 
-/// O campo de texto ocupando a coluna.
-fn s_input_col(
-    ui: &mut Ui,
-    page: ComponentId,
-    text: &str,
-    placeholder: &str,
-    on_edit: impl Fn(&mut Ui, &str) + 'static,
-    on_commit: impl Fn(&mut Ui, &str) + 'static,
-) -> Option<ComponentId> {
-    let e = s_input(ui, page, text, placeholder, on_edit, on_commit)?;
-    place(ui, e, 32.0);
-    keep_col(ui, e);
-    Some(e)
-}
-
-/// O item da coluna não passa da largura dela (a página vai até a borda das divisórias).
-fn keep_col(ui: &mut Ui, id: ComponentId) {
-    let (col, rule) = WIDTHS.with(|w| w.get());
-    let _ = rule;
-    let page_w = c(ui, "lySettings").and_then(|p| ui.bounds(p)).map_or(col, |b| b.width);
-    let _ = page_w;
-    if let Some(cb) = ui.control_mut(id) {
-        let m = cb.margins();
-        cb.set_margins([m.left, m.top, 0.0, m.bottom]);
-    }
-}
-
 /// `select.settings-input`: 32 px.
 fn s_select(ui: &mut Ui, parent: ComponentId, items: &[String], index: usize, f: impl Fn(&mut Ui, usize) + 'static) -> Option<ComponentId> {
     let b = ui.create("ComboBox", Some(parent)).ok()?;
@@ -1413,12 +1398,6 @@ fn s_select(ui: &mut Ui, parent: ComponentId, items: &[String], index: usize, f:
         let i = ui.get_prop(sender, "item_index").ok().and_then(|v| v.to_i64().ok()).unwrap_or(0).max(0) as usize;
         f(ui, i);
     });
-    Some(b)
-}
-
-fn s_select_col(ui: &mut Ui, page: ComponentId, items: &[String], index: usize, f: impl Fn(&mut Ui, usize) + 'static) -> Option<ComponentId> {
-    let b = s_select(ui, page, items, index, f)?;
-    place(ui, b, 32.0);
     Some(b)
 }
 
@@ -1442,61 +1421,6 @@ fn s_button(ui: &mut Ui, parent: ComponentId, text: &str, kind: &str, align: Ali
 /// Uma linha com um botão (ou mais) à esquerda.
 fn button_row(ui: &mut Ui, page: ComponentId) -> Option<ComponentId> {
     row(ui, page, 33.0)
-}
-
-/// O slider da web: trilho de 4 px, polegar cheio de 14 px, marcas embaixo (10 px)
-/// e as legendas das pontas (11 px). `f` recebe o índice 0..=`steps`.
-fn s_slider(ui: &mut Ui, page: ComponentId, steps: usize, value: usize, ticks: &[String], ends: (&str, &str), f: impl Fn(&mut Ui, usize) + 'static) -> Option<ComponentId> {
-    let h = if ticks.is_empty() { 16.0 } else { 32.0 };
-    let r = row(ui, page, h)?;
-    let mut middle_w = col_w();
-    let mut place_end = |ui: &mut Ui, text: &str, align: Align| {
-        if text.is_empty() {
-            return;
-        }
-        if let Some(l) = label(ui, r, text, "s_end", align, 0.0, 32.0) {
-            let w = text_width(ui, l, text).max(44.0);
-            if align == Align::Right {
-                let _ = ui.set_prop(l, "h_align", "trailing");
-            }
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_width(w).set_margins(if align == Align::Left { [0.0, 0.0, 10.0, 0.0] } else { [10.0, 0.0, 0.0, 0.0] });
-            }
-            middle_w -= w + 10.0;
-        }
-    };
-    place_end(ui, ends.0, Align::Left);
-    place_end(ui, ends.1, Align::Right);
-    let mid = ui.create("Layout", Some(r)).ok()?;
-    if let Some(cb) = ui.control_mut(mid) {
-        cb.set_align(Align::Client);
-    }
-    let t = ui.create("TrackBar", Some(mid)).ok()?;
-    let _ = ui.set_prop(t, "min", 0.0);
-    let _ = ui.set_prop(t, "max", steps.max(1) as f64);
-    let _ = ui.set_prop(t, "value", value as f64);
-    let _ = ui.set_prop(t, "frequency", 1.0);
-    let _ = ui.set_prop(t, "solid_thumb", true);
-    let _ = ui.set_prop(t, "thumb_size", 14.0);
-    let _ = ui.set_prop(t, "track_size", 4.0);
-    if let Some(cb) = ui.control_mut(t) {
-        cb.set_align(Align::Top).set_height(16.0);
-    }
-    let n = ticks.len();
-    for (i, tick) in ticks.iter().enumerate() {
-        if let Some(l) = label(ui, mid, tick, "s_tick", Align::None, 0.0, 14.0) {
-            let w = text_width(ui, l, tick) + 2.0;
-            let x = 7.0 + if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 } * (middle_w - 14.0) - w / 2.0;
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_rect(x, 18.0, w, 14.0);
-            }
-        }
-    }
-    ui.on(t, "on_change", move |ui, sender, _| {
-        let v = ui.get_prop(sender, "value").ok().and_then(|v| v.to_f64().ok()).unwrap_or(0.0);
-        f(ui, v.round().max(0.0) as usize);
-    });
-    Some(t)
 }
 
 /// Um rótulo que muda sem refazer a aba.
@@ -1525,8 +1449,12 @@ fn debounce(ui: &mut Ui, key: &'static str, ms: u64, f: impl FnOnce(&mut Ui) + '
     with(|s| s.debounce.insert(key, job));
 }
 
+/// A área rolável (`lySettings`) fica da altura da página da aba aberta.
 fn fit_page(ui: &mut Ui) {
-    let Some(p) = c(ui, "lySettings") else { return };
+    let Some(area) = c(ui, "lySettings") else { return };
+    let Some(p) = crate::app_view::form(ui, &format!("fra{}", tab_name(&with(|s| s.tab.clone())))) else { return };
+    // A altura dos textos (`auto_size`) sai do layout.
+    ui.layout();
     let h: f32 = ui
         .children(p)
         .to_vec()
@@ -1534,7 +1462,7 @@ fn fit_page(ui: &mut Ui) {
         .filter_map(|&id| ui.control(id).filter(|cb| cb.visible()).map(|cb| cb.height() + cb.margins().top + cb.margins().bottom))
         .sum();
     let pad = ui.control(p).map_or(28.0, |cb| cb.padding().top + cb.padding().bottom);
-    if let Some(cb) = ui.control_mut(p) {
+    if let Some(cb) = ui.control_mut(area) {
         cb.set_height(h + pad);
     }
     ui.layout();
@@ -1544,21 +1472,22 @@ fn fit_page(ui: &mut Ui) {
 // Abas
 // ---------------------------------------------------------------------------
 
+/// A barra lateral (desenhada no `frmSettings`): o texto de cada aba no idioma e a aberta
+/// em destaque.
 fn render_sidebar(ui: &mut Ui) {
-    let Some(side) = c(ui, "lySetTabs") else { return };
-    for child in ui.children(side).to_vec() {
-        ui.free(child);
-    }
     let current = with(|s| s.tab.clone());
-    for tab in TABS {
-        let on = tab == current;
-        let Ok(row) = ui.create("Panel", Some(side)) else { continue };
-        let _ = ui.set_prop(row, "style", if on { "s_tab_on" } else { "s_tab" });
-        if let Some(cb) = ui.control_mut(row) {
-            cb.set_align(Align::Top).set_height(35.0).set_padding([12.0, 0.0, 0.0, 0.0]).set_margins([0.0, 0.0, 0.0, 2.0]).set_cursor(CursorShape::Pointer);
-        }
-        label(ui, row, &lang::t(&format!("settings.tabs.{tab}")), if on { "s_tab_on" } else { "s_tab" }, Align::Client, 0.0, 35.0);
-        ui.on(row, "on_click", move |ui, _, _| show_tab(ui, tab));
+    for (tab, name) in TABS.iter().zip(TAB_NAMES) {
+        let style = if *tab == current { "s_tab_on" } else { "s_tab" };
+        set(ui, &format!("pnlTab{name}"), "style", style);
+        set(ui, &format!("lblTab{name}"), "style", style);
+        set(ui, &format!("lblTab{name}"), "text", lang::t(&format!("settings.tabs.{tab}")));
+    }
+}
+
+/// O clique numa aba da barra lateral (o `tag` da linha é a posição em `TABS`).
+pub fn show_tab_at(ui: &mut Ui, index: usize) {
+    if let Some(tab) = TABS.get(index) {
+        show_tab(ui, tab);
     }
 }
 
@@ -1586,18 +1515,31 @@ fn render_tab(ui: &mut Ui) {
         cb.set_padding([18.0, if tab == "general" { 14.0 } else { 24.0 }, (page_w - 18.0 - col).max(0.0), 14.0]);
     }
     gap(0.0);
+    // As divisórias entre os campos (`lnRule*`, também dentro dos grupos) vão além da
+    // coluna, até a borda do corpo.
+    let (col, rule_w) = WIDTHS.with(|w| w.get());
+    let mut stack = ui.children(page).to_vec();
+    while let Some(id) = stack.pop() {
+        if ui.name(id).is_some_and(|n| n.starts_with("lnRule")) {
+            if let Some(cb) = ui.control_mut(id) {
+                let m = cb.margins();
+                cb.set_margins([0.0, m.top, -(rule_w - col).max(0.0), 0.0]);
+            }
+        }
+        stack.extend(ui.children(id).iter().copied());
+    }
     match tab.as_str() {
-        "general" => tab_general(ui, page),
-        "onrecord" => tab_onrecord(ui, page),
-        "files" => tab_files(ui, page),
-        "recording" => tab_video(ui, page),
-        "audio" => tab_audio(ui, page),
-        "replay" => tab_replay(ui, page),
-        "hotkeys" => tab_hotkeys(ui, page),
-        "devices" => tab_devices(ui, page),
-        "transcribe" => tab_transcribe(ui, page),
-        "updates" => tab_updates(ui, page),
-        _ => tab_about(ui, page),
+        "general" => load_general(ui),
+        "onrecord" => load_onrecord(ui),
+        "files" => load_files(ui),
+        "recording" => load_video(ui),
+        "audio" => load_audio(ui),
+        "replay" => load_replay(ui),
+        "hotkeys" => load_hotkeys(ui),
+        "devices" => load_devices(ui),
+        "transcribe" => load_transcribe(ui),
+        "updates" => load_updates(ui),
+        _ => load_about(ui),
     }
     fit_page(ui);
 }
@@ -1617,48 +1559,34 @@ pub fn resized(ui: &mut Ui) {
 // Geral
 // ---------------------------------------------------------------------------
 
-/// `.theme-toggle`: Sistema / Claro / Escuro, o escolhido em destaque.
-fn theme_toggle(ui: &mut Ui, page: ComponentId) {
-    let pref = config::get_config_str("theme", "system");
-    let Ok(boxp) = ui.create("Panel", Some(page)) else { return };
-    let _ = ui.set_prop(boxp, "style", "s_seg_box");
-    let mut x = 4.0;
-    for (mode, icon) in [("system", "monitor"), ("light", "sun"), ("dark", "moon")] {
-        let Ok(b) = ui.create("Button", Some(boxp)) else { continue };
-        let text = lang::t(&format!("settings.theme.{mode}"));
-        let _ = ui.set_prop(b, "style", if pref == mode { "s_seg_on" } else { "s_seg" });
-        let _ = ui.set_prop(b, "text", text.as_str());
-        let _ = ui.set_prop(b, "icon", icon);
-        let _ = ui.set_prop(b, "icon_size", 16.0);
-        let key = match mode {
-            "system" => "settings.theme.toggleSystem",
-            "light" => "settings.theme.toggleLight",
-            _ => "settings.theme.toggleDark",
-        };
-        let _ = ui.set_prop(b, "hint", lang::t(key));
-        let w = text_width(ui, b, &text) + 16.0 + 6.0 + 28.0;
-        if let Some(cb) = ui.control_mut(b) {
-            cb.set_rect(x, 4.0, w, 27.0);
-        }
-        x += w + 3.0;
-        ui.on(b, "on_click", move |ui, _, _| {
-            bridge::handle_set_theme(mode);
-            ui.set_timeout(0, render_tab);
-        });
-    }
-    place(ui, boxp, 35.0);
-    if let Some(cb) = ui.control_mut(boxp) {
-        let m = cb.margins();
-        cb.set_margins([0.0, m.top, (col_w() - x - 1.0).max(0.0), 0.0]);
-    }
-}
+/// O frame da aba Geral (`forms/settings/general.json`).
+const GENERAL: &str = "fraGeneral";
+const GENERAL_TEXTS: &[(&str, &str)] = &[
+    ("lblTheme", "settings.theme.label"),
+    ("lblLanguage", "settings.language.label"),
+    ("lblLanguageHint", "settings.language.hint"),
+    ("lblWindowTitle", "settings.windowTitle.label"),
+    ("lblWindowTitleHint", "settings.windowTitle.hint"),
+    ("chkAutostart", "settings.autostart.label"),
+    ("lblAutostartHint", "settings.autostart.hint"),
+    ("chkRunAsAdmin", "settings.runAsAdmin.label"),
+    ("lblRunAsAdminHint", "settings.runAsAdmin.hint"),
+    ("chkCloseToTray", "settings.closeToTray.label"),
+    ("lblCloseToTrayHint", "settings.closeToTray.hint"),
+    ("lblReset", "settings.reset.label"),
+    ("lblResetHint", "settings.reset.hint"),
+    ("btnReset", "settings.buttons.reset"),
+];
+/// Os botões do tema, na ordem do `tag` deles: (modo, botão, texto, dica).
+const THEME_MODES: [(&str, &str, &str, &str); 3] = [
+    ("system", "btnThemeSystem", "settings.theme.system", "settings.theme.toggleSystem"),
+    ("light", "btnThemeLight", "settings.theme.light", "settings.theme.toggleLight"),
+    ("dark", "btnThemeDark", "settings.theme.dark", "settings.theme.toggleDark"),
+];
 
-fn tab_general(ui: &mut Ui, page: ComponentId) {
-    s_label(ui, page, &lang::t("settings.theme.label"));
-    theme_toggle(ui, page);
-    rule(ui, page);
-    // Idioma: "Automático" + os embutidos (nome nativo).
-    s_label(ui, page, &lang::t("settings.language.label"));
+/// Os idiomas da interface: "Automático" e os embutidos (nome nativo); os códigos e o
+/// escolhido.
+fn language_options() -> (Vec<String>, Vec<String>, usize) {
     let pref = config::get_config_str("language", "");
     let mut labels = vec![lang::t("settings.language.auto")];
     let mut codes = vec![String::new()];
@@ -1677,32 +1605,82 @@ fn tab_general(ui: &mut Ui, page: ComponentId) {
             codes.push(code.to_owned());
         }
     }
-    s_select_col(ui, page, &labels, idx, move |_, i| bridge::handle_set_language(codes.get(i).map_or("", |s| s.as_str())));
-    s_hint(ui, page, &lang::t("settings.language.hint"));
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.windowTitle.label"));
-    s_input_col(ui, page, &config::get_config_str("windowTitle", "NoOBS"), "NoOBS", |_, _| {}, |_, t| {
-        let t = t.trim().to_owned();
-        if t != config::get_config_str("windowTitle", "NoOBS") {
-            shell::handle_set_window_title(&t);
+    (labels, codes, idx)
+}
+
+fn load_general(ui: &mut Ui) {
+    ftexts(ui, GENERAL, GENERAL_TEXTS);
+    // O tema: Sistema / Claro / Escuro lado a lado, do tamanho do texto, o escolhido em
+    // destaque.
+    let pref = config::get_config_str("theme", "system");
+    let mut x = 4.0;
+    for (mode, name, key, tip) in THEME_MODES {
+        let Some(b) = fc(ui, GENERAL, name) else { continue };
+        let text = lang::t(key);
+        let _ = ui.set_prop(b, "style", if pref == mode { "s_seg_on" } else { "s_seg" });
+        let _ = ui.set_prop(b, "text", text.as_str());
+        let _ = ui.set_prop(b, "hint", lang::t(tip));
+        let w = text_width(ui, b, &text) + 16.0 + 6.0 + 28.0;
+        if let Some(cb) = ui.control_mut(b) {
+            cb.set_rect(x, 4.0, w, 27.0);
         }
-    });
-    s_hint(ui, page, &lang::t("settings.windowTitle.hint"));
-    rule(ui, page);
-    s_check(ui, page, crate::autostart::is_autostart_enabled(), &lang::t("settings.autostart.label"), |_, on| shell::handle_set_autostart(on));
-    s_hint(ui, page, &lang::t("settings.autostart.hint"));
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("runAsAdmin", false), &lang::t("settings.runAsAdmin.label"), |_, on| shell::handle_set_run_as_admin(on));
-    s_hint(ui, page, &lang::t("settings.runAsAdmin.hint"));
-    s_hint(ui, page, &lang::t(if crate::elevate::is_process_elevated() { "settings.runAsAdmin.stateOn" } else { "settings.runAsAdmin.stateOff" }));
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("closeToTray", true), &lang::t("settings.closeToTray.label"), |_, on| shell::handle_set_close_to_tray(on));
-    s_hint(ui, page, &lang::t("settings.closeToTray.hint"));
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.reset.label"));
-    s_hint(ui, page, &lang::t("settings.reset.hint"));
-    if let Some(r) = button_row(ui, page) {
-        s_button(ui, r, &lang::t("settings.buttons.reset"), "", Align::Left, restore_defaults);
+        x += w + 3.0;
+    }
+    if let Some(cb) = fc(ui, GENERAL, "pnlTheme").and_then(|p| ui.control_mut(p)) {
+        let m = cb.margins();
+        cb.set_margins([0.0, m.top, (col_w() - x - 1.0).max(0.0), 0.0]);
+    }
+    let (labels, _, idx) = language_options();
+    fitems(ui, GENERAL, "cmbLanguage", &labels, idx);
+    fset(ui, GENERAL, "edtWindowTitle", "text", config::get_config_str("windowTitle", "NoOBS"));
+    fset(ui, GENERAL, "chkAutostart", "checked", crate::autostart::is_autostart_enabled());
+    fset(ui, GENERAL, "chkRunAsAdmin", "checked", config::get_config_bool("runAsAdmin", false));
+    let state = if crate::elevate::is_process_elevated() { "settings.runAsAdmin.stateOn" } else { "settings.runAsAdmin.stateOff" };
+    fset(ui, GENERAL, "lblRunAsAdminState", "text", lang::t(state));
+    fset(ui, GENERAL, "chkCloseToTray", "checked", config::get_config_bool("closeToTray", true));
+    fit_button(ui, GENERAL, "btnReset");
+}
+
+/// Os eventos do frame da aba Geral (ligados em `forms/general.rs`).
+pub mod general {
+    use super::*;
+
+    /// Um dos botões do tema (o `tag` dele é a posição em `THEME_MODES`).
+    pub fn theme(ui: &mut Ui, sender: ComponentId) {
+        let i = ui.get_prop(sender, "tag").ok().and_then(|v| v.to_i64().ok()).unwrap_or(0).max(0) as usize;
+        if let Some((mode, ..)) = THEME_MODES.get(i) {
+            bridge::handle_set_theme(mode);
+            ui.set_timeout(0, render_tab);
+        }
+    }
+
+    pub fn language(ui: &mut Ui, sender: ComponentId) {
+        let (_, codes, _) = language_options();
+        bridge::handle_set_language(codes.get(chosen(ui, sender)).map_or("", |s| s.as_str()));
+    }
+
+    pub fn window_title(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(t) = committed(ui, sender, args) {
+            if t != config::get_config_str("windowTitle", "NoOBS") {
+                shell::handle_set_window_title(&t);
+            }
+        }
+    }
+
+    pub fn autostart(ui: &mut Ui, sender: ComponentId) {
+        shell::handle_set_autostart(checked(ui, sender));
+    }
+
+    pub fn run_as_admin(ui: &mut Ui, sender: ComponentId) {
+        shell::handle_set_run_as_admin(checked(ui, sender));
+    }
+
+    pub fn close_to_tray(ui: &mut Ui, sender: ComponentId) {
+        shell::handle_set_close_to_tray(checked(ui, sender));
+    }
+
+    pub fn reset(ui: &mut Ui) {
+        restore_defaults(ui);
     }
 }
 
@@ -1710,380 +1688,19 @@ fn tab_general(ui: &mut Ui, page: ComponentId) {
 // Gravação
 // ---------------------------------------------------------------------------
 
-/// `.rec-indicator-preview`: a pílula escura com a bolinha e o tempo.
-fn indicator_preview(ui: &mut Ui, parent: ComponentId, buffer: bool, opacity: i32) -> Option<ComponentId> {
-    let text = if buffer { "2:13 / 5:00" } else { "00:00:00" };
-    let p = ui.create("Panel", Some(parent)).ok()?;
-    let _ = ui.set_prop(p, "style", "s_pill");
-    let _ = ui.set_prop(p, "opacity", opacity as f64 / 100.0);
-    let dot = ui.create("Circle", Some(p)).ok()?;
-    let _ = ui.set_prop(dot, "fill", if buffer { "green" } else { "alert" });
-    let _ = ui.set_prop(dot, "stroke_width", 0.0);
-    if let Some(cb) = ui.control_mut(dot) {
-        cb.set_rect(8.0, 6.0, 8.0, 8.0).set_hit_test(false);
-    }
-    let l = label(ui, p, text, "s_pill", Align::None, 0.0, 20.0)?;
-    let tw = text_width(ui, l, text) + 2.0;
-    if let Some(cb) = ui.control_mut(l) {
-        cb.set_rect(22.0, 0.0, tw, 20.0);
-    }
-    if let Some(cb) = ui.control_mut(p) {
-        cb.set_align(Align::Right).set_width(tw + 30.0).set_margins([8.0, 0.0, 8.0, 0.0]);
-    }
-    Some(p)
-}
-
-/// As opções de um indicador na tela (clicável, canto, opacidade com a prévia).
-fn indicator_options(ui: &mut Ui, page: ComponentId, buffer: bool, clickable: (bool, &'static str, &str), corner: &str, opacity: i32, on_corner: fn(&str), on_opacity: fn(i32)) {
-    gap(FIELD_GAP + 4.0);
-    let key = clickable.1;
-    s_check(ui, page, clickable.0, &lang::t(clickable.2), move |ui, on| check_changed(ui, key, on));
-    s_hint(ui, page, &lang::t("settings.recIndicator.clickableHint"));
-    gap(14.0);
-    if let Some(r) = row(ui, page, 32.0) {
-        if let Some(l) = label(ui, r, &lang::t("settings.recIndicator.cornerLabel"), "s_inline", Align::Left, 0.0, 32.0) {
-            let w = text_width(ui, l, &lang::t("settings.recIndicator.cornerLabel"));
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_width(w).set_margins([0.0, 0.0, 8.0, 0.0]);
-            }
-        }
-        let i = CORNERS.iter().position(|c| *c == corner).unwrap_or(1);
-        if let Some(b) = s_select(ui, r, &corner_labels(), i, move |_, i| on_corner(CORNERS.get(i).copied().unwrap_or("top-right"))) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Client);
-            }
-        }
-    }
-    gap(if buffer { 0.0 } else { 8.0 });
-    let Some(r) = row(ui, page, 20.0) else { return };
-    if let Some(l) = label(ui, r, &lang::t("settings.recIndicator.opacityLabel"), "s_inline", Align::Left, 0.0, 20.0) {
-        let w = text_width(ui, l, &lang::t("settings.recIndicator.opacityLabel"));
-        if let Some(cb) = ui.control_mut(l) {
-            cb.set_width(w).set_margins([0.0, 0.0, 8.0, 0.0]);
-        }
-    }
-    let pct = label(ui, r, &format!("{opacity}%"), "s_inline", Align::Right, 42.0, 20.0);
-    if let Some(l) = pct {
-        let _ = ui.set_prop(l, "h_align", "trailing");
-    }
-    let preview = indicator_preview(ui, r, buffer, opacity);
-    let mid = ui.create("Layout", Some(r)).ok();
-    if let Some(mid) = mid {
-        if let Some(cb) = ui.control_mut(mid) {
-            cb.set_align(Align::Client);
-        }
-        if let Ok(t) = ui.create("TrackBar", Some(mid)) {
-            let _ = ui.set_prop(t, "min", 0.0);
-            let _ = ui.set_prop(t, "max", 16.0);
-            let _ = ui.set_prop(t, "value", ((opacity - 20) / 5) as f64);
-            let _ = ui.set_prop(t, "frequency", 1.0);
-            let _ = ui.set_prop(t, "solid_thumb", true);
-            let _ = ui.set_prop(t, "thumb_size", 14.0);
-            let _ = ui.set_prop(t, "track_size", 4.0);
-            if let Some(cb) = ui.control_mut(t) {
-                cb.set_align(Align::VertCenter).set_height(16.0);
-            }
-            ui.on(t, "on_change", move |ui, sender, _| {
-                let v = ui.get_prop(sender, "value").ok().and_then(|v| v.to_f64().ok()).unwrap_or(0.0).round() as i32;
-                let pct = 20 + v * 5;
-                if let Some(l) = pct_label(ui, sender) {
-                    let _ = ui.set_prop(l, "text", format!("{pct}%"));
-                }
-                if let Some(p) = preview {
-                    let _ = ui.set_prop(p, "opacity", pct as f64 / 100.0);
-                }
-                debounce(ui, "opacity", 300, move |_| on_opacity(pct));
-            });
-            with(|s| {
-                if let Some(l) = pct {
-                    s.slots.insert(if buffer { "op_pct_buffer" } else { "op_pct_rec" }, l);
-                }
-            });
-            let _ = t;
-        }
-    }
-    fn pct_label(ui: &Ui, slider: ComponentId) -> Option<ComponentId> {
-        let row = ui.parent(ui.parent(slider)?)?;
-        ui.children(row).iter().copied().find(|&c| ui.control(c).is_some_and(|cb| cb.align() == Align::Right && cb.width() == 42.0))
-    }
-}
-
-fn tab_onrecord(ui: &mut Ui, page: ComponentId) {
-    let rec_on = config::get_config_bool("recIndicator", false);
-    s_check(ui, page, rec_on, &lang::t("settings.recIndicator.label"), |ui, on| check_changed(ui, "recIndicator", on));
-    text_in_md(ui, page, &lang::t("settings.recIndicator.hint"), "s_hint", col_w());
-    if rec_on {
-        let corner = config::get_config_str("recIndicatorCorner", "top-right");
-        let op = config::get_config_int("recIndicatorOpacity", 90).clamp(20, 100);
-        indicator_options(
-            ui,
-            page,
-            false,
-            (config::get_config_bool("recIndicatorClickable", true), "recIndicatorClickable", "settings.recIndicator.clickable"),
-            &corner,
-            op,
-            recording::handle_set_rec_indicator_corner,
-            recording::handle_set_rec_indicator_opacity,
-        );
-    }
-    rule(ui, page);
-    let replay_on = with(|s| s.replay.as_ref().map(|r| r.indicator)).unwrap_or(true);
-    let which = match (rec_on, replay_on) {
-        (true, true) => "labelBoth",
-        (true, false) => "labelRecording",
-        (false, true) => "labelBuffer",
-        _ => "labelPreviews",
-    };
-    s_check(ui, page, config::get_config_bool("fullscreenDetect", true), &lang::t(&format!("settings.fullscreenDetect.{which}")), |ui, on| check_changed(ui, "fullscreenDetect", on));
-    s_hint(ui, page, &lang::t(if rec_on || replay_on { "settings.fullscreenDetect.hint" } else { "settings.fullscreenDetect.hintPreviews" }));
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("playSoundOnRecord", true), &lang::t("settings.playSound.label"), |ui, on| check_changed(ui, "playSoundOnRecord", on));
-    s_hint(ui, page, &lang::t("settings.playSound.hint"));
-    rule(ui, page);
-    let tray = config::get_config_bool("closeToTray", true);
-    let (ml, mh) = if tray { ("settings.minimizeOnRecord.labelTray", "settings.minimizeOnRecord.hintTray") } else { ("settings.minimizeOnRecord.labelTaskbar", "settings.minimizeOnRecord.hintTaskbar") };
-    s_check(ui, page, config::get_config_bool("minimizeOnRecord", true), &lang::t(ml), |ui, on| check_changed(ui, "minimizeOnRecord", on));
-    s_hint(ui, page, &lang::t(mh));
-    rule(ui, page);
-    let auto = config::get_config_bool("autoRecordOnMic", false);
-    s_check(ui, page, auto, &lang::t("settings.autoRecord.label"), |ui, on| check_changed(ui, "autoRecordOnMic", on));
-    s_hint(ui, page, &lang::t("settings.autoRecord.hint"));
-    let apps = config::get_config_str("autoRecordMicApps", "");
-    s_input_col(ui, page, &apps, &lang::t("settings.autoRecord.appsPlaceholder"), |_, _| {}, |ui, t| {
-        let t = t.trim().to_owned();
-        if t != config::get_config_str("autoRecordMicApps", "") {
-            settings::handle_set_auto_record_mic_apps(&t);
-            ui.set_timeout(0, render_tab);
-        }
-    });
-    s_hint(ui, page, &lang::t("settings.autoRecord.appsHint"));
-    if apps.is_empty() {
-        s_input_col(ui, page, &config::get_config_str("autoRecordMicExcept", ""), &lang::t("settings.autoRecord.exceptPlaceholder"), |_, _| {}, |_, t| {
-            let t = t.trim().to_owned();
-            if t != config::get_config_str("autoRecordMicExcept", "") {
-                settings::handle_set_auto_record_mic_except(&t);
-            }
-        });
-        s_hint(ui, page, &lang::t("settings.autoRecord.exceptHint"));
-    }
-    if auto {
-        gap(FIELD_GAP + 6.0);
-        if let Ok(line) = ui.create("Rectangle", Some(page)) {
-            let _ = ui.set_prop(line, "style", "sep");
-            place(ui, line, 1.0);
-        }
-        gap(12.0);
-        text_in(ui, page, &lang::t("settings.autoRecord.devicesLabel"), "s_name", col_w());
-        gap(2.0);
-        s_hint(ui, page, &lang::t("settings.autoRecord.devicesHint"));
-        device_groups(ui, page, |d| (!d.hidden).then_some(d.auto), |_, id, on| {
-            set_device_flag(id, |d| d.auto = on);
-            crate::bridge::devices::handle_set_auto_source(id, on);
-        }, &lang::t("settings.autoRecord.devicesEmpty"));
-    }
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("stopOnLock", true), &lang::t("settings.stopOnLock.label"), |ui, on| check_changed(ui, "stopOnLock", on));
-    s_hint(ui, page, &lang::t("settings.stopOnLock.hint"));
-}
-
 // ---------------------------------------------------------------------------
 // Arquivos
 // ---------------------------------------------------------------------------
-
-fn tab_files(ui: &mut Ui, page: ComponentId) {
-    s_label(ui, page, &lang::t("settings.recordDir.label"));
-    if let Some(r) = row(ui, page, 33.0) {
-        if let Some(b) = s_button(ui, r, &lang::t("settings.recordDir.browse"), "", Align::Right, |_| settings::handle_pick_record_dir()) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_margins([8.0, 0.0, 0.0, 0.0]);
-            }
-        }
-        if let Some(e) = s_input(ui, r, &recording::record_dir().to_string_lossy(), "C:\\Users\\...\\Videos", |_, _| {}, |_, p| {
-            let p = p.trim().to_owned();
-            if p != recording::record_dir().to_string_lossy() {
-                settings::handle_set_record_dir(&p);
-            }
-        }) {
-            if let Some(cb) = ui.control_mut(e) {
-                cb.set_align(Align::Client).set_margins([0.0, 0.5, 0.0, 0.5]);
-            }
-            slot(ui, "record_dir", Some(e));
-        }
-    }
-    rule(ui, page);
-    let pattern = config::get_config_str("filenamePattern", settings::DEFAULT_FILENAME_PATTERN);
-    s_label(ui, page, &lang::t("settings.filename.label"));
-    s_input_col(
-        ui,
-        page,
-        &pattern,
-        "{AAAA}-{MM}-{DD} {HH}-{NN}-{SS}",
-        |ui, t| set_slot(ui, "filename_preview", "text", filename_preview(t)),
-        |_, t| {
-            let t = t.trim().to_owned();
-            if t != config::get_config_str("filenamePattern", settings::DEFAULT_FILENAME_PATTERN) {
-                settings::handle_set_filename_pattern(&t);
-            }
-        },
-    );
-    text_in_md(ui, page, &lang::t("settings.filename.hint"), "s_hint", col_w());
-    let preview = s_hint(ui, page, &filename_preview(&pattern));
-    slot(ui, "filename_preview", preview);
-    rule(ui, page);
-    let lib = config::get_config_str("libraryThumbs", "auto");
-    let li = LIBRARY_MODES.iter().position(|m| *m == lib).unwrap_or(0);
-    s_label(ui, page, &lang::t("settings.library.label"));
-    let labels: Vec<String> = LIBRARY_MODES.iter().map(|m| lang::t(&format!("settings.library.{m}"))).collect();
-    s_select_col(ui, page, &labels, li, |ui, i| {
-        settings::handle_set_library_thumbs(LIBRARY_MODES.get(i).copied().unwrap_or("auto"));
-        ui.set_timeout(0, render_tab);
-    });
-    s_hint(ui, page, &library_hint(LIBRARY_MODES[li]));
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.hiddenFolders.label"));
-    s_hint(ui, page, &lang::t("settings.hiddenFolders.hint"));
-    let folders = with(|s| s.folders.clone());
-    if folders.is_empty() {
-        s_hint(ui, page, &lang::t("settings.hiddenFolders.empty"));
-    }
-    for f in folders {
-        let info = if f.missing {
-            lang::t("settings.hiddenFolders.missing")
-        } else {
-            tw(if f.count == 1 { "settings.hiddenFolders.countOne" } else { "settings.hiddenFolders.countMany" }, &[("count", &f.count.to_string())])
-        };
-        let Some(r) = row(ui, page, 18.0) else { continue };
-        let Ok(b) = ui.create("CheckBox", Some(r)) else { continue };
-        let _ = ui.set_prop(b, "text", f.name.as_str());
-        let _ = ui.set_prop(b, "box_size", 16.0);
-        let _ = ui.set_prop(b, "style", "web");
-        let _ = ui.set_prop(b, "checked", f.hidden);
-        let w = text_width(ui, b, &f.name) + 24.0;
-        if let Some(cb) = ui.control_mut(b) {
-            cb.set_align(Align::Left).set_width(w).set_margins([0.0, 0.0, 8.0, 0.0]);
-        }
-        let name = f.name.clone();
-        ui.on(b, "on_change", move |ui, sender, _| {
-            let on = matches!(ui.get_prop(sender, "checked"), Ok(PropValue::Bool(true)));
-            btr::handle_set_folder_hidden(&name, on);
-        });
-        label(ui, r, &info, "s_label", Align::Client, 0.0, 18.0);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Vídeo
 // ---------------------------------------------------------------------------
 
-fn tab_video(ui: &mut Ui, page: ComponentId) {
-    let codec = config::get_config_str("codec", "auto");
-    let ci = CODECS.iter().position(|c| c.eq_ignore_ascii_case(&codec)).unwrap_or(0);
-    s_label(ui, page, &lang::t("settings.codec.label"));
-    if let Some(r) = row(ui, page, 32.0) {
-        // O logo da placa de vídeo ao lado (o encoder de hardware é dela).
-        let logo: Option<&'static [u8]> = match bridge::last_encoder_caps().map(|c| c.vendor) {
-            Some(GpuVendor::Amd) => Some(include_bytes!("../assets/gpu/amd.png")),
-            Some(GpuVendor::Nvidia) => Some(include_bytes!("../assets/gpu/nvidia.png")),
-            Some(GpuVendor::Intel) => Some(include_bytes!("../assets/gpu/intel.png")),
-            _ => None,
-        };
-        if let Some(bytes) = logo {
-            if let Ok(v) = ui.create("Image", Some(r)) {
-                let _ = ui.set_prop(v, "fit", "contain");
-                if let Some(iv) = ui.get_mut::<ImageView>(v) {
-                    iv.set_picture(Some(Image::encoded(bytes.to_vec())));
-                }
-                if let Some(cb) = ui.control_mut(v) {
-                    cb.set_align(Align::Right).set_width(32.0).set_margins([8.0, 0.0, 0.0, 0.0]);
-                }
-            }
-        }
-        let opts = codec_options();
-        let labels: Vec<String> = opts.iter().map(|(t, _)| t.clone()).collect();
-        if let Some(b) = s_select(ui, r, &labels, ci, move |ui, i| {
-            if !opts.get(i).is_some_and(|(_, ok)| *ok) {
-                ui.set_timeout(0, render_tab);
-                return;
-            }
-            settings::handle_set_codec(CODECS.get(i).copied().unwrap_or("auto"));
-            ui.set_timeout(0, render_tab);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Client);
-            }
-        }
-    }
-    let dim = match codec.as_str() {
-        "h264-hw" => 4096,
-        "h264-sw" | "hevc-hw" | "av1-hw" | "av1-sw" => 8192,
-        _ if bridge::last_encoder_caps().is_some_and(|c| c.h264_hw) => 4096,
-        _ => 8192,
-    };
-    s_hint(ui, page, &tw("settings.codec.maxRes", &[("w", &dim.to_string()), ("h", &dim.to_string())]));
-    if codec == "av1-sw" {
-        s_warn(ui, page, &lang::t("settings.codec.swWarn"));
-    }
-    s_hint(ui, page, &lang::t("settings.codec.hint"));
-    rule(ui, page);
-    let (q, fps, kf, presets) = with(|s| (s.quality, s.fps, s.keyframe, s.fps_presets.clone()));
-    s_label(ui, page, &lang::t("settings.quality.label"));
-    gap(FIELD_GAP + 4.0);
-    let ticks: Vec<String> = (0..=10).map(|n| n.to_string()).collect();
-    s_slider(ui, page, 10, q.clamp(0, 10) as usize, &ticks, (&lang::t("settings.quality.lower"), &lang::t("settings.quality.higher")), |ui, v| {
-        with(|s| s.quality = v as i32);
-        set_slot(ui, "quality_hint", "text", lang::t(&format!("settings.quality.hint.{v}")));
-        debounce(ui, "quality", 400, move |ui| {
-            settings::handle_set_recording_quality(v as i32);
-            render_tab(ui);
-        });
-    });
-    let h = s_hint(ui, page, &lang::t(&format!("settings.quality.hint.{q}")));
-    slot(ui, "quality_hint", h);
-    if codec == "av1-sw" && q <= VT_SVT_FLOOR_LEVEL {
-        s_warn(ui, page, &lang::t("settings.quality.svtFloor"));
-    }
-    rule(ui, page);
-    tab_video_test(ui, page);
-    rule(ui, page);
-    let fi = fps_index(&presets, fps);
-    s_label(ui, page, &lang::t("settings.fps.label"));
-    gap(FIELD_GAP + 4.0);
-    let ticks: Vec<String> = presets.iter().map(|p| p.to_string()).collect();
-    let n = presets.len().max(1) - 1;
-    s_slider(ui, page, n, fi, &ticks, (&lang::t("settings.fps.lessFluid"), &lang::t("settings.fps.moreFluid")), move |ui, v| {
-        let f = presets.get(v).copied().unwrap_or(30);
-        with(|s| s.fps = f);
-        set_slot(ui, "fps_hint", "text", fps_hint(f));
-        debounce(ui, "fps", 400, move |ui| {
-            settings::handle_set_recording_fps(f);
-            render_tab(ui);
-        });
-    });
-    let fps_v = with(|s| s.fps_presets.get(fi).copied()).unwrap_or(fps);
-    let h = s_hint(ui, page, &fps_hint(fps_v));
-    slot(ui, "fps_hint", h);
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.keyframe.label"));
-    gap(FIELD_GAP + 4.0);
-    let ticks: Vec<String> = (1..=10).map(|n| format!("{n}s")).collect();
-    s_slider(ui, page, 9, (kf.clamp(1, 10) - 1) as usize, &ticks, (&lang::t("settings.keyframe.precise"), &lang::t("settings.keyframe.compact")), |ui, v| {
-        let k = v as i32 + 1;
-        with(|s| s.keyframe = k);
-        set_slot(ui, "kf_hint", "text", keyframe_hint(k));
-        debounce(ui, "keyframe", 400, move |ui| {
-            settings::handle_set_recording_keyframe(k);
-            render_tab(ui);
-        });
-    });
-    let h = s_hint(ui, page, &keyframe_hint(kf));
-    slot(ui, "kf_hint", h);
-}
-
 // ----- teste de qualidade -----
 
-fn tab_video_test(ui: &mut Ui, page: ComponentId) {
-    s_label(ui, page, &lang::t("settings.videoTest.label"));
-    s_hint(ui, page, &lang::t("settings.videoTest.hint"));
+/// O teste de qualidade (botões, andamento, resultados e a comparação), montado no
+/// contêiner `lyVideoTest` do frame da aba Vídeo.
+fn video_test_box(ui: &mut Ui, page: ComponentId) {
     let (running, capturing, countdown, pct, level, result, a, b, zoom) =
         with(|s| (s.vt.running, s.vt.capturing, s.vt.countdown, s.vt.pct, s.vt.level, s.vt.result.clone(), s.vt.a, s.vt.b, s.vt.zoom));
     gap(FIELD_GAP + 2.0);
@@ -2361,116 +1978,9 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
 // Áudio
 // ---------------------------------------------------------------------------
 
-fn tab_audio(ui: &mut Ui, page: ComponentId) {
-    let ab = encoder::audio_bitrate_kbps();
-    let ai = AUDIO_BITRATES.iter().position(|k| *k == ab).unwrap_or(3);
-    s_label(ui, page, &lang::t("settings.audioBitrate.label"));
-    let labels: Vec<String> = AUDIO_BITRATES
-        .iter()
-        .map(|k| {
-            let key = if *k == AUDIO_BITRATE_DEFAULT { "settings.audioBitrate.optionDefault" } else { "settings.audioBitrate.option" };
-            tw(key, &[("kbps", &k.to_string())])
-        })
-        .collect();
-    s_select_col(ui, page, &labels, ai, |ui, i| {
-        settings::handle_set_audio_bitrate(AUDIO_BITRATES.get(i).copied().unwrap_or(AUDIO_BITRATE_DEFAULT));
-        ui.set_timeout(0, render_tab);
-    });
-    s_hint(ui, page, &audio_hint(AUDIO_BITRATES[ai]));
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("muteWhenDeviceMuted", true), &lang::t("settings.muteWhenDeviceMuted.label"), |ui, on| check_changed(ui, "muteWhenDeviceMuted", on));
-    s_hint(ui, page, &lang::t("settings.muteWhenDeviceMuted.hint"));
-}
-
 // ---------------------------------------------------------------------------
 // Buffer
 // ---------------------------------------------------------------------------
-
-fn tab_replay(ui: &mut Ui, page: ComponentId) {
-    s_label(ui, page, &lang::t("settings.replay.label"));
-    text_in_md(ui, page, &lang::t("settings.replay.hint"), "s_hint", col_w());
-    let Some(r) = with(|s| s.replay.clone()) else { return };
-    rule(ui, page);
-    s_check(ui, page, r.auto_start, &lang::t("settings.replay.autoStart"), |ui, on| check_changed(ui, "replayAutoStart", on));
-    s_hint(ui, page, &lang::t("settings.replay.autoStartHint"));
-    rule(ui, page);
-    s_check(ui, page, r.into_recording, &lang::t("settings.replay.intoRecording"), |ui, on| check_changed(ui, "replayIntoRecording", on));
-    s_hint(ui, page, &lang::t("settings.replay.intoRecordingHint"));
-    rule(ui, page);
-    let limit = if r.max_mb_limit > 0 { r.max_mb_limit } else { REPLAY_DEFAULT_MB };
-    let (secs, si) = with_current(REPLAY_SEC_OPTIONS.to_vec(), if r.max_sec > 0 { r.max_sec } else { REPLAY_DEFAULT_SEC });
-    let mut mbs: Vec<i64> = REPLAY_MB_OPTIONS.iter().copied().filter(|v| *v < limit).collect();
-    mbs.push(limit);
-    let (mbs, mi) = with_current(mbs, if r.max_mb > 0 { r.max_mb } else { REPLAY_DEFAULT_MB });
-    let sec_now = std::rc::Rc::new(std::cell::Cell::new(secs[si]));
-    let mb_now = std::rc::Rc::new(std::cell::Cell::new(mbs[mi]));
-    // Duas colunas: tempo e memória.
-    if let Some(heads) = row(ui, page, 17.0) {
-        let half = (col_w() - 10.0) / 2.0;
-        label(ui, heads, &lang::t("settings.replay.duration"), "s_label", Align::Left, half + 10.0, 17.0);
-        label(ui, heads, &lang::t("settings.replay.memory"), "s_label", Align::Client, 0.0, 17.0);
-    }
-    if let Some(sel) = row(ui, page, 32.0) {
-        let half = (col_w() - 10.0) / 2.0;
-        let labels: Vec<String> = secs.iter().map(|v| sec_label(*v)).collect();
-        let (s2, m2) = (sec_now.clone(), mb_now.clone());
-        if let Some(b) = s_select(ui, sel, &labels, si, move |_, i| {
-            s2.set(secs.get(i).copied().unwrap_or(REPLAY_DEFAULT_SEC));
-            replay::handle_set_replay_limits(s2.get() as i32, m2.get() as i32);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Left).set_width(half).set_margins([0.0, 0.0, 10.0, 0.0]);
-            }
-        }
-        let labels: Vec<String> = mbs.iter().map(|v| if *v >= limit { tw("settings.replay.memoryMax", &[("size", &mb_label(*v))]) } else { mb_label(*v) }).collect();
-        let (s2, m2) = (sec_now.clone(), mb_now.clone());
-        if let Some(b) = s_select(ui, sel, &labels, mi, move |_, i| {
-            m2.set(mbs.get(i).copied().unwrap_or(REPLAY_DEFAULT_MB));
-            replay::handle_set_replay_limits(s2.get() as i32, m2.get() as i32);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Client);
-            }
-        }
-    }
-    s_hint(ui, page, &lang::t("settings.replay.memoryHint"));
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.replay.apps"));
-    s_input_col(
-        ui,
-        page,
-        &r.apps,
-        &lang::t("settings.replay.appsPlaceholder"),
-        // Cada envio reinicia o watcher no core: com atraso enquanto digita.
-        |ui, t| {
-            let t = t.to_owned();
-            debounce(ui, "replay_apps", 600, move |_| replay::handle_set_replay_apps(&t));
-        },
-        |_, t| {
-            let cur = with(|s| s.replay.as_ref().map(|r| r.apps.clone())).unwrap_or_default();
-            if t != cur {
-                replay::handle_set_replay_apps(t);
-            }
-        },
-    );
-    s_hint(ui, page, &lang::t("settings.replay.appsHint"));
-    rule(ui, page);
-    s_check(ui, page, r.indicator, &lang::t("settings.replay.indicator"), |ui, on| check_changed(ui, "replayIndicator", on));
-    text_in_md(ui, page, &lang::t("settings.replay.indicatorHint"), "s_hint", col_w());
-    if r.indicator {
-        let op = if r.indicator_opacity > 0 { r.indicator_opacity as i32 } else { 90 };
-        indicator_options(
-            ui,
-            page,
-            true,
-            (r.indicator_clickable, "replayIndicatorClickable", "settings.replay.indicatorClickable"),
-            &r.indicator_corner,
-            op,
-            replay::handle_set_replay_indicator_corner,
-            replay::handle_set_replay_indicator_opacity,
-        );
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Atalhos
@@ -2498,7 +2008,8 @@ fn mod_toggle(ui: &mut Ui, parent: ComponentId, text: &str, on: bool, f: impl Fn
     });
 }
 
-fn tab_hotkeys(ui: &mut Ui, page: ComponentId) {
+/// Os cartões dos atalhos, montados no contêiner `lyHotkeys` do frame da aba Atalhos.
+fn hotkey_cards(ui: &mut Ui, page: ComponentId) {
     let keys = key_table();
     let (items, status, delay_max, defining, pending) = with(|s| (s.hk_items.clone(), s.hk_status.clone(), s.hk_delay_max, s.hk_defining, s.hk_pending.clone()));
     let mut delays: Vec<u32> = HK_DELAYS.iter().copied().filter(|v| *v <= delay_max.max(1)).collect();
@@ -2512,7 +2023,6 @@ fn tab_hotkeys(ui: &mut Ui, page: ComponentId) {
     let key_values: Vec<String> = std::iter::once(String::new()).chain(keys.iter().filter(|k| !k.2).map(|k| k.0.clone())).collect();
     let key_labels: Vec<String> = std::iter::once(lang::t("settings.hotkey.notDefined")).chain(keys.iter().filter(|k| !k.2).map(|k| k.1.clone())).collect();
     let delay_labels: Vec<String> = delays.iter().map(|v| if *v == 0 { lang::t("hotkeys.delayOff") } else { tw("hotkeys.delaySec", &[("sec", &v.to_string())]) }).collect();
-    s_hint(ui, page, &lang::t("hotkeys.hint"));
     if items.is_empty() {
         gap(FIELD_GAP + 6.0);
         s_hint(ui, page, &lang::t("hotkeys.empty"));
@@ -2691,14 +2201,6 @@ fn tab_hotkeys(ui: &mut Ui, page: ComponentId) {
         gap(if i == 0 { FIELD_GAP + 6.0 } else { TAB_GAP });
         place(ui, card, card_h);
     }
-    gap(FIELD_GAP + 6.0);
-    if let Some(r) = button_row(ui, page) {
-        s_button(ui, r, &lang::t("hotkeys.add"), "", Align::Left, |_| {
-            let mut items = with(|s| s.hk_items.clone());
-            items.push(Item::new(Mode::Record, ""));
-            hk_send(items);
-        });
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2768,128 +2270,9 @@ fn device_groups(ui: &mut Ui, page: ComponentId, pick: impl Fn(&Device) -> Optio
     }
 }
 
-fn tab_devices(ui: &mut Ui, page: ComponentId) {
-    s_hint(ui, page, &lang::t("devices.hint"));
-    device_groups(ui, page, |d| Some(!d.hidden), |_, id, on| {
-        set_device_flag(id, |d| d.hidden = !on);
-        crate::bridge::devices::handle_set_source_hidden(id, !on);
-    }, &lang::t("devices.empty"));
-}
-
 // ---------------------------------------------------------------------------
 // Transcrição
 // ---------------------------------------------------------------------------
-
-/// A barra fina (`.transcribe-bar`): trilho `border_2`, verde.
-fn thin_bar(ui: &mut Ui, page: ComponentId, value: f32, h: f32) -> Option<ComponentId> {
-    let p = ui.create("ProgressBar", Some(page)).ok()?;
-    let _ = ui.set_prop(p, "value", (value.clamp(0.0, 1.0) * 100.0) as f64);
-    place(ui, p, h);
-    Some(p)
-}
-
-fn tab_transcribe(ui: &mut Ui, page: ComponentId) {
-    let (status, detail, btn, danger, progress) = asr_texts();
-    let kind = with(|s| s.asr.as_ref().map(|a| a.status.clone())).unwrap_or_default();
-    s_label(ui, page, &lang::t("settings.transcribe.local.label"));
-    s_hint(ui, page, &lang::t("settings.transcribe.local.hint"));
-    // O quadro do motor local.
-    gap(FIELD_GAP + 4.0);
-    if let Ok(frame) = ui.create("Panel", Some(page)) {
-        let _ = ui.set_prop(frame, "style", "s_frame");
-        if let Some(cb) = ui.control_mut(frame) {
-            cb.set_padding([12.0, 10.0, 12.0, 10.0]);
-        }
-        let inner = col_w() - 24.0;
-        let mut h = 20.0;
-        let mut add = |ui: &mut Ui, id: ComponentId, hh: f32, top: f32| {
-            if let Some(cb) = ui.control_mut(id) {
-                cb.set_align(Align::Top).set_height(hh).set_margins([0.0, top, 0.0, 0.0]);
-            }
-            h += hh + top;
-        };
-        let style = match kind.as_str() {
-            "ready" => "s_status_ok",
-            "error" => "s_status_fail",
-            _ => "s_status",
-        };
-        if let Some(l) = label(ui, frame, &status, style, Align::Top, 0.0, 0.0) {
-            let _ = ui.set_prop(l, "wrap", true);
-            let hh = wrapped_height(ui, l, &status, inner);
-            add(ui, l, hh, 0.0);
-        }
-        if progress >= 0.0 {
-            if let Ok(p) = ui.create("ProgressBar", Some(frame)) {
-                let _ = ui.set_prop(p, "value", (progress * 100.0) as f64);
-                add(ui, p, 6.0, 8.0);
-            }
-        }
-        if let Some(l) = label(ui, frame, &detail, "s_detail", Align::Top, 0.0, 0.0) {
-            let _ = ui.set_prop(l, "wrap", true);
-            let _ = ui.set_prop(l, "v_align", "leading");
-            let hh = wrapped_height(ui, l, &detail, inner) * 1.07;
-            add(ui, l, hh, if progress >= 0.0 { 6.0 } else { 4.0 });
-        }
-        if let Ok(r) = ui.create("Layout", Some(frame)) {
-            add(ui, r, 35.0, 6.0);
-            s_button(ui, r, &btn, if danger { "danger" } else { "" }, Align::Left, asr_action);
-        }
-        place(ui, frame, h + 6.0);
-    }
-    rule(ui, page);
-    let (vals, labels, li) = transcribe_langs();
-    s_label(ui, page, &lang::t("settings.transcribe.language.label"));
-    s_select_col(ui, page, &labels, li, move |_, i| btr::handle_set_transcribe_language(vals.get(i).map_or("app", |s| s.as_str())));
-    s_hint(ui, page, &lang::t("settings.transcribe.language.hint"));
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("transcribeOnStop", true), &lang::t("settings.transcribe.onStop.label"), |ui, on| check_changed(ui, "transcribeOnStop", on));
-    s_hint(ui, page, &lang::t("settings.transcribe.onStop.hint"));
-    rule(ui, page);
-    s_label(ui, page, &lang::t("settings.transcribe.queue"));
-    let (t, pending, cloud, queue, clicked) = with(|s| (s.tr.clone(), s.tr_pending, s.tr_cloud, s.tr_queue.clone(), s.tr_cancel_clicked));
-    let canceling = t.canceling || clicked;
-    if let Some(r) = button_row(ui, page) {
-        let pending_label = if pending > 0 { tw("settings.transcribe.pendingN", &[("count", &pending.to_string())]) } else { lang::t("settings.transcribe.pendingNone") };
-        if let Some(b) = s_button(ui, r, &pending_label, "", Align::Left, |_| btr::handle_transcribe_pending()) {
-            let _ = ui.set_prop(b, "enabled", pending > 0);
-        }
-        let cancel_label = lang::t(if canceling { "settings.transcribe.canceling" } else { "common.cancel" });
-        if let Some(b) = s_button(ui, r, &cancel_label, "", Align::Left, |ui| {
-            if with(|s| s.tr.canceling || s.tr_cancel_clicked) {
-                return;
-            }
-            with(|s| s.tr_cancel_clicked = true);
-            render_tab(ui);
-            btr::handle_cancel_transcribe();
-        }) {
-            let _ = ui.set_prop(b, "enabled", !canceling && (t.running || t.queue > 0));
-        }
-    }
-    let (visible, p, line) = transcribe_line();
-    if visible {
-        gap(FIELD_GAP + 4.0);
-        let bar = thin_bar(ui, page, p, 6.0);
-        slot(ui, "tr_bar", bar);
-        let l = text_in(ui, page, &line, "s_hint", col_w());
-        slot(ui, "tr_line", l);
-    }
-    if !t.last_error.is_empty() {
-        let err = if t.last_error_name.is_empty() {
-            tw("settings.transcribe.error", &[("error", &t.last_error)])
-        } else {
-            tw("settings.transcribe.errorNamed", &[("name", &t.last_error_name), ("error", &t.last_error)])
-        };
-        text_in(ui, page, &err, "s_err", col_w());
-    }
-    if !queue.is_empty() {
-        gap(FIELD_GAP + 4.0);
-        transcribe_queue(ui, page, &queue);
-    }
-    if cloud > 0 {
-        s_hint(ui, page, &tw("settings.transcribe.pendingCloud", &[("count", &cloud.to_string())]));
-    }
-    s_hint(ui, page, &lang::t("settings.transcribe.queueHint"));
-}
 
 /// A fila (`.tq-item`): a em curso no alto; as que esperam se arrastam para reordenar.
 fn transcribe_queue(ui: &mut Ui, page: ComponentId, queue: &[QueueItem]) {
@@ -2970,74 +2353,6 @@ fn transcribe_queue(ui: &mut Ui, page: ComponentId, queue: &[QueueItem]) {
 // Atualizações e Sobre
 // ---------------------------------------------------------------------------
 
-fn tab_updates(ui: &mut Ui, page: ComponentId) {
-    s_label(ui, page, &lang::t("settings.updates.versionLabel"));
-    s_hint(ui, page, &crate::version::display_version());
-    rule(ui, page);
-    s_check(ui, page, config::get_config_bool("checkUpdates", true), &lang::t("settings.updates.autoLabel"), |ui, on| check_changed(ui, "checkUpdates", on));
-    s_hint(ui, page, &lang::t("settings.updates.autoHint"));
-    rule(ui, page);
-    let checking = with(|s| s.checking);
-    if let Some(r) = button_row(ui, page) {
-        if let Some(b) = s_button(ui, r, &lang::t("settings.updates.checkNow"), "", Align::Left, |ui| {
-            with(|s| s.checking = true);
-            render_tab(ui);
-            settings::handle_check_updates();
-        }) {
-            let _ = ui.set_prop(b, "enabled", !checking);
-        }
-    }
-    let (status, has_url) = update_status();
-    if !status.is_empty() {
-        let available = with(|s| s.update.as_ref().is_some_and(|u| u.ok && u.has_update));
-        if let Some(r) = row(ui, page, 16.0) {
-            if let Some(l) = label(ui, r, &status, if available { "s_ok" } else { "s_hint" }, Align::Left, 0.0, 16.0) {
-                let w = text_width(ui, l, &status) + 4.0;
-                if let Some(cb) = ui.control_mut(l) {
-                    cb.set_width(w);
-                }
-            }
-            if has_url {
-                if let Some(l) = label(ui, r, &lang::t("settings.updates.openPage"), "s_ok", Align::Client, 0.0, 16.0) {
-                    let _ = ui.set_prop(l, "hit_test", true);
-                    if let Some(cb) = ui.control_mut(l) {
-                        cb.set_cursor(CursorShape::Pointer);
-                    }
-                    ui.on(l, "on_click", |_, _, _| {
-                        let url = with(|s| s.update.as_ref().map(|u| u.url.clone())).unwrap_or_default();
-                        if !url.is_empty() {
-                            bridge::handle_open_url(&url);
-                        }
-                    });
-                }
-            }
-        }
-    }
-}
-
-/// Uma linha "rótulo — valor" do Sobre.
-fn about_row(ui: &mut Ui, page: ComponentId, label_text: &str, value: &str, extra: Option<&str>, link: Option<&'static str>) {
-    let Some(r) = row(ui, page, 18.0) else { return };
-    label(ui, r, label_text, "s_about_l", Align::Left, 96.0, 18.0).map(|l| ui.control_mut(l).map(|cb| cb.set_margins([0.0, 0.0, 12.0, 0.0])));
-    let style = if link.is_some() { "s_link" } else { "s_about_v" };
-    if let Some(l) = label(ui, r, value, style, Align::Left, 0.0, 18.0) {
-        let w = text_width(ui, l, value) + 2.0;
-        if let Some(cb) = ui.control_mut(l) {
-            cb.set_width(w).set_margins([0.0, 0.0, 12.0, 0.0]);
-        }
-        if let Some(url) = link {
-            let _ = ui.set_prop(l, "hit_test", true);
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_cursor(CursorShape::Pointer);
-            }
-            ui.on(l, "on_click", move |_, _, _| bridge::handle_open_url(url));
-        }
-    }
-    if let Some(x) = extra {
-        label(ui, r, x, "s_tag", Align::Client, 0.0, 18.0);
-    }
-}
-
 /// A lista com a bolinha verde (`.about-list`).
 fn about_list(ui: &mut Ui, page: ComponentId, items: &[String]) {
     let w = col_w() - 14.0;
@@ -3061,56 +2376,850 @@ fn about_list(ui: &mut Ui, page: ComponentId, items: &[String]) {
     gap(4.0);
 }
 
-fn tab_about(ui: &mut Ui, page: ComponentId) {
-    if let Some((iw, ih, rgba)) = crate::win::main_icon_rgba(96) {
-        if let Ok(v) = ui.create("Image", Some(page)) {
-            let _ = ui.set_prop(v, "fit", "contain");
+// ---------------------------------------------------------------------------
+// Peças comuns das abas desenhadas
+// ---------------------------------------------------------------------------
+
+/// O contêiner de uma lista que o código monta (`lyDevices`...), vazio, pronto para os
+/// itens (`place` com o espaço pedido por `gap`).
+fn clear_box(ui: &mut Ui, frame: &str, name: &str) -> Option<ComponentId> {
+    let b = fc(ui, frame, name)?;
+    for child in ui.children(b).to_vec() {
+        ui.free(child);
+    }
+    gap(0.0);
+    Some(b)
+}
+
+/// Um rótulo de uma linha do tamanho do texto dele.
+fn fit_label(ui: &mut Ui, frame: &str, name: &str, min: f32) {
+    let Some(l) = fc(ui, frame, name) else { return };
+    let text = match ui.get_prop(l, "text") {
+        Ok(PropValue::String(t)) => t,
+        _ => return,
+    };
+    let w = (text_width(ui, l, &text) + 2.0).max(min);
+    if let Some(cb) = ui.control_mut(l) {
+        cb.set_width(w);
+    }
+}
+
+/// Um texto que some quando vazio (a dica sem conteúdo não ocupa lugar).
+fn ftext_or_hide(ui: &mut Ui, frame: &str, name: &str, text: &str) {
+    fset(ui, frame, name, "text", text);
+    fshow(ui, frame, name, !text.is_empty());
+}
+
+/// O valor (a posição) de um trilho, no `on_change`.
+fn slider_value(ui: &Ui, sender: ComponentId) -> usize {
+    ui.get_prop(sender, "value").ok().and_then(|v| v.to_f64().ok()).unwrap_or(0.0).round().max(0.0) as usize
+}
+
+/// Um trilho desenhado (`slider` do frame: `trk<N>`, as legendas `lbl<N>Low`/`lbl<N>High`
+/// e as marcas em `ly<N>Ticks`): as legendas do tamanho do texto, o valor e as marcas
+/// embaixo, cada uma no lugar do passo dela.
+fn load_slider(ui: &mut Ui, frame: &str, n: &str, max: usize, value: usize, ticks: &[String]) {
+    let mut middle = col_w();
+    for end in ["Low", "High"] {
+        let name = format!("lbl{n}{end}");
+        fit_label(ui, frame, &name, 44.0);
+        middle -= fc(ui, frame, &name).and_then(|l| ui.control(l)).map_or(44.0, |cb| cb.width()) + 10.0;
+    }
+    let Some(t) = fc(ui, frame, &format!("trk{n}")) else { return };
+    let _ = ui.set_prop(t, "max", max.max(1) as f64);
+    let _ = ui.set_prop(t, "value", value as f64);
+    let Some(mid) = fc(ui, frame, &format!("ly{n}Ticks")) else { return };
+    for child in ui.children(mid).to_vec() {
+        if child != t {
+            ui.free(child);
+        }
+    }
+    let count = ticks.len();
+    for (i, tick) in ticks.iter().enumerate() {
+        if let Some(l) = label(ui, mid, tick, "s_tick", Align::None, 0.0, 14.0) {
+            let w = text_width(ui, l, tick) + 2.0;
+            let x = 7.0 + if count > 1 { i as f32 / (count - 1) as f32 } else { 0.0 } * (middle - 14.0) - w / 2.0;
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_rect(x, 18.0, w, 14.0);
+            }
+        }
+    }
+}
+
+/// O canto e a opacidade de um indicador na tela (`p`: `Rec` na aba Gravação, `Rep` na
+/// Buffer), com a prévia da pílula na opacidade escolhida.
+fn load_indicator(ui: &mut Ui, frame: &str, p: &str, corner: &str, opacity: i32) {
+    let i = CORNERS.iter().position(|c| *c == corner).unwrap_or(1);
+    fitems(ui, frame, &format!("cmb{p}Corner"), &corner_labels(), i);
+    fit_label(ui, frame, &format!("lbl{p}Corner"), 0.0);
+    fit_label(ui, frame, &format!("lbl{p}Opacity"), 0.0);
+    fset(ui, frame, &format!("trk{p}Opacity"), "value", ((opacity - 20) / 5) as f64);
+    fset(ui, frame, &format!("lbl{p}OpacityPct"), "text", format!("{opacity}%"));
+    fset(ui, frame, &format!("pnl{p}Preview"), "opacity", opacity as f64 / 100.0);
+    // A pílula do tamanho do tempo.
+    let name = format!("lbl{p}Preview");
+    fit_label(ui, frame, &name, 0.0);
+    let w = fc(ui, frame, &name).and_then(|l| ui.control(l)).map_or(66.0, |cb| cb.width());
+    if let Some(cb) = fc(ui, frame, &format!("pnl{p}Preview")).and_then(|id| ui.control_mut(id)) {
+        cb.set_width(w + 30.0);
+    }
+}
+
+/// O trilho da opacidade mexeu: o número e a prévia na hora, o core depois de parar.
+fn indicator_opacity(ui: &mut Ui, frame: &'static str, p: &str, sender: ComponentId, apply: fn(i32)) {
+    let pct = 20 + slider_value(ui, sender) as i32 * 5;
+    fset(ui, frame, &format!("lbl{p}OpacityPct"), "text", format!("{pct}%"));
+    fset(ui, frame, &format!("pnl{p}Preview"), "opacity", pct as f64 / 100.0);
+    debounce(ui, "opacity", 300, move |_| apply(pct));
+}
+
+// ---------------------------------------------------------------------------
+// Gravação (`forms/settings/onrecord.json`)
+// ---------------------------------------------------------------------------
+
+const ONRECORD: &str = "fraOnRecord";
+const ONRECORD_TEXTS: &[(&str, &str)] = &[
+    ("chkRecIndicator", "settings.recIndicator.label"),
+    ("lblRecIndicatorHint", "settings.recIndicator.hint"),
+    ("chkRecClickable", "settings.recIndicator.clickable"),
+    ("lblRecClickableHint", "settings.recIndicator.clickableHint"),
+    ("lblRecCorner", "settings.recIndicator.cornerLabel"),
+    ("lblRecOpacity", "settings.recIndicator.opacityLabel"),
+    ("chkPlaySound", "settings.playSound.label"),
+    ("lblPlaySoundHint", "settings.playSound.hint"),
+    ("chkAutoRecord", "settings.autoRecord.label"),
+    ("lblAutoRecordHint", "settings.autoRecord.hint"),
+    ("edtAutoApps.placeholder", "settings.autoRecord.appsPlaceholder"),
+    ("lblAutoAppsHint", "settings.autoRecord.appsHint"),
+    ("edtAutoExcept.placeholder", "settings.autoRecord.exceptPlaceholder"),
+    ("lblAutoExceptHint", "settings.autoRecord.exceptHint"),
+    ("lblAutoDevices", "settings.autoRecord.devicesLabel"),
+    ("lblAutoDevicesHint", "settings.autoRecord.devicesHint"),
+    ("chkStopOnLock", "settings.stopOnLock.label"),
+    ("lblStopOnLockHint", "settings.stopOnLock.hint"),
+];
+
+fn load_onrecord(ui: &mut Ui) {
+    const F: &str = ONRECORD;
+    ftexts(ui, F, ONRECORD_TEXTS);
+    let rec_on = config::get_config_bool("recIndicator", false);
+    fset(ui, F, "chkRecIndicator", "checked", rec_on);
+    fshow(ui, F, "lyRecOptions", rec_on);
+    if rec_on {
+        fset(ui, F, "chkRecClickable", "checked", config::get_config_bool("recIndicatorClickable", true));
+        let corner = config::get_config_str("recIndicatorCorner", "top-right");
+        load_indicator(ui, F, "Rec", &corner, config::get_config_int("recIndicatorOpacity", 90).clamp(20, 100));
+    }
+    // O texto da tela cheia diz o que some (os indicadores ligados).
+    let replay_on = with(|s| s.replay.as_ref().map(|r| r.indicator)).unwrap_or(true);
+    let which = match (rec_on, replay_on) {
+        (true, true) => "labelBoth",
+        (true, false) => "labelRecording",
+        (false, true) => "labelBuffer",
+        _ => "labelPreviews",
+    };
+    fset(ui, F, "chkFullscreen", "text", lang::t(&format!("settings.fullscreenDetect.{which}")));
+    fset(ui, F, "chkFullscreen", "checked", config::get_config_bool("fullscreenDetect", true));
+    let hint = if rec_on || replay_on { "settings.fullscreenDetect.hint" } else { "settings.fullscreenDetect.hintPreviews" };
+    fset(ui, F, "lblFullscreenHint", "text", lang::t(hint));
+    fset(ui, F, "chkPlaySound", "checked", config::get_config_bool("playSoundOnRecord", true));
+    // Minimizar: para a bandeja ou para a barra de tarefas, conforme o "Minimizar para bandeja".
+    let tray = config::get_config_bool("closeToTray", true);
+    let (label_key, hint_key) =
+        if tray { ("settings.minimizeOnRecord.labelTray", "settings.minimizeOnRecord.hintTray") } else { ("settings.minimizeOnRecord.labelTaskbar", "settings.minimizeOnRecord.hintTaskbar") };
+    fset(ui, F, "chkMinimize", "text", lang::t(label_key));
+    fset(ui, F, "chkMinimize", "checked", config::get_config_bool("minimizeOnRecord", true));
+    fset(ui, F, "lblMinimizeHint", "text", lang::t(hint_key));
+    let auto = config::get_config_bool("autoRecordOnMic", false);
+    let apps = config::get_config_str("autoRecordMicApps", "");
+    fset(ui, F, "chkAutoRecord", "checked", auto);
+    fset(ui, F, "edtAutoApps", "text", apps.as_str());
+    // As exceções só valem monitorando todos os apps.
+    fshow(ui, F, "lyAutoExcept", apps.is_empty());
+    fset(ui, F, "edtAutoExcept", "text", config::get_config_str("autoRecordMicExcept", ""));
+    fshow(ui, F, "lyAutoDevices", auto);
+    if auto {
+        if let Some(list) = clear_box(ui, F, "lyAutoDeviceList") {
+            device_groups(ui, list, |d| (!d.hidden).then_some(d.auto), |_, id, on| {
+                set_device_flag(id, |d| d.auto = on);
+                crate::bridge::devices::handle_set_auto_source(id, on);
+            }, &lang::t("settings.autoRecord.devicesEmpty"));
+        }
+    }
+    fset(ui, F, "chkStopOnLock", "checked", config::get_config_bool("stopOnLock", true));
+}
+
+/// Os eventos do frame da aba Gravação (ligados em `forms/onrecord.rs`).
+pub mod onrecord {
+    use super::*;
+
+    /// As chaves de liga/desliga (a do componente é a da configuração).
+    pub fn check(ui: &mut Ui, sender: ComponentId) {
+        let key = match ui.name(sender).unwrap_or_default() {
+            "chkRecIndicator" => "recIndicator",
+            "chkRecClickable" => "recIndicatorClickable",
+            "chkFullscreen" => "fullscreenDetect",
+            "chkPlaySound" => "playSoundOnRecord",
+            "chkMinimize" => "minimizeOnRecord",
+            "chkAutoRecord" => "autoRecordOnMic",
+            "chkStopOnLock" => "stopOnLock",
+            _ => return,
+        };
+        check_changed(ui, key, checked(ui, sender));
+    }
+
+    pub fn rec_corner(ui: &mut Ui, sender: ComponentId) {
+        recording::handle_set_rec_indicator_corner(CORNERS.get(chosen(ui, sender)).copied().unwrap_or("top-right"));
+    }
+
+    pub fn rec_opacity(ui: &mut Ui, sender: ComponentId) {
+        indicator_opacity(ui, ONRECORD, "Rec", sender, recording::handle_set_rec_indicator_opacity);
+    }
+
+    pub fn auto_apps(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(t) = committed(ui, sender, args) {
+            if t != config::get_config_str("autoRecordMicApps", "") {
+                settings::handle_set_auto_record_mic_apps(&t);
+                ui.set_timeout(0, render_tab);
+            }
+        }
+    }
+
+    pub fn auto_except(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(t) = committed(ui, sender, args) {
+            if t != config::get_config_str("autoRecordMicExcept", "") {
+                settings::handle_set_auto_record_mic_except(&t);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Arquivos (`forms/settings/files.json`)
+// ---------------------------------------------------------------------------
+
+const FILES: &str = "fraFiles";
+const FILES_TEXTS: &[(&str, &str)] = &[
+    ("lblRecordDir", "settings.recordDir.label"),
+    ("btnRecordDir", "settings.recordDir.browse"),
+    ("lblFilename", "settings.filename.label"),
+    ("lblFilenameHint", "settings.filename.hint"),
+    ("lblLibrary", "settings.library.label"),
+    ("lblHiddenFolders", "settings.hiddenFolders.label"),
+    ("lblHiddenFoldersHint", "settings.hiddenFolders.hint"),
+];
+
+fn load_files(ui: &mut Ui) {
+    const F: &str = FILES;
+    ftexts(ui, F, FILES_TEXTS);
+    fit_button(ui, F, "btnRecordDir");
+    fset(ui, F, "edtRecordDir", "text", recording::record_dir().to_string_lossy().into_owned());
+    slot(ui, "record_dir", fc(ui, F, "edtRecordDir"));
+    let pattern = config::get_config_str("filenamePattern", settings::DEFAULT_FILENAME_PATTERN);
+    fset(ui, F, "edtFilename", "text", pattern.as_str());
+    fset(ui, F, "lblFilenamePreview", "text", filename_preview(&pattern));
+    slot(ui, "filename_preview", fc(ui, F, "lblFilenamePreview"));
+    let lib = config::get_config_str("libraryThumbs", "auto");
+    let li = LIBRARY_MODES.iter().position(|m| *m == lib).unwrap_or(0);
+    let labels: Vec<String> = LIBRARY_MODES.iter().map(|m| lang::t(&format!("settings.library.{m}"))).collect();
+    fitems(ui, F, "cmbLibrary", &labels, li);
+    fset(ui, F, "lblLibraryHint", "text", library_hint(LIBRARY_MODES[li]));
+    if let Some(list) = clear_box(ui, F, "lyHiddenFolders") {
+        hidden_folders(ui, list);
+    }
+}
+
+/// As pastas da biblioteca, cada uma com a caixa de esconder e a contagem.
+fn hidden_folders(ui: &mut Ui, list: ComponentId) {
+    let folders = with(|s| s.folders.clone());
+    if folders.is_empty() {
+        s_hint(ui, list, &lang::t("settings.hiddenFolders.empty"));
+    }
+    for f in folders {
+        let info = if f.missing {
+            lang::t("settings.hiddenFolders.missing")
+        } else {
+            tw(if f.count == 1 { "settings.hiddenFolders.countOne" } else { "settings.hiddenFolders.countMany" }, &[("count", &f.count.to_string())])
+        };
+        let Some(r) = row(ui, list, 18.0) else { continue };
+        let Ok(b) = ui.create("CheckBox", Some(r)) else { continue };
+        let _ = ui.set_prop(b, "text", f.name.as_str());
+        let _ = ui.set_prop(b, "box_size", 16.0);
+        let _ = ui.set_prop(b, "style", "web");
+        let _ = ui.set_prop(b, "checked", f.hidden);
+        let w = text_width(ui, b, &f.name) + 24.0;
+        if let Some(cb) = ui.control_mut(b) {
+            cb.set_align(Align::Left).set_width(w).set_margins([0.0, 0.0, 8.0, 0.0]);
+        }
+        let name = f.name.clone();
+        ui.on(b, "on_change", move |ui, sender, _| btr::handle_set_folder_hidden(&name, checked(ui, sender)));
+        label(ui, r, &info, "s_label", Align::Client, 0.0, 18.0);
+    }
+}
+
+/// Os eventos do frame da aba Arquivos (ligados em `forms/files.rs`).
+pub mod files {
+    use super::*;
+
+    pub fn browse() {
+        settings::handle_pick_record_dir();
+    }
+
+    pub fn record_dir(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(p) = committed(ui, sender, args) {
+            if p != recording::record_dir().to_string_lossy() {
+                settings::handle_set_record_dir(&p);
+            }
+        }
+    }
+
+    /// A prévia do nome acompanha a digitação.
+    pub fn filename_edit(ui: &mut Ui, sender: ComponentId) {
+        let text = match ui.get_prop(sender, "text") {
+            Ok(PropValue::String(t)) => t,
+            _ => String::new(),
+        };
+        fset(ui, FILES, "lblFilenamePreview", "text", filename_preview(&text));
+    }
+
+    pub fn filename(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(t) = committed(ui, sender, args) {
+            if t != config::get_config_str("filenamePattern", settings::DEFAULT_FILENAME_PATTERN) {
+                settings::handle_set_filename_pattern(&t);
+            }
+        }
+    }
+
+    pub fn library(ui: &mut Ui, sender: ComponentId) {
+        settings::handle_set_library_thumbs(LIBRARY_MODES.get(chosen(ui, sender)).copied().unwrap_or("auto"));
+        ui.set_timeout(0, render_tab);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Vídeo (`forms/settings/video.json`)
+// ---------------------------------------------------------------------------
+
+const VIDEO: &str = "fraVideo";
+const VIDEO_TEXTS: &[(&str, &str)] = &[
+    ("lblCodec", "settings.codec.label"),
+    ("lblCodecSwWarn", "settings.codec.swWarn"),
+    ("lblCodecHint", "settings.codec.hint"),
+    ("lblQuality", "settings.quality.label"),
+    ("lblQualityLow", "settings.quality.lower"),
+    ("lblQualityHigh", "settings.quality.higher"),
+    ("lblQualitySvtFloor", "settings.quality.svtFloor"),
+    ("lblVideoTest", "settings.videoTest.label"),
+    ("lblVideoTestHint", "settings.videoTest.hint"),
+    ("lblFps", "settings.fps.label"),
+    ("lblFpsLow", "settings.fps.lessFluid"),
+    ("lblFpsHigh", "settings.fps.moreFluid"),
+    ("lblKeyframe", "settings.keyframe.label"),
+    ("lblKeyframeLow", "settings.keyframe.precise"),
+    ("lblKeyframeHigh", "settings.keyframe.compact"),
+];
+
+fn load_video(ui: &mut Ui) {
+    const F: &str = VIDEO;
+    ftexts(ui, F, VIDEO_TEXTS);
+    let codec = config::get_config_str("codec", "auto");
+    let ci = CODECS.iter().position(|c| c.eq_ignore_ascii_case(&codec)).unwrap_or(0);
+    // O logo da placa de vídeo ao lado (o encoder de hardware é dela).
+    let logo: Option<&'static [u8]> = match bridge::last_encoder_caps().map(|c| c.vendor) {
+        Some(GpuVendor::Amd) => Some(include_bytes!("../assets/gpu/amd.png")),
+        Some(GpuVendor::Nvidia) => Some(include_bytes!("../assets/gpu/nvidia.png")),
+        Some(GpuVendor::Intel) => Some(include_bytes!("../assets/gpu/intel.png")),
+        _ => None,
+    };
+    if let Some(v) = fc(ui, F, "imgGpu") {
+        if let Some(iv) = ui.get_mut::<ImageView>(v) {
+            iv.set_picture(logo.map(|b| Image::encoded(b.to_vec())));
+        }
+        let _ = ui.set_prop(v, "visible", logo.is_some());
+    }
+    let labels: Vec<String> = codec_options().into_iter().map(|(t, _)| t).collect();
+    fitems(ui, F, "cmbCodec", &labels, ci);
+    let dim = match codec.as_str() {
+        "h264-hw" => 4096,
+        "h264-sw" | "hevc-hw" | "av1-hw" | "av1-sw" => 8192,
+        _ if bridge::last_encoder_caps().is_some_and(|c| c.h264_hw) => 4096,
+        _ => 8192,
+    };
+    fset(ui, F, "lblCodecMaxRes", "text", tw("settings.codec.maxRes", &[("w", &dim.to_string()), ("h", &dim.to_string())]));
+    fshow(ui, F, "lylblCodecSwWarn", codec == "av1-sw");
+    let (q, fps, kf, presets) = with(|s| (s.quality, s.fps, s.keyframe, s.fps_presets.clone()));
+    let ticks: Vec<String> = (0..=10).map(|n| n.to_string()).collect();
+    load_slider(ui, F, "Quality", 10, q.clamp(0, 10) as usize, &ticks);
+    fset(ui, F, "lblQualityHint", "text", lang::t(&format!("settings.quality.hint.{q}")));
+    fshow(ui, F, "lylblQualitySvtFloor", codec == "av1-sw" && q <= VT_SVT_FLOOR_LEVEL);
+    if let Some(test) = clear_box(ui, F, "lyVideoTest") {
+        video_test_box(ui, test);
+    }
+    let fi = fps_index(&presets, fps);
+    let ticks: Vec<String> = presets.iter().map(|p| p.to_string()).collect();
+    load_slider(ui, F, "Fps", presets.len().max(1) - 1, fi, &ticks);
+    fset(ui, F, "lblFpsHint", "text", fps_hint(presets.get(fi).copied().unwrap_or(fps)));
+    let ticks: Vec<String> = (1..=10).map(|n| format!("{n}s")).collect();
+    load_slider(ui, F, "Keyframe", 9, (kf.clamp(1, 10) - 1) as usize, &ticks);
+    fset(ui, F, "lblKeyframeHint", "text", keyframe_hint(kf));
+}
+
+/// Os eventos do frame da aba Vídeo (ligados em `forms/video.rs`).
+pub mod video {
+    use super::*;
+
+    pub fn codec(ui: &mut Ui, sender: ComponentId) {
+        let i = chosen(ui, sender);
+        // Um codec que esta máquina não tem volta para o de antes.
+        if codec_options().get(i).is_some_and(|(_, ok)| *ok) {
+            settings::handle_set_codec(CODECS.get(i).copied().unwrap_or("auto"));
+        }
+        ui.set_timeout(0, render_tab);
+    }
+
+    /// Os trilhos mandam ao core depois de parar (cada envio regrava a configuração).
+    pub fn quality(ui: &mut Ui, sender: ComponentId) {
+        let v = slider_value(ui, sender) as i32;
+        with(|s| s.quality = v);
+        fset(ui, VIDEO, "lblQualityHint", "text", lang::t(&format!("settings.quality.hint.{v}")));
+        debounce(ui, "quality", 400, move |ui| {
+            settings::handle_set_recording_quality(v);
+            render_tab(ui);
+        });
+    }
+
+    pub fn fps(ui: &mut Ui, sender: ComponentId) {
+        let f = with(|s| s.fps_presets.get(slider_value(ui, sender)).copied()).unwrap_or(30);
+        with(|s| s.fps = f);
+        fset(ui, VIDEO, "lblFpsHint", "text", fps_hint(f));
+        debounce(ui, "fps", 400, move |ui| {
+            settings::handle_set_recording_fps(f);
+            render_tab(ui);
+        });
+    }
+
+    pub fn keyframe(ui: &mut Ui, sender: ComponentId) {
+        let k = slider_value(ui, sender) as i32 + 1;
+        with(|s| s.keyframe = k);
+        fset(ui, VIDEO, "lblKeyframeHint", "text", keyframe_hint(k));
+        debounce(ui, "keyframe", 400, move |ui| {
+            settings::handle_set_recording_keyframe(k);
+            render_tab(ui);
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Áudio (`forms/settings/audio.json`)
+// ---------------------------------------------------------------------------
+
+const AUDIO: &str = "fraAudio";
+const AUDIO_TEXTS: &[(&str, &str)] = &[
+    ("lblAudioBitrate", "settings.audioBitrate.label"),
+    ("chkMuteWhenMuted", "settings.muteWhenDeviceMuted.label"),
+    ("lblMuteWhenMutedHint", "settings.muteWhenDeviceMuted.hint"),
+];
+
+fn load_audio(ui: &mut Ui) {
+    const F: &str = AUDIO;
+    ftexts(ui, F, AUDIO_TEXTS);
+    let ab = encoder::audio_bitrate_kbps();
+    let ai = AUDIO_BITRATES.iter().position(|k| *k == ab).unwrap_or(3);
+    let labels: Vec<String> = AUDIO_BITRATES
+        .iter()
+        .map(|k| {
+            let key = if *k == AUDIO_BITRATE_DEFAULT { "settings.audioBitrate.optionDefault" } else { "settings.audioBitrate.option" };
+            tw(key, &[("kbps", &k.to_string())])
+        })
+        .collect();
+    fitems(ui, F, "cmbAudioBitrate", &labels, ai);
+    fset(ui, F, "lblAudioBitrateHint", "text", audio_hint(AUDIO_BITRATES[ai]));
+    fset(ui, F, "chkMuteWhenMuted", "checked", config::get_config_bool("muteWhenDeviceMuted", true));
+}
+
+/// Os eventos do frame da aba Áudio (ligados em `forms/audio.rs`).
+pub mod audio {
+    use super::*;
+
+    pub fn bitrate(ui: &mut Ui, sender: ComponentId) {
+        settings::handle_set_audio_bitrate(AUDIO_BITRATES.get(chosen(ui, sender)).copied().unwrap_or(AUDIO_BITRATE_DEFAULT));
+        ui.set_timeout(0, render_tab);
+    }
+
+    pub fn mute_when_muted(ui: &mut Ui, sender: ComponentId) {
+        check_changed(ui, "muteWhenDeviceMuted", checked(ui, sender));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Buffer (`forms/settings/replay.json`)
+// ---------------------------------------------------------------------------
+
+const REPLAY: &str = "fraReplay";
+const REPLAY_TEXTS: &[(&str, &str)] = &[
+    ("lblReplay", "settings.replay.label"),
+    ("lblReplayHint", "settings.replay.hint"),
+    ("chkReplayAutoStart", "settings.replay.autoStart"),
+    ("lblReplayAutoStartHint", "settings.replay.autoStartHint"),
+    ("chkReplayIntoRecording", "settings.replay.intoRecording"),
+    ("lblReplayIntoRecordingHint", "settings.replay.intoRecordingHint"),
+    ("lblReplayDuration", "settings.replay.duration"),
+    ("lblReplayMemory", "settings.replay.memory"),
+    ("lblReplayMemoryHint", "settings.replay.memoryHint"),
+    ("lblReplayApps", "settings.replay.apps"),
+    ("edtReplayApps.placeholder", "settings.replay.appsPlaceholder"),
+    ("lblReplayAppsHint", "settings.replay.appsHint"),
+    ("chkReplayIndicator", "settings.replay.indicator"),
+    ("lblReplayIndicatorHint", "settings.replay.indicatorHint"),
+    ("chkRepClickable", "settings.replay.indicatorClickable"),
+    ("lblRepClickableHint", "settings.recIndicator.clickableHint"),
+    ("lblRepCorner", "settings.recIndicator.cornerLabel"),
+    ("lblRepOpacity", "settings.recIndicator.opacityLabel"),
+];
+
+/// Os limites do buffer: os tempos e as memórias oferecidos (com os atuais incluídos) e
+/// o escolhido de cada um. A memória vai até o teto que o core calculou pela RAM.
+fn replay_limits(r: &ReplayState) -> (Vec<i64>, usize, Vec<i64>, usize, i64) {
+    let limit = if r.max_mb_limit > 0 { r.max_mb_limit } else { REPLAY_DEFAULT_MB };
+    let (secs, si) = with_current(REPLAY_SEC_OPTIONS.to_vec(), if r.max_sec > 0 { r.max_sec } else { REPLAY_DEFAULT_SEC });
+    let mut mbs: Vec<i64> = REPLAY_MB_OPTIONS.iter().copied().filter(|v| *v < limit).collect();
+    mbs.push(limit);
+    let (mbs, mi) = with_current(mbs, if r.max_mb > 0 { r.max_mb } else { REPLAY_DEFAULT_MB });
+    (secs, si, mbs, mi, limit)
+}
+
+fn load_replay(ui: &mut Ui) {
+    const F: &str = REPLAY;
+    ftexts(ui, F, REPLAY_TEXTS);
+    let r = with(|s| s.replay.clone());
+    fshow(ui, F, "lyReplayOptions", r.is_some());
+    let Some(r) = r else { return };
+    fset(ui, F, "chkReplayAutoStart", "checked", r.auto_start);
+    fset(ui, F, "chkReplayIntoRecording", "checked", r.into_recording);
+    // Duas colunas: tempo e memória.
+    let half = (col_w() - 10.0) / 2.0;
+    if let Some(cb) = fc(ui, F, "lblReplayDuration").and_then(|id| ui.control_mut(id)) {
+        cb.set_width(half + 10.0);
+    }
+    if let Some(cb) = fc(ui, F, "cmbReplaySeconds").and_then(|id| ui.control_mut(id)) {
+        cb.set_width(half);
+    }
+    let (secs, si, mbs, mi, limit) = replay_limits(&r);
+    let labels: Vec<String> = secs.iter().map(|v| sec_label(*v)).collect();
+    fitems(ui, F, "cmbReplaySeconds", &labels, si);
+    let labels: Vec<String> = mbs.iter().map(|v| if *v >= limit { tw("settings.replay.memoryMax", &[("size", &mb_label(*v))]) } else { mb_label(*v) }).collect();
+    fitems(ui, F, "cmbReplayMemory", &labels, mi);
+    fset(ui, F, "edtReplayApps", "text", r.apps.as_str());
+    fset(ui, F, "chkReplayIndicator", "checked", r.indicator);
+    fshow(ui, F, "lyRepOptions", r.indicator);
+    if r.indicator {
+        fset(ui, F, "chkRepClickable", "checked", r.indicator_clickable);
+        let op = if r.indicator_opacity > 0 { r.indicator_opacity as i32 } else { 90 };
+        load_indicator(ui, F, "Rep", &r.indicator_corner, op);
+    }
+}
+
+/// Os eventos do frame da aba Buffer (ligados em `forms/replay.rs`).
+pub mod replay_tab {
+    use super::*;
+
+    pub fn check(ui: &mut Ui, sender: ComponentId) {
+        let key = match ui.name(sender).unwrap_or_default() {
+            "chkReplayAutoStart" => "replayAutoStart",
+            "chkReplayIntoRecording" => "replayIntoRecording",
+            "chkReplayIndicator" => "replayIndicator",
+            "chkRepClickable" => "replayIndicatorClickable",
+            _ => return,
+        };
+        check_changed(ui, key, checked(ui, sender));
+    }
+
+    /// Tempo ou memória: o core recebe os dois (o outro, o que está escolhido).
+    pub fn limits(ui: &mut Ui) {
+        let Some(r) = with(|s| s.replay.clone()) else { return };
+        let (secs, _, mbs, _, _) = replay_limits(&r);
+        let pick = |ui: &Ui, name: &str| fc(ui, REPLAY, name).map_or(0, |id| chosen(ui, id));
+        let sec = secs.get(pick(ui, "cmbReplaySeconds")).copied().unwrap_or(REPLAY_DEFAULT_SEC);
+        let mb = mbs.get(pick(ui, "cmbReplayMemory")).copied().unwrap_or(REPLAY_DEFAULT_MB);
+        replay::handle_set_replay_limits(sec as i32, mb as i32);
+    }
+
+    /// Cada envio reinicia o vigia de programas no core: com atraso enquanto digita.
+    pub fn apps_edit(ui: &mut Ui, sender: ComponentId) {
+        let t = match ui.get_prop(sender, "text") {
+            Ok(PropValue::String(t)) => t,
+            _ => return,
+        };
+        debounce(ui, "replay_apps", 600, move |_| replay::handle_set_replay_apps(&t));
+    }
+
+    pub fn apps(ui: &mut Ui, sender: ComponentId, args: &EventArgs) {
+        if let Some(t) = committed(ui, sender, args) {
+            let cur = with(|s| s.replay.as_ref().map(|r| r.apps.clone())).unwrap_or_default();
+            if t != cur {
+                replay::handle_set_replay_apps(&t);
+            }
+        }
+    }
+
+    pub fn corner(ui: &mut Ui, sender: ComponentId) {
+        replay::handle_set_replay_indicator_corner(CORNERS.get(chosen(ui, sender)).copied().unwrap_or("top-right"));
+    }
+
+    pub fn opacity(ui: &mut Ui, sender: ComponentId) {
+        indicator_opacity(ui, REPLAY, "Rep", sender, replay::handle_set_replay_indicator_opacity);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Atalhos (`forms/settings/hotkeys.json`)
+// ---------------------------------------------------------------------------
+
+const HOTKEYS: &str = "fraHotkeys";
+const HOTKEYS_TEXTS: &[(&str, &str)] = &[("lblHotkeysHint", "hotkeys.hint"), ("btnHotkeyAdd", "hotkeys.add")];
+
+fn load_hotkeys(ui: &mut Ui) {
+    ftexts(ui, HOTKEYS, HOTKEYS_TEXTS);
+    fit_button(ui, HOTKEYS, "btnHotkeyAdd");
+    if let Some(list) = clear_box(ui, HOTKEYS, "lyHotkeys") {
+        hotkey_cards(ui, list);
+    }
+}
+
+/// Os eventos do frame da aba Atalhos (ligados em `forms/hotkeys.rs`).
+pub mod hotkeys_tab {
+    use super::*;
+
+    pub fn add() {
+        let mut items = with(|s| s.hk_items.clone());
+        items.push(Item::new(Mode::Record, ""));
+        hk_send(items);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dispositivos (`forms/settings/devices.json`)
+// ---------------------------------------------------------------------------
+
+const DEVICES: &str = "fraDevices";
+
+fn load_devices(ui: &mut Ui) {
+    ftexts(ui, DEVICES, &[("lblDevicesHint", "devices.hint")]);
+    if let Some(list) = clear_box(ui, DEVICES, "lyDevices") {
+        device_groups(ui, list, |d| Some(!d.hidden), |_, id, on| {
+            set_device_flag(id, |d| d.hidden = !on);
+            crate::bridge::devices::handle_set_source_hidden(id, !on);
+        }, &lang::t("devices.empty"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transcrição (`forms/settings/transcribe.json`)
+// ---------------------------------------------------------------------------
+
+const TRANSCRIBE: &str = "fraTranscribe";
+const TRANSCRIBE_TEXTS: &[(&str, &str)] = &[
+    ("lblTrLocal", "settings.transcribe.local.label"),
+    ("lblTrLocalHint", "settings.transcribe.local.hint"),
+    ("lblTrLanguage", "settings.transcribe.language.label"),
+    ("lblTrLanguageHint", "settings.transcribe.language.hint"),
+    ("chkTrOnStop", "settings.transcribe.onStop.label"),
+    ("lblTrOnStopHint", "settings.transcribe.onStop.hint"),
+    ("lblTrQueue", "settings.transcribe.queue"),
+    ("lblTrQueueHint", "settings.transcribe.queueHint"),
+];
+
+fn load_transcribe(ui: &mut Ui) {
+    const F: &str = TRANSCRIBE;
+    ftexts(ui, F, TRANSCRIBE_TEXTS);
+    // O quadro do motor local.
+    let (status, detail, btn, danger, progress) = asr_texts();
+    let kind = with(|s| s.asr.as_ref().map(|a| a.status.clone())).unwrap_or_default();
+    let style = match kind.as_str() {
+        "ready" => "s_status_ok",
+        "error" => "s_status_fail",
+        _ => "s_status",
+    };
+    fset(ui, F, "lblTrStatus", "text", status.as_str());
+    fset(ui, F, "lblTrStatus", "style", style);
+    fshow(ui, F, "prgTrInstall", progress >= 0.0);
+    fset(ui, F, "prgTrInstall", "value", (progress.max(0.0) * 100.0) as f64);
+    fset(ui, F, "lblTrDetail", "text", detail.as_str());
+    fset(ui, F, "btnTrEngine", "text", btn.as_str());
+    fset(ui, F, "btnTrEngine", "style", if danger { "s_danger" } else { "s" });
+    fit_button(ui, F, "btnTrEngine");
+    let (_, labels, li) = transcribe_langs();
+    fitems(ui, F, "cmbTrLanguage", &labels, li);
+    fset(ui, F, "chkTrOnStop", "checked", config::get_config_bool("transcribeOnStop", true));
+    // A fila: pendentes, cancelar, o progresso, o erro e as que esperam.
+    let (t, pending, cloud, queue, clicked) = with(|s| (s.tr.clone(), s.tr_pending, s.tr_cloud, s.tr_queue.clone(), s.tr_cancel_clicked));
+    let canceling = t.canceling || clicked;
+    let pending_label = if pending > 0 { tw("settings.transcribe.pendingN", &[("count", &pending.to_string())]) } else { lang::t("settings.transcribe.pendingNone") };
+    fset(ui, F, "btnTrPending", "text", pending_label);
+    fset(ui, F, "btnTrPending", "enabled", pending > 0);
+    fit_button(ui, F, "btnTrPending");
+    fset(ui, F, "btnTrCancel", "text", lang::t(if canceling { "settings.transcribe.canceling" } else { "common.cancel" }));
+    fset(ui, F, "btnTrCancel", "enabled", !canceling && (t.running || t.queue > 0));
+    fit_button(ui, F, "btnTrCancel");
+    let (visible, p, line) = transcribe_line();
+    fshow(ui, F, "lyTrProgress", visible);
+    fset(ui, F, "prgTrQueue", "value", (p * 100.0) as f64);
+    fset(ui, F, "lblTrLine", "text", line);
+    slot(ui, "tr_bar", fc(ui, F, "prgTrQueue"));
+    slot(ui, "tr_line", fc(ui, F, "lblTrLine"));
+    let err = if t.last_error.is_empty() {
+        String::new()
+    } else if t.last_error_name.is_empty() {
+        tw("settings.transcribe.error", &[("error", &t.last_error)])
+    } else {
+        tw("settings.transcribe.errorNamed", &[("name", &t.last_error_name), ("error", &t.last_error)])
+    };
+    ftext_or_hide(ui, F, "lblTrError", &err);
+    fshow(ui, F, "lyTrQueue", !queue.is_empty());
+    if let Some(list) = clear_box(ui, F, "lyTrQueue") {
+        if !queue.is_empty() {
+            transcribe_queue(ui, list, &queue);
+        }
+    }
+    let cloud_text = if cloud > 0 { tw("settings.transcribe.pendingCloud", &[("count", &cloud.to_string())]) } else { String::new() };
+    ftext_or_hide(ui, F, "lblTrCloud", &cloud_text);
+}
+
+/// Os eventos do frame da aba Transcrição (ligados em `forms/transcribe.rs`).
+pub mod transcribe_tab {
+    use super::*;
+
+    /// Instalar, cancelar a instalação, tentar de novo ou remover o motor local.
+    pub fn engine(ui: &mut Ui) {
+        asr_action(ui);
+    }
+
+    pub fn language(ui: &mut Ui, sender: ComponentId) {
+        let (vals, _, _) = transcribe_langs();
+        btr::handle_set_transcribe_language(vals.get(chosen(ui, sender)).map_or("app", |s| s.as_str()));
+    }
+
+    pub fn on_stop(ui: &mut Ui, sender: ComponentId) {
+        check_changed(ui, "transcribeOnStop", checked(ui, sender));
+    }
+
+    pub fn pending() {
+        btr::handle_transcribe_pending();
+    }
+
+    pub fn cancel(ui: &mut Ui) {
+        if with(|s| s.tr.canceling || s.tr_cancel_clicked) {
+            return;
+        }
+        with(|s| s.tr_cancel_clicked = true);
+        render_tab(ui);
+        btr::handle_cancel_transcribe();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Atualizações (`forms/settings/updates.json`)
+// ---------------------------------------------------------------------------
+
+const UPDATES: &str = "fraUpdates";
+const UPDATES_TEXTS: &[(&str, &str)] = &[
+    ("lblVersion", "settings.updates.versionLabel"),
+    ("chkCheckUpdates", "settings.updates.autoLabel"),
+    ("lblCheckUpdatesHint", "settings.updates.autoHint"),
+    ("btnCheckNow", "settings.updates.checkNow"),
+    ("lblUpdateOpen", "settings.updates.openPage"),
+];
+
+fn load_updates(ui: &mut Ui) {
+    const F: &str = UPDATES;
+    ftexts(ui, F, UPDATES_TEXTS);
+    fset(ui, F, "lblVersionValue", "text", crate::version::display_version());
+    fset(ui, F, "chkCheckUpdates", "checked", config::get_config_bool("checkUpdates", true));
+    fset(ui, F, "btnCheckNow", "enabled", !with(|s| s.checking));
+    fit_button(ui, F, "btnCheckNow");
+    let (status, has_url) = update_status();
+    let available = with(|s| s.update.as_ref().is_some_and(|u| u.ok && u.has_update));
+    fshow(ui, F, "lyUpdateStatus", !status.is_empty());
+    fset(ui, F, "lblUpdateStatus", "text", status.as_str());
+    fset(ui, F, "lblUpdateStatus", "style", if available { "s_ok" } else { "s_hint" });
+    fit_label(ui, F, "lblUpdateStatus", 0.0);
+    fshow(ui, F, "lblUpdateOpen", has_url);
+}
+
+/// Os eventos do frame da aba Atualizações (ligados em `forms/updates.rs`).
+pub mod updates {
+    use super::*;
+
+    pub fn auto(ui: &mut Ui, sender: ComponentId) {
+        check_changed(ui, "checkUpdates", checked(ui, sender));
+    }
+
+    pub fn check_now(ui: &mut Ui) {
+        with(|s| s.checking = true);
+        render_tab(ui);
+        settings::handle_check_updates();
+    }
+
+    pub fn open_page() {
+        let url = with(|s| s.update.as_ref().map(|u| u.url.clone())).unwrap_or_default();
+        if !url.is_empty() {
+            bridge::handle_open_url(&url);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sobre (`forms/settings/about.json`)
+// ---------------------------------------------------------------------------
+
+const ABOUT: &str = "fraAbout";
+const ABOUT_TEXTS: &[(&str, &str)] = &[
+    ("lblAboutTagline", "about.tagline"),
+    ("lblAboutIntro1", "about.intro1"),
+    ("lblAboutIntro2", "about.intro2"),
+    ("lblAboutIntro3", "about.intro3"),
+    ("lblAboutAuthor", "about.labels.author"),
+    ("lblAboutCoAuthor", "about.labels.coAuthor"),
+    ("lblAboutRepository", "about.labels.repository"),
+    ("lblAboutFooter", "about.footer"),
+];
+
+fn load_about(ui: &mut Ui) {
+    const F: &str = ABOUT;
+    ftexts(ui, F, ABOUT_TEXTS);
+    if let Some(v) = fc(ui, F, "imgAbout") {
+        if let Some((iw, ih, rgba)) = crate::win::main_icon_rgba(96) {
             if let Some(iv) = ui.get_mut::<ImageView>(v) {
                 iv.set_picture(Some(Image::rgba(iw, ih, rgba)));
             }
-            place(ui, v, 48.0);
         }
     }
-    gap(8.0);
-    if let Some(l) = text_in(ui, page, "NoOBS", "s_big", col_w()) {
-        let _ = ui.set_prop(l, "h_align", "center");
+    // Os textos com <b> e <code> do idioma.
+    for n in ["lblAboutIntro1", "lblAboutIntro2", "lblAboutIntro3"] {
+        fset(ui, F, n, "markup", true);
     }
-    gap(2.0);
-    if let Some(l) = text_in(ui, page, &lang::t("about.tagline"), "s_about_l", col_w()) {
-        let _ = ui.set_prop(l, "h_align", "center");
-    }
-    gap(16.0);
-    let desc = |ui: &mut Ui, text: &str| {
-        if let Some(l) = text_in_md(ui, page, text, "s_desc", col_w()) {
-            let h = ui.control(l).map_or(0.0, |cb| cb.height());
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_height(h * 1.165);
+    fit_label(ui, F, "lblAboutCoAuthorValue", 0.0);
+    // As listas (recursos e com o que foi feito), do idioma.
+    if let Some(lists) = clear_box(ui, F, "lyAboutLists") {
+        for (title, list) in [("about.labels.features", "about.features"), ("about.labels.builtWith", "about.builtWith")] {
+            if let Some(t) = text_in(ui, lists, &lang::t(title).to_uppercase(), "s_group", col_w()) {
+                let _ = ui.set_prop(t, "wrap", false);
+                let _ = ui.set_prop(t, "letter_spacing", 0.66);
+                let _ = ui.set_prop(t, "v_align", "center");
+                if let Some(cb) = ui.control_mut(t) {
+                    let h = cb.height();
+                    cb.set_height(h + 8.0);
+                }
             }
+            gap(0.0);
+            about_list(ui, lists, &lang_list(list));
         }
-        gap(8.0);
-    };
-    desc(ui, &lang::t("about.intro1"));
-    desc(ui, &lang::t("about.intro2"));
-    desc(ui, &lang::t("about.intro3"));
-    about_row(ui, page, &lang::t("about.labels.author"), "Eduardo Rodrigues", None, None);
-    gap(4.0);
-    about_row(ui, page, &lang::t("about.labels.coAuthor"), "Claude (Anthropic) - Max 5X · Opus 5.5", Some("1M"), None);
-    gap(4.0);
-    about_row(ui, page, &lang::t("about.labels.repository"), "github.com/e-delphi/NoOBS", None, Some("https://github.com/e-delphi/NoOBS"));
-    gap(12.0);
-    for (title, list) in [("about.labels.features", "about.features"), ("about.labels.builtWith", "about.builtWith")] {
-        if let Some(t) = text_in(ui, page, &lang::t(title).to_uppercase(), "s_group", col_w()) {
-            let _ = ui.set_prop(t, "wrap", false);
-            let _ = ui.set_prop(t, "letter_spacing", 0.66);
-            let _ = ui.set_prop(t, "v_align", "center");
-            if let Some(cb) = ui.control_mut(t) {
-                let h = cb.height();
-                cb.set_height(h + 8.0);
-            }
-        }
-        gap(0.0);
-        about_list(ui, page, &lang_list(list));
     }
-    gap(8.0);
-    s_hint(ui, page, &lang::t("about.footer"));
+}
+
+/// Os eventos do frame da aba Sobre (ligados em `forms/about.rs`).
+pub mod about {
+    pub fn repository() {
+        crate::bridge::handle_open_url("https://github.com/e-delphi/NoOBS");
+    }
 }

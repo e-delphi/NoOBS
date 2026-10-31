@@ -1,0 +1,53 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraReplay",
+    "caption": "Configurações: Buffer",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblReplay", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Buffer em memória" },
+      { "class": "Label", "name": "lblReplayHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "markup": true, "margins": [0, 6, 0, 0], "text": "Com o buffer ligado (botão na tela principal), o NoOBS guarda os <b>últimos minutos</b> da tela na memória, sem gravar no disco. Quando acontecer algo que valha registrar, aperte o atalho: o trecho vira uma gravação normal e o buffer <b>recomeça vazio</b> — salvar de novo traz só a continuação, com cerca de 1 segundo repetido na emenda pra não perder nada entre um trecho e o outro." },
+      { "class": "Layout", "name": "lyReplayOptions", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0], "children": [
+        { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+        { "class": "CheckBox", "name": "chkReplayAutoStart", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Ligar o buffer ao abrir o NoOBS", "on_change": "replay_auto_start" },
+        { "class": "Label", "name": "lblReplayAutoStartHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Marcado, o buffer já começa a guardar sozinho a cada vez que o NoOBS abre. Desmarcado, o botão da tela principal liga o buffer só até fechar o app." },
+        { "class": "Rectangle", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+        { "class": "CheckBox", "name": "chkReplayIntoRecording", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Gravar a partir do que o buffer guardou", "on_change": "replay_into_recording" },
+        { "class": "Label", "name": "lblReplayIntoRecordingHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Marcado, iniciar uma gravação com o buffer ligado aproveita o que ele já guardou: o arquivo começa por esse trecho e continua sem interrupção. Desmarcado, o que estava no buffer é descartado e a gravação começa do zero." },
+        { "class": "Rectangle", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+        { "margins": [0, 10, 0, 0], "class": "Layout", "name": "lyReplayHeads", "align": "top", "height": 17, "children": [ { "class": "Label", "name": "lblReplayDuration", "style": "s_label", "align": "left", "width": 385, "text": "Duração" }, { "class": "Label", "name": "lblReplayMemory", "style": "s_label", "align": "client", "text": "Memória" } ] },
+        { "class": "Layout", "name": "lyReplayLimits", "align": "top", "height": 32, "children": [ { "class": "ComboBox", "name": "cmbReplaySeconds", "arrow": "triangle", "align": "left", "width": 375, "margins": [0, 0, 10, 0], "on_change": "replay_seconds" }, { "class": "ComboBox", "name": "cmbReplayMemory", "arrow": "triangle", "align": "client", "on_change": "replay_memory" } ] },
+        { "class": "Label", "name": "lblReplayMemoryHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "O que acabar primeiro manda: o buffer descarta o trecho mais antigo quando passa do tempo OU da memória. Tela parada ocupa poucos MB por minuto; um jogo em 4K a 120 fps na qualidade máxima chega a ~1,5 GB por minuto. O máximo da lista é o que cabe nesta máquina, sempre deixando 4 GB de RAM livres." },
+        { "class": "Rectangle", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+        { "class": "Label", "name": "lblReplayApps", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Ligar sozinho com estes programas" },
+        { "margins": [0, 6, 0, 0], "class": "Edit", "name": "edtReplayApps", "align": "top", "height": 32, "on_change": "replay_apps_edit", "on_exit": "replay_apps", "on_key_down": "replay_apps" },
+        { "class": "Label", "name": "lblReplayAppsHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Nomes de programas separados por vírgula. Quando um deles estiver aberto, o buffer liga sozinho; quando todos fecharem, ele desliga. Basta um pedaço do nome (\"teams\" acha \"ms-teams\"). Funciona também com o NoOBS na bandeja. Vazio = desligado." },
+        { "class": "Rectangle", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+        { "class": "CheckBox", "name": "chkReplayIndicator", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Mostrar indicador do buffer na tela", "on_change": "replay_indicator" },
+        { "class": "Label", "name": "lblReplayIndicatorHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "markup": true, "margins": [0, 6, 0, 0], "text": "Uma bolinha verde com o tempo já guardado, no canto da tela. Aparece pra você mas <b>não entra na gravação</b>, e clicar nela salva o trecho. Some enquanto uma aplicação em tela cheia estiver na frente (por cima dela ele derruba o FPS) e volta quando você sai dela. Requer Windows 10 2004+." },
+        { "class": "Layout", "name": "lyRepOptions", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+        { "class": "CheckBox", "name": "chkRepClickable", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Clicar no indicador salva o trecho", "on_change": "replay_clickable" },
+        { "class": "Label", "name": "lblRepClickableHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Desmarque se o indicador ficar em cima de algo que você precisa clicar: o clique passa direto para o que está embaixo." },
+        { "class": "Layout", "name": "lyRepCorner", "align": "top", "height": 32, "margins": [0, 14, 0, 0], "children": [
+          { "class": "Label", "name": "lblRepCorner", "style": "s_inline", "align": "left", "width": 50, "margins": [0, 0, 8, 0], "text": "Canto" },
+          { "class": "ComboBox", "name": "cmbRepCorner", "arrow": "triangle", "align": "client", "on_change": "replay_corner" }
+        ] },
+        { "class": "Layout", "name": "lyRepOpacity", "align": "top", "height": 20, "margins": [0, 0, 0, 0], "children": [
+          { "class": "Label", "name": "lblRepOpacity", "style": "s_inline", "align": "left", "width": 70, "margins": [0, 0, 8, 0], "text": "Opacidade" },
+          { "class": "Label", "name": "lblRepOpacityPct", "style": "s_inline", "align": "right", "width": 42, "h_align": "trailing", "text": "90%" },
+          { "class": "Panel", "name": "pnlRepPreview", "style": "s_pill", "align": "right", "width": 96, "margins": [8, 0, 8, 0], "children": [
+            { "class": "Circle", "name": "dotRepPreview", "fill": "green", "stroke_width": 0, "hit_test": false, "left": 8, "top": 6, "width": 8, "height": 8 },
+            { "class": "Label", "name": "lblRepPreview", "style": "s_pill", "hit_test": false, "left": 22, "top": 0, "width": 66, "height": 20, "text": "2:13/5:00" }
+          ] },
+          { "class": "Layout", "name": "lyRepOpacitySlider", "align": "client", "children": [
+            { "class": "TrackBar", "name": "trkRepOpacity", "align": "vert_center", "height": 16, "min": 0, "max": 16, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "replay_opacity" }
+          ] }
+        ] }
+      ] }
+      ] }
+    ]
+  }
+}

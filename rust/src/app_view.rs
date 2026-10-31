@@ -96,6 +96,53 @@ pub fn main_form() -> Option<ComponentId> {
     MAIN_FORM.with(Cell::get)
 }
 
+/// As telas que cobrem a inicial, cada uma no seu form, na ordem em que se sobrepõem
+/// (a última fica por cima).
+const SCREENS: [&str; 4] = ["frmPicker", "frmSettings", "frmExport", "frmPlayer"];
+
+/// O form de uma tela (`frmSettings`, `frmPlayer`, `frmExport`, `frmPicker`) ou de uma
+/// aba das Configurações (`fraGeneral`...).
+pub fn form(ui: &Ui, name: &str) -> Option<ComponentId> {
+    ui.find_path(name)
+}
+
+/// Põe uma tela dentro da janela, por cima da inicial e escondida (como o
+/// `Form2.Parent := Self` do Delphi): o `frmMain` fica só com a tela inicial no designer.
+fn embed_screen(ui: &mut Ui, main: ComponentId, name: &str) {
+    let form = match ui.create_form(name) {
+        Ok(f) => f,
+        Err(e) => {
+            log!("Tela {name}: {e}");
+            return;
+        }
+    };
+    let _ = ui.set_parent(form, Some(main));
+    let _ = ui.set_prop(form, "align", "contents");
+    if matches!(ui.get_prop(form, "fill"), Ok(PropValue::Null)) {
+        let _ = ui.set_prop(form, "fill", Color::TRANSPARENT);
+    }
+    if let Some(cb) = ui.control_mut(form) {
+        cb.set_visible(false);
+    }
+}
+
+/// Mostra ou esconde uma tela (`frmSettings`, `frmPlayer`...).
+pub fn show_screen(ui: &mut Ui, form: &str, on: bool) {
+    if let Some(id) = ui.find_path(form) {
+        let _ = ui.set_prop(id, "visible", on);
+        // Escondida, a tela fica fora do layout: ao aparecer, o tamanho já vale para quem
+        // lê logo depois (a coluna das Configurações).
+        ui.layout();
+    }
+}
+
+/// Uma propriedade de um componente da tela inicial (`frmMain`), vinda de outra tela.
+pub fn set_main(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
+    if let Some(id) = main_form().and_then(|m| ui.find_in(m, name)) {
+        let _ = ui.set_prop(id, prop, value);
+    }
+}
+
 /// Troca o tema inteiro (o escuro ou o claro do NoOBS).
 fn apply_theme(ui: &mut Ui, dark: bool) {
     match iron::json::load_theme(if dark { THEME_DARK } else { THEME_LIGHT }) {
@@ -318,6 +365,9 @@ pub fn create() -> Result<iron::Application, iron::Error> {
     crate::forms::register(&mut app.ui);
     POSTER.with(|p| *p.borrow_mut() = Some(app.ui.poster()));
     MAIN_FORM.with(|m| m.set(Some(app.main_form)));
+    for screen in SCREENS {
+        embed_screen(&mut app.ui, app.main_form, screen);
+    }
     apply_theme(&mut app.ui, crate::bridge::resolved_theme() == "dark");
     crate::view::set(Rc::new(IronView));
     with_ui(app_main::setup);

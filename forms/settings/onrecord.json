@@ -1,0 +1,61 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraOnRecord",
+    "caption": "Configurações: Gravação",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "CheckBox", "name": "chkRecIndicator", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 0, 0, 0], "text": "Mostrar indicador de gravação na tela", "on_change": "onrecord_rec_indicator" },
+      { "class": "Label", "name": "lblRecIndicatorHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "markup": true, "margins": [0, 6, 0, 0], "text": "Mostra uma bolinha vermelha com o tempo de gravação no canto do monitor principal. O indicador aparece pra você, mas não entra na gravação (é excluído da captura). Some enquanto uma aplicação em tela cheia estiver na frente (por cima dela ele derruba o FPS) e volta quando você sai dela. Requer Windows 10 2004+." },
+      { "class": "Layout", "name": "lyRecOptions", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+        { "class": "CheckBox", "name": "chkRecClickable", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Clicar no indicador para a gravação", "on_change": "onrecord_rec_clickable" },
+        { "class": "Label", "name": "lblRecClickableHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Desmarque se o indicador ficar em cima de algo que você precisa clicar: o clique passa direto para o que está embaixo." },
+        { "class": "Layout", "name": "lyRecCorner", "align": "top", "height": 32, "margins": [0, 14, 0, 0], "children": [
+          { "class": "Label", "name": "lblRecCorner", "style": "s_inline", "align": "left", "width": 50, "margins": [0, 0, 8, 0], "text": "Canto" },
+          { "class": "ComboBox", "name": "cmbRecCorner", "arrow": "triangle", "align": "client", "on_change": "onrecord_rec_corner" }
+        ] },
+        { "class": "Layout", "name": "lyRecOpacity", "align": "top", "height": 20, "margins": [0, 8, 0, 0], "children": [
+          { "class": "Label", "name": "lblRecOpacity", "style": "s_inline", "align": "left", "width": 70, "margins": [0, 0, 8, 0], "text": "Opacidade" },
+          { "class": "Label", "name": "lblRecOpacityPct", "style": "s_inline", "align": "right", "width": 42, "h_align": "trailing", "text": "90%" },
+          { "class": "Panel", "name": "pnlRecPreview", "style": "s_pill", "align": "right", "width": 96, "margins": [8, 0, 8, 0], "children": [
+            { "class": "Circle", "name": "dotRecPreview", "fill": "alert", "stroke_width": 0, "hit_test": false, "left": 8, "top": 6, "width": 8, "height": 8 },
+            { "class": "Label", "name": "lblRecPreview", "style": "s_pill", "hit_test": false, "left": 22, "top": 0, "width": 66, "height": 20, "text": "00:00:00" }
+          ] },
+          { "class": "Layout", "name": "lyRecOpacitySlider", "align": "client", "children": [
+            { "class": "TrackBar", "name": "trkRecOpacity", "align": "vert_center", "height": 16, "min": 0, "max": 16, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "onrecord_rec_opacity" }
+          ] }
+        ] }
+      ] },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkFullscreen", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Com uma aplicação em tela cheia, esconder os indicadores e pausar as prévias", "on_change": "onrecord_fullscreen" },
+      { "class": "Label", "name": "lblFullscreenHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Janelas por cima de uma aplicação em tela cheia derrubam o FPS dela. Desmarque se o indicador sumir ou as prévias congelarem sem nada em tela cheia aberto." },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkPlaySound", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Tocar som de início e fim da gravação", "on_change": "onrecord_play_sound" },
+      { "class": "Label", "name": "lblPlaySoundHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Toca uma sequência curta de duas notas ao começar (ascendente) e ao terminar (descendente) a gravação — confirmação auditiva discreta." },
+      { "class": "Rectangle", "name": "lnRule3", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkMinimize", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Minimizar para a bandeja ao iniciar a gravação", "on_change": "onrecord_minimize" },
+      { "class": "Label", "name": "lblMinimizeHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Ao começar uma gravação, a janela do NoOBS é enviada pra bandeja do sistema — útil para gravar a tela sem a própria janela aparecer no vídeo. O atalho global continua funcionando pra parar." },
+      { "class": "Rectangle", "name": "lnRule4", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkAutoRecord", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Gravar automaticamente durante chamadas", "on_change": "onrecord_auto_record" },
+      { "class": "Label", "name": "lblAutoRecordHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Inicia a gravação quando detecta o microfone sendo usado por outro app (chamada de Teams, WhatsApp, etc.) e para quando ele é liberado. Funciona até com a janela na bandeja." },
+      { "margins": [0, 6, 0, 0], "class": "Edit", "name": "edtAutoApps", "align": "top", "height": 32, "placeholder": "teams, whatsapp, zoom", "on_exit": "onrecord_auto_apps", "on_key_down": "onrecord_auto_apps" },
+      { "class": "Label", "name": "lblAutoAppsHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Apps a monitorar, separados por vírgula (parte do nome do processo). Vazio = qualquer app que use o microfone. Chamadas no navegador aparecem como chrome.exe / msedge.exe." },
+      { "class": "Layout", "name": "lyAutoExcept", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+        { "margins": [0, 0, 0, 0], "class": "Edit", "name": "edtAutoExcept", "align": "top", "height": 32, "placeholder": "steam, discord", "on_exit": "onrecord_auto_except", "on_key_down": "onrecord_auto_except" },
+        { "class": "Label", "name": "lblAutoExceptHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Exceções: apps a ignorar mesmo usando o microfone (separados por vírgula). Como está monitorando todos, estes ficam de fora." }
+      ] },
+      { "class": "Layout", "name": "lyAutoDevices", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+        { "margins": [0, 6, 0, 0], "class": "Rectangle", "name": "lnAutoDevices", "style": "sep", "align": "top", "height": 1 },
+        { "class": "Label", "name": "lblAutoDevices", "style": "s_name", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 12, 0, 0], "text": "Dispositivos na gravação automática" },
+        { "class": "Label", "name": "lblAutoDevicesHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 2, 0, 0], "text": "Escolha quais dispositivos entram quando a gravação começa sozinha por uma chamada — uma seleção própria, separada da tela inicial. Começam todos marcados; só ficam de fora os ocultos no menu Dispositivos." },
+        { "class": "Layout", "name": "lyAutoDeviceList", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0] }
+      ] },
+      { "class": "Rectangle", "name": "lnRule5", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkStopOnLock", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Parar a gravação ao bloquear o computador", "on_change": "onrecord_stop_on_lock" },
+      { "class": "Label", "name": "lblStopOnLockHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Quando você bloqueia o Windows (Win+L, troca de usuário ou bloqueio automático), a gravação em curso é finalizada — evita gravar sessões longas inadvertidamente quando você se afasta." }
+    ]
+  }
+}

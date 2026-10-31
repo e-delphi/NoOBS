@@ -301,6 +301,8 @@ dll_api! {
     fn av_frame_alloc() -> *mut AVFrame;
     fn av_frame_free(frame: *mut *mut AVFrame);
     fn av_frame_unref(frame: *mut AVFrame);
+    /// Outra referência ao mesmo quadro (o buffer não é copiado).
+    fn av_frame_ref(dst: *mut AVFrame, src: *const AVFrame) -> c_int;
     /// Aloca os buffers a partir de width/height/format (vídeo) ou
     /// nb_samples/format/ch_layout (áudio), que o chamador preenche ANTES.
     fn av_frame_get_buffer(frame: *mut AVFrame, align: c_int) -> c_int;
@@ -779,6 +781,9 @@ impl std::ops::DerefMut for Frame {
         unsafe { &mut *self.0 }
     }
 }
+
+// O quadro é contado por referência pelo FFmpeg: pode mudar de thread.
+unsafe impl Send for Frame {}
 
 impl Drop for Frame {
     fn drop(&mut self) {

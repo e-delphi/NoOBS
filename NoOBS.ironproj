@@ -1,7 +1,6 @@
 {
   "iron_project": 1,
   "name": "NoOBS",
-  "theme": "themes/noobs-dark.json",
   "language": "rust",
   "main_form": "frmMain",
   "forms": [
@@ -9,12 +8,89 @@
       "name": "frmMain",
       "file": "forms/main.json",
       "auto_create": true
+    },
+    {
+      "name": "frmSettings",
+      "file": "forms/settings.json",
+      "auto_create": false
+    },
+    {
+      "name": "frmPlayer",
+      "file": "forms/player.json",
+      "auto_create": false
+    },
+    {
+      "name": "frmExport",
+      "file": "forms/export.json",
+      "auto_create": false
+    },
+    {
+      "name": "frmPicker",
+      "file": "forms/picker.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraGeneral",
+      "file": "forms/settings/general.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraOnRecord",
+      "file": "forms/settings/onrecord.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraFiles",
+      "file": "forms/settings/files.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraVideo",
+      "file": "forms/settings/video.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraAudio",
+      "file": "forms/settings/audio.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraReplay",
+      "file": "forms/settings/replay.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraHotkeys",
+      "file": "forms/settings/hotkeys.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraDevices",
+      "file": "forms/settings/devices.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraTranscribe",
+      "file": "forms/settings/transcribe.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraUpdates",
+      "file": "forms/settings/updates.json",
+      "auto_create": false
+    },
+    {
+      "name": "fraAbout",
+      "file": "forms/settings/about.json",
+      "auto_create": false
     }
   ],
+  "theme": "themes/noobs-dark.json",
   "colors": {
     "green": "#10B981",
     "red": "#EF4444",
     "danger_2": "#F87171",
+    "danger_text": "danger_2",
     "alert": "#F03E3E",
     "amber": "#F59E0B",
     "blue": "#3B82F6",
@@ -31,45 +107,171 @@
     "track_8": "#C2410C",
     "track_9": "#0EA5E9",
     "track_10": "#8B5CF6",
-    "speaker_1": { "dark": "#6EE7A8", "light": "#0F7A45" },
-    "speaker_2": { "dark": "#7CC4FA", "light": "#1668B8" },
-    "speaker_3": { "dark": "#F8B57C", "light": "#A1580F" },
-    "speaker_4": { "dark": "#D8A5F5", "light": "#7A3FA8" },
-    "speaker_5": { "dark": "#F59DB1", "light": "#B03A5B" },
-    "speaker_6": { "dark": "#E8DD7A", "light": "#7D6C0A" },
-    "side_bg": { "dark": "#0F0F0FF5", "light": "#FFFFFFF7" },
-    "side_card": { "dark": "#FFFFFF0A", "light": "#00000008" },
-    "side_card_line": { "dark": "#FFFFFF0F", "light": "#00000014" },
-    "side_empty": { "dark": "#FFFFFF73", "light": "#0000008C" },
-    "side_faint": { "dark": "#FFFFFF08", "light": "#00000008" },
-    "side_head": { "dark": "#FFFFFFBF", "light": "#000000B3" },
-    "side_hover": { "dark": "#FFFFFF12", "light": "#0000000F" },
-    "side_hover_line": { "dark": "#FFFFFF1F", "light": "#0000001F" },
-    "side_key": { "dark": "#FFFFFF8C", "light": "#0000008C" },
-    "side_line": { "dark": "#FFFFFF0F", "light": "#00000014" },
-    "side_line2": { "dark": "#FFFFFF0D", "light": "#0000000F" },
-    "side_mark": { "dark": "#FFFFFF59", "light": "#00000059" },
-    "side_pct": { "dark": "#FFFFFFA6", "light": "#00000099" },
-    "side_search": { "dark": "#FFFFFF0F", "light": "#00000008" },
-    "side_search_line": { "dark": "#FFFFFF1F", "light": "#0000001F" },
-    "side_search_text": { "dark": "#FFFFFF", "light": "#1F2937" },
-    "side_sect": { "dark": "#FFFFFF73", "light": "#00000073" },
-    "side_spk_edit": { "dark": "#FFFFFF1F", "light": "#0000000D" },
-    "side_spk_hover": { "dark": "#FFFFFF1A", "light": "#0000000F" },
-    "side_tmute": { "dark": "#FFFFFFB3", "light": "#0000008C" },
-    "side_tmute_hover": { "dark": "#FFFFFF14", "light": "#0000000F" },
-    "side_tmute_text_hover": { "dark": "#FFFFFF", "light": "#000000D9" },
-    "side_track_rail": { "dark": "#FFFFFF26", "light": "#0000001F" },
-    "side_ttext": { "dark": "#FFFFFFD1", "light": "#000000D1" },
-    "side_ttime": { "dark": "#FFFFFF66", "light": "#0000008C" },
-    "side_turn_hover": { "dark": "#FFFFFF0D", "light": "#0000000A" },
-    "side_turn_on": { "dark": "#FFFFFF14", "light": "#0000000F" },
-    "side_val": { "dark": "#FFFFFFEB", "light": "#000000E0" },
-    "side_vicon": { "dark": "#FFFFFF8C", "light": "#00000073" },
-    "side_view_on": { "dark": "#10B9811F", "light": "#10B9811A" },
-    "side_x": { "dark": "#FFFFFF99", "light": "#0000008C" },
-    "side_x_hover": { "dark": "#FFFFFF1A", "light": "#0000000F" },
-    "side_x_text_hover": { "dark": "#FFFFFF", "light": "#000000" }
+    "speaker_1": {
+      "dark": "#6EE7A8",
+      "light": "#0F7A45"
+    },
+    "speaker_2": {
+      "dark": "#7CC4FA",
+      "light": "#1668B8"
+    },
+    "speaker_3": {
+      "dark": "#F8B57C",
+      "light": "#A1580F"
+    },
+    "speaker_4": {
+      "dark": "#D8A5F5",
+      "light": "#7A3FA8"
+    },
+    "speaker_5": {
+      "dark": "#F59DB1",
+      "light": "#B03A5B"
+    },
+    "speaker_6": {
+      "dark": "#E8DD7A",
+      "light": "#7D6C0A"
+    },
+    "side_bg": {
+      "dark": "#0F0F0FF5",
+      "light": "#FFFFFFF7"
+    },
+    "side_card": {
+      "dark": "#FFFFFF0A",
+      "light": "#00000008"
+    },
+    "side_card_line": {
+      "dark": "#FFFFFF0F",
+      "light": "#00000014"
+    },
+    "side_empty": {
+      "dark": "#FFFFFF73",
+      "light": "#0000008C"
+    },
+    "side_faint": {
+      "dark": "#FFFFFF08",
+      "light": "#00000008"
+    },
+    "side_head": {
+      "dark": "#FFFFFFBF",
+      "light": "#000000B3"
+    },
+    "side_hover": {
+      "dark": "#FFFFFF12",
+      "light": "#0000000F"
+    },
+    "side_hover_line": {
+      "dark": "#FFFFFF1F",
+      "light": "#0000001F"
+    },
+    "side_key": {
+      "dark": "#FFFFFF8C",
+      "light": "#0000008C"
+    },
+    "side_line": {
+      "dark": "#FFFFFF0F",
+      "light": "#00000014"
+    },
+    "side_line2": {
+      "dark": "#FFFFFF0D",
+      "light": "#0000000F"
+    },
+    "side_mark": {
+      "dark": "#FFFFFF59",
+      "light": "#00000059"
+    },
+    "side_pct": {
+      "dark": "#FFFFFFA6",
+      "light": "#00000099"
+    },
+    "side_search": {
+      "dark": "#FFFFFF0F",
+      "light": "#00000008"
+    },
+    "side_search_line": {
+      "dark": "#FFFFFF1F",
+      "light": "#0000001F"
+    },
+    "side_search_text": {
+      "dark": "#FFFFFF",
+      "light": "#1F2937"
+    },
+    "side_sect": {
+      "dark": "#FFFFFF73",
+      "light": "#00000073"
+    },
+    "side_spk_edit": {
+      "dark": "#FFFFFF1F",
+      "light": "#0000000D"
+    },
+    "side_spk_hover": {
+      "dark": "#FFFFFF1A",
+      "light": "#0000000F"
+    },
+    "side_tmute": {
+      "dark": "#FFFFFFB3",
+      "light": "#0000008C"
+    },
+    "side_tmute_hover": {
+      "dark": "#FFFFFF14",
+      "light": "#0000000F"
+    },
+    "side_tmute_text_hover": {
+      "dark": "#FFFFFF",
+      "light": "#000000D9"
+    },
+    "side_track_rail": {
+      "dark": "#FFFFFF26",
+      "light": "#0000001F"
+    },
+    "side_ttext": {
+      "dark": "#FFFFFFD1",
+      "light": "#000000D1"
+    },
+    "side_ttime": {
+      "dark": "#FFFFFF66",
+      "light": "#0000008C"
+    },
+    "side_turn_hover": {
+      "dark": "#FFFFFF0D",
+      "light": "#0000000A"
+    },
+    "side_turn_on": {
+      "dark": "#FFFFFF14",
+      "light": "#0000000F"
+    },
+    "side_val": {
+      "dark": "#FFFFFFEB",
+      "light": "#000000E0"
+    },
+    "side_vicon": {
+      "dark": "#FFFFFF8C",
+      "light": "#00000073"
+    },
+    "side_view_on": {
+      "dark": "#10B9811F",
+      "light": "#10B9811A"
+    },
+    "side_x": {
+      "dark": "#FFFFFF99",
+      "light": "#0000008C"
+    },
+    "side_x_hover": {
+      "dark": "#FFFFFF1A",
+      "light": "#0000000F"
+    },
+    "side_x_text_hover": {
+      "dark": "#FFFFFF",
+      "light": "#000000"
+    }
+  },
+  "scroll": {
+    "wheel_step": 100.0,
+    "smooth": true,
+    "smooth_ms": 160.0
+  },
+  "output": {
+    "dir": "rust/exe",
+    "name": "NoOBS"
   },
   "locale": "pt-BR",
   "render": {

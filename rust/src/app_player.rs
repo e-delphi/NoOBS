@@ -116,8 +116,9 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
     ST.with(|s| f(&mut s.borrow_mut()))
 }
 
+/// Um componente do `frmPlayer` pelo nome.
 fn c(ui: &Ui, name: &str) -> Option<ComponentId> {
-    ui.find_in(main_form()?, name)
+    ui.find_in(crate::app_view::form(ui, "frmPlayer")?, name)
 }
 
 fn set(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
@@ -255,7 +256,7 @@ pub fn open(ui: &mut Ui, id: &str) {
     close_engine(ui);
     let title = std::path::Path::new(id).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let start_clock = bridge::recording_start_clock_sec(id);
-    set(ui, "pnlPlayer", "visible", true);
+    crate::app_view::show_screen(ui, "frmPlayer", true);
     set(ui, "lblPlayerTitle", "text", title);
     set(ui, "lblPlayerLoading", "text", lang::t("player.loading"));
     set(ui, "pnlPlayerLoading", "visible", true);
@@ -356,7 +357,7 @@ pub fn close(ui: &mut Ui) {
     if with(|st| st.fullscreen) {
         toggle_fullscreen(ui);
     }
-    set(ui, "pnlPlayer", "visible", false);
+    crate::app_view::show_screen(ui, "frmPlayer", false);
     if let Some(v) = c(ui, "frmVideo").and_then(|id| ui.get_mut::<FrameView>(id)) {
         v.set_frame(None);
     }
@@ -387,7 +388,7 @@ fn on_out(ui: &mut Ui, id: &str, o: Out) {
         Out::Frame { buf, x, y, view } => {
             let k = with(|st| st.scale);
             let (bw, bh) = (buf.width, buf.height);
-            let image = Image::rgba(bw, bh, buf.pixels);
+            let image = Image::bgra(bw, bh, buf.pixels);
             let rect = RectF::new(x as f32 / k, y as f32 / k, bw as f32 / k, bh as f32 / k);
             if let Some(v) = c(ui, "frmVideo").and_then(|id| ui.get_mut::<FrameView>(id)) {
                 v.set_frame(Some((image, rect)));

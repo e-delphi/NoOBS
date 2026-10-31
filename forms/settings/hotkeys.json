@@ -1,0 +1,18 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraHotkeys",
+    "caption": "Configurações: Atalhos",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblHotkeysHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Cada atalho funciona em qualquer programa, mesmo com o NoOBS na bandeja. Os de gravação, apertados de novo, param a gravação (ou cancelam a contagem do atraso)." },
+      { "class": "Layout", "name": "lyHotkeys", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0] },
+      { "class": "Layout", "name": "lyHotkeysAdd", "align": "top", "height": 33, "margins": [0, 12, 0, 0], "children": [
+          { "class": "Button", "name": "btnHotkeyAdd", "style": "s", "align": "left", "width": 165, "margins": [0, 0, 8, 0], "text": "+ Adicionar atalho", "on_click": "hotkeys_add" }
+        ] }
+    ]
+  }
+}

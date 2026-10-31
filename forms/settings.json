@@ -1,0 +1,160 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "frmSettings",
+    "width": 1600,
+    "height": 900,
+    "children": [
+      {
+        "class": "Panel",
+        "name": "pnlSettings",
+        "style": "column",
+        "align": "client",
+        "children": [
+          {
+            "class": "Layout",
+            "name": "lySetHead",
+            "align": "top",
+            "height": 49,
+            "children": [
+              { "class": "Rectangle", "name": "lnSetHead", "style": "edge", "align": "bottom", "height": 1 },
+              { "class": "Button", "name": "btnSetBack", "style": "s_back", "icon": "arrow-left", "icon_size": 18, "text": "", "align": "left", "width": 28, "margins": [18, 10, 10, 10], "on_click": "settings_close" },
+              { "class": "Label", "name": "lblSetTitle", "style": "s_title", "align": "client", "text": "Configurações" }
+            ]
+          },
+          {
+            "class": "Panel",
+            "name": "pnlSetSide",
+            "style": "s_side",
+            "align": "left",
+            "width": 190,
+            "children": [
+              { "class": "Rectangle", "name": "lnSetSide", "style": "edge", "align": "right", "width": 1 },
+              {
+                "class": "Layout",
+                "name": "lySetTabs",
+                "align": "client",
+                "padding": [8, 12, 9, 0],
+                "children": [
+                  {
+                    "class": "Panel", "name": "pnlTabGeneral", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 0, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabGeneral", "style": "s_tab", "align": "client", "hit_test": false, "text": "Geral" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabOnRecord", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 1, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabOnRecord", "style": "s_tab", "align": "client", "hit_test": false, "text": "Gravação" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabFiles", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 2, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabFiles", "style": "s_tab", "align": "client", "hit_test": false, "text": "Arquivos" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabVideo", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 3, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabVideo", "style": "s_tab", "align": "client", "hit_test": false, "text": "Vídeo" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabAudio", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 4, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabAudio", "style": "s_tab", "align": "client", "hit_test": false, "text": "Áudio" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabReplay", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 5, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabReplay", "style": "s_tab", "align": "client", "hit_test": false, "text": "Buffer" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabHotkeys", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 6, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabHotkeys", "style": "s_tab", "align": "client", "hit_test": false, "text": "Atalhos" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabDevices", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 7, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabDevices", "style": "s_tab", "align": "client", "hit_test": false, "text": "Dispositivos" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabTranscribe", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 8, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabTranscribe", "style": "s_tab", "align": "client", "hit_test": false, "text": "Transcrição" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabUpdates", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 9, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabUpdates", "style": "s_tab", "align": "client", "hit_test": false, "text": "Atualizações" } ]
+                  },
+                  {
+                    "class": "Panel", "name": "pnlTabAbout", "style": "s_tab", "align": "top", "height": 35, "padding": [12, 0, 0, 0], "margins": [0, 0, 0, 2], "cursor": "pointer", "tag": 10, "on_click": "settings_tab",
+                    "children": [ { "class": "Label", "name": "lblTabAbout", "style": "s_tab", "align": "client", "hit_test": false, "text": "Sobre" } ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "class": "ScrollBox",
+            "name": "scrSettings",
+            "align": "client",
+            "children": [
+              {
+                "class": "Layout",
+                "name": "lySettings",
+                "align": "top",
+                "height": 100,
+                "on_resize": "settings_resize",
+                "children": [
+                  {
+                    "class": "TabControl",
+                    "name": "tbcSettings",
+                    "align": "client",
+                    "show_tabs": false,
+                    "children": [
+                      {
+                        "class": "TabItem", "name": "tabGeneral", "caption": "Geral", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frGeneral", "form": "fraGeneral", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabOnRecord", "caption": "Gravação", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frOnRecord", "form": "fraOnRecord", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabFiles", "caption": "Arquivos", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frFiles", "form": "fraFiles", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabVideo", "caption": "Vídeo", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frVideo", "form": "fraVideo", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabAudio", "caption": "Áudio", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frAudio", "form": "fraAudio", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabReplay", "caption": "Buffer", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frReplay", "form": "fraReplay", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabHotkeys", "caption": "Atalhos", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frHotkeys", "form": "fraHotkeys", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabDevices", "caption": "Dispositivos", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frDevices", "form": "fraDevices", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabTranscribe", "caption": "Transcrição", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frTranscribe", "form": "fraTranscribe", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabUpdates", "caption": "Atualizações", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frUpdates", "form": "fraUpdates", "align": "client" } ]
+                      },
+                      {
+                        "class": "TabItem", "name": "tabAbout", "caption": "Sobre", "padding": 0,
+                        "children": [ { "class": "Frame", "name": "frAbout", "form": "fraAbout", "align": "client" } ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

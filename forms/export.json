@@ -1,0 +1,40 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "frmExport",
+    "width": 1600,
+    "height": 900,
+    "children": [
+      {
+        "class": "Panel",
+        "name": "pnlExport",
+        "style": "pane",
+        "align": "client",
+        "children": [
+          {
+            "class": "Panel",
+            "name": "pnlExHead",
+            "style": "ex_head",
+            "align": "top",
+            "height": 49,
+            "children": [
+              { "class": "Rectangle", "name": "lnExHead", "style": "sep", "align": "bottom", "height": 1 },
+              { "class": "Button", "name": "btnExClose", "style": "s_back", "icon": "arrow-left", "icon_size": 18, "text": "", "align": "left", "width": 28, "margins": [18, 10, 10, 10], "on_click": "export_close" },
+              { "class": "Label", "name": "lblExTitle", "style": "ex_title", "align": "client", "text": "Exportar gravação" }
+            ]
+          },
+          {
+            "class": "ScrollBox",
+            "name": "scrExport",
+            "align": "client",
+            "padding": [0, 0, 0, 0],
+            "children": [
+              { "class": "Layout", "name": "lyExport", "align": "top", "height": 100, "padding": [18, 18, 18, 40], "on_resize": "export_resize" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

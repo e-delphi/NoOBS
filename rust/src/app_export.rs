@@ -36,11 +36,13 @@ const SPEED_STEPS: [f64; 25] =
 const PREVIEW_SECS: [f64; 3] = [5.0, 10.0, 30.0];
 /// Altura da faixa dos trechos, da régua e da barra de rolagem.
 const TL_H: f32 = 46.0;
-const RULER_H: f32 = 18.0;
+const RULER_H: f32 = 17.0;
 const SB_H: f32 = 8.0;
 const TICK_STEPS: [f64; 13] = [1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0];
 /// Largura máxima da coluna do formulário.
 const COL_MAX: f32 = 880.0;
+/// A folga preta em volta do quadro no palco da prévia.
+const STAGE_GAP: f32 = 15.0;
 const SCALES: [&str; 3] = ["bicubic", "bilinear", "area"];
 
 #[derive(Clone, Copy, Debug)]
@@ -170,8 +172,9 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
     ST.with(|s| f(&mut s.borrow_mut()))
 }
 
+/// Um componente do `frmExport` pelo nome.
 fn c(ui: &Ui, name: &str) -> Option<ComponentId> {
-    ui.find_in(main_form()?, name)
+    ui.find_in(crate::app_view::form(ui, "frmExport")?, name)
 }
 
 fn set(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
@@ -252,7 +255,7 @@ pub fn open_for(ui: &mut Ui, rec: &str) {
         *st = next;
         st.scale = crate::app_player::window_scale();
     });
-    set(ui, "pnlExport", "visible", true);
+    crate::app_view::show_screen(ui, "frmExport", true);
     set(ui, "lblExTitle", "text", lang::t("export.title"));
     build(ui);
     let base = std::path::Path::new(rec).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -310,7 +313,7 @@ pub fn close(ui: &mut Ui) {
         st.crop = None;
         st.pan_drag = None;
     });
-    set(ui, "pnlExport", "visible", false);
+    crate::app_view::show_screen(ui, "frmExport", false);
     if let Some(p) = c(ui, "lyExport") {
         for child in ui.children(p).to_vec() {
             ui.free(child);
@@ -331,7 +334,7 @@ pub fn close(ui: &mut Ui) {
 /// A largura da coluna do formulário (até 880 px, centrada).
 fn col_width(ui: &Ui) -> f32 {
     let w = c(ui, "lyExport").and_then(|p| ui.bounds(p)).map_or(900.0, |b| b.width);
-    (w - 36.0).min(COL_MAX).max(320.0)
+    ((w - 8.0).min(COL_MAX) - 36.0).max(320.0)
 }
 
 fn wrapped_height(ui: &Ui, l: ComponentId, text: &str, w: f32) -> f32 {
@@ -368,18 +371,18 @@ fn label(ui: &mut Ui, parent: ComponentId, text: &str, style: &str, align: Align
     Some(l)
 }
 
-/// O título de uma seção.
+/// O título de uma seção (`.export-field > label`: 12 px, 600): 16 acima, 7 abaixo.
 fn heading(ui: &mut Ui, page: ComponentId, text: &str) -> Option<ComponentId> {
-    let l = label(ui, page, text, "row", Align::Top, 0.0, 20.0)?;
+    let l = label(ui, page, text, "ex_label", Align::Top, 0.0, 16.8)?;
     if let Some(cb) = ui.control_mut(l) {
-        cb.set_margins([0.0, 22.0, 0.0, 8.0]);
+        cb.set_margins([0.0, 16.0, 0.0, 7.0]);
     }
     Some(l)
 }
 
-/// Uma dica quebrada na largura da coluna.
+/// Uma dica (`.export-hint`: 11 px) quebrada na largura da coluna, 6 abaixo do campo.
 fn hint(ui: &mut Ui, page: ComponentId, key: &'static str, text: &str) -> Option<ComponentId> {
-    let l = label(ui, page, text, "sub", Align::Top, 0.0, 16.0)?;
+    let l = label(ui, page, text, "ex_hint", Align::Top, 0.0, 16.0)?;
     let _ = ui.set_prop(l, "wrap", true);
     let _ = ui.set_prop(l, "v_align", "leading");
     if let Some(cb) = ui.control_mut(l) {
@@ -390,28 +393,168 @@ fn hint(ui: &mut Ui, page: ComponentId, key: &'static str, text: &str) -> Option
     Some(l)
 }
 
-fn button(ui: &mut Ui, parent: ComponentId, text: &str, icon: &str, style: &str, f: impl Fn(&mut Ui) + 'static) -> Option<ComponentId> {
+/// A fonte dos botões e campos (`Form.control-font`: Arial).
+fn ctl_text(size: f32) -> TextStyle {
+    let mut s = TextStyle::default();
+    s.font.family = "Arial".into();
+    s.font.size = size;
+    s
+}
+
+/// Botão do formulário (`.export-btn`): `ex` (29,3 px), `ex_sm` (24 px), `ex_primary`.
+/// A largura é a do texto mais o respiro da web.
+fn button(ui: &mut Ui, parent: ComponentId, text: &str, style: &str, f: impl Fn(&mut Ui) + 'static) -> Option<ComponentId> {
     let b = create(ui, "Button", parent)?;
     let _ = ui.set_prop(b, "text", text);
-    if !icon.is_empty() {
-        let _ = ui.set_prop(b, "icon", icon);
-        let _ = ui.set_prop(b, "icon_size", 14.0);
-    }
-    if !style.is_empty() {
-        let _ = ui.set_prop(b, "style", style);
-    }
-    let w = if text.is_empty() { 32.0 } else { ui.measure_text(text, &TextStyle::default()).width + if icon.is_empty() { 28.0 } else { 48.0 } };
+    let _ = ui.set_prop(b, "style", style);
+    let _ = ui.set_prop(b, "tab_stop", false);
+    let small = style == "ex_sm";
+    let w = ui.measure_text(text, &ctl_text(if small { 11.0 } else { 12.0 })).width + if small { 24.0 } else { 34.0 };
     if let Some(cb) = ui.control_mut(b) {
-        cb.set_align(Align::Left).set_width(w).set_margins([0.0, 0.0, 6.0, 0.0]);
+        cb.set_align(Align::Left).set_width(w.ceil()).set_height(if small { 24.0 } else { 29.3 });
     }
     ui.on(b, "on_click", move |ui, _, _| f(ui));
     Some(b)
 }
 
+/// Botão só de ícone (`.export-icon-btn`): 28 × 24,3, ícone de 13 px.
+fn icon_button(ui: &mut Ui, parent: ComponentId, icon: &str, f: impl Fn(&mut Ui) + 'static) -> Option<ComponentId> {
+    let b = create(ui, "Button", parent)?;
+    let _ = ui.set_prop(b, "text", "");
+    let _ = ui.set_prop(b, "style", "ex_sm");
+    let _ = ui.set_prop(b, "icon", icon);
+    let _ = ui.set_prop(b, "icon_size", 13.0);
+    let _ = ui.set_prop(b, "tab_stop", false);
+    if let Some(cb) = ui.control_mut(b) {
+        cb.set_align(Align::Left).set_width(28.0).set_height(24.3);
+    }
+    ui.on(b, "on_click", move |ui, _, _| f(ui));
+    Some(b)
+}
+
+/// O grupo de zoom (`.export-zoom`): −, o nível (11 px, 34 de largura mínima) e +.
+fn zoom_group(ui: &mut Ui, parent: ComponentId, level_key: &'static str, out: impl Fn(&mut Ui) + 'static, inn: impl Fn(&mut Ui) + 'static) -> (Option<ComponentId>, Option<ComponentId>) {
+    let zoom_btn = |ui: &mut Ui, glyph: &str, margin: f32| {
+        let b = create(ui, "Button", parent)?;
+        let _ = ui.set_prop(b, "text", glyph);
+        let _ = ui.set_prop(b, "style", "ex_zoom");
+        let _ = ui.set_prop(b, "tab_stop", false);
+        if let Some(cb) = ui.control_mut(b) {
+            cb.set_align(Align::Left).set_width(26.0).set_height(23.3).set_margins([margin, 0.0, 0.0, 0.0]);
+        }
+        Some(b)
+    };
+    let minus = zoom_btn(ui, "−", 12.0);
+    if let Some(b) = minus {
+        let _ = ui.set_prop(b, "hint", lang::t("export.zoomOut"));
+        ui.on(b, "on_click", move |ui, _, _| out(ui));
+    }
+    if let Some(l) = label(ui, parent, "100%", "ex_val", Align::Left, 42.0, 0.0) {
+        let _ = ui.set_prop(l, "h_align", "center");
+        reg(level_key, l);
+    }
+    let plus = zoom_btn(ui, "+", 0.0);
+    if let Some(b) = plus {
+        let _ = ui.set_prop(b, "hint", lang::t("export.zoomIn"));
+        ui.on(b, "on_click", move |ui, _, _| inn(ui));
+    }
+    (minus, plus)
+}
+
+/// Caixa de marcar em pílula (`.export-check`): caixa de 13 px e o texto (12 px); marcada
+/// fica verde, a não ser `plain`. O clique passa o novo estado.
+fn chk(ui: &mut Ui, parent: ComponentId, text: &str, plain: bool, f: impl Fn(&mut Ui, bool) + 'static) -> Option<ComponentId> {
+    let p = create(ui, "Panel", parent)?;
+    let _ = ui.set_prop(p, "style", "ex_chk");
+    let _ = ui.set_prop(p, "tag", if plain { 1 } else { 0 });
+    let mut font = ctl_text(12.0);
+    font.font.family = "Segoe UI".into();
+    let w = ui.measure_text(text, &font).width + 13.0 + 6.0 + 20.0 + 2.0;
+    if let Some(cb) = ui.control_mut(p) {
+        cb.set_align(Align::Left).set_width(w.ceil()).set_height(30.1).set_padding([11.0, 0.0, 0.0, 0.0]).set_cursor(CursorShape::Pointer);
+    }
+    if let Some(b) = create(ui, "CheckBox", p) {
+        let _ = ui.set_prop(b, "style", "web");
+        let _ = ui.set_prop(b, "box_size", 13.0);
+        let _ = ui.set_prop(b, "text", "");
+        if let Some(cb) = ui.control_mut(b) {
+            cb.set_align(Align::Left).set_width(13.0).set_margins([0.0, 8.5, 6.0, 8.6]).set_hit_test(false);
+        }
+    }
+    if let Some(l) = label(ui, p, text, "ex_chk", Align::Client, 0.0, 0.0) {
+        let _ = ui.set_prop(l, "hit_test", false);
+    }
+    ui.on(p, "on_click", move |ui, sender, _| {
+        if ui.get_prop(sender, "enabled").ok().and_then(|v| v.to_bool().ok()) == Some(false) {
+            return;
+        }
+        let on = !chk_checked(ui, sender);
+        f(ui, on);
+    });
+    Some(p)
+}
+
+fn chk_checked(ui: &Ui, p: ComponentId) -> bool {
+    ui.children(p).first().is_some_and(|&b| matches!(ui.get_prop(b, "checked"), Ok(PropValue::Bool(true))))
+}
+
+/// Marca/desmarca uma pílula (e a habilita); a cor de marcada só nas que não são `plain`.
+fn set_chk(ui: &mut Ui, p: ComponentId, checked: bool, enabled: bool) {
+    let plain = matches!(ui.get_prop(p, "tag"), Ok(PropValue::Int(1)));
+    if let Some(&b) = ui.children(p).first() {
+        let _ = ui.set_prop(b, "checked", checked);
+    }
+    let _ = ui.set_prop(p, "style", if checked && !plain { "ex_chk_on" } else { "ex_chk" });
+    let _ = ui.set_prop(p, "enabled", enabled);
+    let _ = ui.set_prop(p, "opacity", if enabled { 1.0 } else { 0.4 });
+}
+
+/// Troca o texto de um botão `ex` e a largura dele junto (como na web).
+fn put_btn(ui: &mut Ui, key: &'static str, text: &str) {
+    let w = ui.measure_text(text, &ctl_text(12.0)).width + 34.0;
+    if let Some(cb) = id(key).and_then(|b| ui.control_mut(b)) {
+        cb.set_width(w.ceil());
+    }
+    put(ui, key, "text", text);
+}
+
+/// O valor à direita de um controle deslizante, na largura do próprio texto (11 px).
+fn put_value(ui: &mut Ui, key: &'static str, text: &str) {
+    let mut font = TextStyle::default();
+    font.font.family = "Segoe UI".into();
+    font.font.size = 11.0;
+    let w = ui.measure_text(text, &font).width.ceil() + 2.0;
+    if let Some(cb) = id(key).and_then(|l| ui.control_mut(l)) {
+        cb.set_width(w);
+    }
+    put(ui, key, "text", text);
+}
+
+fn put_chk(ui: &mut Ui, key: &'static str, checked: bool, enabled: bool) {
+    if let Some(p) = id(key) {
+        set_chk(ui, p, checked, enabled);
+    }
+}
+
+/// Uma linha de pílulas de caixa (`ChkRows`), quebrando na largura da coluna.
+fn chk_flow(ui: &mut Ui, parent: ComponentId, key: &'static str, top: f32) {
+    if let Some(f) = create(ui, "FlowLayout", parent) {
+        let _ = ui.set_prop(f, "gap", 6.0);
+        let _ = ui.set_prop(f, "line_gap", 6.0);
+        if let Some(cb) = ui.control_mut(f) {
+            cb.set_align(Align::Top).set_height(30.1).set_margins([0.0, top, 0.0, 0.0]);
+        }
+        reg(key, f);
+    }
+}
+
+/// `<select>` do formulário (`.export-select`): 28,7 px, Arial 12, seta em triângulo.
 fn combo(ui: &mut Ui, parent: ComponentId, w: f32, f: impl Fn(&mut Ui, usize) + 'static) -> Option<ComponentId> {
     let b = create(ui, "ComboBox", parent)?;
+    let _ = ui.set_prop(b, "style", "ex");
+    let _ = ui.set_prop(b, "arrow", "triangle");
     if let Some(cb) = ui.control_mut(b) {
-        cb.set_align(if w > 0.0 { Align::Left } else { Align::Client }).set_margins([0.0, 0.0, 8.0, 0.0]);
+        cb.set_align(if w > 0.0 { Align::Left } else { Align::Client }).set_height(28.7);
         if w > 0.0 {
             cb.set_width(w);
         }
@@ -423,6 +566,43 @@ fn combo(ui: &mut Ui, parent: ComponentId, w: f32, f: impl Fn(&mut Ui, usize) + 
     Some(b)
 }
 
+/// Campo de texto do formulário (`.export-input`): 29,3 px, Arial 12.
+fn input(ui: &mut Ui, parent: ComponentId, w: f32, h_align: &str) -> Option<ComponentId> {
+    let e = create(ui, "Edit", parent)?;
+    let _ = ui.set_prop(e, "style", "ex");
+    if !h_align.is_empty() {
+        let _ = ui.set_prop(e, "h_align", h_align);
+    }
+    if let Some(cb) = ui.control_mut(e) {
+        cb.set_align(if w > 0.0 { Align::Left } else { Align::Client }).set_height(29.3);
+        if w > 0.0 {
+            cb.set_width(w);
+        }
+    }
+    Some(e)
+}
+
+/// `<input type=range>` (`.export-range`): trilho de 8 px e polegar de 16 cheios.
+fn track(ui: &mut Ui, parent: ComponentId, min: f64, max: f64, f: impl Fn(&mut Ui, f64) + 'static) -> Option<ComponentId> {
+    let t = create(ui, "TrackBar", parent)?;
+    let _ = ui.set_prop(t, "style", "ex");
+    let _ = ui.set_prop(t, "min", min);
+    let _ = ui.set_prop(t, "max", max);
+    let _ = ui.set_prop(t, "frequency", 1.0);
+    let _ = ui.set_prop(t, "thumb_size", 16.0);
+    let _ = ui.set_prop(t, "track_size", 8.0);
+    let _ = ui.set_prop(t, "solid_thumb", true);
+    let _ = ui.set_prop(t, "tab_stop", false);
+    if let Some(cb) = ui.control_mut(t) {
+        cb.set_align(Align::Client);
+    }
+    ui.on(t, "on_change", move |ui, sender, _| {
+        let v = ui.get_prop(sender, "value").ok().and_then(|v| v.to_f64().ok()).unwrap_or(0.0);
+        f(ui, v.round());
+    });
+    Some(t)
+}
+
 fn set_items(ui: &mut Ui, key: &'static str, items: &[String], index: usize) {
     let Some(b) = id(key) else { return };
     let joined = items.iter().map(|s| s.replace(';', ",")).collect::<Vec<_>>().join(";");
@@ -432,34 +612,6 @@ fn set_items(ui: &mut Ui, key: &'static str, items: &[String], index: usize) {
     if !matches!(ui.get_prop(b, "item_index").ok().and_then(|v| v.to_i64().ok()), Some(i) if i == index as i64) {
         let _ = ui.set_prop(b, "item_index", index as i64);
     }
-}
-
-fn check(ui: &mut Ui, parent: ComponentId, text: &str, f: impl Fn(&mut Ui, bool) + 'static) -> Option<ComponentId> {
-    let b = create(ui, "CheckBox", parent)?;
-    let _ = ui.set_prop(b, "text", text);
-    if let Some(cb) = ui.control_mut(b) {
-        cb.set_align(Align::Top).set_height(26.0);
-    }
-    ui.on(b, "on_change", move |ui, sender, _| {
-        let on = matches!(ui.get_prop(sender, "checked"), Ok(PropValue::Bool(true)));
-        f(ui, on);
-    });
-    Some(b)
-}
-
-fn track(ui: &mut Ui, parent: ComponentId, min: f64, max: f64, f: impl Fn(&mut Ui, f64) + 'static) -> Option<ComponentId> {
-    let t = create(ui, "TrackBar", parent)?;
-    let _ = ui.set_prop(t, "min", min);
-    let _ = ui.set_prop(t, "max", max);
-    let _ = ui.set_prop(t, "frequency", 1.0);
-    if let Some(cb) = ui.control_mut(t) {
-        cb.set_align(Align::Client);
-    }
-    ui.on(t, "on_change", move |ui, sender, _| {
-        let v = ui.get_prop(sender, "value").ok().and_then(|v| v.to_f64().ok()).unwrap_or(0.0);
-        f(ui, v.round());
-    });
-    Some(t)
 }
 
 /// Monta o formulário inteiro dentro de `lyExport`.
@@ -476,26 +628,23 @@ fn build(ui: &mut Ui) {
     let col = col_width(ui);
     with(|st| {
         st.col_w = col;
-        st.view_w = col as f64;
+        st.view_w = (col - 2.0) as f64;
     });
     center_column(ui);
 
     // ---- telas ----
-    heading(ui, page, &lang::t("export.regions"));
-    if let Some(f) = create(ui, "FlowLayout", page) {
-        let _ = ui.set_prop(f, "gap", 6.0);
-        let _ = ui.set_prop(f, "line_gap", 6.0);
-        if let Some(cb) = ui.control_mut(f) {
-            cb.set_align(Align::Top).set_height(30.0);
+    if let Some(l) = heading(ui, page, &lang::t("export.regions")) {
+        if let Some(cb) = ui.control_mut(l) {
+            cb.set_margins([0.0, 0.0, 0.0, 7.0]);
         }
-        reg("regions", f);
     }
+    chk_flow(ui, page, "regions", 0.0);
     hint(ui, page, "regions_hint", &lang::t("export.regionsHint"));
 
-    // ---- trechos: a prévia ----
+    // ---- trechos: a prévia (palco preto com 15 px de folga em volta do quadro) ----
     heading(ui, page, &lang::t("export.range"));
     if let Some(stage) = create(ui, "Panel", page) {
-        let _ = ui.set_prop(stage, "style", "player");
+        let _ = ui.set_prop(stage, "style", "ex_stage");
         if let Some(cb) = ui.control_mut(stage) {
             cb.set_align(Align::Top).set_height(300.0).set_clip_children(true);
         }
@@ -522,6 +671,7 @@ fn build(ui: &mut Ui) {
         if let Some(cr) = create(ui, "CropBox", stage) {
             let _ = ui.set_prop(cr, "min_size", CROP_MIN as f64);
             let _ = ui.set_prop(cr, "snap", 2.0);
+            let _ = ui.set_prop(cr, "framed", true);
             if let Some(cb) = ui.control_mut(cr) {
                 cb.set_visible(false);
             }
@@ -535,12 +685,12 @@ fn build(ui: &mut Ui) {
                 }
             });
         }
-        if let Some(l) = label(ui, stage, "", "pl_time", Align::Center, 420.0, 40.0) {
+        if let Some(l) = label(ui, stage, "", "pl_loading", Align::Center, 420.0, 40.0) {
             let _ = ui.set_prop(l, "h_align", "center");
             let _ = ui.set_prop(l, "hit_test", false);
             reg("msg", l);
         }
-        if let Some(l) = label(ui, stage, &lang::t("export.audioOnlyBadge"), "pl_badge", Align::Center, 300.0, 34.0) {
+        if let Some(l) = label(ui, stage, &lang::t("export.audioOnlyBadge"), "ex_badge", Align::Center, 300.0, 34.0) {
             let _ = ui.set_prop(l, "h_align", "center");
             let _ = ui.set_prop(l, "hit_test", false);
             let _ = ui.set_prop(l, "visible", false);
@@ -549,14 +699,17 @@ fn build(ui: &mut Ui) {
         if let Some(l) = label(ui, stage, "", "pl_caption", Align::None, 0.0, 40.0) {
             let _ = ui.set_prop(l, "h_align", "center");
             let _ = ui.set_prop(l, "wrap", true);
+            let _ = ui.set_prop(l, "outline", "black/90");
+            let _ = ui.set_prop(l, "outline_width", 2.0);
             let _ = ui.set_prop(l, "hit_test", false);
             let _ = ui.set_prop(l, "visible", false);
             reg("caption", l);
         }
     }
-    // Recorte e zoom da prévia.
-    if let Some(r) = row(ui, page, 30.0, 8.0) {
-        if let Some(b) = button(ui, r, &lang::t("export.cropReset"), "crop", "outline", |ui| {
+    // Recorte e zoom da prévia (só quando dá para recortar): 7 acima, 24 de altura.
+    if let Some(r) = row(ui, page, 24.0, 7.0) {
+        reg("crop_row", r);
+        if let Some(b) = button(ui, r, &lang::t("export.cropReset"), "ex_sm", |ui| {
             with(|st| st.crop = None);
             render_stage(ui);
             render_resolutions(ui);
@@ -564,115 +717,90 @@ fn build(ui: &mut Ui) {
         }) {
             reg("crop_reset", b);
         }
-        if let Some(b) = button(ui, r, "", "minus", "tool", |ui| crop_zoom_by(ui, 1.0 / 1.25)) {
-            let _ = ui.set_prop(b, "hint", lang::t("export.zoomOut"));
+        let (out, inn) = zoom_group(ui, r, "zoom_badge", |ui| crop_zoom_by(ui, 1.0 / 1.4), |ui| crop_zoom_by(ui, 1.4));
+        if let Some(b) = out {
             reg("zoom_out", b);
         }
-        if let Some(l) = label(ui, r, "100%", "key", Align::Left, 52.0, 30.0) {
-            let _ = ui.set_prop(l, "h_align", "center");
-            reg("zoom_badge", l);
-        }
-        if let Some(b) = button(ui, r, "", "plus", "tool", |ui| crop_zoom_by(ui, 1.25)) {
-            let _ = ui.set_prop(b, "hint", lang::t("export.zoomIn"));
+        if let Some(b) = inn {
             reg("zoom_in", b);
         }
-        if let Some(b) = button(ui, r, &lang::t("export.zoomReset"), "", "flat", crop_zoom_reset) {
+        if let Some(b) = button(ui, r, &lang::t("export.zoomReset"), "ex_sm", crop_zoom_reset) {
+            if let Some(cb) = ui.control_mut(b) {
+                cb.set_margins([8.0, 0.0, 0.0, 0.0]);
+            }
             reg("zoom_reset", b);
         }
-        if let Some(l) = label(ui, r, "", "key", Align::Client, 0.0, 30.0) {
-            let _ = ui.set_prop(l, "h_align", "trailing");
+        if let Some(l) = label(ui, r, "", "ex_hint", Align::Client, 0.0, 0.0) {
+            let _ = ui.set_prop(l, "trimming", "character");
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_margins([8.0, 0.0, 0.0, 0.0]);
+            }
             reg("crop_info", l);
         }
     }
     hint(ui, page, "crop_hint", &lang::t("export.cropHint"));
-    // Tocar, volume, legenda.
-    if let Some(r) = row(ui, page, 32.0, 10.0) {
-        if let Some(b) = button(ui, r, "", "play", "tool", toggle_play) {
+    // Tocar, volume, legenda: 8 acima, 24,3 de altura, 10 entre eles.
+    if let Some(r) = row(ui, page, 24.3, 8.0) {
+        if let Some(b) = icon_button(ui, r, "pl-play", toggle_play) {
             reg("play", b);
         }
-        if let Some(b) = button(ui, r, "", "volume", "tool", toggle_mute) {
+        if let Some(b) = icon_button(ui, r, "pl-vol-high", toggle_mute) {
+            if let Some(cb) = ui.control_mut(b) {
+                cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+            }
             reg("mute", b);
         }
         if let Some(t) = track(ui, r, 0.0, 100.0, |ui, v| set_volume(ui, v as i32)) {
             if let Some(cb) = ui.control_mut(t) {
-                cb.set_align(Align::Left).set_width(110.0).set_margins([0.0, 0.0, 10.0, 0.0]);
+                cb.set_align(Align::Left).set_width(92.0).set_margins([10.0, 0.0, 0.0, 0.0]);
             }
             let _ = ui.set_prop(t, "value", 100.0);
             reg("volume", t);
         }
-        if let Some(b) = button(ui, r, "CC", "", "tool", toggle_cc) {
+        if let Some(b) = create(ui, "Button", r) {
+            let _ = ui.set_prop(b, "text", "CC");
+            let _ = ui.set_prop(b, "style", "ex_cc");
+            let _ = ui.set_prop(b, "tab_stop", false);
             if let Some(cb) = ui.control_mut(b) {
-                cb.set_width(40.0);
+                cb.set_align(Align::Left).set_width(28.0).set_margins([10.0, 0.8, 0.0, 0.8]);
             }
+            ui.on(b, "on_click", |ui, _, _| toggle_cc(ui));
             reg("cc", b);
         }
-        label(ui, r, &lang::t("export.playHint"), "sub", Align::Client, 0.0, 32.0).map(|l| ui.set_prop(l, "h_align", "trailing"));
-    }
-    // A barra da linha do tempo: dividir, remover divisão, tirar trecho, tempo, zoom.
-    if let Some(r) = row(ui, page, 30.0, 12.0) {
-        if let Some(b) = button(ui, r, &lang::t("export.cutHere"), "scissors", "outline", cut_here) {
-            reg("cut", b);
-        }
-        if let Some(b) = button(ui, r, &lang::t("export.removeCut"), "", "outline", remove_cut) {
-            reg("uncut", b);
-        }
-        if let Some(b) = button(ui, r, &lang::t("export.dropPart"), "", "outline", toggle_part) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_width(130.0);
-            }
-            reg("toggle", b);
-        }
-        if let Some(b) = button(ui, r, "", "plus", "tool", |ui| {
-            let z = with(|st| st.zoom);
-            set_zoom(ui, z * 1.6, None);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_margins([6.0, 0.0, 0.0, 0.0]);
-            }
-            let _ = ui.set_prop(b, "hint", lang::t("export.zoomIn"));
-        }
-        if let Some(l) = label(ui, r, "1.0×", "key", Align::Right, 48.0, 30.0) {
-            let _ = ui.set_prop(l, "h_align", "center");
-            reg("tl_zoom", l);
-        }
-        if let Some(b) = button(ui, r, "", "minus", "tool", |ui| {
-            let z = with(|st| st.zoom);
-            set_zoom(ui, z / 1.6, None);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_margins([6.0, 0.0, 0.0, 0.0]);
-            }
-            let _ = ui.set_prop(b, "hint", lang::t("export.zoomOut"));
-        }
-        if let Some(e) = create(ui, "Edit", r) {
-            let _ = ui.set_prop(e, "text", "00:00");
-            if let Some(cb) = ui.control_mut(e) {
-                cb.set_align(Align::Left).set_width(80.0).set_margins([10.0, 0.0, 4.0, 0.0]);
-            }
-            ui.on(e, "on_exit", |ui, sender, _| time_commit(ui, sender));
-            ui.on(e, "on_key_down", |ui, sender, args| {
-                if let EventArgs::Key(k) = args {
-                    if k.key == Key::Enter {
-                        time_commit(ui, sender);
-                    }
-                }
-            });
-            reg("time", e);
-        }
-        if let Some(l) = label(ui, r, "", "key", Align::Client, 0.0, 30.0) {
-            reg("range_text", l);
+        if let Some(l) = label(ui, r, &lang::t("export.playHint"), "ex_hint", Align::Client, 0.0, 0.0) {
+            let _ = ui.set_prop(l, "h_align", "trailing");
         }
     }
-    // A linha do tempo.
-    if let Some(tl) = row(ui, page, TL_H + RULER_H + SB_H, 8.0) {
-        if let Some(cb) = ui.control_mut(tl) {
-            cb.set_clip_children(true);
+    // A linha do tempo: 10 acima; caixa com borda (1 px), a faixa de 46, a régua de 17 e a
+    // barra de rolagem de 8.
+    if let Some(tl) = row(ui, page, 2.0 + TL_H + RULER_H + SB_H, 10.0).and_then(|r| {
+        let p = create(ui, "Panel", r)?;
+        let _ = ui.set_prop(p, "style", "ex_tl");
+        if let Some(cb) = ui.control_mut(p) {
+            cb.set_align(Align::Client).set_clip_children(true);
         }
+        Some(p)
+    }) {
         reg("tl", tl);
+        let view = col - 2.0;
+        if let Some(ruler) = create(ui, "Rectangle", tl) {
+            let _ = ui.set_prop(ruler, "style", "ex_ruler");
+            if let Some(cb) = ui.control_mut(ruler) {
+                cb.set_rect(1.0, 1.0 + TL_H, view, RULER_H).set_hit_test(false);
+            }
+            reg("ruler", ruler);
+        }
+        if let Some(line) = create(ui, "Rectangle", tl) {
+            let _ = ui.set_prop(line, "style", "ex_tick");
+            if let Some(cb) = ui.control_mut(line) {
+                cb.set_rect(1.0, 1.0 + TL_H, view, 1.0).set_hit_test(false);
+            }
+            reg("ruler_line", line);
+        }
         if let Some(img) = create(ui, "Image", tl) {
             let _ = ui.set_prop(img, "fit", "stretch");
             if let Some(cb) = ui.control_mut(img) {
-                cb.set_rect(0.0, 0.0, col, TL_H).set_cursor(CursorShape::Pointer);
+                cb.set_rect(1.0, 1.0, view, TL_H).set_cursor(CursorShape::Pointer);
             }
             reg("tl_img", img);
             ui.on(img, "on_pointer_down", |ui, _, args| {
@@ -698,13 +826,13 @@ fn build(ui: &mut Ui) {
         if let Some(track) = create(ui, "Panel", tl) {
             let _ = ui.set_prop(track, "style", "flat");
             if let Some(cb) = ui.control_mut(track) {
-                cb.set_rect(0.0, TL_H + RULER_H + 2.0, col, SB_H - 2.0);
+                cb.set_rect(1.0, 1.0 + TL_H + RULER_H, view, SB_H);
             }
             reg("sb", track);
             if let Some(th) = create(ui, "Rectangle", track) {
-                let _ = ui.set_prop(th, "style", "edge");
+                let _ = ui.set_prop(th, "style", "ex_sb");
                 if let Some(cb) = ui.control_mut(th) {
-                    cb.set_rect(0.0, 0.0, col, SB_H - 2.0).set_cursor(CursorShape::Pointer);
+                    cb.set_rect(0.0, 0.0, view, SB_H).set_cursor(CursorShape::Pointer);
                 }
                 reg("sb_thumb", th);
                 ui.on(th, "on_pointer_down", |ui, _, args| {
@@ -723,6 +851,71 @@ fn build(ui: &mut Ui) {
             }
         }
     }
+    // Dividir, remover divisão, tirar trecho, zoom, tempo / total ... final: 9 acima, 29,3.
+    if let Some(r) = row(ui, page, 29.3, 9.0) {
+        let mid = |ui: &mut Ui, b: Option<ComponentId>, left: f32| {
+            if let Some(cb) = b.and_then(|b| ui.control_mut(b)) {
+                cb.set_margins([left, 2.65, 0.0, 2.65]);
+            }
+            b
+        };
+        let b = button(ui, r, &lang::t("export.cutHere"), "ex_sm", cut_here);
+        if let Some(b) = mid(ui, b, 0.0) {
+            reg("cut", b);
+        }
+        let b = button(ui, r, &lang::t("export.removeCut"), "ex_sm", remove_cut);
+        if let Some(b) = mid(ui, b, 10.0) {
+            reg("uncut", b);
+        }
+        let b = button(ui, r, &lang::t("export.dropPart"), "ex_sm", toggle_part);
+        if let Some(b) = mid(ui, b, 10.0) {
+            reg("toggle", b);
+        }
+        let (out, inn) = zoom_group(
+            ui,
+            r,
+            "tl_zoom",
+            |ui| {
+                let z = with(|st| st.zoom);
+                set_zoom(ui, z / 1.6, None);
+            },
+            |ui| {
+                let z = with(|st| st.zoom);
+                set_zoom(ui, z * 1.6, None);
+            },
+        );
+        for b in [out, inn].into_iter().flatten() {
+            if let Some(cb) = ui.control_mut(b) {
+                let m = cb.margins();
+                cb.set_margins([m.left + if Some(b) == out { 2.0 } else { 0.0 }, 3.0, 0.0, 3.0]);
+            }
+        }
+        if let Some(e) = input(ui, r, 74.0, "center") {
+            let _ = ui.set_prop(e, "text", "00:00");
+            if let Some(cb) = ui.control_mut(e) {
+                cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+            }
+            ui.on(e, "on_exit", |ui, sender, _| time_commit(ui, sender));
+            ui.on(e, "on_key_down", |ui, sender, args| {
+                if let EventArgs::Key(k) = args {
+                    if k.key == Key::Enter {
+                        time_commit(ui, sender);
+                    }
+                }
+            });
+            reg("time", e);
+        }
+        if let Some(l) = label(ui, r, "", "ex_val2", Align::Right, 0.0, 0.0) {
+            let _ = ui.set_prop(l, "h_align", "trailing");
+            reg("range_len", l);
+        }
+        if let Some(l) = label(ui, r, "", "ex_hint", Align::Client, 0.0, 0.0) {
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+            }
+            reg("range_text", l);
+        }
+    }
     hint(ui, page, "range_hint", &lang::t("export.rangeHint"));
 
     // ---- áudio ----
@@ -732,47 +925,41 @@ fn build(ui: &mut Ui) {
         }
         reg("audio_sec", sec);
         heading(ui, sec, &lang::t("export.audio"));
-        if let Some(b) = check(ui, sec, &lang::t("export.originalAudio"), |ui, on| {
-            with(|st| st.original_audio = on);
-            render_audio(ui);
-        }) {
-            reg("orig", b);
-        }
-        if let Some(f) = create(ui, "FlowLayout", sec) {
-            let _ = ui.set_prop(f, "gap", 6.0);
-            let _ = ui.set_prop(f, "line_gap", 6.0);
-            if let Some(cb) = ui.control_mut(f) {
-                cb.set_align(Align::Top).set_height(30.0).set_margins([0.0, 6.0, 0.0, 0.0]);
+        if let Some(r) = row(ui, sec, 30.1, 0.0) {
+            if let Some(p) = chk(ui, r, &lang::t("export.originalAudio"), true, |ui, on| {
+                with(|st| st.original_audio = on);
+                render_audio(ui);
+            }) {
+                reg("orig", p);
             }
-            reg("tracks", f);
+            reg("orig_row", r);
         }
-        if let Some(b) = check(ui, sec, &lang::t("export.mixAudio"), |ui, on| {
-            with(|st| st.mix_checked = on);
-            render_audio(ui);
-        }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_margins([0.0, 6.0, 0.0, 0.0]);
+        chk_flow(ui, sec, "tracks", 7.0);
+        if let Some(r) = row(ui, sec, 30.1, 7.0) {
+            if let Some(p) = chk(ui, r, &lang::t("export.mixAudio"), true, |ui, on| {
+                with(|st| st.mix_checked = on);
+                render_audio(ui);
+            }) {
+                reg("mix", p);
             }
-            reg("mix", b);
         }
     }
 
-    // ---- resolução + codificador ----
-    if let Some(r) = row(ui, page, 20.0, 22.0) {
-        let half = (col - 12.0) / 2.0;
-        label(ui, r, &lang::t("export.resolution"), "row", Align::Left, half + 12.0, 20.0);
-        label(ui, r, &lang::t("export.encoder"), "row", Align::Client, 0.0, 20.0);
+    // ---- resolução + codificador: duas colunas, 10 entre elas ----
+    let half = (col - 10.0) / 2.0;
+    if let Some(r) = row(ui, page, 18.2, 16.0) {
+        label(ui, r, &lang::t("export.resolution"), "ex_col", Align::Left, half + 10.0, 0.0);
+        label(ui, r, &lang::t("export.encoder"), "ex_col", Align::Client, 0.0, 0.0);
         reg("video_head", r);
     }
-    if let Some(r) = row(ui, page, 32.0, 8.0) {
-        let half = (col - 12.0) / 2.0;
+    if let Some(r) = row(ui, page, 28.7, 0.0) {
         if let Some(b) = combo(ui, r, half, |ui, i| {
             with(|st| st.res_h = st.res_heights.get(i).copied().unwrap_or(0));
             render_resolutions(ui);
             render_scale(ui);
         }) {
             if let Some(cb) = ui.control_mut(b) {
-                cb.set_margins([0.0, 0.0, 12.0, 0.0]);
+                cb.set_margins([0.0, 0.0, 10.0, 0.0]);
             }
             reg("res", b);
         }
@@ -786,9 +973,6 @@ fn build(ui: &mut Ui) {
             render_fps(ui);
             render_quality(ui);
         }) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_margins([0.0, 0.0, 0.0, 0.0]);
-            }
             reg("enc", b);
         }
         reg("video_row", r);
@@ -802,8 +986,8 @@ fn build(ui: &mut Ui) {
         }
         reg("scale_sec", sec);
         heading(ui, sec, &lang::t("export.scale"));
-        if let Some(r) = row(ui, sec, 32.0, 0.0) {
-            if let Some(b) = combo(ui, r, (col - 12.0) / 2.0, |ui, i| {
+        if let Some(r) = row(ui, sec, 28.7, 0.0) {
+            if let Some(b) = combo(ui, r, 0.0, |ui, i| {
                 with(|st| st.scale_algo = SCALES.get(i).copied().unwrap_or("bicubic").into());
                 render_scale(ui);
             }) {
@@ -813,28 +997,37 @@ fn build(ui: &mut Ui) {
         hint(ui, sec, "scale_hint", "");
     }
 
-    // ---- velocidade ----
+    // ---- velocidade: o número (setas sobem/descem), × e o valor à direita ----
     heading(ui, page, &lang::t("export.speed"));
-    if let Some(r) = row(ui, page, 32.0, 0.0) {
-        button(ui, r, "", "minus", "tool", |ui| speed_step(ui, -1));
-        if let Some(e) = create(ui, "Edit", r) {
+    if let Some(r) = row(ui, page, 29.3, 0.0) {
+        if let Some(e) = input(ui, r, 74.0, "trailing") {
             let _ = ui.set_prop(e, "text", "1");
-            if let Some(cb) = ui.control_mut(e) {
-                cb.set_align(Align::Left).set_width(80.0).set_margins([0.0, 0.0, 6.0, 0.0]);
-            }
             ui.on(e, "on_change", |ui, sender, _| {
                 if let Ok(PropValue::String(t)) = ui.get_prop(sender, "text") {
                     speed_edit(ui, &t);
                 }
             });
             ui.on(e, "on_exit", |ui, _, _| speed_commit(ui));
+            ui.on(e, "on_key_down", |ui, _, args| {
+                if let EventArgs::Key(k) = args {
+                    match k.key {
+                        Key::Up => speed_step(ui, 1),
+                        Key::Down => speed_step(ui, -1),
+                        Key::Enter => speed_commit(ui),
+                        _ => {}
+                    }
+                }
+            });
             reg("speed", e);
         }
-        button(ui, r, "", "plus", "tool", |ui| speed_step(ui, 1));
-        if let Some(l) = label(ui, r, "×", "key", Align::Left, 20.0, 32.0) {
+        if let Some(l) = label(ui, r, "×", "ex_x", Align::Left, 20.0, 0.0) {
             let _ = ui.set_prop(l, "hit_test", false);
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+            }
         }
-        if let Some(l) = label(ui, r, "", "key", Align::Client, 0.0, 32.0) {
+        if let Some(l) = label(ui, r, "", "ex_val", Align::Client, 0.0, 0.0) {
+            let _ = ui.set_prop(l, "h_align", "trailing");
             reg("speed_value", l);
         }
     }
@@ -846,14 +1039,14 @@ fn build(ui: &mut Ui) {
             cb.set_align(Align::Top).set_height(10.0);
         }
         reg("fps_sec", sec);
-        if let Some(h) = row(ui, sec, 20.0, 22.0) {
-            label(ui, h, &lang::t("export.fps"), "row", Align::Left, 220.0, 20.0);
-            if let Some(l) = label(ui, h, "", "val", Align::Client, 0.0, 20.0) {
-                let _ = ui.set_prop(l, "h_align", "trailing");
+        heading(ui, sec, &lang::t("export.fps"));
+        if let Some(r) = row(ui, sec, 16.0, 0.0) {
+            if let Some(l) = label(ui, r, "", "ex_val", Align::Right, 0.0, 0.0) {
+                if let Some(cb) = ui.control_mut(l) {
+                    cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+                }
                 reg("fps_text", l);
             }
-        }
-        if let Some(r) = row(ui, sec, 30.0, 6.0) {
             if let Some(t) = track(ui, r, 20.0, 60.0, |ui, v| {
                 with(|st| st.fps_val = v as i32);
                 render_fps(ui);
@@ -865,14 +1058,14 @@ fn build(ui: &mut Ui) {
     }
 
     // ---- qualidade ----
-    if let Some(h) = row(ui, page, 20.0, 22.0) {
-        label(ui, h, &lang::t("export.quality"), "row", Align::Left, 220.0, 20.0);
-        if let Some(l) = label(ui, h, "", "val", Align::Client, 0.0, 20.0) {
-            let _ = ui.set_prop(l, "h_align", "trailing");
+    heading(ui, page, &lang::t("export.quality"));
+    if let Some(r) = row(ui, page, 16.0, 0.0) {
+        if let Some(l) = label(ui, r, "", "ex_val", Align::Right, 0.0, 0.0) {
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_margins([10.0, 0.0, 0.0, 0.0]);
+            }
             reg("q_text", l);
         }
-    }
-    if let Some(r) = row(ui, page, 30.0, 6.0) {
         if let Some(t) = track(ui, r, 0.0, CRF_MAX as f64, |ui, v| {
             with(|st| st.q_pos = (v as i32).clamp(0, CRF_MAX));
             render_quality(ui);
@@ -884,28 +1077,30 @@ fn build(ui: &mut Ui) {
 
     // ---- legenda gravada ----
     heading(ui, page, &lang::t("export.captions"));
-    if let Some(b) = check(ui, page, &lang::t("export.burnCaptions"), |ui, on| {
-        with(|st| {
-            st.burn = on;
-            // Quem vai gravar a legenda quer ver como ela sai.
-            if on && !st.captions_on {
-                st.captions_on = true;
+    if let Some(r) = row(ui, page, 30.1, 0.0) {
+        if let Some(p) = chk(ui, r, &lang::t("export.burnCaptions"), false, |ui, on| {
+            with(|st| {
+                st.burn = on;
+                // Quem vai gravar a legenda quer ver como ela sai.
+                if on && !st.captions_on {
+                    st.captions_on = true;
+                }
+            });
+            if on {
+                config::set_config_bool("exportCaptions", true);
             }
-        });
-        if on {
-            config::set_config_bool("exportCaptions", true);
+            render_captions(ui);
+            sync_caption(ui);
+        }) {
+            reg("burn", p);
         }
-        render_captions(ui);
-        sync_caption(ui);
-    }) {
-        reg("burn", b);
     }
     hint(ui, page, "cap_hint", "");
 
     // ---- nome + formato ----
     heading(ui, page, &lang::t("export.fileName"));
-    if let Some(r) = row(ui, page, 32.0, 0.0) {
-        if let Some(b) = combo(ui, r, 110.0, |ui, i| {
+    if let Some(r) = row(ui, page, 29.3, 0.0) {
+        if let Some(b) = combo(ui, r, 96.0, |ui, i| {
             with(|st| {
                 if st.container != "mp3" {
                     st.container = if i == 1 { "mkv".into() } else { "mp4".into() };
@@ -915,52 +1110,54 @@ fn build(ui: &mut Ui) {
             render_container(ui);
         }) {
             if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_margins([8.0, 0.0, 0.0, 0.0]);
+                cb.set_align(Align::Right).set_margins([10.0, 0.3, 0.0, 0.3]);
             }
             reg("cont", b);
         }
-        if let Some(e) = create(ui, "Edit", r) {
-            if let Some(cb) = ui.control_mut(e) {
-                cb.set_align(Align::Client);
-            }
+        if let Some(e) = input(ui, r, 0.0, "") {
             reg("name", e);
         }
     }
     hint(ui, page, "cont_hint", "");
 
-    // ---- ação + progresso ----
-    if let Some(r) = row(ui, page, 36.0, 24.0) {
-        if let Some(b) = button(ui, r, &lang::t("export.action"), "download", "", run_or_cancel) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_width(150.0).set_margins([0.0, 0.0, 12.0, 0.0]);
-            }
+    // ---- ação + progresso: 20 acima ----
+    if let Some(r) = row(ui, page, 29.3, 20.0) {
+        if let Some(b) = button(ui, r, &lang::t("export.action"), "ex_primary", run_or_cancel) {
             reg("run", b);
         }
-        if let Some(b) = combo(ui, r, 90.0, |_, i| with(|st| st.prevsec = i.min(2))) {
+        if let Some(b) = button(ui, r, &lang::t("export.preview.button"), "ex", preview_action) {
             if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_margins([6.0, 0.0, 0.0, 0.0]);
-            }
-            reg("prevsec", b);
-        }
-        if let Some(b) = button(ui, r, &lang::t("export.preview.button"), "", "outline", preview_action) {
-            if let Some(cb) = ui.control_mut(b) {
-                cb.set_align(Align::Right).set_width(170.0).set_margins([6.0, 0.0, 0.0, 0.0]);
+                cb.set_margins([12.0, 0.0, 0.0, 0.0]);
             }
             let _ = ui.set_prop(b, "hint", lang::t("export.preview.hint"));
             reg("preview", b);
         }
-        if let Some(pb) = create(ui, "ProgressBar", r) {
-            if let Some(cb) = ui.control_mut(pb) {
-                cb.set_align(Align::Client).set_margins([0.0, 15.0, 8.0, 15.0]).set_visible(false);
+        if let Some(b) = combo(ui, r, 76.0, |_, i| with(|st| st.prevsec = i.min(2))) {
+            if let Some(cb) = ui.control_mut(b) {
+                cb.set_margins([6.0, 0.3, 0.0, 0.3]);
             }
-            reg("progress", pb);
+            reg("prevsec", b);
         }
-    }
-    if let Some(l) = label(ui, page, "", "key", Align::Top, 0.0, 18.0) {
-        if let Some(cb) = ui.control_mut(l) {
-            cb.set_margins([0.0, 4.0, 0.0, 0.0]);
+        // O progresso (no lugar da prévia, exportando): barra de 6 px e o texto embaixo.
+        if let Some(p) = create(ui, "Layout", r) {
+            if let Some(cb) = ui.control_mut(p) {
+                cb.set_align(Align::Client).set_margins([12.0, 0.0, 0.0, 0.0]).set_visible(false);
+            }
+            reg("progress_box", p);
+            if let Some(pb) = create(ui, "ProgressBar", p) {
+                let _ = ui.set_prop(pb, "style", "ex");
+                if let Some(cb) = ui.control_mut(pb) {
+                    cb.set_align(Align::Top).set_height(6.0).set_margins([0.0, 2.0, 0.0, 0.0]);
+                }
+                reg("progress", pb);
+            }
+            if let Some(l) = label(ui, p, "", "ex_val", Align::Top, 0.0, 15.0) {
+                if let Some(cb) = ui.control_mut(l) {
+                    cb.set_margins([0.0, 4.0, 0.0, 0.0]);
+                }
+                reg("progress_text", l);
+            }
         }
-        reg("progress_text", l);
     }
     set_items(ui, "prevsec", &PREVIEW_SECS.iter().map(|s| format!("{s:.0} s")).collect::<Vec<_>>(), 1);
     layout_page(ui);
@@ -971,9 +1168,10 @@ fn center_column(ui: &mut Ui) {
     let Some(p) = c(ui, "lyExport") else { return };
     let w = ui.bounds(p).map_or(900.0, |b| b.width);
     let col = col_width(ui);
-    let side = ((w - col) / 2.0).max(18.0);
+    let avail = w - 8.0;
+    let left = ((avail - avail.min(COL_MAX)) / 2.0 + 18.0).floor();
     if let Some(cb) = ui.control_mut(p) {
-        cb.set_padding([side, 18.0, side, 40.0]);
+        cb.set_padding([left, 18.0, (w - left - col).max(0.0), 36.0]);
     }
 }
 
@@ -1053,7 +1251,7 @@ pub fn resized(ui: &mut Ui) {
     let changed = with(|st| {
         let ch = (st.col_w - col).abs() > 0.5;
         st.col_w = col;
-        st.view_w = col as f64;
+        st.view_w = (col - 2.0) as f64;
         ch
     });
     if !changed {
@@ -1183,7 +1381,7 @@ fn on_out(ui: &mut Ui, id: &str, o: Out) {
         Out::Frame { buf, x, y, .. } => {
             let k = with(|st| st.scale);
             let (bw, bh) = (buf.width, buf.height);
-            let image = Image::rgba(bw, bh, buf.pixels);
+            let image = Image::bgra(bw, bh, buf.pixels);
             let rect = RectF::new(x as f32 / k, y as f32 / k, bw as f32 / k, bh as f32 / k);
             if let Some(v) = self::id("frame").and_then(|i| ui.get_mut::<FrameView>(i)) {
                 v.set_frame(Some((image, rect)));
@@ -1527,15 +1725,11 @@ fn pills(ui: &mut Ui, key: &'static str, items: Vec<(i32, String, bool, bool)>, 
         ui.free(ch);
     }
     for (idx, text, checked, disabled) in items {
-        let Ok(chip) = ui.create("Chip", Some(flow)) else { continue };
-        let _ = ui.set_prop(chip, "text", text.as_str());
-        let _ = ui.set_prop(chip, "checked", checked);
-        let _ = ui.set_prop(chip, "enabled", !disabled);
-        let w = ui.measure_text(&text, &TextStyle { font: ui.font_of(chip), ..TextStyle::default() }).width + if checked { 48.0 } else { 30.0 };
-        if let Some(cb) = ui.control_mut(chip) {
-            cb.set_width(w).set_height(30.0);
+        let Some(p) = chk(ui, flow, &text, false, move |ui, _| f(ui, idx)) else { continue };
+        if let Some(cb) = ui.control_mut(p) {
+            cb.set_align(Align::None);
         }
-        ui.on(chip, "on_click", move |ui, _, _| f(ui, idx));
+        set_chk(ui, p, checked, !disabled);
     }
 }
 
@@ -1602,21 +1796,20 @@ fn region_clicked(ui: &mut Ui, idx: i32) {
 fn render_stage(ui: &mut Ui) {
     let (dims, crop_on, r, sw, sh, zoom, pan, no_video, has, col) =
         with(|st| (stage_dims(st), crop_available(st), crop_rect(st), st.src_w, st.src_h, st.crop_zoom, st.pan, st.no_video, has_crop(st), st.col_w));
-    // O palco: a coluna inteira, no teto de metade da janela (fica mais estreito).
+    // O palco (como no original): o teto de altura (58 % da janela, até 560) vira teto de
+    // largura; o quadro fica com 15 px de folga em volta, e o palco centrado na coluna.
     let aspect = if dims.0 > 0 && dims.1 > 0 { dims.0 as f32 / dims.1 as f32 } else { 16.0 / 9.0 };
     let win_h = main_form().and_then(|f| ui.bounds(f)).map_or(900.0, |b| b.height);
-    let max_h = (win_h * 0.5).max(220.0);
-    let mut fw = col;
-    let mut fh = fw / aspect;
-    if fh > max_h {
-        fh = max_h;
-        fw = fh * aspect;
-    }
-    let fx = ((col - fw) / 2.0).max(0.0);
+    let max_h = (win_h * 0.58).min(560.0);
+    let stage_w = col.min((max_h * aspect + 28.0).round());
+    let fw = stage_w - 2.0 * STAGE_GAP;
+    let fh = fw / aspect;
+    let side = ((col - stage_w) / 2.0).max(0.0).floor();
+    let fx = STAGE_GAP;
     let changed = with(|st| {
         let ch = (st.frame.0 - fw).abs() > 0.5 || (st.frame.1 - fh).abs() > 0.5;
         st.frame = (fw, fh);
-        st.frame_at = (fx, 0.0);
+        st.frame_at = (fx, STAGE_GAP);
         if ch {
             clamp_pan(st);
             st.cap_cache = None;
@@ -1624,15 +1817,19 @@ fn render_stage(ui: &mut Ui) {
         ch
     });
     if let Some(cb) = id("stage").and_then(|s| ui.control_mut(s)) {
-        cb.set_height(fh);
+        cb.set_height(fh + 2.0 * STAGE_GAP).set_margins([side, 0.0, side, 0.0]);
     }
+    // Sem recorte o palco tem cantos arredondados; com recorte, retos (como na web).
+    put(ui, "stage", "style", if crop_on { "ex_stage_crop" } else { "ex_stage" });
+    show(ui, "crop_row", crop_on);
+    show(ui, "crop_hint", crop_on);
     if let Some(cb) = id("frame").and_then(|f| ui.control_mut(f)) {
-        cb.set_rect(fx, 0.0, fw, fh).set_visible(!no_video);
+        cb.set_rect(fx, STAGE_GAP, fw, fh).set_visible(!no_video);
     }
     show(ui, "audio_only", no_video);
     // A moldura acompanha o zoom (origem no centro) e o deslocamento.
     if let Some(cr) = id("crop") {
-        let (zx, zy) = (fx + pan.0 + fw / 2.0 * (1.0 - zoom), pan.1 + fh / 2.0 * (1.0 - zoom));
+        let (zx, zy) = (fx + pan.0 + fw / 2.0 * (1.0 - zoom), STAGE_GAP + pan.1 + fh / 2.0 * (1.0 - zoom));
         if let Some(cb) = ui.control_mut(cr) {
             cb.set_rect(zx, zy, fw * zoom, fh * zoom).set_visible(crop_on && !no_video);
         }
@@ -1662,7 +1859,7 @@ fn render_stage(ui: &mut Ui) {
         if let Some(l) = id("caption") {
             let _ = ui.set_prop(l, "font_size", font as f64);
             if let Some(cb) = ui.control_mut(l) {
-                cb.set_rect(fx + (fw - w) / 2.0, fh - font * 3.2 - 12.0, w, font * 3.2);
+                cb.set_rect(fx + (fw - w) / 2.0, STAGE_GAP + fh - font * 3.2 - 12.0, w, font * 3.2);
             }
         }
     }
@@ -1677,9 +1874,9 @@ fn render_playbar(ui: &mut Ui) {
         (st.playing, st.user_muted || st.user_vol == 0, st.user_vol, st.turns.as_ref().is_some_and(|t| !t.is_empty()), st.no_video, st.captions_on, st.ready)
     });
     put(ui, "play", "enabled", ready);
-    put(ui, "play", "icon", if playing { "pause" } else { "play" });
+    put(ui, "play", "icon", if playing { "pl-pause" } else { "pl-play" });
     put(ui, "play", "hint", lang::t(if playing { "export.pause" } else { "export.play" }));
-    put(ui, "mute", "icon", if muted { "mute" } else { "volume" });
+    put(ui, "mute", "icon", if muted { "pl-vol-off" } else { "pl-vol-high" });
     put(ui, "mute", "hint", lang::t(if muted { "export.unmute" } else { "export.mute" }));
     if let Some(t) = id("volume") {
         if ui.get_prop(t, "value").ok().and_then(|v| v.to_f64().ok()).is_none_or(|v| (v - vol as f64).abs() > 0.5) {
@@ -1687,7 +1884,8 @@ fn render_playbar(ui: &mut Ui) {
         }
     }
     put(ui, "cc", "enabled", has && !no_video);
-    put(ui, "cc", "style", if on && has && !no_video { "outline" } else { "tool" });
+    put(ui, "cc", "style", if on && has && !no_video { "ex_cc_on" } else { "ex_cc" });
+    put(ui, "cc", "opacity", if has && !no_video { 1.0 } else { 0.45 });
     put(
         ui,
         "cc",
@@ -1754,10 +1952,12 @@ fn render_timeline(ui: &mut Ui) {
                 t += step;
             }
         }
+        // A duração de cada trecho no meio dele, só sem a forma de onda (como no original).
+        let has_wave = st.peaks.as_ref().is_some_and(|p| !p.is_empty());
         let labels = st
             .parts
             .iter()
-            .filter(|p| (p.end - p.start) / dur * total > 60.0)
+            .filter(|p| !has_wave && (p.end - p.start) / dur * total > 60.0)
             .map(|p| (x_of(p.start), ((p.end - p.start) / dur * total) as f32, fmt_time(p.end - p.start)))
             .collect();
         let sb_w = if total > 0.0 { (view * view / total).max(20.0).min(view) } else { view };
@@ -1767,7 +1967,7 @@ fn render_timeline(ui: &mut Ui) {
     });
     if let Some(img) = id("tl_img") {
         if let Some(cb) = ui.control_mut(img) {
-            cb.set_rect(0.0, 0.0, m.view, TL_H);
+            cb.set_rect(1.0, 1.0, m.view, TL_H);
         }
         if let Some(pic) = m.img {
             if let Some(iv) = ui.get_mut::<ImageView>(img) {
@@ -1781,19 +1981,24 @@ fn render_timeline(ui: &mut Ui) {
         }
     }
     let mut marks = Vec::new();
-    let accent = ui.theme().color("amber");
+    // Uma faixa de 5 px escura com a linha de 3 px no meio (as do cursor e das divisões).
+    fn bar(ui: &mut Ui, tl: ComponentId, marks: &mut Vec<ComponentId>, x: f32, w: f32, inner: f32, shade: &str, color: &str) {
+        for (dx, width, fill) in [(0.0, w, shade), ((w - inner) / 2.0, inner, color)] {
+            if let Ok(r) = ui.create("Rectangle", Some(tl)) {
+                let _ = ui.set_prop(r, "fill", fill);
+                let _ = ui.set_prop(r, "stroke_width", 0.0);
+                if let Some(cb) = ui.control_mut(r) {
+                    cb.set_rect(1.0 + x - w / 2.0 + dx, 1.0, width, TL_H).set_hit_test(false);
+                }
+                marks.push(r);
+            }
+        }
+    }
     for (x, target) in m.cuts {
-        if !(-2.0..=m.view + 2.0).contains(&x) {
+        if !(-3.0..=m.view + 3.0).contains(&x) {
             continue;
         }
-        if let Ok(r) = ui.create("Rectangle", Some(tl)) {
-            let _ = ui.set_prop(r, "fill", if target { accent } else { ui.theme().color("text_3") });
-            let _ = ui.set_prop(r, "stroke_width", 0.0);
-            if let Some(cb) = ui.control_mut(r) {
-                cb.set_rect(x - 1.0, 0.0, 2.0, TL_H).set_hit_test(false);
-            }
-            marks.push(r);
-        }
+        bar(ui, tl, &mut marks, x, 5.0, 3.0, "black/55", if target { "danger_2" } else { "blue_2" });
     }
     for (x, w, text) in m.labels {
         let (lx, lw) = (x.max(0.0), (x + w).min(m.view) - x.max(0.0));
@@ -1805,41 +2010,45 @@ fn render_timeline(ui: &mut Ui) {
             let _ = ui.set_prop(l, "text", text);
             let _ = ui.set_prop(l, "h_align", "center");
             if let Some(cb) = ui.control_mut(l) {
-                cb.set_rect(lx, 2.0, lw, 14.0).set_hit_test(false);
+                cb.set_rect(1.0 + lx, 1.0, lw, TL_H).set_hit_test(false);
             }
             marks.push(l);
         }
     }
+    // A régua: um fio na altura toda e o tempo (9 px) 4 px depois.
     for (x, text) in m.ticks {
-        if let Ok(l) = ui.create("Label", Some(tl)) {
-            let _ = ui.set_prop(l, "style", "legend");
-            let _ = ui.set_prop(l, "text", text);
-            if let Some(cb) = ui.control_mut(l) {
-                cb.set_rect(x + 3.0, TL_H + 2.0, 60.0, RULER_H - 2.0).set_hit_test(false);
-            }
-            marks.push(l);
-        }
         if let Ok(r) = ui.create("Rectangle", Some(tl)) {
-            let _ = ui.set_prop(r, "style", "sep");
+            let _ = ui.set_prop(r, "style", "ex_tick");
             if let Some(cb) = ui.control_mut(r) {
-                cb.set_rect(x, TL_H, 1.0, 5.0).set_hit_test(false);
+                cb.set_rect(1.0 + x, 1.0 + TL_H, 1.0, RULER_H).set_hit_test(false);
             }
             marks.push(r);
         }
-    }
-    // O cursor por último (fica por cima das divisões).
-    if let Ok(ph) = ui.create("Rectangle", Some(tl)) {
-        let _ = ui.set_prop(ph, "fill", Color::WHITE);
-        let _ = ui.set_prop(ph, "stroke_width", 0.0);
-        if let Some(cb) = ui.control_mut(ph) {
-            cb.set_rect(m.ph - 1.0, 0.0, 2.0, TL_H).set_hit_test(false).set_visible((-2.0..=m.view + 2.0).contains(&m.ph));
+        if let Ok(l) = ui.create("Label", Some(tl)) {
+            let _ = ui.set_prop(l, "style", "ex_tick");
+            let _ = ui.set_prop(l, "text", text);
+            if let Some(cb) = ui.control_mut(l) {
+                cb.set_rect(1.0 + x + 4.0, 1.0 + TL_H, 56.0, RULER_H).set_hit_test(false);
+            }
+            marks.push(l);
         }
-        reg("playhead", ph);
-        marks.push(ph);
+    }
+    // O cursor por último (fica por cima das divisões): 4 px escuros e 2 px claros.
+    if (-2.0..=m.view + 2.0).contains(&m.ph) {
+        bar(ui, tl, &mut marks, m.ph, 4.0, 2.0, "black/50", "text");
+        if let [.., shade, line] = marks[..] {
+            reg("playhead", shade);
+            reg("playhead2", line);
+        }
     }
     with(|st| st.tl_marks = marks);
     if let Some(cb) = id("sb").and_then(|p| ui.control_mut(p)) {
-        cb.set_width(m.view).set_visible(m.sb.1 < m.view - 0.5);
+        cb.set_width(m.view);
+    }
+    for key in ["ruler", "ruler_line"] {
+        if let Some(cb) = id(key).and_then(|p| ui.control_mut(p)) {
+            cb.set_width(m.view);
+        }
     }
     if let Some(cb) = id("sb_thumb").and_then(|p| ui.control_mut(p)) {
         cb.set_left(m.sb.0).set_width(m.sb.1);
@@ -1984,11 +2193,19 @@ fn render_tlbar(ui: &mut Ui) {
             let _ = ui.set_prop(e, "text", fmt_time(play));
         }
     }
-    let mut range = format!("/ {}   ·   {}", fmt_time(total), tw("export.rangeLength", &[("len", &fmt_time(kept))]));
+    put(ui, "range_text", "text", format!("/   {}", fmt_time(total)));
+    let mut len = tw("export.rangeLength", &[("len", &fmt_time(kept))]);
     if spd > 1.0 {
-        range.push_str(&format!("   ·   {}", tw("export.speedResult", &[("len", &fmt_time(kept / spd))])));
+        len.push_str(&format!("   ·   {}", tw("export.speedResult", &[("len", &fmt_time(kept / spd))])));
     }
-    put(ui, "range_text", "text", range);
+    let mut st = TextStyle::default();
+    st.font.family = "Segoe UI".into();
+    st.font.size = 11.0;
+    let w = ui.measure_text(&len, &st).width + 4.0;
+    if let Some(cb) = id("range_len").and_then(|l| ui.control_mut(l)) {
+        cb.set_width(w.ceil());
+    }
+    put(ui, "range_len", "text", len);
 }
 
 /// Move o cursor (barra, tempo, botões); `seek` = também reposiciona o vídeo.
@@ -2020,8 +2237,10 @@ fn set_play_sec(ui: &mut Ui, sec: f64, seek: bool) {
     if changed {
         render_timeline(ui);
     } else {
-        if let Some(cb) = id("playhead").and_then(|p| ui.control_mut(p)) {
-            cb.set_left(ph - 1.0);
+        for (key, dx) in [("playhead", 2.0), ("playhead2", 1.0)] {
+            if let Some(cb) = id(key).filter(|p| ui.contains(*p)).and_then(|p| ui.control_mut(p)) {
+                cb.set_left(1.0 + ph - dx);
+            }
         }
         render_tlbar(ui);
         ui.invalidate();
@@ -2381,11 +2600,10 @@ fn render_audio(ui: &mut Ui) {
         (!st.audio.is_empty(), st.audio.len() > 1, orig, items, st.mix_checked, can_mix)
     });
     show(ui, "audio_sec", vis);
-    show(ui, "orig", orig_vis);
-    put(ui, "orig", "checked", orig);
+    show(ui, "orig_row", orig_vis);
+    put_chk(ui, "orig", orig, true);
     pills(ui, "tracks", items, track_clicked);
-    put(ui, "mix", "checked", mix_checked);
-    put(ui, "mix", "enabled", can_mix);
+    put_chk(ui, "mix", mix_checked, can_mix);
     push_volumes();
     let col = with(|st| st.col_w);
     if let Some(f) = id("tracks") {
@@ -2531,7 +2749,7 @@ fn render_fps(ui: &mut Ui) {
         }
     }
     let shown = if max > 20 { val } else { src.round() as i32 };
-    put(ui, "fps_text", "text", tw("export.fpsValue", &[("fps", &shown.to_string())]));
+    put_value(ui, "fps_text", &tw("export.fpsValue", &[("fps", &shown.to_string())]));
     if was != (max > 20) {
         layout_page(ui);
     }
@@ -2544,7 +2762,7 @@ fn render_quality(ui: &mut Ui) {
             let _ = ui.set_prop(t, "value", pos as f64);
         }
     }
-    put(ui, "q_text", "text", tw("export.qualityValue", &[("crf", &c.to_string())]));
+    put_value(ui, "q_text", &tw("export.qualityValue", &[("crf", &c.to_string())]));
     let mut hint = tw("export.qualityHint", &[("band", &lang::t(crf_band_key(c)))]);
     let warn = svt && c >= SVT_FLOOR_CRF;
     if warn {
@@ -2584,8 +2802,7 @@ fn render_captions(ui: &mut Ui) {
         }
         (has, st.turns.is_none(), st.transcribed, st.no_video, st.burn)
     });
-    put(ui, "burn", "enabled", has && !no_video);
-    put(ui, "burn", "checked", burn);
+    put_chk(ui, "burn", burn, has && !no_video);
     put(
         ui,
         "cap_hint",
@@ -2628,21 +2845,13 @@ fn render_container(ui: &mut Ui) {
 
 fn render_actions(ui: &mut Ui) {
     let (running, canceling, previewing, ppct, pct, loaded) = with(|st| (st.running, st.canceling, st.previewing, st.preview_pct, st.pct, st.loaded));
-    put(ui, "run", "text", lang::t(if running { "common.cancel" } else { "export.action" }));
-    put(ui, "run", "icon", if running { "close" } else { "download" });
-    put(ui, "run", "style", if running { "outline" } else { "" });
+    put_btn(ui, "run", &lang::t(if running { "common.cancel" } else { "export.action" }));
+    put(ui, "run", "style", if running { "ex" } else { "ex_primary" });
     put(ui, "run", "enabled", loaded && !canceling && (running || !previewing));
-    put(
-        ui,
-        "preview",
-        "text",
-        if previewing { tw("export.preview.generating", &[("pct", &(ppct.round() as i32).to_string())]) } else { lang::t("export.preview.button") },
-    );
+    put_btn(ui, "preview", &if previewing { tw("export.preview.generating", &[("pct", &(ppct.round() as i32).to_string())]) } else { lang::t("export.preview.button") });
     put(ui, "preview", "enabled", loaded && !running);
     put(ui, "prevsec", "enabled", !previewing);
-    show(ui, "progress", running);
-    show(ui, "preview", !running);
-    show(ui, "prevsec", !running);
+    show(ui, "progress_box", running);
     put(ui, "progress", "value", pct);
     put(
         ui,
@@ -2771,7 +2980,7 @@ pub fn cancel(ui: &mut Ui) {
 fn preview_action(ui: &mut Ui) {
     if with(|st| st.previewing) {
         bexp::handle_cancel_export();
-        put(ui, "preview", "text", lang::t("export.canceling"));
+        put_btn(ui, "preview", &lang::t("export.canceling"));
         put(ui, "preview", "enabled", false);
         return;
     }

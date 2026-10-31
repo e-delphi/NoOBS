@@ -12,14 +12,14 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use super::RgbaBuffer;
+use super::FrameBuffer;
 
 use super::{gpu::GpuConv, layout, Info, Layout, Out, Shared, VCmd, ViewSpec, TRICK_MIN_RATE};
 use crate::ffi::ffmpeg::*;
 use crate::log;
 
-/// `AV_PIX_FMT_RGBA` no avutil-59 (pixfmt.h: … nv12=23, nv21, argb, rgba=26).
-const AV_PIX_FMT_RGBA: c_int = 26;
+/// `AV_PIX_FMT_BGRA` no avutil-59 (pixfmt.h: … nv12=23, nv21, argb, rgba, abgr, bgra=28).
+const AV_PIX_FMT_BGRA: c_int = 28;
 /// Imagem de saída nunca maior que isto em pixels (proteção contra palco
 /// absurdo; um 4K cheio é 8,3 M).
 const MAX_OUT_PIXELS: i64 = 16_000_000;
@@ -36,8 +36,6 @@ struct Dec {
     /// Último quadro mostrado (refeito quando o zoom/a vista muda, pausado).
     held: Frame,
     has_held: bool,
-    sw: Frame,
-    sws: Vec<(Sws, [c_int; 5])>,
     src_w: i32,
     src_h: i32,
     fps: f64,
@@ -93,8 +91,6 @@ impl Dec {
             frame: Frame::alloc().ok_or("frame")?,
             held: Frame::alloc().ok_or("frame")?,
             has_held: false,
-            sw: Frame::alloc().ok_or("frame")?,
-            sws: Vec::new(),
             src_w,
             src_h,
             fps,
@@ -150,6 +146,8 @@ impl Dec {
         unsafe {
             ((ctx.ptr() as *mut u8).add(OFFS_CODECCTX_HW_DEVICE_CTX) as *mut *mut c_void).write_unaligned((a.util.av_buffer_ref)(self.hw_dev));
         }
+        // A conversão (outra thread) segura até dois quadros além dos do decoder.
+        unsafe { (a.util.av_opt_set_int)(ctx.ptr() as *mut c_void, c"extra_hw_frames".as_ptr(), 4, 0) };
         if ctx.open(d) < 0 {
             return false;
         }
@@ -236,15 +234,39 @@ impl Dec {
         }
         false
     }
+}
 
-    /// Converte o quadro `f` pros pedaços do layout.
-    fn render(&mut self, f_held: bool, lay: &Layout) -> Option<RgbaBuffer> {
+/// Converte os quadros para a tela numa thread própria: a decodificação não espera a
+/// conversão e a cópia da placa (a etapa cara). Recebe só o quadro mais recente.
+struct Presenter {
+    a: &'static FfmpegApi,
+    gpu: Option<GpuConv>,
+    sw: Frame,
+    sws: Vec<(Sws, [c_int; 5])>,
+}
+
+// A conversão na placa usa a trava do dispositivo do FFmpeg (a mesma da decodificação).
+unsafe impl Send for Presenter {}
+
+/// O quadro a converter e a vista dele.
+struct Job {
+    frame: Frame,
+    lay: Layout,
+}
+
+/// A caixa entre as duas threads: o próximo quadro (o novo substitui o que não foi
+/// convertido) e se acabou.
+type Mailbox = Arc<(std::sync::Mutex<(Option<Job>, bool)>, std::sync::Condvar)>;
+
+impl Presenter {
+    /// Converte o quadro pros pedaços do layout.
+    fn render(&mut self, frame: &Frame, lay: &Layout) -> Option<FrameBuffer> {
         if lay.w <= 0 || lay.h <= 0 || lay.w as i64 * lay.h as i64 > MAX_OUT_PIXELS {
             return None;
         }
-        let fptr = if f_held { self.held.ptr() } else { self.frame.ptr() };
+        let fptr = frame.ptr();
         let f = unsafe { &*fptr };
-        let mut buf = RgbaBuffer::new(lay.w as u32, lay.h as u32);
+        let mut buf = FrameBuffer::new(lay.w as u32, lay.h as u32);
         if f.format == AV_PIX_FMT_D3D11 {
             if let Some(g) = self.gpu.as_mut() {
                 match g.render(f, lay.w, lay.h, &lay.pieces, buf.make_mut_bytes()) {
@@ -303,7 +325,7 @@ impl Dec {
             }
             let key = [cw, ch, s.format, p.dw, p.dh];
             if self.sws.get(i).is_none_or(|(_, k)| *k != key) {
-                let Some(c) = Sws::new(cw, ch, s.format, p.dw, p.dh, AV_PIX_FMT_RGBA, SWS_BILINEAR) else { continue };
+                let Some(c) = Sws::new(cw, ch, s.format, p.dw, p.dh, AV_PIX_FMT_BGRA, SWS_BILINEAR) else { continue };
                 if i < self.sws.len() {
                     self.sws[i] = (c, key);
                 } else {
@@ -318,6 +340,27 @@ impl Dec {
             self.sws[i].0.scale_raw(&sd, &s.linesize, ch, &dst, &dls);
         }
         Some(buf)
+    }
+}
+
+fn run_presenter(mut p: Presenter, mailbox: Mailbox, shared: Arc<Shared>, out: Arc<dyn Fn(Out) + Send + Sync>) {
+    let (lock, cv) = &*mailbox;
+    loop {
+        let job = {
+            let mut slot = lock.lock().unwrap_or_else(|e| e.into_inner());
+            while slot.0.is_none() && !slot.1 {
+                slot = cv.wait(slot).unwrap_or_else(|e| e.into_inner());
+            }
+            if slot.1 {
+                return;
+            }
+            slot.0.take()
+        };
+        let Some(job) = job else { continue };
+        match p.render(&job.frame, &job.lay) {
+            Some(buf) => out(Out::Frame { buf, x: job.lay.x, y: job.lay.y, view: (job.lay.zoom, job.lay.pan_x, job.lay.pan_y) }),
+            None => shared.ui_pending.store(false, Ordering::Release),
+        }
     }
 }
 
@@ -338,6 +381,9 @@ unsafe fn first_moving_video(ic: *const AVFormatContext) -> Option<u32> {
 /// Erro do `Dec::open` pra arquivo sem faixa de vídeo (o `.mp3` da exportação
 /// "só áudio", ou um com só a capa): o player toca só o som.
 const NO_VIDEO: &str = "sem video";
+
+/// Quanto um quadro pode chegar atrasado (em tempo real) antes de ser descartado.
+const MAX_LAG_WALL: f64 = 0.02;
 
 /// Arquivo só de áudio: o som sai da thread de áudio como sempre; esta só faz
 /// o papel que a de vídeo tem no relógio — duração, posição e fim.
@@ -424,16 +470,26 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
     let mut cur = 0.0f64;
     let mut pending: Vec<VCmd> = Vec::new();
 
+    let mailbox: Mailbox = Arc::new((std::sync::Mutex::new((None, false)), std::sync::Condvar::new()));
+    let presenter = Presenter { a: d.a, gpu: d.gpu.take(), sw: match Frame::alloc() { Some(f) => f, None => return }, sws: Vec::new() };
+    let worker = {
+        let (mailbox, shared, out) = (mailbox.clone(), shared.clone(), out.clone());
+        std::thread::Builder::new().name("noobs-player-present".into()).spawn(move || run_presenter(presenter, mailbox, shared, out)).ok()
+    };
     let present = |d: &mut Dec, held: bool, lay: &Option<Layout>, pts: f64| {
         shared.set_position(pts);
         let Some(l) = lay else { return };
         // A interface guarda só o mais recente (ver `app_view::frame_sink`): entregar
         // sempre não empilha nada, e o quadro não se perde por ela estar pintando.
-        shared.ui_pending.store(true, Ordering::Release);
-        match d.render(held, l) {
-            Some(buf) => out(Out::Frame { buf, x: l.x, y: l.y, view: (l.zoom, l.pan_x, l.pan_y) }),
-            None => shared.ui_pending.store(false, Ordering::Release),
+        let Some(frame) = Frame::alloc() else { return };
+        let src = if held { d.held.ptr() } else { d.frame.ptr() };
+        if unsafe { (d.a.util.av_frame_ref)(frame.ptr(), src) } < 0 {
+            return;
         }
+        shared.ui_pending.store(true, Ordering::Release);
+        let (lock, cv) = &*mailbox;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).0 = Some(Job { frame, lay: l.clone() });
+        cv.notify_one();
     };
 
     // Primeiro quadro na tela já (antes do play).
@@ -525,7 +581,9 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
         }
 
         // ---- por saltos: keyframe em keyframe, pelo relógio ----
-        if rate >= TRICK_MIN_RATE && d.keyframes.len() >= 2 {
+        // Só decodificando por software: a placa decodifica tudo até uns 16× (e, se não
+        // acompanhar, a reprodução abaixo pula para o próximo keyframe sozinha).
+        if rate >= TRICK_MIN_RATE && !d.hw_frames && d.keyframes.len() >= 2 {
             let target = shared.clock.now();
             if target >= d.duration {
                 playing = false;
@@ -567,7 +625,9 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
         let pts = d.pts_of(&d.frame);
         let now = shared.clock.now();
         let late = now - pts;
-        if late > frame_dur * 1.5 {
+        // Atrasado é medido no relógio de parede: acelerado, 1,5 quadro do vídeo são poucos
+        // milissegundos e quase tudo seria descartado.
+        if late > (frame_dur * 1.5).max(rate * MAX_LAG_WALL) {
             // Muito atrás (o decoder não acompanha esta velocidade): pula pro
             // próximo keyframe em vez de ficar parado mostrando o passado.
             if rate > 1.0 && late > (rate * 0.25).max(1.0) {
@@ -617,5 +677,16 @@ pub(super) fn run(path: &str, view: ViewSpec, rx: Receiver<VCmd>, shared: Arc<Sh
         cur = pts;
         d.hold();
         present(&mut d, true, &lay, cur);
+    }
+    // Fecha a thread de conversão (soltando os quadros que ela segura) antes do decoder.
+    {
+        let (lock, cv) = &*mailbox;
+        let mut slot = lock.lock().unwrap_or_else(|e| e.into_inner());
+        slot.0 = None;
+        slot.1 = true;
+        cv.notify_one();
+    }
+    if let Some(w) = worker {
+        let _ = w.join();
     }
 }

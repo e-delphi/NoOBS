@@ -26,8 +26,9 @@ use std::time::Instant;
 /// Acima disto não há som (o Chromium também silencia acima de 4×) e o relógio
 /// passa a ser o de parede.
 pub const AUDIO_MAX_RATE: f64 = 4.0;
-/// A partir disto a imagem anda de keyframe em keyframe (pegadinha #61): nenhum
-/// decoder entrega 8× uma gravação 4K de 60 fps.
+/// A partir disto não há som e, decodificando por software, a imagem anda de keyframe
+/// em keyframe (pegadinha #61: o processador não entrega 8× de um 4K 60). A placa
+/// decodifica tudo (medido: 480 quadros/s em 4K, ~960 em 1080p) e só pula se atrasar.
 pub const TRICK_MIN_RATE: f64 = 8.0;
 
 // ---------------------------------------------------------------------------
@@ -275,13 +276,15 @@ pub struct Info {
 }
 
 /// Um quadro RGBA pronto pra tela (4 bytes por pixel, linha a linha).
-pub struct RgbaBuffer {
+/// Um quadro pronto para a tela: pixels BGRA opacos (a ordem que o Direct2D usa
+/// direto, sem converter pixel a pixel).
+pub struct FrameBuffer {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
 }
 
-impl RgbaBuffer {
+impl FrameBuffer {
     pub fn new(width: u32, height: u32) -> Self {
         Self { width, height, pixels: vec![0; width as usize * height as usize * 4] }
     }
@@ -295,7 +298,7 @@ pub enum Out {
     Info(Info),
     /// Quadro pronto, já no tamanho e na posição do palco (pixels físicos).
     /// `view` = (zoom, pan_x, pan_y) da vista que gerou o quadro (px físicos).
-    Frame { buf: RgbaBuffer, x: i32, y: i32, view: (f64, f64, f64) },
+    Frame { buf: FrameBuffer, x: i32, y: i32, view: (f64, f64, f64) },
     /// Chegou ao fim (a reprodução parou sozinha).
     Ended,
     Error(String),

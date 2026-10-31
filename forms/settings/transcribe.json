@@ -1,0 +1,37 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraTranscribe",
+    "caption": "Configurações: Transcrição",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblTrLocal", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Motor de transcrição" },
+      { "class": "Label", "name": "lblTrLocalHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Roda nesta máquina, na placa de vídeo, sem internet. Não separa quem falou: gravando com faixas isoladas, o falante vem do nome do dispositivo de cada faixa." },
+      { "class": "Panel", "name": "pnlTrEngine", "style": "s_frame", "align": "top", "auto_size": true, "padding": [12, 10, 12, 16], "children": [ { "class": "Label", "name": "lblTrStatus", "style": "s_status", "align": "top", "auto_size": true, "wrap": true, "text": "Motor de transcrição" }, { "class": "ProgressBar", "name": "prgTrInstall", "align": "top", "height": 6, "margins": [0, 8, 0, 0], "visible": false }, { "class": "Label", "name": "lblTrDetail", "style": "s_detail", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 4, 0, 0], "text": "" }, { "class": "Layout", "name": "lyTrEngineButtons", "align": "top", "height": 35, "margins": [0, 6, 0, 0], "children": [ { "class": "Button", "name": "btnTrEngine", "style": "s", "align": "left", "width": 120, "margins": [0, 0, 8, 0], "text": "Instalar", "on_click": "transcribe_engine" } ] } ] },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblTrLanguage", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Idioma da transcrição" },
+      { "class": "ComboBox", "name": "cmbTrLanguage", "arrow": "triangle", "align": "top", "height": 32, "margins": [0, 6, 0, 0], "on_change": "transcribe_language" },
+      { "class": "Label", "name": "lblTrLanguageHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Fixar o idioma evita que a transcrição saia traduzida: detectando sozinho, o transcritor decide pelo começo do áudio e, quando erra — silêncio, música, ruído —, escreve tudo no idioma errado." },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkTrOnStop", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Transcrever automaticamente ao terminar uma gravação", "on_change": "transcribe_on_stop" },
+      { "class": "Label", "name": "lblTrOnStopHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "A gravação entra na fila assim que termina. Com o motor ainda não instalado ela espera, e a fila é guardada — continua depois de fechar o app ou reiniciar o computador." },
+      { "class": "Rectangle", "name": "lnRule3", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblTrQueue", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Fila" },
+      { "class": "Layout", "name": "lyTrQueueButtons", "align": "top", "height": 33, "margins": [0, 6, 0, 0], "children": [
+          { "class": "Button", "name": "btnTrPending", "style": "s", "align": "left", "width": 127, "margins": [0, 0, 8, 0], "text": "Nada pendente", "on_click": "transcribe_pending" },
+          { "class": "Button", "name": "btnTrCancel", "style": "s", "align": "left", "width": 90, "margins": [0, 0, 8, 0], "text": "Cancelar", "on_click": "transcribe_cancel" }
+        ] },
+      { "class": "Layout", "name": "lyTrProgress", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+        { "margins": [0, 4, 0, 0], "class": "ProgressBar", "name": "prgTrQueue", "align": "top", "height": 6 },
+        { "class": "Label", "name": "lblTrLine", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "" }
+      ] },
+      { "class": "Label", "name": "lblTrError", "style": "s_err", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "" },
+      { "class": "Layout", "name": "lyTrQueue", "align": "top", "auto_size": true, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblTrCloud", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "" },
+      { "class": "Label", "name": "lblTrQueueHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Uma transcrição por vez: o motor carrega os modelos na placa de vídeo uma vez só. O percentual avança aos saltos, um trecho de fala por vez." }
+    ]
+  }
+}

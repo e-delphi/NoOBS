@@ -37,8 +37,9 @@ fn with<R>(f: impl FnOnce(&mut Picker) -> R) -> R {
     P.with(|p| f(&mut p.borrow_mut()))
 }
 
+/// Um componente do `frmPicker` pelo nome.
 fn c(ui: &Ui, name: &str) -> Option<ComponentId> {
-    ui.find_in(main_form()?, name)
+    ui.find_in(crate::app_view::form(ui, "frmPicker")?, name)
 }
 
 fn set(ui: &mut Ui, name: &str, prop: &str, value: impl Into<PropValue>) {
@@ -223,8 +224,8 @@ fn render_saved_areas(ui: &mut Ui) {
 }
 
 fn show(ui: &mut Ui) {
-    set(ui, "pnlPicker", "visible", true);
-    set(ui, "btnRecord", "glow", false);
+    crate::app_view::show_screen(ui, "frmPicker", true);
+    crate::app_view::set_main(ui, "btnRecord", "glow", false);
     set(ui, "edPickerSearch", "text", "");
     set(ui, "chipTimelapse", "checked", config::get_config_bool("areaTimelapse", false));
     set(ui, "chipTimelapseCursor", "checked", config::get_config_bool("areaTimelapseCursor", true));
@@ -287,8 +288,8 @@ pub fn close(ui: &mut Ui) {
         p.open = false;
         p.matches = None;
     });
-    set(ui, "pnlPicker", "visible", false);
-    set(ui, "btnRecord", "glow", true);
+    crate::app_view::show_screen(ui, "frmPicker", false);
+    crate::app_view::set_main(ui, "btnRecord", "glow", true);
 }
 
 fn pick(ui: &mut Ui, id: &str) {

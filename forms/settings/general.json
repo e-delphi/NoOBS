@@ -1,0 +1,39 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraGeneral",
+    "caption": "Configurações: Geral",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 14, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblTheme", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Tema" },
+      { "margins": [0, 6, 0, 0], "class": "Panel", "name": "pnlTheme", "style": "s_seg_box", "align": "top", "height": 35, "children": [ { "class": "Button", "name": "btnThemeSystem", "style": "s_seg", "icon": "monitor", "icon_size": 16, "tag": 0, "left": 4, "top": 4, "width": 100, "height": 27, "text": "Sistema", "on_click": "general_theme" }, { "class": "Button", "name": "btnThemeLight", "style": "s_seg", "icon": "sun", "icon_size": 16, "tag": 1, "left": 107, "top": 4, "width": 90, "height": 27, "text": "Claro", "on_click": "general_theme" }, { "class": "Button", "name": "btnThemeDark", "style": "s_seg", "icon": "moon", "icon_size": 16, "tag": 2, "left": 200, "top": 4, "width": 95, "height": 27, "text": "Escuro", "on_click": "general_theme" } ] },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblLanguage", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Idioma" },
+      { "class": "ComboBox", "name": "cmbLanguage", "arrow": "triangle", "align": "top", "height": 32, "margins": [0, 6, 0, 0], "on_change": "general_language" },
+      { "class": "Label", "name": "lblLanguageHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Idioma da interface do NoOBS. \"Automático\" usa o idioma do Windows; outros valores forçam o idioma escolhido." },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblWindowTitle", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Título da janela" },
+      { "class": "Edit", "name": "edtWindowTitle", "align": "top", "height": 32, "margins": [0, 6, 0, 0], "placeholder": "NoOBS", "on_exit": "general_window_title", "on_key_down": "general_window_title" },
+      { "class": "Label", "name": "lblWindowTitleHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Nome exibido na barra de título, no botão da barra de tarefas e no ícone da bandeja. Deixe em branco para usar \"NoOBS\"." },
+      { "class": "Rectangle", "name": "lnRule3", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkAutostart", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Iniciar com o Windows", "on_change": "general_autostart" },
+      { "class": "Label", "name": "lblAutostartHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "O NoOBS sobe automaticamente quando você loga no Windows." },
+      { "class": "Rectangle", "name": "lnRule4", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkRunAsAdmin", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Abrir como administrador", "on_change": "general_run_as_admin" },
+      { "class": "Label", "name": "lblRunAsAdminHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Necessário para o atalho funcionar com aplicações que rodam como administrador (ex.: o Gerenciador de Tarefas). O Windows pede confirmação ao abrir; se você recusar, o NoOBS abre normalmente. Vale a partir da próxima vez que o NoOBS abrir." },
+      { "class": "Label", "name": "lblRunAsAdminState", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Agora: rodando sem administrador." },
+      { "class": "Rectangle", "name": "lnRule5", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "CheckBox", "name": "chkCloseToTray", "style": "web", "box_size": 16, "align": "top", "auto_size": true, "margins": [0, 10, 0, 0], "text": "Minimizar para bandeja", "on_change": "general_close_to_tray" },
+      { "class": "Label", "name": "lblCloseToTrayHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Permite ao NoOBS usar o ícone na bandeja do sistema. Com esta opção ativa, o botão X da janela manda pra bandeja em vez de encerrar — clique no ícone pra reabrir, ou use o menu do ícone pra fechar de verdade." },
+      { "class": "Rectangle", "name": "lnRule6", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblReset", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Restaurar padrões" },
+      { "class": "Label", "name": "lblResetHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Volta TODAS as abas para os valores padrão de fábrica, não apenas esta. Aplicado na hora." },
+      { "class": "Layout", "name": "lyReset", "align": "top", "height": 33, "margins": [0, 6, 0, 0], "children": [
+          { "class": "Button", "name": "btnReset", "style": "s", "align": "left", "width": 150, "margins": [0, 0, 8, 0], "text": "Restaurar padrão", "on_click": "general_reset" }
+        ] }
+    ]
+  }
+}

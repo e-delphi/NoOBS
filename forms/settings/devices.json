@@ -1,0 +1,15 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraDevices",
+    "caption": "Configurações: Dispositivos",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblDevicesHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Desmarque para ocultar o dispositivo da tela inicial. Dispositivos ocultos não aparecem na lista e não entram na gravação." },
+      { "class": "Layout", "name": "lyDevices", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0] }
+    ]
+  }
+}

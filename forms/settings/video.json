@@ -1,0 +1,59 @@
+{
+  "iron": 1,
+  "root": {
+    "class": "Form",
+    "name": "fraVideo",
+    "caption": "Configurações: Vídeo",
+    "width": 1410,
+    "height": 851,
+    "padding": [18, 24, 632, 14],
+    "children": [
+      { "class": "Label", "name": "lblCodec", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 0, 0, 0], "text": "Codec de vídeo" },
+      { "class": "Layout", "name": "lyCodec", "align": "top", "height": 32, "children": [ { "class": "Image", "name": "imgGpu", "fit": "contain", "align": "right", "width": 32, "margins": [8, 0, 0, 0], "visible": false }, { "class": "ComboBox", "name": "cmbCodec", "arrow": "triangle", "align": "client", "on_change": "video_codec" } ] },
+      { "class": "Label", "name": "lblCodecMaxRes", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Resolução máxima do codec: {{w}} × {{h}}" },
+      { "class": "Layout", "name": "lylblCodecSwWarn", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+          { "class": "Rectangle", "name": "barlblCodecSwWarn", "align": "most_left", "width": 2, "fill": "amber", "stroke_width": 0, "hit_test": false },
+          { "class": "Label", "name": "lblCodecSwWarn", "style": "s_warn", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [10, 0, 0, 0], "text": "Codifica na CPU e usa todos os núcleos. Acima de 1080p pode não acompanhar a gravação e perder quadros. Prefira um codificador de hardware se a sua placa tiver um." }
+        ] },
+      { "class": "Label", "name": "lblCodecHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Automático escolhe a melhor opção disponível na ordem H.264 hardware → H.264 software → AV1 hardware → HEVC hardware. Use uma escolha manual só se souber o que está fazendo." },
+      { "class": "Rectangle", "name": "lnRule1", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblQuality", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Qualidade da gravação" },
+      { "class": "Layout", "name": "lyQuality", "align": "top", "height": 32, "margins": [0, 10, 0, 0], "children": [
+          { "class": "Label", "name": "lblQualityLow", "style": "s_end", "align": "left", "width": 70, "margins": [0, 0, 10, 0], "text": "Menor" },
+          { "class": "Label", "name": "lblQualityHigh", "style": "s_end", "align": "right", "width": 70, "h_align": "trailing", "margins": [10, 0, 0, 0], "text": "Maior" },
+          { "class": "Layout", "name": "lyQualityTicks", "align": "client", "children": [
+            { "class": "TrackBar", "name": "trkQuality", "align": "top", "height": 16, "min": 0, "max": 10, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "video_quality" }
+          ] }
+        ] },
+      { "class": "Label", "name": "lblQualityHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Padrão — balanceado entre tamanho do arquivo e qualidade visual." },
+      { "class": "Layout", "name": "lylblQualitySvtFloor", "align": "top", "auto_size": true, "margins": [0, 6, 0, 0], "children": [
+          { "class": "Rectangle", "name": "barlblQualitySvtFloor", "align": "most_left", "width": 2, "fill": "amber", "stroke_width": 0, "hit_test": false },
+          { "class": "Label", "name": "lblQualitySvtFloor", "style": "s_warn", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [10, 0, 0, 0], "text": "Com AV1 (CPU), os níveis 0 a 3 gravam igual: o encoder já está no mínimo de qualidade dele, e o arquivo não fica menor." }
+        ] },
+      { "class": "Rectangle", "name": "lnRule2", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblVideoTest", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Comparar os níveis de qualidade" },
+      { "class": "Label", "name": "lblVideoTestHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "Grava 5 segundos da tela e mostra quanto cada nível ocuparia e como a imagem fica. O tamanho depende do que muda na tela: durante o teste, role uma página ou deixe um vídeo tocando." },
+      { "class": "Layout", "name": "lyVideoTest", "align": "top", "auto_size": true, "margins": [0, 0, 0, 0] },
+      { "class": "Rectangle", "name": "lnRule3", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblFps", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Taxa de quadros da gravação" },
+      { "class": "Layout", "name": "lyFps", "align": "top", "height": 32, "margins": [0, 10, 0, 0], "children": [
+          { "class": "Label", "name": "lblFpsLow", "style": "s_end", "align": "left", "width": 70, "margins": [0, 0, 10, 0], "text": "Menos fluido" },
+          { "class": "Label", "name": "lblFpsHigh", "style": "s_end", "align": "right", "width": 70, "h_align": "trailing", "margins": [10, 0, 0, 0], "text": "Mais fluido" },
+          { "class": "Layout", "name": "lyFpsTicks", "align": "client", "children": [
+            { "class": "TrackBar", "name": "trkFps", "align": "top", "height": 16, "min": 0, "max": 4, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "video_fps" }
+          ] }
+        ] },
+      { "class": "Label", "name": "lblFpsHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "{{fps}} fps — boa fluidez, ótimo para uso geral." },
+      { "class": "Rectangle", "name": "lnRule4", "style": "sep", "align": "top", "height": 1, "margins": [0, 10, 0, 0] },
+      { "class": "Label", "name": "lblKeyframe", "style": "s_label", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 10, 0, 0], "text": "Intervalo de keyframe" },
+      { "class": "Layout", "name": "lyKeyframe", "align": "top", "height": 32, "margins": [0, 10, 0, 0], "children": [
+          { "class": "Label", "name": "lblKeyframeLow", "style": "s_end", "align": "left", "width": 70, "margins": [0, 0, 10, 0], "text": "Corte exato" },
+          { "class": "Label", "name": "lblKeyframeHigh", "style": "s_end", "align": "right", "width": 70, "h_align": "trailing", "margins": [10, 0, 0, 0], "text": "Arquivo menor" },
+          { "class": "Layout", "name": "lyKeyframeTicks", "align": "client", "children": [
+            { "class": "TrackBar", "name": "trkKeyframe", "align": "top", "height": 16, "min": 0, "max": 9, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "video_keyframe" }
+          ] }
+        ] },
+      { "class": "Label", "name": "lblKeyframeHint", "style": "s_hint", "align": "top", "auto_size": true, "wrap": true, "v_align": "leading", "margins": [0, 6, 0, 0], "text": "A cada {{sec}} segundos — bom equilíbrio entre pontos de corte e tamanho. (Recomendado)" }
+    ]
+  }
+}

@@ -366,3 +366,21 @@ O ANÁLOGO que a leitura do código achou (travar ao parar), corrigido:
 O que continua fora do nosso controle: um driver que trave dentro do flush do
 encoder (AMF/NVENC) ao fechar o arquivo — aí o `stop_recording` não volta e o
 log mostra a finalização em curso.
+
+## Memória gravando (03/11/2026)
+
+Medido a 4K60, uma tela e 8 faixas de áudio, numa máquina de 16 núcleos lógicos (memória
+comprometida / privada no gerenciador de tarefas):
+
+| Encoder | Comprometida | Privada | Observação |
+|---|---|---|---|
+| AV1 por hardware (AMF) | 411 MB | 112 MB | o quadro fica na placa; estável por 3:45 |
+| x264, threads do próprio x264 (24) | 3,1 GB | 2,2 GB | cada thread guarda os próprios quadros |
+| x264 com 8 threads (o de agora) | 1,6 GB | 1,2 GB | sem quadro perdido, mesmo tamanho de arquivo |
+| x264 com 4 threads | 1,3 GB | 0,9 GB | já atrasa quadros: fica 8 |
+| SVT-AV1 (padrão) | 5,0 GB | 3,7 GB | o custo do encoder; `lp`, `lookahead` e `preset=12` não mudam |
+| SVT-AV1 com `pred-struct=1` | 0,9 GB | 0,55 GB | não acompanha: 27 de 60 quadros por segundo |
+
+O automático nunca escolhe o AV1 por software (pegadinha #53); sem encoder de hardware ele
+cai no x264, e é aí que o limite de threads (`capture/encode.rs`, `x264_threads`) vale. Na
+exportação, que não é em tempo real, as threads seguem as do x264.

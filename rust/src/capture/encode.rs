@@ -97,6 +97,12 @@ fn sw_pix_fmt(codec: &str) -> i32 {
     }
 }
 
+/// As threads do x264 na gravação: as dele (1,5 por núcleo lógico), até 8.
+fn x264_threads() -> usize {
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    (cores * 3 / 2).clamp(1, 8)
+}
+
 fn is_hw(codec: &str) -> bool {
     let c = codec.to_ascii_lowercase();
     c.ends_with("_amf") || c.ends_with("_nvenc")
@@ -263,6 +269,12 @@ impl AvVideoEncoder {
             return Err(format!("sem controle de qualidade constante pra \"{}\"", cfg.codec));
         }
         opts.set("g", &(cfg.fps * cfg.keyframe_sec.max(1)).to_string());
+        // O x264 abre 1,5 thread por núcleo lógico, e cada uma guarda os próprios quadros:
+        // a 4K60 numa máquina de 16 núcleos eram 3,1 GB comprometidos. Com 8 caiu para
+        // 1,6 GB, sem quadro perdido e com o mesmo tamanho de arquivo (com 4, atrasa).
+        if cfg.codec.eq_ignore_ascii_case("libx264") {
+            opts.set("threads", &x264_threads().to_string());
+        }
         // Quadro marcado como I vira IDR de verdade (x264/NVENC). O AMF não tem
         // a opção: ver `can_force_key`.
         if !cfg.codec.ends_with("_amf") {

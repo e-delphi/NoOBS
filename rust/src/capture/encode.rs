@@ -280,6 +280,10 @@ impl AvVideoEncoder {
         if !cfg.codec.ends_with("_amf") {
             opts.set("forced-idr", "1");
         }
+        // Quanto o encoder (e o driver dele) aloca ao abrir: o NVENC e o AMF guardam os
+        // buffers de saída na memória do processo, e o log é o único jeito de ver isso numa
+        // máquina que não é a nossa.
+        let (before, _) = crate::bridge::replay::process_memory();
         let rc = unsafe { (a.codec.avcodec_open2)(ctx.ptr(), codec, opts.as_mut_ptr()) };
         let left = opts.leftover_keys();
         if !left.is_empty() {
@@ -288,6 +292,15 @@ impl AvVideoEncoder {
         if rc < 0 {
             return Err(format!("avcodec_open2(\"{}\"): {}", cfg.codec, av_err_str(rc)));
         }
+        let (after, _) = crate::bridge::replay::process_memory();
+        log!(
+            "Captura: \"{}\" {}x{} abriu com {:+} MB comprometidos (processo: {} MB)",
+            cfg.codec,
+            cfg.width,
+            cfg.height,
+            (after as i64 - before as i64) / (1024 * 1024),
+            after / (1024 * 1024)
+        );
         Ok(ctx)
     }
 

@@ -132,16 +132,19 @@ fn gb(bytes: u64) -> String {
     format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }
 
+/// (memória privada comprometida, working set) do processo, em bytes. O "privado" do
+/// gerenciador de tarefas: o working set encolhe quando o Windows apara o processo —
+/// justo o que acontece sob pressão.
+pub fn process_memory() -> (u64, u64) {
+    let mut pm = PROCESS_MEMORY_COUNTERS_EX { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..Default::default() };
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut pm as *mut _ as *mut PROCESS_MEMORY_COUNTERS, pm.cb).is_ok() };
+    if ok { (pm.PrivateUsage as u64, pm.WorkingSetSize as u64) } else { (0, 0) }
+}
+
 /// Uma linha nas bordas do buffer e a cada 30 s: sem isso não há como separar
 /// depois "o jogo travou pelo buffer" de "travou por outra coisa".
 pub fn log_mem_usage(when: &str) {
-    let mut pm = PROCESS_MEMORY_COUNTERS_EX { cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX>() as u32, ..Default::default() };
-    // O "privado" do gerenciador de tarefas: o working set encolhe quando o
-    // Windows apara o processo — justo o que acontece sob pressão.
-    let ok = unsafe {
-        GetProcessMemoryInfo(GetCurrentProcess(), &mut pm as *mut _ as *mut PROCESS_MEMORY_COUNTERS, pm.cb).is_ok()
-    };
-    let (priv_, ws) = if ok { (pm.PrivateUsage as u64, pm.WorkingSetSize as u64) } else { (0, 0) };
+    let (priv_, ws) = process_memory();
     let mut ms = MEMORYSTATUSEX { dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
     let _ = unsafe { GlobalMemoryStatusEx(&mut ms) };
     log!(
@@ -533,7 +536,9 @@ fn perf_tick() {
         s.perf_prev_cpu = cpu;
         s.perf_prev_wall = Some(Instant::now());
     });
-    log!("Desempenho [{what}]: {obs} | GPU: {gpu} | CPU NoOBS {pct:.1}%");
+    let (committed, ws) = process_memory();
+    let mb = |b: u64| b / (1024 * 1024);
+    log!("Desempenho [{what}]: {obs} | GPU: {gpu} | CPU NoOBS {pct:.1}% | memoria NoOBS {} MB comprometida, {} MB working set", mb(committed), mb(ws));
 }
 
 // ---------------------------------------------------------------------------

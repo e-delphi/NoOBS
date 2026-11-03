@@ -38,8 +38,11 @@ fn opens(dev: &Device, codec: &str) -> bool {
     }
     // 1280x720: o AMF de HEVC/AV1 recusa quadro pequeno ("Init() failed with
     // error 5" em 256x144) e grava normal em tamanho de tela — o teste
-    // pequeno dava "sem hardware" falso.
-    let (w, h) = (1280, 720);
+    // pequeno dava "sem hardware" falso. Os de software não têm esse limite e
+    // custam pela área: o SVT-AV1 a 720p comprometia +763 MB só para o teste
+    // (o processo ia a ~950 MB a cada vez que o motor subia).
+    let software = codec.starts_with("lib");
+    let (w, h) = if software { (320, 240) } else { (1280, 720) };
     let cfg = VideoEncoderConfig { codec: codec.into(), width: w, height: h, fps: 30, crf: 23, keyframe_sec: 2 };
     let Ok(mut enc) = AvVideoEncoder::open(dev, &cfg) else { return false };
     let Ok(conv) = super::gpu::Nv12Converter::new(dev, w, h) else { return true };

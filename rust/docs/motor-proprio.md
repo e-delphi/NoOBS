@@ -384,3 +384,9 @@ comprometida / privada no gerenciador de tarefas):
 O automático nunca escolhe o AV1 por software (pegadinha #53); sem encoder de hardware ele
 cai no x264, e é aí que o limite de threads (`capture/encode.rs`, `x264_threads`) vale. Na
 exportação, que não é em tempo real, as threads seguem as do x264.
+
+O teste de encoders (no arranque e a cada vez que o motor sobe, inclusive depois de hibernar)
+abria o SVT-AV1 a 1280x720 e comprometia +763 MB por um instante (o processo ia a ~950 MB);
+os de software agora são testados a 320x240 (+227 MB, o custo fixo do SVT). O log mostra o
+que cada encoder aloca ao abrir (`abriu com +N MB comprometidos`) e a linha de Desempenho
+traz a memória do processo a cada 30 s, para medir numa máquina que não é a nossa (NVENC).

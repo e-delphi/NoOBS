@@ -104,6 +104,24 @@ impl ActivityIndicator {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -364,6 +382,24 @@ impl Breadcrumb {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -668,6 +704,24 @@ impl Button {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -943,6 +997,24 @@ impl CheckBox {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -1232,6 +1304,24 @@ impl Chip {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -1507,6 +1597,24 @@ impl Circle {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -1805,6 +1913,24 @@ impl ComboBox {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -2032,6 +2158,18 @@ impl Edit {
     }
     pub fn set_only_allowed(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "only_allowed", value)
+    }
+    pub fn char_map(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_map"))
+    }
+    pub fn set_char_map(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_map", Into::<String>::into(value))
+    }
+    pub fn char_case(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_case"))
+    }
+    pub fn set_char_case(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_case", Into::<String>::into(value))
     }
     pub fn read_only(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "read_only").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -2272,6 +2410,24 @@ impl Edit {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -2549,6 +2705,24 @@ impl FlowLayout {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -2822,6 +2996,18 @@ impl Form {
     pub fn set_chars_override(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "chars_override", value)
     }
+    pub fn char_map(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_map"))
+    }
+    pub fn set_char_map(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_map", Into::<String>::into(value))
+    }
+    pub fn key_preview(self, ui: &Ui) -> bool {
+        handles::read(ui, self.id, "key_preview").and_then(|v| v.to_bool().ok()).unwrap_or_default()
+    }
+    pub fn set_key_preview(self, ui: &mut Ui, value: bool) {
+        handles::write(ui, self.id, "key_preview", value)
+    }
     pub fn zoom(self, ui: &Ui) -> f64 {
         handles::read(ui, self.id, "zoom").and_then(|v| v.to_f64().ok()).unwrap_or_default()
     }
@@ -2911,6 +3097,24 @@ impl Form {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -3200,6 +3404,24 @@ impl Frame {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -3460,6 +3682,24 @@ impl FrameView {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -3733,6 +3973,24 @@ impl Image {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -4073,6 +4331,24 @@ impl Label {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -4280,6 +4556,12 @@ impl Layout {
     pub fn set_chars_override(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "chars_override", value)
     }
+    pub fn char_map(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_map"))
+    }
+    pub fn set_char_map(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_map", Into::<String>::into(value))
+    }
     pub fn left(self, ui: &Ui) -> f64 {
         handles::read(ui, self.id, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
     }
@@ -4351,6 +4633,24 @@ impl Layout {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -4559,6 +4859,12 @@ impl Panel {
     pub fn set_chars_override(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "chars_override", value)
     }
+    pub fn char_map(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_map"))
+    }
+    pub fn set_char_map(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_map", Into::<String>::into(value))
+    }
     pub fn fill(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "fill"))
     }
@@ -4684,6 +4990,24 @@ impl Panel {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -4957,6 +5281,24 @@ impl ProgressBar {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -5248,6 +5590,24 @@ impl RecordButton {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -5558,6 +5918,24 @@ impl Rectangle {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -5813,6 +6191,24 @@ impl ScreenLayout {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -6050,6 +6446,12 @@ impl ScrollBox {
     pub fn set_chars_override(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "chars_override", value)
     }
+    pub fn char_map(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "char_map"))
+    }
+    pub fn set_char_map(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "char_map", Into::<String>::into(value))
+    }
     pub fn left(self, ui: &Ui) -> f64 {
         handles::read(ui, self.id, "left").and_then(|v| v.to_f64().ok()).unwrap_or_default()
     }
@@ -6121,6 +6523,24 @@ impl ScrollBox {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -6395,6 +6815,24 @@ impl SegmentedControl {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -6664,6 +7102,24 @@ impl Switch {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -6941,6 +7397,24 @@ impl TabControl {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -7204,6 +7678,24 @@ impl TabItem {
     }
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
+    }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
     }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
@@ -7514,6 +8006,24 @@ impl TrackBar {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -7796,6 +8306,24 @@ impl Waveform {
     pub fn set_accepts_drops(self, ui: &mut Ui, value: bool) {
         handles::write(ui, self.id, "accepts_drops", value)
     }
+    pub fn drag_data(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_data"))
+    }
+    pub fn set_drag_data(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_data", Into::<String>::into(value))
+    }
+    pub fn drag_label(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_label"))
+    }
+    pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drop_types(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drop_types"))
+    }
+    pub fn set_drop_types(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drop_types", Into::<String>::into(value))
+    }
     pub fn tab_stop(self, ui: &Ui) -> bool {
         handles::read(ui, self.id, "tab_stop").and_then(|v| v.to_bool().ok()).unwrap_or_default()
     }
@@ -8053,7 +8581,7 @@ impl FrmMain {
     /// Monta a instância de um frmMain recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             pnlSources: Panel { id: handles::resolve(ui, root, "pnlSources", "Panel", &mut problems) },
@@ -8442,7 +8970,7 @@ impl FrmSettings {
     /// Monta a instância de um frmSettings recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             pnlSettings: Panel { id: handles::resolve(ui, root, "pnlSettings", "Panel", &mut problems) },
@@ -8762,7 +9290,7 @@ impl FrmPlayer {
     /// Monta a instância de um frmPlayer recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             pnlPlayer: Panel { id: handles::resolve(ui, root, "pnlPlayer", "Panel", &mut problems) },
@@ -9075,7 +9603,7 @@ impl FrmExport {
     /// Monta a instância de um frmExport recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             pnlExport: Panel { id: handles::resolve(ui, root, "pnlExport", "Panel", &mut problems) },
@@ -9229,7 +9757,7 @@ impl FrmPicker {
     /// Monta a instância de um frmPicker recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             pnlPicker: Panel { id: handles::resolve(ui, root, "pnlPicker", "Panel", &mut problems) },
@@ -9471,7 +9999,7 @@ impl FraGeneral {
     /// Monta a instância de um fraGeneral recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblTheme: Label { id: handles::resolve(ui, root, "lblTheme", "Label", &mut problems) },
@@ -9706,7 +10234,7 @@ impl FraOnRecord {
     /// Monta a instância de um fraOnRecord recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             chkRecIndicator: CheckBox { id: handles::resolve(ui, root, "chkRecIndicator", "CheckBox", &mut problems) },
@@ -9955,7 +10483,7 @@ impl FraFiles {
     /// Monta a instância de um fraFiles recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblRecordDir: Label { id: handles::resolve(ui, root, "lblRecordDir", "Label", &mut problems) },
@@ -10143,7 +10671,7 @@ impl FraVideo {
     /// Monta a instância de um fraVideo recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblCodec: Label { id: handles::resolve(ui, root, "lblCodec", "Label", &mut problems) },
@@ -10343,7 +10871,7 @@ impl FraAudio {
     /// Monta a instância de um fraAudio recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblAudioBitrate: Label { id: handles::resolve(ui, root, "lblAudioBitrate", "Label", &mut problems) },
@@ -10479,7 +11007,7 @@ impl FraReplay {
     /// Monta a instância de um fraReplay recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblReplay: Label { id: handles::resolve(ui, root, "lblReplay", "Label", &mut problems) },
@@ -10701,7 +11229,7 @@ impl FraHotkeys {
     /// Monta a instância de um fraHotkeys recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblHotkeysHint: Label { id: handles::resolve(ui, root, "lblHotkeysHint", "Label", &mut problems) },
@@ -10789,7 +11317,7 @@ impl FraDevices {
     /// Monta a instância de um fraDevices recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblDevicesHint: Label { id: handles::resolve(ui, root, "lblDevicesHint", "Label", &mut problems) },
@@ -10886,7 +11414,7 @@ impl FraTranscribe {
     /// Monta a instância de um fraTranscribe recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblTrLocal: Label { id: handles::resolve(ui, root, "lblTrLocal", "Label", &mut problems) },
@@ -11089,7 +11617,7 @@ impl FraUpdates {
     /// Monta a instância de um fraUpdates recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             lblVersion: Label { id: handles::resolve(ui, root, "lblVersion", "Label", &mut problems) },
@@ -11231,7 +11759,7 @@ impl FraAbout {
     /// Monta a instância de um fraAbout recém-criado (o `register` liga). Um componente que
     /// sumiu do form ou mudou de classe impede o form de abrir, com a lista do que não bate.
     pub fn bind(ui: &mut Ui, root: ComponentId) -> Result<Box<dyn std::any::Any>, String> {
-        let mut problems = Vec::new();
+        let mut problems: Vec<String> = Vec::new();
         let instance = Self {
             form: Form { id: root },
             imgAbout: Image { id: handles::resolve(ui, root, "imgAbout", "Image", &mut problems) },

@@ -132,6 +132,20 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
     acompanha: 4K a 16×, 1080p a 32×);
   - medidores suaves (`LevelMeter.smoothing`);
   - roda do mouse com 100 pontos por dente e deslize (`scroll` no `NoOBS.ironproj`).
+- **Conferido de novo (03/11/2026)**, com o iron atual, contra as capturas da versão Slint:
+  - o passeio pelas telas (`NOOBS_TOUR=pasta IRON_SNAPSHOT=outra NOOBS_TOUR_FILE=gravação`,
+    só com a feature `dev`: `src/tour.rs`) abre a principal, as 11 abas das Configurações,
+    o player com os painéis e a exportação, e grava o quadro de cada uma;
+  - acertado: o texto de exemplo dos campos na cor `text-3` da Slint (a cor `placeholder`
+    do tema), a busca da biblioteca como o `SearchBox` (Segoe UI 12, raio 7: estilo
+    `Edit.search`), o combo da ação nos atalhos com o texto inteiro, "2:13 / 5:00" na prévia
+    do indicador do buffer, a margem do quadro do motor de transcrição e as linhas do Sobre;
+  - de propósito diferente: os códigos `{AAAA}` da aba Arquivos em monoespaçada, como no
+    original web (a Slint perdeu o `<code>`);
+  - o player acelerado medido pelo `tests/player.rs` (o motor sem a janela, 6 s em cada
+    velocidade): 1080p AV1 liso a 8× (120 a 148 quadros por segundo, nenhum salto); 4K AV1
+    30 fps a 8× com 2 a 5 saltos de ~0,5 s em 6 s (a 8× pede 240 quadros decodificados por
+    segundo e a RX 9070 XT entrega ~210); a 16×, de keyframe em keyframe.
 - **Cores do projeto.** As cores com nome ficam em `colors` no
   `NoOBS.ironproj` (verde, vermelho, âmbar, as faixas `track_1`…`track_10`,
   os falantes `speaker_1`…`speaker_6`, os painéis do player `side_*`, uma por

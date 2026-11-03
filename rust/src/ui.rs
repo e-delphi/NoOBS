@@ -701,6 +701,8 @@ pub fn run() {
         }
     };
     let form: ComponentId = app.main_form;
+    #[cfg(feature = "dev")]
+    crate::tour::start(&mut app.ui);
     let _ = app.ui.set_prop(form, "caption", window_title().as_str());
     // Nasce escondida: o 1º `restore_from_tray` põe no lugar (posição,
     // maximizada, minimizada) e só então mostra; no /autostart com bandeja ela

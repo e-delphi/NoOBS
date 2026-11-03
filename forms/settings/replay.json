@@ -38,9 +38,9 @@
         { "class": "Layout", "name": "lyRepOpacity", "align": "top", "height": 20, "margins": [0, 0, 0, 0], "children": [
           { "class": "Label", "name": "lblRepOpacity", "style": "s_inline", "align": "left", "width": 70, "margins": [0, 0, 8, 0], "text": "Opacidade" },
           { "class": "Label", "name": "lblRepOpacityPct", "style": "s_inline", "align": "right", "width": 42, "h_align": "trailing", "text": "90%" },
-          { "class": "Panel", "name": "pnlRepPreview", "style": "s_pill", "align": "right", "width": 96, "margins": [8, 0, 8, 0], "children": [
+          { "class": "Panel", "name": "pnlRepPreview", "style": "s_pill", "align": "right", "width": 100, "margins": [8, 0, 8, 0], "children": [
             { "class": "Circle", "name": "dotRepPreview", "fill": "green", "stroke_width": 0, "hit_test": false, "left": 8, "top": 6, "width": 8, "height": 8 },
-            { "class": "Label", "name": "lblRepPreview", "style": "s_pill", "hit_test": false, "left": 22, "top": 0, "width": 66, "height": 20, "text": "2:13/5:00" }
+            { "class": "Label", "name": "lblRepPreview", "style": "s_pill", "hit_test": false, "left": 22, "top": 0, "width": 72, "height": 20, "text": "2:13 / 5:00" }
           ] },
           { "class": "Layout", "name": "lyRepOpacitySlider", "align": "client", "children": [
             { "class": "TrackBar", "name": "trkRepOpacity", "align": "vert_center", "height": 16, "min": 0, "max": 16, "frequency": 1, "solid_thumb": true, "thumb_size": 14, "track_size": 4, "on_change": "replay_opacity" }

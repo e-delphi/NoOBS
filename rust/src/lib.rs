@@ -118,6 +118,10 @@ modulos! {
     area_frame,
 }
 
+// O passeio pelas telas (NOOBS_TOUR), para comparar com a versão anterior.
+#[cfg(feature = "dev")]
+mod tour;
+
 #[cfg(test)]
 mod testkit;
 #[cfg(test)]

@@ -2062,7 +2062,7 @@ fn hotkey_cards(ui: &mut Ui, page: ComponentId) {
                 });
             }) {
                 if let Some(cb) = ui.control_mut(m) {
-                    cb.set_align(Align::Left).set_width(170.0).set_margins([0.0, 0.0, 10.0, 0.0]);
+                    cb.set_align(Align::Left).set_width(176.0).set_margins([0.0, 0.0, 10.0, 0.0]);
                 }
             }
             let mods = std::rc::Rc::new(std::cell::Cell::new((ctrl, shift, alt, win)));

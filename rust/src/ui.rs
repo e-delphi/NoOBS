@@ -88,6 +88,8 @@ pub struct Hooks {
     pub on_device_change: Option<fn()>,
     pub on_should_hide_on_close: Option<fn() -> bool>,
     pub on_window_restored: Option<fn()>,
+    /// A janela foi para a bandeja (o ócio que hiberna começa a contar).
+    pub on_window_hidden: Option<fn()>,
     /// Janela criada, antes do laço: o backend e a interface sobem.
     pub on_start: Option<fn()>,
     pub on_shutdown: Option<fn()>,
@@ -100,6 +102,7 @@ static HOOKS: std::sync::Mutex<Hooks> = std::sync::Mutex::new(Hooks {
     on_device_change: None,
     on_should_hide_on_close: None,
     on_window_restored: None,
+    on_window_hidden: None,
     on_start: None,
     on_shutdown: None,
 });
@@ -301,6 +304,24 @@ pub fn hide_to_tray() {
     remember_maximized();
     crate::view::call(|v| v.window_hidden());
     window_command(WindowCommand::Hide);
+    if let Some(f) = hooks(|h| h.on_window_hidden) {
+        f();
+    }
+}
+
+/// Devolve ao Windows as páginas do processo que não estão em uso (o working set encolhe;
+/// o que for tocado de novo volta sozinho).
+pub fn trim_memory() {
+    unsafe {
+        let _ = windows::Win32::System::Threading::SetProcessWorkingSetSize(windows::Win32::System::Threading::GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+/// A dica do ícone da bandeja diz que o app está hibernando.
+pub fn set_tray_hibernating(on: bool) {
+    let title = window_title();
+    let tip = if on { crate::lang::t_with("tray.hibernating", &[("title", &title)]) } else { title };
+    tray::update_tooltip(&tip);
 }
 
 fn remember_maximized() {
@@ -725,6 +746,12 @@ pub fn run() {
     // Backend (atalhos, vigias, fila de transcrição) e interface sobem agora.
     if let Some(f) = hooks(|h| h.on_start) {
         f();
+    }
+    // Nasceu na bandeja: o ócio que hiberna já começa a contar.
+    if start_in_tray {
+        if let Some(f) = hooks(|h| h.on_window_hidden) {
+            f();
+        }
     }
 
     app.development();

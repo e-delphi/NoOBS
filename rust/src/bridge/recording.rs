@@ -925,6 +925,18 @@ pub fn on_page_ready() {
     }
 }
 
+/// Hibernando: solta o motor (a próxima gravação o sobe sob demanda; a volta da janela,
+/// pelo warmup). Gravando, parando ou com o buffer ligado, ele fica.
+pub fn on_light() {
+    ui::kill_timer(TIMER_WARMUP);
+    with_state(|s| s.encoder_caps_pushed = false);
+    let busy = engine::with_engine(|e| e.is_recording() || e.is_stopping() || e.is_replay_active()).unwrap_or(false);
+    if engine::exists() && !busy && !recording_active() {
+        engine::destroy();
+        log::log("Motor: solto pra hibernar.");
+    }
+}
+
 fn on_warmup() {
     // One-shot — desliga antes de chamar (o init bloqueia a main por ~300 ms).
     ui::kill_timer(TIMER_WARMUP);

@@ -42,6 +42,62 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Dados lidos do fim de um arquivo (`file_meta`) mudam o que o card mostra.
 pub const TIMER_FILEMETA_REFRESH: usize = 7017;
+/// Ócio na bandeja: a cada minuto com a janela escondida, hiberna se não houver trabalho
+/// (`shell::on_hibernate_idle`).
+pub const TIMER_HIBERNATE_IDLE: usize = 7008;
+/// Pouco depois de hibernar: devolve a memória solta ao Windows e mede.
+const TIMER_LIGHT_TRIM: usize = 7020;
+const LIGHT_TRIM_DELAY_MS: u32 = 3000;
+
+/// Hibernando: os dispositivos e o motor soltos, a memória devolvida ([`enter_light`]).
+static LIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Hibernando?
+pub fn is_light() -> bool {
+    LIGHT.load(Ordering::SeqCst)
+}
+
+/// Hibernar sem sair do processo: solta o que só serve com a janela à vista — as prévias
+/// e os medidores (que mantêm os microfones abertos), o vigia da pasta e o motor de
+/// captura — e, logo depois, devolve as páginas ao Windows (~3 MB no gerenciador de
+/// tarefas). Ficam a janela (escondida, sem pintar), a bandeja, os atalhos, os vigias de
+/// mic e de programas e as filas (transcrição, metadados). Voltar é [`leave_light`].
+///
+/// Roda de novo mesmo já hibernando: uma gravação feita escondida (atalho, mic, bandeja)
+/// religa o motor, e o ócio seguinte solta outra vez. Cada passo é no-op se não há o que
+/// soltar.
+pub fn enter_light() {
+    let was_light = LIGHT.swap(true, Ordering::SeqCst);
+    log::log(if was_light { "Hibernacao: soltando de novo o que a captura religou." } else { "Hibernacao: soltando a interface (mesmo processo)." });
+    replay::log_mem_usage("antes de hibernar");
+    devices::suspend();
+    record_watch::stop();
+    ui::kill_timer(TIMER_FILEMETA_REFRESH);
+    recording::on_light();
+    ui::set_tray_hibernating(true);
+    // O heap e o driver levam um instante para soltar a memória.
+    ui::set_timer(TIMER_LIGHT_TRIM, LIGHT_TRIM_DELAY_MS);
+}
+
+/// O que ainda há para soltar hibernando (o motor ou os dispositivos que uma gravação
+/// escondida religou)?
+pub fn light_has_work() -> bool {
+    !is_light() || crate::engine::exists() || devices::active()
+}
+
+/// Volta da hibernação (a janela vai aparecer): sobe de novo o que [`enter_light`] soltou.
+pub fn leave_light() {
+    if !LIGHT.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    log::log("Hibernacao: voltando.");
+    ui::kill_timer(TIMER_LIGHT_TRIM);
+    ui::set_tray_hibernating(false);
+    library::push_recordings();
+    devices::do_init();
+    library::start_record_watch();
+    recording::on_page_ready();
+}
 
 /// Lido por TODAS as workers: abortam cedo quando o app está fechando. Um
 /// `AtomicBool` com `SeqCst` dá a atomicidade e a barreira de memória que o
@@ -73,6 +129,7 @@ pub fn install_hooks() {
         on_device_change: Some(devices::on_device_node_change),
         on_should_hide_on_close: Some(shell::should_hide_on_close),
         on_window_restored: Some(shell::on_window_restored),
+        on_window_hidden: Some(shell::on_window_hidden),
         on_start: Some(start),
         on_shutdown: Some(shutdown),
     });
@@ -128,6 +185,18 @@ fn on_timer_other(id: usize) {
     if id == TIMER_FILEMETA_REFRESH {
         ui::kill_timer(TIMER_FILEMETA_REFRESH);
         library::push_recordings();
+        return;
+    }
+    if id == TIMER_HIBERNATE_IDLE {
+        shell::on_hibernate_idle();
+        return;
+    }
+    if id == TIMER_LIGHT_TRIM {
+        ui::kill_timer(TIMER_LIGHT_TRIM);
+        if is_light() {
+            ui::trim_memory();
+            replay::log_mem_usage("hibernando");
+        }
         return;
     }
     log!("OnTimer: id={id} sem tratador (módulo ainda não portado).");

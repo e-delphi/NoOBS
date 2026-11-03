@@ -712,9 +712,11 @@ fn start_thumb_thread() {
     if with_dev(|d| std::mem::replace(&mut d.thumb_thread_started, true)) {
         return;
     }
-    std::thread::spawn(|| {
+    // Hibernar ([`suspend`]) passa a geração: esta thread vê e termina.
+    let generation = THUMB_GEN.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
         let mut last_reason = String::new();
-        while !is_shutting_down() {
+        while !is_shutting_down() && THUMB_GEN.load(Ordering::SeqCst) == generation {
             // Captura PRIMEIRO, dorme DEPOIS: a 1ª prévia aparece quase na hora.
             let reason = thumb_pause_reason();
             if reason != last_reason {
@@ -1003,6 +1005,34 @@ pub fn on_timer(id: usize) -> bool {
         _ => return false,
     }
     true
+}
+
+/// A geração da thread de prévias (a de uma geração antiga termina).
+static THUMB_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Os dispositivos estão de pé (prévias, medidores, hot-plug)?
+pub fn active() -> bool {
+    with_dev(|d| d.init_started)
+}
+
+/// Hibernando: para as prévias, os medidores (que mantêm os microfones abertos) e o
+/// hot-plug. O [`do_init`] da volta sobe tudo de novo.
+pub fn suspend() {
+    if !with_dev(|d| d.init_started) {
+        return;
+    }
+    for id in [TIMER_AUDIO_REFRESH, TIMER_MONITOR_REFRESH, TIMER_AUDIO_METER, TIMER_WEBCAM_REFRESH] {
+        ui::kill_timer(id);
+    }
+    THUMB_GEN.fetch_add(1, Ordering::SeqCst);
+    audio_watch::stop();
+    wam::done_audio();
+    with_dev(|d| {
+        d.thumb_thread_started = false;
+        d.initialized = false;
+        d.init_started = false;
+    });
+    log::log("Dispositivos: suspensos (previas, medidores e hot-plug parados).");
 }
 
 /// Encerra o que este módulo mantém vivo.

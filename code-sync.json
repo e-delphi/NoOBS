@@ -141,6 +141,7 @@
         "fraGeneral/btnThemeSystem.on_click": "general_theme",
         "fraGeneral/chkAutostart.on_change": "general_autostart",
         "fraGeneral/chkCloseToTray.on_change": "general_close_to_tray",
+        "fraGeneral/chkHibernate.on_change": "general_hibernate",
         "fraGeneral/chkRunAsAdmin.on_change": "general_run_as_admin",
         "fraGeneral/cmbLanguage.on_change": "general_language",
         "fraGeneral/edtWindowTitle.on_exit": "general_window_title",
@@ -283,6 +284,10 @@
         "fraGeneral.general_close_to_tray": {
           "hash": "74afd1fc72770253",
           "seen": 1
+        },
+        "fraGeneral.general_hibernate": {
+          "hash": "76ea002342292b66",
+          "seen": 0
         },
         "fraGeneral.general_language": {
           "hash": "c66855b7178dfd62",
@@ -782,6 +787,7 @@
     "chkCheckUpdates",
     "chkCloseToTray",
     "chkFullscreen",
+    "chkHibernate",
     "chkMinimize",
     "chkMuteWhenMuted",
     "chkPlaySound",
@@ -897,6 +903,7 @@
     "lblFpsHint",
     "lblFpsLow",
     "lblFullscreenHint",
+    "lblHibernateHint",
     "lblHiddenFolders",
     "lblHiddenFoldersHint",
     "lblHotkeysHint",
@@ -1019,6 +1026,7 @@
     "lnRule4",
     "lnRule5",
     "lnRule6",
+    "lnRuleHibernate",
     "lnSetHead",
     "lnSetSide",
     "lnSources",

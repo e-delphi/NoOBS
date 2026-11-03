@@ -38,5 +38,9 @@ impl FraGeneral {
     pub fn general_reset(&mut self, ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
         crate::app_settings::general::reset(ui);
     }
+
+    pub fn general_hibernate(&mut self, ui: &mut Ui, sender: ComponentId, _args: &EventArgs) {
+        crate::app_settings::general::hibernate(ui, sender);
+    }
 }
 

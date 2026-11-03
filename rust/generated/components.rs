@@ -9980,6 +9980,9 @@ pub struct FraGeneral {
     pub lnRule5: Rectangle,
     pub chkCloseToTray: CheckBox,
     pub lblCloseToTrayHint: Label,
+    pub lnRuleHibernate: Rectangle,
+    pub chkHibernate: CheckBox,
+    pub lblHibernateHint: Label,
     pub lnRule6: Rectangle,
     pub lblReset: Label,
     pub lblResetHint: Label,
@@ -10025,6 +10028,9 @@ impl FraGeneral {
             lnRule5: Rectangle { id: handles::resolve(ui, root, "lnRule5", "Rectangle", &mut problems) },
             chkCloseToTray: CheckBox { id: handles::resolve(ui, root, "chkCloseToTray", "CheckBox", &mut problems) },
             lblCloseToTrayHint: Label { id: handles::resolve(ui, root, "lblCloseToTrayHint", "Label", &mut problems) },
+            lnRuleHibernate: Rectangle { id: handles::resolve(ui, root, "lnRuleHibernate", "Rectangle", &mut problems) },
+            chkHibernate: CheckBox { id: handles::resolve(ui, root, "chkHibernate", "CheckBox", &mut problems) },
+            lblHibernateHint: Label { id: handles::resolve(ui, root, "lblHibernateHint", "Label", &mut problems) },
             lnRule6: Rectangle { id: handles::resolve(ui, root, "lnRule6", "Rectangle", &mut problems) },
             lblReset: Label { id: handles::resolve(ui, root, "lblReset", "Label", &mut problems) },
             lblResetHint: Label { id: handles::resolve(ui, root, "lblResetHint", "Label", &mut problems) },
@@ -10071,6 +10077,7 @@ impl FraGeneral {
             "chkAutostart" => Some(self.chkAutostart),
             "chkRunAsAdmin" => Some(self.chkRunAsAdmin),
             "chkCloseToTray" => Some(self.chkCloseToTray),
+            "chkHibernate" => Some(self.chkHibernate),
             _ => None,
         }
     }
@@ -10118,6 +10125,7 @@ impl FraGeneral {
             "lblRunAsAdminHint" => Some(self.lblRunAsAdminHint),
             "lblRunAsAdminState" => Some(self.lblRunAsAdminState),
             "lblCloseToTrayHint" => Some(self.lblCloseToTrayHint),
+            "lblHibernateHint" => Some(self.lblHibernateHint),
             "lblReset" => Some(self.lblReset),
             "lblResetHint" => Some(self.lblResetHint),
             _ => None,
@@ -10163,6 +10171,7 @@ impl FraGeneral {
             "lnRule3" => Some(self.lnRule3),
             "lnRule4" => Some(self.lnRule4),
             "lnRule5" => Some(self.lnRule5),
+            "lnRuleHibernate" => Some(self.lnRuleHibernate),
             "lnRule6" => Some(self.lnRule6),
             _ => None,
         }

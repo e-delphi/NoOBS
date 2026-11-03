@@ -1054,6 +1054,7 @@ fn do_restore(ui: &mut Ui) {
     shell::handle_set_run_as_admin(false);
     recording::handle_set_fullscreen_detect(true);
     shell::handle_set_close_to_tray(true);
+    shell::handle_set_hibernate(true);
     shell::handle_set_config_bool("minimizeOnRecord", true);
     recording::handle_set_rec_indicator(false);
     recording::handle_set_rec_indicator_corner("top-right");
@@ -1573,6 +1574,8 @@ const GENERAL_TEXTS: &[(&str, &str)] = &[
     ("lblRunAsAdminHint", "settings.runAsAdmin.hint"),
     ("chkCloseToTray", "settings.closeToTray.label"),
     ("lblCloseToTrayHint", "settings.closeToTray.hint"),
+    ("chkHibernate", "settings.hibernate.label"),
+    ("lblHibernateHint", "settings.hibernate.hint"),
     ("lblReset", "settings.reset.label"),
     ("lblResetHint", "settings.reset.hint"),
     ("btnReset", "settings.buttons.reset"),
@@ -1637,7 +1640,11 @@ fn load_general(ui: &mut Ui) {
     fset(ui, GENERAL, "chkRunAsAdmin", "checked", config::get_config_bool("runAsAdmin", false));
     let state = if crate::elevate::is_process_elevated() { "settings.runAsAdmin.stateOn" } else { "settings.runAsAdmin.stateOff" };
     fset(ui, GENERAL, "lblRunAsAdminState", "text", lang::t(state));
-    fset(ui, GENERAL, "chkCloseToTray", "checked", config::get_config_bool("closeToTray", true));
+    let tray = config::get_config_bool("closeToTray", true);
+    fset(ui, GENERAL, "chkCloseToTray", "checked", tray);
+    // Hibernar só vale indo para a bandeja.
+    fset(ui, GENERAL, "chkHibernate", "checked", config::get_config_bool("hibernate", true));
+    fset(ui, GENERAL, "chkHibernate", "enabled", tray);
     fit_button(ui, GENERAL, "btnReset");
 }
 
@@ -1676,7 +1683,14 @@ pub mod general {
     }
 
     pub fn close_to_tray(ui: &mut Ui, sender: ComponentId) {
-        shell::handle_set_close_to_tray(checked(ui, sender));
+        let on = checked(ui, sender);
+        shell::handle_set_close_to_tray(on);
+        fset(ui, GENERAL, "chkHibernate", "enabled", on);
+    }
+
+    /// "Liberar memória após 1 minuto na bandeja".
+    pub fn hibernate(ui: &mut Ui, sender: ComponentId) {
+        shell::handle_set_hibernate(checked(ui, sender));
     }
 
     pub fn reset(ui: &mut Ui) {

@@ -146,6 +146,23 @@ As mesmas do porte para o Slint. Cada fase compila e passa nos testes.
     velocidade): 1080p AV1 liso a 8× (120 a 148 quadros por segundo, nenhum salto); 4K AV1
     30 fps a 8× com 2 a 5 saltos de ~0,5 s em 6 s (a 8× pede 240 quadros decodificados por
     segundo e a RX 9070 XT entrega ~210); a 16×, de keyframe em keyframe.
+- **Hibernação na bandeja de volta (03/11/2026).** Tinha saído com o WebView2 (`7e98ca4`);
+  agora no mesmo processo, como a versão `0e9280f`, ajustada ao iron:
+  - a janela indo para a bandeja (ou nascendo nela, no `/autostart`) arma
+    `TIMER_HIBERNATE_IDLE`, que repete a cada minuto enquanto ela estiver escondida: gravando,
+    com o buffer ligado ou no teste de vídeo, espera o próximo; senão `bridge::enter_light`
+    para as prévias, os medidores (que mantêm os microfones abertos) e o hot-plug
+    (`devices::suspend`), o vigia da pasta e o motor (`recording::on_light`), e 3 s depois
+    devolve as páginas ao Windows (`ui::trim_memory`, `SetProcessWorkingSetSize(-1, -1)`);
+  - ficam a janela (escondida, o iron não pinta), a bandeja (dica "(hibernando)"), os atalhos
+    e os vigias de mic e de programas; uma gravação feita escondida religa o motor, e o
+    minuto seguinte o solta de novo;
+  - mostrar a janela (bandeja, 2ª instância) chama `bridge::leave_light`: dispositivos,
+    vigia, lista e o warmup do motor sobem de novo (~1 s);
+  - a opção "Liberar memória após 1 minuto na bandeja" (`hibernate`, ligada por padrão) na
+    aba Geral, ativa só com "Minimizar para bandeja";
+  - medido: 52 MB privados com a janela aberta; na bandeja, 1 minuto depois, 1,7 MB de
+    working set e 0,7 MB privados (o que o gerenciador de tarefas mostra).
 - **Cores do projeto.** As cores com nome ficam em `colors` no
   `NoOBS.ironproj` (verde, vermelho, âmbar, as faixas `track_1`…`track_10`,
   os falantes `speaker_1`…`speaker_6`, os painéis do player `side_*`, uma por

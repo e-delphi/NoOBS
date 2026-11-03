@@ -118,6 +118,7 @@ pub fn register(ui: &mut Ui) {
     ui.register_handler("fraGeneral.general_autostart", form_handler(FraGeneral::general_autostart));
     ui.register_handler("fraGeneral.general_run_as_admin", form_handler(FraGeneral::general_run_as_admin));
     ui.register_handler("fraGeneral.general_close_to_tray", form_handler(FraGeneral::general_close_to_tray));
+    ui.register_handler("fraGeneral.general_hibernate", form_handler(FraGeneral::general_hibernate));
     ui.register_handler("fraGeneral.general_reset", form_handler(FraGeneral::general_reset));
     ui.register_form_class("fraOnRecord", FraOnRecord::bind);
     ui.register_handler("fraOnRecord.onrecord_rec_indicator", form_handler(FraOnRecord::onrecord_rec_indicator));

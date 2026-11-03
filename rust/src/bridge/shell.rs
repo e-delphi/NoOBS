@@ -38,10 +38,58 @@ pub fn should_hide_on_close() -> bool {
     config::get_config_bool("closeToTray", true) || recording::recording_active() || replay_active()
 }
 
-/// Janela voltou da bandeja/taskbar: reempurra o estado de gravação (o que
-/// mudou com ela escondida, pelo atalho ou pela bandeja).
+/// Janela voltou da bandeja/taskbar: desarma o ócio, sai da hibernação e reempurra o
+/// estado de gravação (o que mudou com ela escondida, pelo atalho ou pela bandeja).
 pub fn on_window_restored() {
+    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
+    super::leave_light();
     recording::push_recording_state();
+}
+
+// ---------------------------------------------------------------------------
+// Hibernação por ócio
+// ---------------------------------------------------------------------------
+
+/// Quanto tempo na bandeja até hibernar (e de quanto em quanto tempo confere de novo).
+const HIBERNATE_IDLE_DELAY_MS: u32 = 60_000;
+
+/// Janela foi pra bandeja: arma o ócio (repete a cada minuto enquanto ela estiver
+/// escondida). Com `hibernate` desligado, nada.
+pub fn on_window_hidden() {
+    if !config::get_config_bool("hibernate", true) {
+        log::log("OnWindowHidden: hibernacao desligada no config.");
+        return;
+    }
+    log!("OnWindowHidden: hiberna depois de {HIBERNATE_IDLE_DELAY_MS} ms de ocio.");
+    ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
+    ui::set_timer(super::TIMER_HIBERNATE_IDLE, HIBERNATE_IDLE_DELAY_MS);
+}
+
+/// `TIMER_HIBERNATE_IDLE` (repete): gravando, com o buffer ligado ou no teste de vídeo,
+/// espera o próximo; senão hiberna. Já hibernando, só solta de novo o que uma gravação
+/// escondida religou.
+pub fn on_hibernate_idle() {
+    if ui::is_window_shown() || !config::get_config_bool("hibernate", true) {
+        ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
+        return;
+    }
+    if recording::recording_active() || replay_active() || super::video_test::busy() {
+        return;
+    }
+    if super::light_has_work() {
+        super::enter_light();
+    }
+}
+
+/// "Liberar memória após 1 minuto na bandeja" (aba Geral).
+pub fn handle_set_hibernate(enable: bool) {
+    config::set_config_bool("hibernate", enable);
+    log!("Hibernate: {enable}");
+    if !enable {
+        ui::kill_timer(super::TIMER_HIBERNATE_IDLE);
+    } else if !ui::is_window_visible() {
+        on_window_hidden();
+    }
 }
 
 // ---------------------------------------------------------------------------

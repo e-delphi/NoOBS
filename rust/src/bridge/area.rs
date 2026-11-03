@@ -52,6 +52,8 @@ fn on_area_selected(area: Option<AreaRect>) {
         post_json(json!({ "type": "capture_area_canceled" }));
         return;
     };
+    // Pelo Capturar...: o Timelapse é o da tela, não o de um atalho de antes.
+    recording::set_area_timelapse(None);
     countdown::start(countdown::Target::Area(a), 0);
 }
 
@@ -76,6 +78,7 @@ pub(super) fn start_area(a: AreaRect, frame_shown: bool) {
     } else {
         // Não subiu (recusada ou falhou): a próxima gravação volta às telas.
         recording::set_recording_area(None);
+        recording::set_area_timelapse(None);
         if frame_shown {
             area_frame::hide();
         }

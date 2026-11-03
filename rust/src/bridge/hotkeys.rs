@@ -38,6 +38,8 @@ thread_local! {
     static DEFINING: Cell<Option<usize>> = const { Cell::new(None) };
     /// Atraso do atalho de área sem retângulo, enquanto o usuário seleciona.
     static SELECT_DELAY: Cell<u32> = const { Cell::new(0) };
+    /// O Timelapse desse atalho, enquanto o usuário seleciona.
+    static SELECT_TIMELAPSE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A lista, lida do config (com a migração das chaves antigas) no 1º uso.
@@ -223,7 +225,11 @@ pub fn trigger(index: usize) {
         }
         Mode::Area => match it.area {
             Some(saved) => match area::clamp_to_screen(saved) {
-                Some(a) => countdown::start(countdown::Target::Area(a), it.delay_sec),
+                Some(a) => {
+                    // O Timelapse é o deste atalho, não o do Capturar...
+                    recording::set_area_timelapse(Some(it.timelapse));
+                    countdown::start(countdown::Target::Area(a), it.delay_sec)
+                }
                 None => {
                     log!("Atalhos: area {}x{} em ({}, {}) fora da tela atual.", saved.w, saved.h, saved.x, saved.y);
                     post_error(lang::t("error.areaOffScreen"));
@@ -231,6 +237,7 @@ pub fn trigger(index: usize) {
             },
             None => {
                 SELECT_DELAY.with(|d| d.set(it.delay_sec));
+                SELECT_TIMELAPSE.with(|t| t.set(it.timelapse));
                 if !area_select::start(on_area_selected) {
                     post_json(json!({ "type": "capture_area_canceled" }));
                 }
@@ -242,8 +249,12 @@ pub fn trigger(index: usize) {
 
 fn on_area_selected(area: Option<AreaRect>) {
     let delay = SELECT_DELAY.with(|d| d.take());
+    let timelapse = SELECT_TIMELAPSE.with(|t| t.take());
     match area {
-        Some(a) => countdown::start(countdown::Target::Area(a), delay),
+        Some(a) => {
+            recording::set_area_timelapse(Some(timelapse));
+            countdown::start(countdown::Target::Area(a), delay)
+        }
         None => post_json(json!({ "type": "capture_area_canceled" })),
     }
 }

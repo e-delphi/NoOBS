@@ -59,6 +59,9 @@ pub struct RecordRequest {
     pub window: Option<WindowCapture>,
     /// Gravação de uma área (vence a janela; os dois nunca vêm juntos).
     pub area: Option<AreaRect>,
+    /// Timelapse na área: `Some` vem do atalho (cada um tem o seu); `None` = a opção do
+    /// "Capturar... → Área" (`areaTimelapse`).
+    pub timelapse: Option<bool>,
 }
 
 /// A parte demorada de começar uma gravação (abrir encoder e dispositivos,

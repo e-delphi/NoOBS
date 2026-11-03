@@ -2186,6 +2186,22 @@ fn hotkey_cards(ui: &mut Ui, page: ComponentId) {
                 };
                 label(ui, l2, &area_text, if it.area.is_some() { "s_about_v" } else { "s_inline3" }, Align::Client, 0.0, 35.0);
             }
+            // O Timelapse deste atalho (o do Capturar... não vale aqui).
+            if let Some(l3) = line(ui, 17.0) {
+                if let Ok(t) = ui.create("CheckBox", Some(l3)) {
+                    let _ = ui.set_prop(t, "box_size", 16.0);
+                    let _ = ui.set_prop(t, "style", "web");
+                    let _ = ui.set_prop(t, "text", lang::t("hotkeys.timelapse"));
+                    let _ = ui.set_prop(t, "checked", it.timelapse);
+                    if let Some(cb) = ui.control_mut(t) {
+                        cb.set_align(Align::Client);
+                    }
+                    ui.on(t, "on_change", move |ui, sender, _| {
+                        let on = matches!(ui.get_prop(sender, "checked"), Ok(PropValue::Bool(true)));
+                        hk_update(i, |it| it.timelapse = on);
+                    });
+                }
+            }
         }
         if it.mode != Mode::Replay {
             if let Some(l4) = line(ui, 32.0) {

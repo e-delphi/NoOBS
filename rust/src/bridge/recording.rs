@@ -52,6 +52,8 @@ struct RecState {
     window: Option<WindowCapture>,
     /// Gravação de uma ÁREA da tela (Capturar... → Área); vence a janela.
     area: Option<AreaRect>,
+    /// O Timelapse desta área quando veio de um atalho (`None` = a opção do Capturar...).
+    area_timelapse: Option<bool>,
     window_was_visible_before_record: bool,
     encoder_caps_pushed: bool,
     last_encoder_caps: Option<EncoderCaps>,
@@ -119,6 +121,12 @@ pub fn started_by_mic_watch() -> bool {
 /// Área escolhida no "Capturar... → Área"; `None` volta às telas.
 pub fn set_recording_area(a: Option<AreaRect>) {
     with_state(|s| s.area = a);
+}
+
+/// O Timelapse da próxima gravação de área quando é um atalho que grava (`None` = a opção
+/// do Capturar...). Sai junto com a área, ao parar ou se a gravação não subir.
+pub fn set_area_timelapse(on: Option<bool>) {
+    with_state(|s| s.area_timelapse = on);
 }
 
 /// A área mudou no meio da gravação (moldura movida/redimensionada).
@@ -414,6 +422,7 @@ fn start_impl(run_async: bool) {
         with_state(|s| {
             s.window = None;
             s.area = None;
+            s.area_timelapse = None;
         });
         return;
     }
@@ -507,6 +516,7 @@ fn start_failed(e: &str, t0: Instant) {
         s.recording_active = false;
         s.window = None;
         s.area = None;
+        s.area_timelapse = None;
     });
     replay::sync_transcribe_pause();
     // Reverte os ícones se já tinham virado "gravando" (no-op se não).
@@ -537,12 +547,13 @@ fn prepare_start(mut continue_replay: bool) -> Result<(RecordRequest, Option<eng
     // Continuando o buffer, o codec do nome é o dele (os encoders já rodam).
     let enc_id = if continue_replay { engine::with_engine(|e| e.video_encoder_id().to_owned()).unwrap_or_default() } else { String::new() };
     let output_path = build_recording_path(Local::now(), &enc_id);
-    let (auto_profile, window, area) = with_state(|s| (s.started_by_mic_watch, s.window.clone(), s.area));
+    let (auto_profile, window, area, timelapse) = with_state(|s| (s.started_by_mic_watch, s.window.clone(), s.area, s.area_timelapse));
     let req = RecordRequest {
         output_path: output_path.to_string_lossy().into_owned(),
         auto_profile,
         window,
         area,
+        timelapse,
     };
 
     if continue_replay && !replay::continue_into_recording(&req.output_path) {
@@ -624,6 +635,7 @@ pub fn handle_record_stop() {
         s.started_by_mic_watch = false;
         s.window = None;
         s.area = None;
+        s.area_timelapse = None;
         // Parando pausada, a pausa não conta (o arquivo também não a tem).
         let e = s.elapsed().as_secs() as i32;
         s.recording_paused = false;

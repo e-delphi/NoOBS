@@ -53,7 +53,7 @@ fn chaves_antigas_viram_itens_e_somem() {
         st["items"],
         json!([
             { "mode": "record", "hotkey": "Ctrl+F9", "delaySec": 0 },
-            { "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "delaySec": 3 }
+            { "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "timelapse": false, "delaySec": 3 }
         ])
     );
     for k in ["hotkey", "replayHotkey", "areaHotkey", "areaSaved", "areaDelaySec"] {
@@ -235,4 +235,18 @@ fn salvar_trecho_com_buffer_desligado_nao_faz_nada() {
     send(json!({ "type": "trigger_hotkey", "index": 9 }));
     assert!(testkit::errors().is_empty());
     assert!(testkit::last_of("record_countdown").is_none());
+}
+
+/// O atalho de área de antes desta opção (sem `timelapse`) segue o Timelapse do Capturar...,
+/// como fazia; depois de gravado, cada atalho tem o seu.
+#[test]
+fn atalho_de_area_antigo_herda_o_timelapse_do_capturar() {
+    let _s = begin();
+    config::set_config_bool("areaTimelapse", true);
+    config::set_config_json("hotkeys", Some(json!([{ "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": null }])));
+    let st = state();
+    assert_eq!(st["items"][0]["timelapse"], true);
+    config::set_config_bool("areaTimelapse", false);
+    let st = set(json!([{ "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": null, "timelapse": true }]));
+    assert_eq!(st["items"][0]["timelapse"], true, "o do atalho vence a opção do Capturar...");
 }

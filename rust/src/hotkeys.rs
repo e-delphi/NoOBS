@@ -7,14 +7,15 @@
 //!   { "mode": "record", "hotkey": "Pause/Break" },
 //!   { "mode": "replay", "hotkey": "Ctrl+Shift+Pause/Break" },
 //!   { "mode": "window", "hotkey": "Ctrl+Shift+F7", "title": "nova guia", "appAudio": true, "delaySec": 0 },
-//!   { "mode": "area",   "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "delaySec": 3 },
+//!   { "mode": "area",   "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "timelapse": true, "delaySec": 3 },
 //!   { "mode": "area",   "hotkey": "Ctrl+Alt+Pause/Break", "area": null }
 //! ]
 //! ```
 //!
 //! * `record` grava as telas; `window` grava a janela cujo título CONTÉM
 //!   `title` (sem diferenciar maiúsculas); `area` grava o retângulo salvo, ou
-//!   abre a seleção quando não há um; `replay` salva o trecho do buffer.
+//!   abre a seleção quando não há um (`timelapse`: só o que muda na área, como o
+//!   Timelapse do "Capturar... → Área"); `replay` salva o trecho do buffer.
 //! * `delaySec` (0..[`DELAY_MAX`]) vale pros três modos de gravação.
 //! * Sem tempo máximo: a gravação para pelo mesmo atalho (ou qualquer outro de
 //!   gravação), como sempre.
@@ -89,12 +90,14 @@ pub struct Item {
     pub app_audio: bool,
     /// `area`: retângulo salvo; `None` = abrir a seleção na hora.
     pub area: Option<AreaRect>,
+    /// `area`: grava em Timelapse (só o que muda), em vez da opção do Capturar...
+    pub timelapse: bool,
     pub delay_sec: u32,
 }
 
 impl Item {
     pub fn new(mode: Mode, hotkey: &str) -> Item {
-        Item { mode, hotkey: normalize(hotkey), title: String::new(), app_audio: false, area: None, delay_sec: 0 }
+        Item { mode, hotkey: normalize(hotkey), title: String::new(), app_audio: false, area: None, timelapse: false, delay_sec: 0 }
     }
 }
 
@@ -126,6 +129,8 @@ pub fn item_from_json(v: &Value) -> Option<Item> {
         title: if mode == Mode::Window { s("title").trim().to_owned() } else { String::new() },
         app_audio: mode == Mode::Window && v.get("appAudio").and_then(Value::as_bool).unwrap_or(false),
         area: if mode == Mode::Area { area_from(v.get("area")) } else { None },
+        // Sem a chave (atalho de antes desta opção): o que ele já fazia, a opção do Capturar...
+        timelapse: mode == Mode::Area && v.get("timelapse").and_then(Value::as_bool).unwrap_or_else(|| config::get_config_bool("areaTimelapse", false)),
         delay_sec: if mode.records() { delay } else { 0 },
     })
 }
@@ -142,6 +147,7 @@ pub fn item_to_json(it: &Item) -> Value {
         }
         Mode::Area => {
             m.insert("area".into(), area_json(it.area));
+            m.insert("timelapse".into(), json!(it.timelapse));
         }
         _ => {}
     }
@@ -288,7 +294,7 @@ mod tests {
             { "mode": "record", "hotkey": "pause" },
             { "mode": "replay", "hotkey": "ctrl+shift+f10" },
             { "mode": "window", "hotkey": "Ctrl+Shift+F7", "title": " nova guia ", "appAudio": true, "delaySec": 2 },
-            { "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "delaySec": 3 },
+            { "mode": "area", "hotkey": "Ctrl+Pause/Break", "area": { "x": -1683, "y": 1114, "w": 642, "h": 465 }, "timelapse": true, "delaySec": 3 },
             { "mode": "area", "hotkey": "Ctrl+Alt+Pause/Break", "area": null },
             { "mode": "outra coisa", "hotkey": "F1" }
         ]);
@@ -300,6 +306,8 @@ mod tests {
         assert!(l[2].app_audio);
         assert_eq!(l[3].area, Some(AreaRect { x: -1683, y: 1114, w: 642, h: 465 }));
         assert_eq!(l[3].delay_sec, 3);
+        assert!(l[3].timelapse, "o Timelapse do atalho de área");
+        assert!(!l[4].timelapse, "sem a chave, desligado");
         assert_eq!(l[4].area, None);
         assert_eq!(list_from_json(&list_to_json(&l)), l);
         // Campos de outro modo não vão pro arquivo.

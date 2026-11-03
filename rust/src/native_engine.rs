@@ -272,7 +272,9 @@ impl NativeEngine {
 
         // Timelapse (só gravação de área): corta o que ficou parado. O corte é
         // por GOP, então keyframe a cada 1 s, como o buffer.
-        let motion = area.filter(|_| replay.is_none() && config::get_config_bool("areaTimelapse", false)).map(|a| MotionConfig {
+        // O atalho de área traz o dele; o Capturar... usa a opção da tela.
+        let timelapse = req.timelapse.unwrap_or_else(|| config::get_config_bool("areaTimelapse", false));
+        let motion = area.filter(|_| replay.is_none() && timelapse).map(|a| MotionConfig {
             area: (a.x, a.y, a.w, a.h),
             count_cursor: config::get_config_bool("areaTimelapseCursor", true),
         });
@@ -526,7 +528,7 @@ impl CaptureEngine for NativeEngine {
             return Err("Ja esta gravando.".into());
         }
         self.ensure_initialized()?;
-        let req = RecordRequest { output_path: String::new(), auto_profile: false, window: None, area: None };
+        let req = RecordRequest { output_path: String::new(), auto_profile: false, window: None, area: None, timelapse: None };
         let (cfg, mutes) = self.build_config(&req, inputs, Some((max_sec.max(1) as u32, max_mb.max(1) as u32)))?;
         self.start_session(cfg, mutes)?;
         self.replay_dir = dir.to_owned();

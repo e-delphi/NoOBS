@@ -1,17 +1,15 @@
-//! Eventos do form fraHotkeys. Gerado pela IDE do iron: o corpo das funções é seu;
-//! a IDE só refaz o bloco de registro e acrescenta funções novas.
+//! Eventos do form fraHotkeys: o código é seu. Os handlers são métodos da
+//! struct do form (gerada em `generated/`); a IDE só acrescenta os novos.
 
 use iron::prelude::*;
-#[allow(unused_imports)]
-use super::components::fraHotkeys;
+use crate::generated::FraHotkeys;
 
-/// Liga os handlers aos nomes usados no layout.
-pub fn register(ui: &mut Ui) {
-    // iron-ide:register-begin (gerado pela IDE; não edite este bloco)
-    ui.register_handler("fraHotkeys.hotkeys_add", hotkeys_add);
-    // iron-ide:register-end
-}
+/// O estado do form: cada janela aberta dele tem o seu (`self.data`).
+#[derive(Default)]
+pub struct Data {}
 
-pub fn hotkeys_add(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
-    { let _ = ui; crate::app_settings::hotkeys_tab::add() }
+impl FraHotkeys {
+    pub fn hotkeys_add(&mut self, ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+        { let _ = ui; crate::app_settings::hotkeys_tab::add() }
+    }
 }

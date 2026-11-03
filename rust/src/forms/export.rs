@@ -1,22 +1,20 @@
-//! Eventos do form frmExport. Gerado pela IDE do iron: o corpo das funções é seu;
-//! a IDE só refaz o bloco de registro e acrescenta funções novas.
+//! Eventos do form frmExport: o código é seu. Os handlers são métodos da
+//! struct do form (gerada em `generated/`); a IDE só acrescenta os novos.
 
 use iron::prelude::*;
-#[allow(unused_imports)]
-use super::components::frmExport;
+use crate::generated::FrmExport;
 
-/// Liga os handlers aos nomes usados no layout.
-pub fn register(ui: &mut Ui) {
-    // iron-ide:register-begin (gerado pela IDE; não edite este bloco)
-    ui.register_handler("frmExport.export_close", export_close);
-    ui.register_handler("frmExport.export_resize", export_resize);
-    // iron-ide:register-end
+/// O estado do form: cada janela aberta dele tem o seu (`self.data`).
+#[derive(Default)]
+pub struct Data {}
+
+impl FrmExport {
+    pub fn export_close(&mut self, ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+        crate::app_export::close(ui);
+    }
+
+    pub fn export_resize(&mut self, ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+        crate::app_export::resized(ui);
+    }
 }
 
-pub fn export_close(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
-    crate::app_export::close(ui);
-}
-
-pub fn export_resize(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
-    crate::app_export::resized(ui);
-}

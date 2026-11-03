@@ -51,6 +51,11 @@ pub mod ffi;
 /// `tests/captura.rs` o usa direto.
 pub mod capture;
 
+/// O que a IDE do iron gera (não edite): as structs dos forms, o acesso tipado e o
+/// registro; os arquivos dos forms ficam em `src/forms/`.
+#[path = "../generated/mod.rs"]
+pub mod generated;
+
 modulos! {
     app_export,
     app_library,
@@ -59,7 +64,6 @@ modulos! {
     app_settings,
     app_picker,
     app_view,
-    forms,
     sounds,
     view,
     assets,

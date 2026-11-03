@@ -1,17 +1,15 @@
-//! Eventos do form fraAbout. Gerado pela IDE do iron: o corpo das funções é seu;
-//! a IDE só refaz o bloco de registro e acrescenta funções novas.
+//! Eventos do form fraAbout: o código é seu. Os handlers são métodos da
+//! struct do form (gerada em `generated/`); a IDE só acrescenta os novos.
 
 use iron::prelude::*;
-#[allow(unused_imports)]
-use super::components::fraAbout;
+use crate::generated::FraAbout;
 
-/// Liga os handlers aos nomes usados no layout.
-pub fn register(ui: &mut Ui) {
-    // iron-ide:register-begin (gerado pela IDE; não edite este bloco)
-    ui.register_handler("fraAbout.about_repository", about_repository);
-    // iron-ide:register-end
-}
+/// O estado do form: cada janela aberta dele tem o seu (`self.data`).
+#[derive(Default)]
+pub struct Data {}
 
-pub fn about_repository(ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
-    { let _ = ui; crate::app_settings::about::repository() }
+impl FraAbout {
+    pub fn about_repository(&mut self, ui: &mut Ui, _sender: ComponentId, _args: &EventArgs) {
+        { let _ = ui; crate::app_settings::about::repository() }
+    }
 }

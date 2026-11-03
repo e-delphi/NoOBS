@@ -362,7 +362,7 @@ fn static_status(s: &str) -> &'static str {
 /// handlers e o [`View`]. A janela só nasce quando o laço começa.
 pub fn create() -> Result<iron::Application, iron::Error> {
     let mut app = iron::Application::bundled(iron::include_project!())?;
-    crate::forms::register(&mut app.ui);
+    crate::generated::register(&mut app.ui);
     POSTER.with(|p| *p.borrow_mut() = Some(app.ui.poster()));
     MAIN_FORM.with(|m| m.set(Some(app.main_form)));
     for screen in SCREENS {

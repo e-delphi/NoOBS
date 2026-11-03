@@ -85,7 +85,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 #   cargo test --release --features app-tests --test mensagens [-- filtro]
 #   cargo test --release --features app-tests --test captura [-- filtro]
 app-tests = []
-inspect = ["iron/remote"]
+dev = ["iron/dev"]
 
 # As mensagens da página pelo dispatch, com o motor de captura de verdade.
 [[test]]

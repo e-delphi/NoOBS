@@ -25,6 +25,8 @@ const SEARCH_DEBOUNCE_MS: u64 = 300;
 const THUMB_CACHE_MAX: usize = 160;
 /// O cartão de gravação, o de pasta e o espaço entre eles.
 const CARD_W: f32 = 170.0;
+/// A largura da miniatura que acompanha o cursor ao arrastar um cartão (16:9).
+const DRAG_THUMB_W: f32 = 160.0;
 const CARD_H: f32 = 148.0;
 const FOLDER_H: f32 = 54.0;
 const GAP: f32 = 12.0;
@@ -742,6 +744,17 @@ fn drag_start(ui: &mut Ui, id: &str) {
     });
     with(|st| st.drag = ids.clone());
     ui.begin_drag(ids.join("\n"), label);
+    // A miniatura do primeiro vai junto do cursor (no Windows, por cima de tudo); a pasta,
+    // sem miniatura, leva o desenho do próprio cartão.
+    let (thumb, card) = with(|st| (st.thumbs.get(&ids[0]).map(|(image, _)| image.clone()), st.cards.get(&ids[0]).copied()));
+    let visual = match thumb {
+        Some(thumb) => Some(DragVisual::new(thumb, SizeF::new(DRAG_THUMB_W, DRAG_THUMB_W * 9.0 / 16.0))),
+        None => card.and_then(|card| {
+            let size = ui.control(card).map(|cb| SizeF::new(cb.width(), cb.height()))?;
+            Some(DragVisual::new(ui.snapshot(card, 2.0)?, size))
+        }),
+    };
+    ui.set_drag_image(visual);
     set(ui, "btnLibDelete", "enabled", true);
     set(ui, "btnLibDelete", "text_color", "red");
 }

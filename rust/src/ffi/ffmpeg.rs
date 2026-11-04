@@ -21,6 +21,8 @@ pub const LIB_AVUTIL: &str = "avutil-59.dll";
 pub const LIB_SWSCALE: &str = "swscale-8.dll";
 
 pub const AV_TIME_BASE: i64 = 1_000_000;
+/// `AV_LOG_ERROR` do `libavutil/log.h`.
+pub const AV_LOG_ERROR: c_int = 16;
 pub const AV_NOPTS_VALUE: i64 = i64::MIN;
 pub const AVSEEK_FLAG_BACKWARD: c_int = 1;
 
@@ -293,6 +295,7 @@ dll_api! {
     fn av_dict_get(m: *const c_void, key: *const c_char, prev: *const AVDictionaryEntry, flags: c_int) -> *mut AVDictionaryEntry;
     fn av_dict_set(pm: *mut *mut c_void, key: *const c_char, value: *const c_char, flags: c_int) -> c_int;
     fn av_dict_free(pm: *mut *mut c_void);
+    fn av_log_set_level(level: c_int);
     fn av_rescale_q(a: i64, bq: AVRational, cq: AVRational) -> i64;
     fn av_strerror(errnum: c_int, buf: *mut c_char, size: usize) -> c_int;
     fn av_image_get_buffer_size(pix_fmt: c_int, width: c_int, height: c_int, align: c_int) -> c_int;
@@ -358,12 +361,20 @@ pub fn api() -> Result<&'static FfmpegApi, String> {
     static API: OnceLock<Result<FfmpegApi, String>> = OnceLock::new();
     API.get_or_init(|| unsafe {
         let err = |n: &str, e: libloading::Error| format!("{n}: {e}");
-        Ok(FfmpegApi {
+        // O SVT-AV1 escreve o próprio cabeçalho (`Svt[info]`) fora do av_log: 1 = só erros.
+        if std::env::var_os("SVT_LOG").is_none() {
+            std::env::set_var("SVT_LOG", "1");
+        }
+        let api = FfmpegApi {
             format: AvFormatApi::load(open(LIB_AVFORMAT)?).map_err(|e| err(LIB_AVFORMAT, e))?,
             codec: AvCodecApi::load(open(LIB_AVCODEC)?).map_err(|e| err(LIB_AVCODEC, e))?,
             util: AvUtilApi::load(open(LIB_AVUTIL)?).map_err(|e| err(LIB_AVUTIL, e))?,
             scale: SwScaleApi::load(open(LIB_SWSCALE)?).map_err(|e| err(LIB_SWSCALE, e))?,
-        })
+        };
+        // Só os erros: o resto (o resumo do x264, o "VBAQ is not supported" do AMF, o Qavg do
+        // AAC) ia para o stderr a cada teste de encoder e saía em vermelho nas Mensagens da IDE.
+        (api.util.av_log_set_level)(AV_LOG_ERROR);
+        Ok(api)
     })
     .as_ref()
     .map_err(Clone::clone)

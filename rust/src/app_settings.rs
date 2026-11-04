@@ -1852,7 +1852,10 @@ fn video_test_box(ui: &mut Ui, page: ComponentId) {
         }));
         for (z, text) in [(3, "300%".to_owned()), (2, "200%".to_owned()), (1, "100%".to_owned()), (0, lang::t("settings.videoTest.zoomFit"))] {
             small(ui, &text, Align::Right, zoom == z, Box::new(move |ui| {
-                with(|s| s.vt.zoom = z);
+                with(|s| {
+                    s.vt.zoom = z;
+                    s.vt.pan = (0.0, 0.0);
+                });
                 render_tab(ui);
             }));
         }
@@ -1938,7 +1941,17 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
     }
     // Onde fica cada parte com a divisória em `split` e o deslocamento `pan`. O arrasto só
     // chama isto (antes remontava a aba, relendo e decodificando as duas imagens a cada passo).
+    // O deslocamento só vale com zoom e até a borda da imagem encostar no quadro (antes, o de
+    // um zoom ficava no "Ajustar" e a imagem saía do quadro: tudo preto).
+    let limit = move |pan: (f32, f32)| -> (f32, f32) {
+        if zoom == 0 {
+            return (0.0, 0.0);
+        }
+        let (mx, my) = (((dw - w) / 2.0).max(0.0), ((dh - h) / 2.0).max(0.0));
+        (pan.0.clamp(-mx, mx), pan.1.clamp(-my, my))
+    };
     let arrange = move |ui: &mut Ui, split: f32, pan: (f32, f32)| {
+        let pan = limit(pan);
         let (ox, oy) = (1.0 + (w - dw) / 2.0 + pan.0, 1.0 + (h - dh) / 2.0 + pan.1);
         let cut = 1.0 + w * split;
         let mut set = |id: Option<ComponentId>, x: f32, y: f32, width: f32, height: f32| {
@@ -1994,7 +2007,7 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
             if splitting {
                 s.vt.split = ((e.position.x - 1.0) / w).clamp(0.0, 1.0);
             } else {
-                s.vt.pan = (pan0.0 + e.position.x - x0, pan0.1 + e.position.y - y0);
+                s.vt.pan = limit((pan0.0 + e.position.x - x0, pan0.1 + e.position.y - y0));
             }
             (s.vt.split, s.vt.pan)
         });
@@ -3266,5 +3279,38 @@ fn load_about(ui: &mut Ui) {
 pub mod about {
     pub fn repository() {
         crate::bridge::handle_open_url("https://github.com/e-delphi/NoOBS");
+    }
+}
+
+#[cfg(test)]
+mod compare_tests {
+    use super::*;
+
+    /// O "Ajustar" depois de arrastar a imagem com zoom: o deslocamento não vale e a imagem
+    /// fica no quadro (antes saía dele e ficava tudo preto).
+    #[test]
+    fn fit_ignores_the_pan_of_a_zoom() {
+        let mut ui = Ui::new();
+        iron::register_all(&mut ui);
+        let page = ui.create("Layout", None).unwrap();
+        let dir = std::env::temp_dir().join(format!("noobs_compare_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let levels = (1..=2)
+            .map(|level| {
+                let image = dir.join(format!("q{level}.png"));
+                std::fs::write(&image, b"png").unwrap();
+                crate::view::VideoTestLevel { level, image: image.to_string_lossy().into(), ..Default::default() }
+            })
+            .collect();
+        let r = VideoTestState { width: 1920, height: 1080, levels, ..Default::default() };
+        // Arrastou a 300% para longe e voltou ao "Ajustar".
+        with(|s| s.vt.pan = (5000.0, 5000.0));
+        compare_view(&mut ui, page, &r, 1, 2, 0);
+        let stage = *ui.children(page).last().unwrap();
+        let image = ui.children(stage)[0];
+        let (x, y) = ui.bounds(image).map(|b| (b.x, b.y)).unwrap();
+        let stage_w = col_w();
+        assert!(x >= 0.0 && x < stage_w && y >= 0.0 && y < 420.0, "a imagem fora do quadro: {x}, {y}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -116,6 +116,12 @@ impl ActivityIndicator {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -394,6 +400,12 @@ impl Breadcrumb {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -716,6 +728,12 @@ impl Button {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -1009,6 +1027,12 @@ impl CheckBox {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -1316,6 +1340,12 @@ impl Chip {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -1609,6 +1639,12 @@ impl Circle {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -1924,6 +1960,12 @@ impl ComboBox {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -2423,6 +2465,12 @@ impl Edit {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -2716,6 +2764,12 @@ impl FlowLayout {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -3110,6 +3164,12 @@ impl Form {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -3416,6 +3476,12 @@ impl Frame {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -3694,6 +3760,12 @@ impl FrameView {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -3985,6 +4057,12 @@ impl Image {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -4343,6 +4421,12 @@ impl Label {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -4645,6 +4729,12 @@ impl Layout {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -5003,6 +5093,12 @@ impl Panel {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -5293,6 +5389,12 @@ impl ProgressBar {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -5602,6 +5704,12 @@ impl RecordButton {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -5930,6 +6038,12 @@ impl Rectangle {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -6202,6 +6316,12 @@ impl ScreenLayout {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -6536,6 +6656,12 @@ impl ScrollBox {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -6827,6 +6953,12 @@ impl SegmentedControl {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -7114,6 +7246,12 @@ impl Switch {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -7409,6 +7547,12 @@ impl TabControl {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -7690,6 +7834,12 @@ impl TabItem {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
@@ -8018,6 +8168,12 @@ impl TrackBar {
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
     }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
+    }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))
     }
@@ -8317,6 +8473,12 @@ impl Waveform {
     }
     pub fn set_drag_label(self, ui: &mut Ui, value: impl Into<String>) {
         handles::write(ui, self.id, "drag_label", Into::<String>::into(value))
+    }
+    pub fn drag_image(self, ui: &Ui) -> String {
+        handles::text(ui, handles::read(ui, self.id, "drag_image"))
+    }
+    pub fn set_drag_image(self, ui: &mut Ui, value: impl Into<String>) {
+        handles::write(ui, self.id, "drag_image", Into::<String>::into(value))
     }
     pub fn drop_types(self, ui: &Ui) -> String {
         handles::text(ui, handles::read(ui, self.id, "drop_types"))

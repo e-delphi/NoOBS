@@ -10,6 +10,7 @@
     "fraFiles.files_record_dir": 1,
     "fraGeneral.general_autostart": 1,
     "fraGeneral.general_close_to_tray": 1,
+    "fraGeneral.general_hibernate": 1,
     "fraGeneral.general_language": 1,
     "fraGeneral.general_reset": 1,
     "fraGeneral.general_run_as_admin": 1,
@@ -286,8 +287,8 @@
           "seen": 1
         },
         "fraGeneral.general_hibernate": {
-          "hash": "76ea002342292b66",
-          "seen": 0
+          "hash": "a9f98701dcfdd03c",
+          "seen": 1
         },
         "fraGeneral.general_language": {
           "hash": "c66855b7178dfd62",

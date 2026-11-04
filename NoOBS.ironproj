@@ -280,5 +280,16 @@
     "macos": "auto",
     "android": "auto",
     "ios": "cpu"
-  }
+  },
+  "text": {
+    "windows": "native",
+    "linux": "native",
+    "macos": "native",
+    "android": "native",
+    "ios": "native",
+    "web": "native"
+  },
+  "platforms": [
+    "windows"
+  ]
 }

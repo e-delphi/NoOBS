@@ -1898,52 +1898,64 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
     if let Some(cb) = ui.control_mut(stage) {
         cb.set_clip_children(true);
     }
-    let split = with(|s| s.vt.split);
     let (dw, dh) = (iw * k, ih * k);
-    let pan = with(|s| s.vt.pan);
-    let (ox, oy) = (1.0 + (w - dw) / 2.0 + pan.0, 1.0 + (h - dh) / 2.0 + pan.1);
-    let put = |ui: &mut Ui, parent: ComponentId, bytes: Vec<u8>, x: f32| {
-        if let Ok(v) = ui.create("Image", Some(parent)) {
-            let _ = ui.set_prop(v, "fit", "stretch");
-            if let Some(iv) = ui.get_mut::<ImageView>(v) {
-                iv.set_picture(Some(Image::encoded(bytes)));
-            }
-            if let Some(cb) = ui.control_mut(v) {
-                cb.set_rect(x, oy, dw, dh).set_hit_test(false);
-            }
+    let put = |ui: &mut Ui, parent: ComponentId, bytes: Vec<u8>| -> Option<ComponentId> {
+        let v = ui.create("Image", Some(parent)).ok()?;
+        let _ = ui.set_prop(v, "fit", "stretch");
+        if let Some(iv) = ui.get_mut::<ImageView>(v) {
+            iv.set_picture(Some(Image::encoded(bytes)));
         }
+        if let Some(cb) = ui.control_mut(v) {
+            cb.set_hit_test(false);
+        }
+        Some(v)
     };
-    put(ui, stage, img_a, ox);
-    let cut = 1.0 + w * split;
+    let image_a = put(ui, stage, img_a);
+    let mut right = None;
+    let mut image_b = None;
     if let Some(bytes) = img_b {
-        if let Ok(right) = ui.create("Layout", Some(stage)) {
-            if let Some(cb) = ui.control_mut(right) {
-                cb.set_rect(cut, 1.0, w - (cut - 1.0), h).set_clip_children(true).set_hit_test(false);
+        if let Ok(r) = ui.create("Layout", Some(stage)) {
+            if let Some(cb) = ui.control_mut(r) {
+                cb.set_clip_children(true).set_hit_test(false);
             }
-            put(ui, right, bytes, ox - cut);
+            image_b = put(ui, r, bytes);
+            right = Some(r);
         }
     }
     // A divisória e a alça.
-    if let Ok(line) = ui.create("Rectangle", Some(stage)) {
-        let _ = ui.set_prop(line, "fill", Color::WHITE);
-        let _ = ui.set_prop(line, "stroke_width", 0.0);
-        if let Some(cb) = ui.control_mut(line) {
-            cb.set_rect(cut - 1.0, 1.0, 2.0, h).set_hit_test(false);
+    let line = ui.create("Rectangle", Some(stage)).ok();
+    let knob = ui.create("Circle", Some(stage)).ok();
+    for shape in [line, knob].into_iter().flatten() {
+        let _ = ui.set_prop(shape, "fill", Color::WHITE);
+        let _ = ui.set_prop(shape, "stroke_width", 0.0);
+        if let Some(cb) = ui.control_mut(shape) {
+            cb.set_hit_test(false);
         }
     }
-    if let Ok(knob) = ui.create("Circle", Some(stage)) {
-        let _ = ui.set_prop(knob, "fill", Color::WHITE);
-        let _ = ui.set_prop(knob, "stroke_width", 0.0);
-        if let Some(cb) = ui.control_mut(knob) {
-            cb.set_rect(cut - 13.0, 1.0 + h / 2.0 - 13.0, 26.0, 26.0).set_hit_test(false);
-        }
-    }
-    if let Some(l) = label(ui, stage, "‹›", "s_knob", Align::None, 0.0, 26.0) {
+    let knob_text = label(ui, stage, "‹›", "s_knob", Align::None, 0.0, 26.0);
+    if let Some(l) = knob_text {
         let _ = ui.set_prop(l, "h_align", "center");
-        if let Some(cb) = ui.control_mut(l) {
-            cb.set_rect(cut - 13.0, 1.0 + h / 2.0 - 13.0, 26.0, 26.0);
-        }
     }
+    // Onde fica cada parte com a divisória em `split` e o deslocamento `pan`. O arrasto só
+    // chama isto (antes remontava a aba, relendo e decodificando as duas imagens a cada passo).
+    let arrange = move |ui: &mut Ui, split: f32, pan: (f32, f32)| {
+        let (ox, oy) = (1.0 + (w - dw) / 2.0 + pan.0, 1.0 + (h - dh) / 2.0 + pan.1);
+        let cut = 1.0 + w * split;
+        let mut set = |id: Option<ComponentId>, x: f32, y: f32, width: f32, height: f32| {
+            if let Some(cb) = id.and_then(|id| ui.control_mut(id)) {
+                cb.set_rect(x, y, width, height);
+            }
+        };
+        set(image_a, ox, oy, dw, dh);
+        set(right, cut, 1.0, w - (cut - 1.0), h);
+        set(image_b, ox - cut, oy, dw, dh);
+        set(line, cut - 1.0, 1.0, 2.0, h);
+        set(knob, cut - 13.0, 1.0 + h / 2.0 - 13.0, 26.0, 26.0);
+        set(knob_text, cut - 13.0, 1.0 + h / 2.0 - 13.0, 26.0, 26.0);
+        ui.invalidate();
+    };
+    let (split, pan) = with(|s| (s.vt.split, s.vt.pan));
+    arrange(ui, split, pan);
     // As etiquetas dos lados.
     for (side, lv) in [(0, a), (1, b)] {
         let text = tw("settings.videoTest.levelN", &[("n", &lv.to_string())]);
@@ -1967,23 +1979,26 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
         }
     }
     // Arrastar move a divisória; com zoom, desloca a imagem.
-    ui.on(stage, "on_pointer_down", move |ui, _, args| {
+    ui.on(stage, "on_pointer_down", move |_, _, args| {
         if let EventArgs::Pointer(e) = args {
-            with(|s| s.vt.drag = Some((e.position.x, e.position.y, s.vt.pan, (e.position.x - cut).abs() < 16.0 || s.vt.zoom == 0)));
-            let _ = ui;
+            with(|s| {
+                let cut = 1.0 + w * s.vt.split;
+                s.vt.drag = Some((e.position.x, e.position.y, s.vt.pan, (e.position.x - cut).abs() < 16.0 || s.vt.zoom == 0));
+            });
         }
     });
     ui.on(stage, "on_pointer_move", move |ui, _, args| {
         let EventArgs::Pointer(e) = args else { return };
         let Some((x0, y0, pan0, splitting)) = with(|s| s.vt.drag) else { return };
-        with(|s| {
+        let (split, pan) = with(|s| {
             if splitting {
                 s.vt.split = ((e.position.x - 1.0) / w).clamp(0.0, 1.0);
             } else {
                 s.vt.pan = (pan0.0 + e.position.x - x0, pan0.1 + e.position.y - y0);
             }
+            (s.vt.split, s.vt.pan)
         });
-        debounce(ui, "vt_drag", 16, render_tab);
+        arrange(ui, split, pan);
     });
     ui.on(stage, "on_pointer_up", |_, _, _| with(|s| s.vt.drag = None));
 }

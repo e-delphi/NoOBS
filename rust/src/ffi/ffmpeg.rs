@@ -361,9 +361,15 @@ pub fn api() -> Result<&'static FfmpegApi, String> {
     static API: OnceLock<Result<FfmpegApi, String>> = OnceLock::new();
     API.get_or_init(|| unsafe {
         let err = |n: &str, e: libloading::Error| format!("{n}: {e}");
-        // O SVT-AV1 escreve o próprio cabeçalho (`Svt[info]`) fora do av_log: 1 = só erros.
+        // O SVT-AV1 escreve o próprio cabeçalho (`Svt[info]`) fora do av_log: 1 = só erros. Ele
+        // lê com o `getenv` do runtime C (o UCRT, dentro do avcodec), que guarda uma cópia das
+        // variáveis feita ao abrir o processo: o `set_var` do Rust não chega nela, o `_putenv_s`
+        // grava nas duas.
         if std::env::var_os("SVT_LOG").is_none() {
-            std::env::set_var("SVT_LOG", "1");
+            extern "C" {
+                fn _putenv_s(name: *const c_char, value: *const c_char) -> c_int;
+            }
+            _putenv_s(c"SVT_LOG".as_ptr(), c"1".as_ptr());
         }
         let api = FfmpegApi {
             format: AvFormatApi::load(open(LIB_AVFORMAT)?).map_err(|e| err(LIB_AVFORMAT, e))?,

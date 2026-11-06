@@ -1166,6 +1166,8 @@ const FIELD_GAP: f32 = 6.0;
 const TAB_GAP: f32 = 10.0;
 /// Largura máxima da coluna dos campos.
 const COL_MAX: f32 = 760.0;
+/// Largura mínima da coluna: abaixo dela os textos param de quebrar e o resto fica cortado.
+const COL_MIN: f32 = 280.0;
 
 thread_local! {
     /// O espaço antes do próximo item da página.
@@ -1505,30 +1507,8 @@ pub fn show_tab(ui: &mut Ui, tab: &str) {
 fn render_tab(ui: &mut Ui) {
     let tab = with(|s| s.tab.clone());
     let Some(page) = clear_page(ui) else { return };
-    // A coluna: até 760 px, encostada à esquerda (18 px); as divisórias vão até 18 px
-    // da borda do corpo.
-    let body = c(ui, "pnlSettings").and_then(|s| ui.bounds(s)).map_or(1190.0, |b| b.width) - 190.0;
-    let col = (body - 36.0).min(COL_MAX).max(200.0);
-    WIDTHS.with(|w| w.set((col, (body - 36.0).max(col))));
-    let page_w = ui.bounds(page).map_or(body, |b| b.width);
-    if let Some(cb) = ui.control_mut(page) {
-        // Na web o 1º campo de toda aba menos a Geral herda 10 px do campo escondido.
-        cb.set_padding([18.0, if tab == "general" { 14.0 } else { 24.0 }, (page_w - 18.0 - col).max(0.0), 14.0]);
-    }
+    apply_widths(ui, page, &tab);
     gap(0.0);
-    // As divisórias entre os campos (`lnRule*`, também dentro dos grupos) vão além da
-    // coluna, até a borda do corpo.
-    let (col, rule_w) = WIDTHS.with(|w| w.get());
-    let mut stack = ui.children(page).to_vec();
-    while let Some(id) = stack.pop() {
-        if ui.name(id).is_some_and(|n| n.starts_with("lnRule")) {
-            if let Some(cb) = ui.control_mut(id) {
-                let m = cb.margins();
-                cb.set_margins([0.0, m.top, -(rule_w - col).max(0.0), 0.0]);
-            }
-        }
-        stack.extend(ui.children(id).iter().copied());
-    }
     match tab.as_str() {
         "general" => load_general(ui),
         "onrecord" => load_onrecord(ui),
@@ -1545,15 +1525,62 @@ fn render_tab(ui: &mut Ui) {
     fit_page(ui);
 }
 
+/// A coluna da página pela largura do corpo: o padding da direita e as divisórias. Só
+/// números, sem recriar nada (serve a cada quadro do arrasto da borda).
+fn apply_widths(ui: &mut Ui, page: ComponentId, tab: &str) {
+    // A coluna: até 760 px, encostada à esquerda (18 px); as divisórias vão até 18 px
+    // da borda do corpo.
+    let body = c(ui, "pnlSettings").and_then(|s| ui.bounds(s)).map_or(1190.0, |b| b.width) - 190.0;
+    let col = (body - 36.0).min(COL_MAX).max(COL_MIN);
+    WIDTHS.with(|w| w.set((col, (body - 36.0).max(col))));
+    let page_w = ui.bounds(page).map_or(body, |b| b.width).max(COL_MIN + 36.0);
+    if let Some(cb) = ui.control_mut(page) {
+        // A página não fica mais estreita que a coluna mínima (com as margens): numa janela
+        // menor, o que passar é cortado, em vez de os textos quebrarem letra por letra.
+        cb.set_min_width(COL_MIN + 36.0);
+        // Na web o 1º campo de toda aba menos a Geral herda 10 px do campo escondido.
+        cb.set_padding([18.0, if tab == "general" { 14.0 } else { 24.0 }, (page_w - 18.0 - col).max(0.0), 14.0]);
+    }
+    // As divisórias entre os campos (`lnRule*`, também dentro dos grupos) vão além da
+    // coluna, até a borda do corpo.
+    let (col, rule_w) = WIDTHS.with(|w| w.get());
+    let mut stack = ui.children(page).to_vec();
+    while let Some(id) = stack.pop() {
+        if ui.name(id).is_some_and(|n| n.starts_with("lnRule")) {
+            if let Some(cb) = ui.control_mut(id) {
+                let m = cb.margins();
+                cb.set_margins([0.0, m.top, -(rule_w - col).max(0.0), 0.0]);
+            }
+        }
+        stack.extend(ui.children(id).iter().copied());
+    }
+}
+
 pub fn resized(ui: &mut Ui) {
     // As dicas quebram pela largura: a altura das linhas muda.
     let w = c(ui, "scrSettings").and_then(|s| ui.bounds(s)).map_or(0.0, |b| b.width);
     thread_local! {
         static LAST: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
+        /// A aba inteira refeita quando a largura parar de mudar.
+        static SETTLE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     }
     if is_open() && LAST.with(|l| (l.replace(w) - w).abs() > 4.0) {
-        ui.set_timeout(0, render_tab);
+        // A cada quadro do arrasto, só a coluna e a altura (recriar a aba a cada quadro
+        // travava o arrasto e deixava a borda nova sem pintar).
+        ui.set_timeout(0, resize_column);
+        // As larguras de dentro (as duas colunas, as réguas dos sliders...) quando parar.
+        SETTLE.with(|s| ui.clear_timeout(s.get()));
+        let id = ui.set_timeout(150, render_tab);
+        SETTLE.with(|s| s.set(id));
     }
+}
+
+/// A coluna e a altura da página na largura nova, sem recriar a aba.
+fn resize_column(ui: &mut Ui) {
+    let tab = with(|s| s.tab.clone());
+    let Some(page) = crate::app_view::form(ui, &format!("fra{}", tab_name(&tab))) else { return };
+    apply_widths(ui, page, &tab);
+    fit_page(ui);
 }
 
 // ---------------------------------------------------------------------------

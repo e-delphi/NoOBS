@@ -2012,6 +2012,7 @@ dependencies = [
 name = "iron-markdown"
 version = "0.1.0"
 dependencies = [
+ "iron-controls-base",
  "iron-core",
  "pulldown-cmark",
 ]
@@ -2071,6 +2072,7 @@ dependencies = [
  "windows 0.62.2",
  "windows-future 0.3.2",
  "winit",
+ "zbus",
 ]
 
 [[package]]

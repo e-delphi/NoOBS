@@ -641,12 +641,23 @@ fn close_speed(ui: &mut Ui) {
 
 /// Põe o popup centrado em cima do botão, `gap` acima dele (coordenadas do palco).
 fn place_popup(ui: &mut Ui, popup: &str, button: &str, gap: f32) {
-    let (Some(p), Some(b), Some(stage)) = (c(ui, popup), c(ui, button), c(ui, "lyStage")) else { return };
-    let (Some(br), Some(sr)) = (ui.absolute_rect(b), ui.absolute_rect(stage)) else { return };
+    let (Some(p), Some(b), Some(screen)) = (c(ui, popup), c(ui, button), crate::app_view::form(ui, "frmPlayer")) else { return };
+    // Por cima de tudo da tela do player (o palco e os painéis laterais de legendas e de
+    // informações): filho da própria tela, o último (desenhado por cima). Dentro do palco, o
+    // popup ficava preso à largura dele e era empurrado para a esquerda com um painel aberto.
+    if ui.parent(p) != Some(screen) {
+        let _ = ui.set_parent(p, Some(screen));
+    }
+    let last = ui.children(screen).len();
+    let _ = ui.set_child_index(p, last);
+    // Em dia (o botão pode ter acabado de mudar de lugar com um painel abrindo).
+    let _ = ui.bounds(b);
+    let (Some(br), Some(sr)) = (ui.absolute_rect(b), ui.absolute_rect(screen)) else { return };
     let Some(cb) = ui.control_mut(p) else { return };
     let (w, h) = (cb.width(), cb.height());
-    let x = (br.x - sr.x + (br.width - w) / 2.0).min(sr.width - w - 4.0);
-    cb.set_position(x, br.y - sr.y - gap - h);
+    // Centrado no botão; só encosta na borda da tela, nunca na do palco.
+    let x = (br.x - sr.x + (br.width - w) / 2.0).min(sr.width - w - 4.0).max(4.0);
+    cb.set_align(Align::None).set_position(x, br.y - sr.y - gap - h);
     cb.set_visible(true);
     ui.layout();
 }

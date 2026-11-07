@@ -332,7 +332,7 @@ pub fn close(ui: &mut Ui) {
 // ---------------------------------------------------------------------------
 
 /// A largura da coluna do formulário (até 880 px, centrada).
-fn col_width(ui: &Ui) -> f32 {
+fn col_width(ui: &mut Ui) -> f32 {
     let w = c(ui, "lyExport").and_then(|p| ui.bounds(p)).map_or(900.0, |b| b.width);
     ((w - 8.0).min(COL_MAX) - 36.0).max(320.0)
 }

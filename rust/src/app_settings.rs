@@ -1313,10 +1313,10 @@ fn text_in(ui: &mut Ui, page: ComponentId, text: &str, style: &str, w: f32) -> O
     let _ = ui.set_prop(l, "v_align", "leading");
     let h = wrapped_height(ui, l, text, w);
     place(ui, l, h);
+    // Na largura da coluna (o padding da página) e com a altura do texto quebrado nela: a
+    // janela muda de tamanho e o layout acompanha, sem refazer a aba.
     if let Some(cb) = ui.control_mut(l) {
-        cb.set_width(w);
-        let m = cb.margins();
-        cb.set_margins([0.0, m.top, (col_w() - w).max(0.0), 0.0]);
+        cb.set_auto_size(true).set_self_align(iron::core::SelfAlign::Start).set_max_width(COL_MAX).set_min_width(COL_MIN);
     }
     Some(l)
 }
@@ -1507,7 +1507,14 @@ pub fn show_tab(ui: &mut Ui, tab: &str) {
 fn render_tab(ui: &mut Ui) {
     let tab = with(|s| s.tab.clone());
     let Some(page) = clear_page(ui) else { return };
-    apply_widths(ui, page, &tab);
+    measure_column(ui);
+    if let Some(cb) = ui.control_mut(page) {
+        // A página não fica mais estreita que a coluna mínima (com as margens): numa janela
+        // menor, o que passar é cortado, em vez de os textos quebrarem letra por letra.
+        cb.set_min_width(COL_MIN + 36.0);
+        // Na web o 1º campo de toda aba menos a Geral herda 10 px do campo escondido.
+        cb.set_padding([18.0, if tab == "general" { 14.0 } else { 24.0 }, 18.0, 14.0]);
+    }
     gap(0.0);
     match tab.as_str() {
         "general" => load_general(ui),
@@ -1522,65 +1529,71 @@ fn render_tab(ui: &mut Ui) {
         "updates" => load_updates(ui),
         _ => load_about(ui),
     }
+    limit_column(ui, page);
     fit_page(ui);
 }
 
-/// A coluna da página pela largura do corpo: o padding da direita e as divisórias. Só
-/// números, sem recriar nada (serve a cada quadro do arrasto da borda).
-fn apply_widths(ui: &mut Ui, page: ComponentId, tab: &str) {
-    // A coluna: até 760 px, encostada à esquerda (18 px); as divisórias vão até 18 px
-    // da borda do corpo.
+/// A largura que a coluna tem agora (até 760 px, no mínimo 280): só para o que ainda é
+/// calculado à mão (as marcas dos sliders, as duas colunas do Buffer). Devolve se mudou.
+fn measure_column(ui: &mut Ui) -> bool {
     let body = c(ui, "pnlSettings").and_then(|s| ui.bounds(s)).map_or(1190.0, |b| b.width) - 190.0;
     let col = (body - 36.0).min(COL_MAX).max(COL_MIN);
-    WIDTHS.with(|w| w.set((col, (body - 36.0).max(col))));
-    let page_w = ui.bounds(page).map_or(body, |b| b.width).max(COL_MIN + 36.0);
-    if let Some(cb) = ui.control_mut(page) {
-        // A página não fica mais estreita que a coluna mínima (com as margens): numa janela
-        // menor, o que passar é cortado, em vez de os textos quebrarem letra por letra.
-        cb.set_min_width(COL_MIN + 36.0);
-        // Na web o 1º campo de toda aba menos a Geral herda 10 px do campo escondido.
-        cb.set_padding([18.0, if tab == "general" { 14.0 } else { 24.0 }, (page_w - 18.0 - col).max(0.0), 14.0]);
+    WIDTHS.with(|w| w.replace((col, (body - 36.0).max(col))).0 != col)
+}
+
+/// A coluna pelo próprio layout: cada campo da página ocupa a largura até 760 px, encostado
+/// à esquerda (`self_align: start` com `max_width`), e não fica mais estreito que 280. As
+/// divisórias (`lnRule*`) e os grupos que as têm esticam até a borda. Nada aqui depende da
+/// largura da janela: redimensionar não mexe em nenhum campo.
+fn limit_column(ui: &mut Ui, page: ComponentId) {
+    fn has_rule(ui: &Ui, id: ComponentId) -> bool {
+        ui.children(id).iter().any(|&c| ui.name(c).is_some_and(|n| n.starts_with("lnRule")) || has_rule(ui, c))
     }
-    // As divisórias entre os campos (`lnRule*`, também dentro dos grupos) vão além da
-    // coluna, até a borda do corpo.
-    let (col, rule_w) = WIDTHS.with(|w| w.get());
     let mut stack = ui.children(page).to_vec();
     while let Some(id) = stack.pop() {
-        if ui.name(id).is_some_and(|n| n.starts_with("lnRule")) {
-            if let Some(cb) = ui.control_mut(id) {
-                let m = cb.margins();
-                cb.set_margins([0.0, m.top, -(rule_w - col).max(0.0), 0.0]);
-            }
+        let Some(cb) = ui.control(id) else { continue };
+        if !matches!(cb.align(), Align::Top | Align::Bottom) {
+            continue;
         }
-        stack.extend(ui.children(id).iter().copied());
+        if ui.name(id).is_some_and(|n| n.starts_with("lnRule")) {
+            continue;
+        }
+        if has_rule(ui, id) {
+            // Um grupo com divisórias: ele estica e os campos dele é que ficam na coluna.
+            stack.extend(ui.children(id).iter().copied());
+            continue;
+        }
+        // Quem já escolheu o próprio tamanho (o fundo do tema) fica como está.
+        if cb.self_align() != iron::core::SelfAlign::Stretch {
+            continue;
+        }
+        if let Some(cb) = ui.control_mut(id) {
+            cb.set_self_align(iron::core::SelfAlign::Start).set_max_width(COL_MAX).set_min_width(COL_MIN);
+        }
     }
 }
 
 pub fn resized(ui: &mut Ui) {
-    // As dicas quebram pela largura: a altura das linhas muda.
-    let w = c(ui, "scrSettings").and_then(|s| ui.bounds(s)).map_or(0.0, |b| b.width);
     thread_local! {
-        static LAST: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
         /// A aba inteira refeita quando a largura parar de mudar.
         static SETTLE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     }
-    if is_open() && LAST.with(|l| (l.replace(w) - w).abs() > 4.0) {
-        // A cada quadro do arrasto, só a coluna e a altura (recriar a aba a cada quadro
-        // travava o arrasto e deixava a borda nova sem pintar).
-        ui.set_timeout(0, resize_column);
-        // As larguras de dentro (as duas colunas, as réguas dos sliders...) quando parar.
-        SETTLE.with(|s| ui.clear_timeout(s.get()));
-        let id = ui.set_timeout(150, render_tab);
-        SETTLE.with(|s| s.set(id));
+    if !is_open() {
+        return;
     }
-}
-
-/// A coluna e a altura da página na largura nova, sem recriar a aba.
-fn resize_column(ui: &mut Ui) {
-    let tab = with(|s| s.tab.clone());
-    let Some(page) = crate::app_view::form(ui, &format!("fra{}", tab_name(&tab))) else { return };
-    apply_widths(ui, page, &tab);
-    fit_page(ui);
+    // A coluna e as divisórias acompanham sozinhas (o layout); aqui, só a altura da página
+    // (os textos quebram em outra largura), a cada quadro do arrasto.
+    ui.set_timeout(0, fit_page);
+    // O que ainda é calculado pela largura da coluna (as marcas dos sliders, as duas colunas
+    // do Buffer): a aba é refeita quando a largura parar, e só se a coluna mudou (acima de
+    // 796 px ela fica em 760 e nada se refaz).
+    SETTLE.with(|s| ui.clear_timeout(s.get()));
+    let id = ui.set_timeout(150, |ui| {
+        if measure_column(ui) {
+            render_tab(ui);
+        }
+    });
+    SETTLE.with(|s| s.set(id));
 }
 
 // ---------------------------------------------------------------------------
@@ -1656,9 +1669,10 @@ fn load_general(ui: &mut Ui) {
         }
         x += w + 3.0;
     }
+    // O fundo do tamanho dos botões, encostado à esquerda (não depende da largura da coluna).
     if let Some(cb) = fc(ui, GENERAL, "pnlTheme").and_then(|p| ui.control_mut(p)) {
         let m = cb.margins();
-        cb.set_margins([0.0, m.top, (col_w() - x - 1.0).max(0.0), 0.0]);
+        cb.set_margins([0.0, m.top, 0.0, 0.0]).set_self_align(iron::core::SelfAlign::Start).set_width(x + 1.0);
     }
     let (labels, _, idx) = language_options();
     fitems(ui, GENERAL, "cmbLanguage", &labels, idx);
@@ -1914,7 +1928,9 @@ fn compare_view(ui: &mut Ui, page: ComponentId, r: &VideoTestState, a: i32, b: i
     let scale = crate::app_player::window_scale().max(0.5);
     let (iw, ih) = (r.width.max(1) as f32 / scale, r.height.max(1) as f32 / scale);
     let w = col_w() - 2.0;
-    let fit = (w / iw).min(1.0);
+    // Cabe na largura e na altura do quadro (até 420): só pela largura, uma imagem 16:9 na
+    // coluna cheia ficava uns pixels mais alta que o quadro e passava em cima e embaixo.
+    let fit = (w / iw).min(420.0 / ih).min(1.0);
     let k = match zoom {
         1 => 1.0,
         2 => 2.0,

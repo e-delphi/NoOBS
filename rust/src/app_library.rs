@@ -200,7 +200,7 @@ fn folder_meta(count: i64, size_text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Quantos cartões cabem numa linha da largura da biblioteca.
-fn columns(ui: &Ui) -> usize {
+fn columns(ui: &mut Ui) -> usize {
     let w = c(ui, "lyLibContent").and_then(|id| ui.bounds(id)).map(|b| b.width).filter(|w| *w > 0.0);
     let w = w.or_else(|| c(ui, "lyLibrary").and_then(|id| ui.bounds(id)).map(|b| b.width - 44.0)).unwrap_or(1100.0);
     (((w + GAP) / (CARD_W + GAP)).floor() as usize).max(1)

@@ -48,16 +48,33 @@ set "DEV="
 echo(!VER!| findstr /r /c:"-dirty$" /c:"-g[0-9a-f][0-9a-f]*$" >nul && set "DEV=1"
 if defined DEV echo [make-installer-rust] AVISO: build de desenvolvimento ^(fora de uma tag limpa^).
 
+REM  A versao numerica dos dados de versao do instalador (v0.52.6-beta-iron ->
+REM  0.52.6.0): sem eles o Windows Defender marcava o instalador como
+REM  Program:Win32/Contebrew.A!ml.
+set "NUM="
+for /f "tokens=1 delims=-" %%n in ("!VER:~1!") do set "NUM=%%n"
+set "VA=0" & set "VB=0" & set "VC=0" & set "VD=0"
+for /f "tokens=1-4 delims=." %%a in ("!NUM!") do (
+  if not "%%a"=="" set "VA=%%a"
+  if not "%%b"=="" set "VB=%%b"
+  if not "%%c"=="" set "VC=%%c"
+  if not "%%d"=="" set "VD=%%d"
+)
+set "VI=!VA!.!VB!.!VC!.!VD!"
+
 REM --- 4) Gera ------------------------------------------------------------
 REM  Apaga um arquivo homonimo antes: se o makensis falhar, a sobra de uma
 REM  execucao anterior pareceria o instalador recem-gerado.
 REM  Tag da versao Rust ja termina em -rust (v0.44.0-beta-rust): nao repete.
+REM  A da versao no iron (v0.52.6-beta-iron) tambem nao leva o -rust: o nome
+REM  sai igual ao do anexo da release.
 set "OUT=NoOBS-!VER!-rust.exe"
 if /i "!VER:~-5!"=="-rust" set "OUT=NoOBS-!VER!.exe"
+if /i "!VER:~-5!"=="-iron" set "OUT=NoOBS-!VER!.exe"
 if exist "!OUT!" erase /q "!OUT!"
 
-echo [make-installer-rust] gerando !OUT! ...
-"%MAKENSIS%" /DOUTFILE=!OUT! installer.nsi
+echo [make-installer-rust] gerando !OUT! ^(versao !VI!^) ...
+"%MAKENSIS%" /DOUTFILE=!OUT! /DVI_VERSION=!VI! installer.nsi
 if errorlevel 1 (
   echo [make-installer-rust] ERRO: makensis falhou.
   exit /b 1

@@ -61,6 +61,25 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
 ;--------------------------------
+; Dados de versao do instalador (Propriedades > Detalhes)
+;--------------------------------
+; Sem eles o instalador e um executavel anonimo, e a heuristica do Windows Defender o
+; marcava como Program:Win32/Contebrew.A!ml. O make-installer-rust.bat passa a versao
+; numerica (/DVI_VERSION=0.52.6.0); compilando na mao, fica 0.0.0.0.
+!ifndef VI_VERSION
+  !define VI_VERSION "0.0.0.0"
+!endif
+VIProductVersion "${VI_VERSION}"
+VIFileVersion "${VI_VERSION}"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "ProductName" "NoOBS"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "CompanyName" "e-delphi"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileDescription" "Instalador do NoOBS (gravador de tela)"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileVersion" "${VI_VERSION}"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "ProductVersion" "${VI_VERSION}"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "LegalCopyright" "NoOBS - github.com/e-delphi/NoOBS"
+VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "OriginalFilename" "${OUTFILE}"
+
+;--------------------------------
 ; Existe algum NoOBS.exe vivo?  ($R0 = 1 sim, 0 nao)
 ;
 ; Esta e a pergunta que de fato importa: o que impede a instalacao e o
